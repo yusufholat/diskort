@@ -6,6 +6,7 @@ import type { Config } from './config.js';
 import type { Store } from './db.js';
 import type { Gateway } from './gateway.js';
 import type { LiveKitService } from './livekit.js';
+import type { ReleaseService } from './releases.js';
 import type { VoiceStateStore } from './voiceState.js';
 
 export interface AppContext {
@@ -15,6 +16,7 @@ export interface AppContext {
   voice: VoiceStateStore;
   livekit: LiveKitService;
   gateway: Gateway;
+  releases: ReleaseService;
   guild: Guild;
 }
 

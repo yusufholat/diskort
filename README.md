@@ -37,6 +37,8 @@ Masaüstü (Electron + React)  ──HTTPS/WSS──►  API (Fastify, SQLite)  
   - Ses motoru: `src/renderer/src/features/voice/voiceClient.ts`
   - Mikrofon zinciri (RNNoise + ses kapısı): `micProcessor.ts`, `gate-worklet.js`
 - `apps/server` — API + gateway + LiveKit entegrasyonu
+- `apps/web` — indirme sayfası (`https://diskort.ziroo.net`, derleme adımı yok; Caddy doğrudan sunar).
+  Butonlar `/download/<platform>` adresine gider; API en son GitHub sürümünü bulup dosyaya yönlendirir.
 - `packages/shared` — ortak tipler
 - `infra` — VPS için Docker Compose, LiveKit ve Caddy yapılandırması
 
@@ -101,7 +103,8 @@ pnpm typecheck
    ```bash
    cd infra && docker compose up -d --build
    ```
-4. İlk yönetici davet kodu için:
+4. Sunucuyu güncellemek için: `cd /opt/diskort && git pull && cd infra && docker compose up -d --build`
+5. İlk yönetici davet kodu için:
    ```bash
    docker compose logs api | grep -i davet
    ```

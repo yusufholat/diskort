@@ -47,6 +47,7 @@ services:
       LIVEKIT_DOMAIN: ${LIVEKIT_DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../apps/web:/srv/web:ro
       - caddy-data:/data
       - caddy-config:/config
 

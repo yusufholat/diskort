@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Diskort İndir — Sesli sohbet ve ekran paylaşımı</title>
+    <meta
+      name="description"
+      content="Diskort: arkadaşlarınla kristal netliğinde sesli sohbet, gürültü engelleme ve ekran paylaşımı. Windows için ücretsiz indir."
+    />
+    <meta name="theme-color" content="#5865f2" />
+    <meta property="og:title" content="Diskort" />
+    <meta property="og:description" content="Arkadaşlarınla kristal netliğinde ses ve ekran paylaşımı." />
+    <meta property="og:image" content="/assets/icon.png" />
+    <link rel="icon" href="/assets/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <svg class="sprite" aria-hidden="true">
+      <defs>
+        <symbol id="i-windows" viewBox="0 0 24 24"><path fill="currentColor" d="M3 5.3 10.4 4.3v7.2H3zM11.4 4.1 21 2.8v8.7h-9.6zM3 12.5h7.4v7.2L3 18.7zM11.4 12.5H21v8.7l-9.6-1.3z" /></symbol>
+        <symbol id="i-linux" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="19" height="17" rx="3" /><path d="m7 9 3 3-3 3M12.5 15H17" /></g></symbol>
+        <symbol id="i-mac" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" /></symbol>
+        <symbol id="i-download" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16" /></symbol>
+        <symbol id="i-speaker" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z" /><path d="M15.5 9a4.5 4.5 0 0 1 0 6M18.5 6a8.5 8.5 0 0 1 0 12" /></g></symbol>
+        <symbol id="i-mic" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4" /></g></symbol>
+        <symbol id="i-wave" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M2 10v3M6 6v11M10 3v18M14 8v7M18 5v13M22 10v3" /></symbol>
+        <symbol id="i-screen" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></g></symbol>
+        <symbol id="i-keys" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M7 15h10" /></g></symbol>
+        <symbol id="i-sliders" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1" /><circle cx="15" cy="6" r="2" /><circle cx="9" cy="12" r="2" /><circle cx="17" cy="18" r="2" /></g></symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></g></symbol>
+      </defs>
+    </svg>
+
+    <div class="page">
+      <header class="nav">
+        <a class="brand" href="/" aria-label="Diskort ana sayfa">
+          <img src="/assets/logo.svg" alt="" width="34" height="34" />
+          <span>Diskort</span>
+        </a>
+        <nav class="nav-links" aria-label="Sayfa bölümleri">
+          <a href="#ozellikler">Özellikler</a>
+          <a href="#platformlar">Platformlar</a>
+          <a href="#kurulum">Kurulum</a>
+        </nav>
+        <a class="btn btn-light nav-cta" href="/download/windows" data-primary-download>İndir</a>
+      </header>
+
+      <main>
+        <section class="hero">
+          <div class="hero-copy">
+            <h1>Arkadaşlarınla konuşmanın en kolay yolu</h1>
+            <p class="lead">
+              Kristal netliğinde ses, akıllı gürültü engelleme ve tek tıkla ekran paylaşımı. Davetle katılınan, tamamen
+              size ait bir topluluk.
+            </p>
+
+            <div class="cta">
+              <a class="btn btn-primary btn-xl" href="/download/windows" id="primary-download" data-primary-download>
+                <svg class="icon" aria-hidden="true"><use id="primary-icon" href="#i-windows" /></svg>
+                <span id="primary-label">Windows için İndir</span>
+              </a>
+              <p class="meta" id="primary-meta">Windows 10 / 11 · 64-bit</p>
+              <p class="notice" id="mobile-notice" hidden>
+                Diskort bir masaüstü uygulamasıdır. Bu sayfayı bilgisayarından açarak indirebilirsin.
+              </p>
+              <p class="alt">Başka bir sistem mi kullanıyorsun? <a href="#platformlar">Tüm platformlar</a></p>
+            </div>
+          </div>
+
+          <div class="hero-visual" aria-hidden="true">
+            <div class="mock">
+              <div class="mock-rail"><span class="mock-guild">D</span></div>
+              <div class="mock-side">
+                <div class="mock-title">Diskort</div>
+                <div class="mock-cat">SES KANALLARI</div>
+                <div class="mock-channel active"><svg><use href="#i-speaker" /></svg>Genel</div>
+                <div class="mock-member speaking"><i class="c1">A</i>Ahmet</div>
+                <div class="mock-member"><i class="c2">Z</i>Zeynep <b class="live">CANLI</b></div>
+                <div class="mock-member"><i class="c3">M</i>Mert</div>
+                <div class="mock-channel"><svg><use href="#i-speaker" /></svg>Oyun</div>
+                <div class="mock-channel"><svg><use href="#i-speaker" /></svg>Müzik</div>
+                <div class="mock-connected"><span>Ses Bağlandı</span><small>18 ms</small></div>
+              </div>
+              <div class="mock-stage">
+                <div class="mock-stream">
+                  <div class="mock-game"></div>
+                  <b class="live">CANLI</b>
+                </div>
+                <div class="mock-tiles">
+                  <div class="mock-tile speaking c1"><i>A</i></div>
+                  <div class="mock-tile c2"><i>Z</i></div>
+                  <div class="mock-tile c3"><i>M</i></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="platformlar" class="section">
+          <h2>Platformunu seç</h2>
+          <p class="section-lead">Tek bir hesapla tüm bilgisayarlarında aynı topluluk.</p>
+          <div class="platforms">
+            <article class="platform" data-platform="windows">
+              <svg class="platform-icon" aria-hidden="true"><use href="#i-windows" /></svg>
+              <h3>Windows</h3>
+              <p class="platform-req">Windows 10 / 11 · 64-bit</p>
+              <div class="platform-actions">
+                <a class="btn btn-primary" href="/download/windows" data-asset="windows">
+                  <svg class="icon" aria-hidden="true"><use href="#i-download" /></svg>İndir
+                </a>
+              </div>
+              <p class="platform-meta" data-meta="windows"></p>
+            </article>
+
+            <article class="platform" data-platform="linux">
+              <svg class="platform-icon" aria-hidden="true"><use href="#i-linux" /></svg>
+              <h3>Linux</h3>
+              <p class="platform-req">Ubuntu, Debian, Fedora ve diğerleri</p>
+              <div class="platform-actions">
+                <a class="btn btn-primary" href="/download/linux-appimage" data-asset="linux-appimage">AppImage</a>
+                <a class="btn btn-ghost" href="/download/linux-deb" data-asset="linux-deb">.deb</a>
+              </div>
+              <p class="platform-meta" data-meta="linux"></p>
+            </article>
+
+            <article class="platform" data-platform="mac">
+              <svg class="platform-icon" aria-hidden="true"><use href="#i-mac" /></svg>
+              <h3>macOS</h3>
+              <p class="platform-req">macOS 12 ve üzeri</p>
+              <div class="platform-actions">
+                <a class="btn btn-primary" href="/download/mac" data-asset="mac">
+                  <svg class="icon" aria-hidden="true"><use href="#i-download" /></svg>İndir
+                </a>
+              </div>
+              <p class="platform-meta" data-meta="mac"></p>
+            </article>
+          </div>
+        </section>
+
+        <section id="ozellikler" class="section">
+          <h2>Sohbet için gereken her şey</h2>
+          <p class="section-lead">Gereksiz hiçbir şey yok: hızlı, hafif ve size ait.</p>
+          <div class="features">
+            <article class="feature">
+              <svg class="feature-icon" aria-hidden="true"><use href="#i-mic" /></svg>
+              <h3>Kristal netliğinde ses</h3>
+              <p>Opus ses kodeği ve düşük gecikmeli altyapı. Türkiye içinden ~20 ms ping.</p>
+            </article>
+            <article class="feature">
+              <svg class="feature-icon" aria-hidden="true"><use href="#i-wave" /></svg>
+              <h3>Gürültü engelleme</h3>
+              <p>Klavye, fan ve arka plan seslerini yapay zekâ ile bastırır; karşıya sadece sesin gider.</p>
+            </article>
+            <article class="feature">
+              <svg class="feature-icon" aria-hidden="true"><use href="#i-screen" /></svg>
+              <h3>Ekran paylaşımı</h3>
+              <p>1080p 60 FPS'ye kadar, oyun sesiyle birlikte. Yayın yalnızca izlemek isteyene gönderilir.</p>
+            </article>
+            <article class="feature">
+              <svg class="feature-icon" aria-hidden="true"><use href="#i-keys" /></svg>
+              <h3>Bas-konuş ve kısayollar</h3>
+              <p>Oyundayken bile çalışan global kısayollar; fare yan tuşlarını da atayabilirsin.</p>
+            </article>
+            <article class="feature">
+              <svg class="feature-icon" aria-hidden="true"><use href="#i-sliders" /></svg>
+              <h3>Kişiye özel ses</h3>
+              <p>Herkesin sesini ayrı ayarla, istemediğini yalnızca kendin için sustur.</p>
+            </article>
+            <article class="feature">
+              <svg class="feature-icon" aria-hidden="true"><use href="#i-lock" /></svg>
+              <h3>Size ait sunucu</h3>
+              <p>Kapalı topluluk: katılım sadece davet koduyla. Sunucu Türkiye'de.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="kurulum" class="section">
+          <h2>Üç adımda hazırsın</h2>
+          <ol class="steps">
+            <li>
+              <h3>İndir</h3>
+              <p>Yukarıdaki butonla kurulum dosyasını indir.</p>
+            </li>
+            <li>
+              <h3>Kur</h3>
+              <p>
+                Dosyayı çalıştır, Diskort birkaç saniyede kurulup açılır. Windows <em>“Bilgisayarınız korundu”</em> derse
+                <strong>Ek bilgi → Yine de çalıştır</strong>'a tıkla.
+              </p>
+            </li>
+            <li>
+              <h3>Katıl</h3>
+              <p>Arkadaşından aldığın <strong>davet koduyla</strong> kaydol ve bir ses kanalına gir.</p>
+            </li>
+          </ol>
+          <p class="fineprint">
+            Linux'ta AppImage dosyasına çalıştırma izni ver (<code>chmod +x Diskort-*.AppImage</code>) ya da
+            <code>sudo apt install ./Diskort-*.deb</code> ile kur. Uygulama yeni sürümleri kendisi indirir.
+          </p>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="brand small">
+          <img src="/assets/logo.svg" alt="" width="24" height="24" />
+          <span>Diskort</span>
+        </div>
+        <p id="footer-version">Masaüstü uygulaması</p>
+      </footer>
+    </div>
+  </body>
+</html>

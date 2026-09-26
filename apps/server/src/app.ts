@@ -8,9 +8,11 @@ import type { AppContext } from './context.js';
 import { Store } from './db.js';
 import { Gateway } from './gateway.js';
 import { LiveKitService } from './livekit.js';
+import { ReleaseService } from './releases.js';
 import { VoiceStateStore } from './voiceState.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerAuthRoutes } from './routes/auth.js';
+import { registerDownloadRoutes } from './routes/download.js';
 import { registerVoiceRoutes } from './routes/voice.js';
 
 export interface BuildOptions {
@@ -18,6 +20,7 @@ export interface BuildOptions {
   dbFile?: string;
   logger?: boolean;
   livekit?: LiveKitService;
+  releases?: ReleaseService;
 }
 
 export async function buildApp(
@@ -36,7 +39,8 @@ export async function buildApp(
   const voice = new VoiceStateStore();
   const livekit = opts.livekit ?? new LiveKitService(config);
   const gateway = new Gateway(store, auth, voice, guild);
-  const ctx: AppContext = { config, store, auth, voice, livekit, gateway, guild };
+  const releases = opts.releases ?? new ReleaseService(config.githubRepo);
+  const ctx: AppContext = { config, store, auth, voice, livekit, gateway, releases, guild };
 
   app.decorateRequest('user', null as never);
   app.addHook('onClose', async () => store.close());
@@ -50,6 +54,7 @@ export async function buildApp(
   registerAuthRoutes(app, ctx);
   registerAdminRoutes(app, ctx);
   registerVoiceRoutes(app, ctx);
+  registerDownloadRoutes(app, ctx);
 
   return { app, ctx };
 }

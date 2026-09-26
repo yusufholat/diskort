@@ -12,6 +12,8 @@ export interface Config {
   livekitApiKey: string;
   livekitApiSecret: string;
   guildName: string;
+  /** İndirme sayfasının sürüm okuduğu GitHub deposu (sahip/ad) */
+  githubRepo: string;
   isDev: boolean;
 }
 
@@ -42,6 +44,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     livekitApiKey: required('LIVEKIT_API_KEY', DEV_LIVEKIT_KEY),
     livekitApiSecret: required('LIVEKIT_API_SECRET', DEV_LIVEKIT_SECRET),
     guildName: env.GUILD_NAME ?? 'Diskort',
+    githubRepo: env.GITHUB_REPO ?? 'yusufholat/diskort',
     isDev,
   };
 }

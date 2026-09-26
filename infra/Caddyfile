@@ -1,7 +1,26 @@
 # Otomatik Let's Encrypt sertifikalı HTTPS / WSS
 {$DISKORT_DOMAIN} {
 	encode zstd gzip
-	reverse_proxy 127.0.0.1:3000
+
+	# API, gerçek zamanlı gateway ve indirme yönlendirmeleri (/download/windows vb.)
+	@api path /api/* /gateway /download/*
+	handle @api {
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	# İndirme sayfası (apps/web); bilinmeyen yollar da sayfayı gösterir (/download dahil)
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+		header {
+			X-Content-Type-Options nosniff
+			X-Frame-Options DENY
+			Referrer-Policy strict-origin-when-cross-origin
+			Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'"
+		}
+		header /assets/* Cache-Control "public, max-age=604800"
+	}
 }
 
 {$LIVEKIT_DOMAIN} {
