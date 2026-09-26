@@ -67,6 +67,27 @@ export interface UpdateMeRequest {
   avatarColor?: string;
 }
 
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
+/** Yöneticinin verdiği tek kullanımlık kodla şifre sıfırlama (giriş ekranı). */
+export interface ResetPasswordRequest {
+  username: string;
+  code: string;
+  newPassword: string;
+}
+
+export interface ResetCodeResponse {
+  code: string;
+  expiresAt: number;
+}
+
+export interface UpdateUserRequest {
+  isAdmin?: boolean;
+}
+
 export interface CreateInviteRequest {
   maxUses?: number | null;
   expiresInHours?: number | null;
@@ -112,6 +133,7 @@ export type GatewayServerMessage =
   | { t: 'VOICE_STATE_UPDATE'; d: VoiceState }
   | { t: 'VOICE_STATE_DELETE'; d: { userId: string; channelId: string } }
   | { t: 'USER_UPDATE'; d: User }
+  | { t: 'USER_DELETE'; d: { id: string } }
   | { t: 'PRESENCE_UPDATE'; d: { userId: string; online: boolean } }
   | { t: 'CHANNEL_CREATE'; d: Channel }
   | { t: 'CHANNEL_UPDATE'; d: Channel }

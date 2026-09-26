@@ -12,7 +12,9 @@ import { useSettings, type ScreenCodec, type ScreenPresetId } from '../../stores
 import { toast, useUi, type SettingsSection } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 import { Button, Divider, Field, SectionTitle, Select, TextInput, Toggle } from '../ui/controls';
+import { ChangePassword } from './ChangePassword';
 import { KeybindInput } from './KeybindInput';
+import { MembersSection } from './MembersSection';
 import { VoiceSettings } from './VoiceSettings';
 
 const SECTIONS: { id: SettingsSection; label: string; admin?: boolean }[] = [
@@ -21,6 +23,7 @@ const SECTIONS: { id: SettingsSection; label: string; admin?: boolean }[] = [
   { id: 'stream', label: 'Yayın' },
   { id: 'keybinds', label: 'Kısayollar' },
   { id: 'app', label: 'Uygulama' },
+  { id: 'members', label: 'Üyeler', admin: true },
   { id: 'invites', label: 'Davetler', admin: true },
 ];
 
@@ -67,6 +70,7 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
           {section === 'stream' && <StreamSection />}
           {section === 'keybinds' && <KeybindsSection />}
           {section === 'app' && <AppSection />}
+          {section === 'members' && isAdmin && <MembersSection />}
           {section === 'invites' && isAdmin && <InvitesSection />}
         </div>
         <button
@@ -169,6 +173,8 @@ function AccountSection() {
           />
         ))}
       </div>
+      <Divider />
+      <ChangePassword />
     </div>
   );
 }

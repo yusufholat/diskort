@@ -7,7 +7,7 @@ export type Modal =
   | { type: 'channel'; channel?: Channel }
   | null;
 
-export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app' | 'invites';
+export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app' | 'members' | 'invites';
 
 export interface ContextMenuItem {
   label: string;

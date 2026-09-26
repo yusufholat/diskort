@@ -52,6 +52,14 @@ export class Gateway {
     return (this.byUser.get(userId)?.size ?? 0) > 0;
   }
 
+  /** Kullanıcının tüm açık bağlantılarını kapatır (4004: istemci oturumu kapatır). */
+  disconnectUser(userId: string, reason: string): void {
+    for (const s of this.byUser.get(userId) ?? []) {
+      this.send(s, { t: 'INVALID_SESSION', d: { reason } });
+      s.socket.close(4004, 'session revoked');
+    }
+  }
+
   broadcast(msg: GatewayServerMessage): void {
     const data = JSON.stringify(msg);
     for (const s of this.sessions) {

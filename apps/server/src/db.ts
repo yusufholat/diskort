@@ -39,6 +39,17 @@ const MIGRATIONS: string[] = [
     created_at INTEGER NOT NULL
   );
   `,
+  // 2: şifre sıfırlama kodları; şifre değişince eski oturumları geçersiz kılmak için zaman damgası
+  `
+  ALTER TABLE users ADD COLUMN sessions_valid_after INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE reset_codes (
+    code       TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_by TEXT,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 type Param = string | number | null;
@@ -50,6 +61,7 @@ interface UserRow {
   password_hash: string;
   avatar_color: string;
   is_admin: number;
+  sessions_valid_after: number;
 }
 
 interface InviteRow {
@@ -170,6 +182,64 @@ export class Store {
 
   listUsers(): User[] {
     return this.all<UserRow>('SELECT * FROM users ORDER BY created_at').map(toUser);
+  }
+
+  /** Bu andan önce verilmiş oturum jetonları geçersizdir (ms, saniyeye yuvarlanmış). */
+  getSessionsValidAfter(userId: string): number | null {
+    return this.one<{ v: number }>('SELECT sessions_valid_after AS v FROM users WHERE id = ?', userId)?.v ?? null;
+  }
+
+  /** Şifreyi değiştirir ve kullanıcının diğer tüm oturumlarını geçersiz kılar. */
+  setPassword(userId: string, passwordHash: string): void {
+    const validAfter = Math.floor(Date.now() / 1000) * 1000;
+    this.run('UPDATE users SET password_hash = ?, sessions_valid_after = ? WHERE id = ?', passwordHash, validAfter, userId);
+    this.run('DELETE FROM reset_codes WHERE user_id = ?', userId);
+  }
+
+  setAdmin(userId: string, isAdmin: boolean): User | null {
+    this.run('UPDATE users SET is_admin = ? WHERE id = ?', isAdmin ? 1 : 0, userId);
+    return this.getUser(userId);
+  }
+
+  countAdmins(): number {
+    return this.one<{ n: number }>('SELECT COUNT(*) AS n FROM users WHERE is_admin = 1')!.n;
+  }
+
+  deleteUser(userId: string): boolean {
+    return this.run('DELETE FROM users WHERE id = ?', userId) > 0;
+  }
+
+  /** Kullanıcı için yeni tek kullanımlık sıfırlama kodu (öncekiler geçersiz olur). */
+  createResetCode(userId: string, createdBy: string, ttlMs: number): { code: string; expiresAt: number } {
+    const code = inviteCode();
+    const expiresAt = Date.now() + ttlMs;
+    this.tx(() => {
+      this.run('DELETE FROM reset_codes WHERE user_id = ?', userId);
+      this.run(
+        'INSERT INTO reset_codes (code, user_id, created_by, expires_at, created_at) VALUES (?, ?, ?, ?, ?)',
+        code,
+        userId,
+        createdBy,
+        expiresAt,
+        Date.now(),
+      );
+    });
+    return { code, expiresAt };
+  }
+
+  /** Kod bu kullanıcıya aitse ve süresi geçmemişse tüketir ve kullanıcı kimliğini döner. */
+  consumeResetCode(username: string, code: string): string | null {
+    return this.tx(() => {
+      const row = this.one<{ user_id: string; expires_at: number }>(
+        `SELECT r.user_id, r.expires_at FROM reset_codes r JOIN users u ON u.id = r.user_id
+         WHERE r.code = ? AND u.username = ?`,
+        code.trim().toUpperCase(),
+        username,
+      );
+      if (!row) return null;
+      this.run('DELETE FROM reset_codes WHERE code = ?', code.trim().toUpperCase());
+      return row.expires_at >= Date.now() ? row.user_id : null;
+    });
   }
 
   updateUser(id: string, patch: { displayName?: string; avatarColor?: string }): User | null {

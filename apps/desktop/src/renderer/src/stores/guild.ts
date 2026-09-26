@@ -53,6 +53,12 @@ export const useGuild = create<GuildStore>()((set) => ({
         }
         case 'USER_UPDATE':
           return { users: { ...s.users, [msg.d.id]: msg.d } };
+        case 'USER_DELETE': {
+          const { [msg.d.id]: _user, ...users } = s.users;
+          const { [msg.d.id]: _voice, ...voiceStates } = s.voiceStates;
+          const { [msg.d.id]: _online, ...online } = s.online;
+          return { users, voiceStates, online };
+        }
         case 'PRESENCE_UPDATE': {
           const online = { ...s.online };
           if (msg.d.online) online[msg.d.userId] = true;

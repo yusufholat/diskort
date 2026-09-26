@@ -31,6 +31,22 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Şifre gerekli.'),
 });
 
+const newPassword = z
+  .string()
+  .min(PASSWORD_MIN_LENGTH, `Şifre en az ${PASSWORD_MIN_LENGTH} karakter olmalı.`)
+  .max(256);
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Mevcut şifre gerekli.'),
+  newPassword,
+});
+
+const resetPasswordSchema = z.object({
+  username: z.string().trim().toLowerCase().min(1, 'Kullanıcı adı gerekli.'),
+  code: z.string().trim().min(1, 'Sıfırlama kodu gerekli.'),
+  newPassword,
+});
+
 const updateMeSchema = z.object({
   displayName: displayName.optional(),
   avatarColor: z.enum(AVATAR_COLORS, { message: 'Geçersiz renk.' }).optional(),
@@ -41,6 +57,9 @@ function createLimiter(maxAttempts: number, windowMs: number) {
   const hits = new Map<string, { count: number; resetAt: number }>();
   return (key: string): boolean => {
     const now = Date.now();
+    if (hits.size > 10_000) {
+      for (const [k, v] of hits) if (v.resetAt < now) hits.delete(k);
+    }
     const entry = hits.get(key);
     if (!entry || entry.resetAt < now) {
       hits.set(key, { count: 1, resetAt: now + windowMs });
@@ -90,7 +109,36 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     return response;
   });
 
+  // Yöneticinin verdiği tek kullanımlık kodla şifre sıfırlama; başarılı olursa giriş yapılmış olur.
+  app.post('/api/auth/reset', async (req, reply) => {
+    if (!limit(req.ip)) return sendError(reply, 429, 'rate_limited', 'Çok fazla deneme. Biraz bekle.');
+    const body = parseBody(resetPasswordSchema, req.body, reply);
+    if (!body) return reply;
+    const userId = store.consumeResetCode(body.username, body.code);
+    if (!userId) {
+      return sendError(reply, 400, 'invalid_code', 'Kullanıcı adı veya sıfırlama kodu hatalı ya da kodun süresi dolmuş.');
+    }
+    store.setPassword(userId, await auth.hashPassword(body.newPassword));
+    const user = store.getUser(userId)!;
+    const response: AuthResponse = { token: await auth.issueToken(user.id), user };
+    return response;
+  });
+
   app.get('/api/me', { preHandler: auth.requireUser }, async (req) => req.user);
+
+  // Şifre değişince diğer cihazlardaki oturumlar kapanır; bu cihaz yeni jetonla devam eder.
+  app.post('/api/me/password', { preHandler: auth.requireUser }, async (req, reply) => {
+    if (!limit(req.ip)) return sendError(reply, 429, 'rate_limited', 'Çok fazla deneme. Biraz bekle.');
+    const body = parseBody(changePasswordSchema, req.body, reply);
+    if (!body) return reply;
+    const record = store.getUserAuthByUsername(req.user.username);
+    if (!record || !(await auth.verifyPassword(record.passwordHash, body.currentPassword))) {
+      return sendError(reply, 400, 'invalid_password', 'Mevcut şifre hatalı.');
+    }
+    store.setPassword(req.user.id, await auth.hashPassword(body.newPassword));
+    const response: AuthResponse = { token: await auth.issueToken(req.user.id), user: req.user };
+    return response;
+  });
 
   app.patch('/api/me', { preHandler: auth.requireUser }, async (req, reply) => {
     const body = parseBody(updateMeSchema, req.body, reply);

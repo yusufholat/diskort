@@ -37,11 +37,14 @@ export class AuthService {
       .sign(this.key);
   }
 
-  /** Geçerli bir oturum jetonuysa kullanıcıyı döner. */
+  /** Geçerli bir oturum jetonuysa kullanıcıyı döner. Şifre değiştikten önce verilmiş jetonlar geçersizdir. */
   async userFromToken(token: string): Promise<User | null> {
     try {
       const { payload } = await jwtVerify(token, this.key, { algorithms: ['HS256'] });
-      return payload.sub ? this.store.getUser(payload.sub) : null;
+      if (!payload.sub || payload.iat === undefined) return null;
+      const validAfter = this.store.getSessionsValidAfter(payload.sub);
+      if (validAfter === null || payload.iat * 1000 < validAfter) return null;
+      return this.store.getUser(payload.sub);
     } catch {
       return null;
     }

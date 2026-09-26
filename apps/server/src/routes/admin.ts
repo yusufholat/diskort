@@ -19,6 +19,12 @@ const createChannelSchema = z.object({
   type: z.enum(['voice', 'text']),
 });
 
+const updateUserSchema = z.object({
+  isAdmin: z.boolean().optional(),
+});
+
+const RESET_CODE_TTL_MS = 24 * 3_600_000;
+
 const updateChannelSchema = z.object({
   name: channelName.optional(),
   position: z.number().int().min(0).max(10_000).optional(),
@@ -50,6 +56,57 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void
       return reply.code(204).send();
     },
   );
+
+  // ---------- Üyeler ----------
+
+  // Şifresini unutan üye için tek kullanımlık, 24 saat geçerli sıfırlama kodu
+  app.post<{ Params: { id: string } }>(
+    '/api/users/:id/reset-code',
+    { preHandler: auth.requireAdmin },
+    async (req, reply) => {
+      if (!store.getUser(req.params.id)) return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
+      return store.createResetCode(req.params.id, req.user.id, RESET_CODE_TTL_MS);
+    },
+  );
+
+  app.patch<{ Params: { id: string } }>('/api/users/:id', { preHandler: auth.requireAdmin }, async (req, reply) => {
+    const body = parseBody(updateUserSchema, req.body, reply);
+    if (!body) return reply;
+    const target = store.getUser(req.params.id);
+    if (!target) return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
+    if (body.isAdmin === false && target.id === req.user.id) {
+      return sendError(reply, 400, 'self_demote', 'Kendi yöneticiliğini kaldıramazsın.');
+    }
+    const user = body.isAdmin === undefined ? target : store.setAdmin(target.id, body.isAdmin)!;
+    gateway.broadcast({ t: 'USER_UPDATE', d: user });
+    return user;
+  });
+
+  app.post<{ Params: { id: string } }>(
+    '/api/users/:id/voice-kick',
+    { preHandler: auth.requireAdmin },
+    async (req, reply) => {
+      const state = voice.get(req.params.id);
+      if (!state) return sendError(reply, 404, 'not_in_voice', 'Kullanıcı bir ses kanalında değil.');
+      await livekit.removeParticipant(state.channelId, req.params.id);
+      voice.leave(req.params.id, state.channelId);
+      return reply.code(204).send();
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>('/api/users/:id', { preHandler: auth.requireAdmin }, async (req, reply) => {
+    const id = req.params.id;
+    if (id === req.user.id) return sendError(reply, 400, 'self_delete', 'Kendi hesabını buradan silemezsin.');
+    if (!store.deleteUser(id)) return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
+    const state = voice.get(id);
+    if (state) {
+      await livekit.removeParticipant(state.channelId, id);
+      voice.leave(id, state.channelId);
+    }
+    gateway.disconnectUser(id, 'Hesabın bir yönetici tarafından silindi.');
+    gateway.broadcast({ t: 'USER_DELETE', d: { id } });
+    return reply.code(204).send();
+  });
 
   // ---------- Kanallar ----------
 

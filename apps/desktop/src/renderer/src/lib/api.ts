@@ -2,13 +2,17 @@ import type {
   ApiErrorBody,
   AuthResponse,
   Channel,
+  ChangePasswordRequest,
   CreateChannelRequest,
   CreateInviteRequest,
   Invite,
   LoginRequest,
   RegisterRequest,
+  ResetCodeResponse,
+  ResetPasswordRequest,
   UpdateChannelRequest,
   UpdateMeRequest,
+  UpdateUserRequest,
   User,
   VoiceJoinResponse,
 } from '@diskort/shared';
@@ -60,8 +64,15 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   login: (body: LoginRequest) => request<AuthResponse>('POST', '/api/auth/login', body),
   register: (body: RegisterRequest) => request<AuthResponse>('POST', '/api/auth/register', body),
+  resetPassword: (body: ResetPasswordRequest) => request<AuthResponse>('POST', '/api/auth/reset', body),
   me: () => request<User>('GET', '/api/me'),
   updateMe: (body: UpdateMeRequest) => request<User>('PATCH', '/api/me', body),
+  changePassword: (body: ChangePasswordRequest) => request<AuthResponse>('POST', '/api/me/password', body),
+
+  createResetCode: (userId: string) => request<ResetCodeResponse>('POST', `/api/users/${userId}/reset-code`),
+  updateUser: (userId: string, body: UpdateUserRequest) => request<User>('PATCH', `/api/users/${userId}`, body),
+  kickFromVoice: (userId: string) => request<void>('POST', `/api/users/${userId}/voice-kick`),
+  deleteUser: (userId: string) => request<void>('DELETE', `/api/users/${userId}`),
 
   listInvites: () => request<Invite[]>('GET', '/api/invites'),
   createInvite: (body: CreateInviteRequest) => request<Invite>('POST', '/api/invites', body),

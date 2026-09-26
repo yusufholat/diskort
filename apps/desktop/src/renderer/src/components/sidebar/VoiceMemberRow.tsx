@@ -1,6 +1,7 @@
 import { HeadphoneOff, MicOff } from 'lucide-react';
 import type { VoiceState } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
+import { adminVoiceItems } from '../../lib/adminMenu';
 import { cn } from '../../lib/utils';
 import { useGuild } from '../../stores/guild';
 import { useSession } from '../../stores/session';
@@ -30,7 +31,14 @@ export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMy
       className="group flex h-8 items-center gap-2 rounded px-2 text-text-muted hover:bg-bg-hover hover:text-text-normal"
       onContextMenu={(e) => {
         e.preventDefault();
-        if (!isSelf) openContextMenu({ x: e.clientX, y: e.clientY, userId: state.userId });
+        if (!isSelf) {
+          openContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            userId: state.userId,
+            items: adminVoiceItems(state.userId, user?.displayName),
+          });
+        }
       }}
       onDoubleClick={() => {
         if (inMyChannel && state.streaming && !isSelf) voice.watchStream(state.userId);

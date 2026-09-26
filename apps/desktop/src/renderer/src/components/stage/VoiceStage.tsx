@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from 'react';
 import { Eye, HeadphoneOff, Headphones, Mic, MicOff, Monitor, MonitorOff, PhoneOff, Volume2 } from 'lucide-react';
 import type { VoiceState } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
+import { adminVoiceItems } from '../../lib/adminMenu';
 import { cn } from '../../lib/utils';
 import { membersOf, useGuild } from '../../stores/guild';
 import { useSession } from '../../stores/session';
@@ -123,7 +124,14 @@ function ParticipantTile({ state, compact }: { state: VoiceState; compact?: bool
       style={{ background: `color-mix(in srgb, ${user?.avatarColor ?? '#5865f2'} 35%, #1e1f22)` }}
       onContextMenu={(e) => {
         e.preventDefault();
-        if (state.userId !== selfId) openContextMenu({ x: e.clientX, y: e.clientY, userId: state.userId });
+        if (state.userId !== selfId) {
+          openContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            userId: state.userId,
+            items: adminVoiceItems(state.userId, user?.displayName),
+          });
+        }
       }}
     >
       <Avatar user={user} size={compact ? 44 : 80} speaking={speaking} />
