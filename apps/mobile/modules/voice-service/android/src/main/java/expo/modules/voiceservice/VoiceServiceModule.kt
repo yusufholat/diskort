@@ -22,25 +22,29 @@ class VoiceServiceModule : Module() {
 
     /** Servisi başlatır; yalnızca uygulama öndeyken çağrılmalı (sese katılırken). */
     Function("start") { title: String, text: String, muted: Boolean ->
-      val context = appContext.reactContext ?: return@Function
-      val intent = Intent(context, VoiceForegroundService::class.java).apply {
-        action = VoiceForegroundService.ACTION_SHOW
-        putExtra("title", title)
-        putExtra("text", text)
-        putExtra("muted", muted)
+      appContext.reactContext?.let { context ->
+        val intent = Intent(context, VoiceForegroundService::class.java).apply {
+          action = VoiceForegroundService.ACTION_SHOW
+          putExtra("title", title)
+          putExtra("text", text)
+          putExtra("muted", muted)
+        }
+        ContextCompat.startForegroundService(context, intent)
       }
-      ContextCompat.startForegroundService(context, intent)
+      Unit
     }
 
     /** Bildirimi günceller (ör. susturma durumu değişince); arka planda da çağrılabilir. */
     Function("update") { title: String, text: String, muted: Boolean ->
-      val context = appContext.reactContext ?: return@Function
-      VoiceForegroundService.update(context, title, text, muted)
+      appContext.reactContext?.let { context -> VoiceForegroundService.update(context, title, text, muted) }
+      Unit
     }
 
     Function("stop") {
-      val context = appContext.reactContext ?: return@Function
-      context.stopService(Intent(context, VoiceForegroundService::class.java))
+      appContext.reactContext?.let { context ->
+        context.stopService(Intent(context, VoiceForegroundService::class.java))
+      }
+      Unit
     }
   }
 }

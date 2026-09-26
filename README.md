@@ -1,7 +1,7 @@
 # Diskort
 
 10–20 kişilik kapalı topluluklar için Discord kalitesinde **ses**, **ekran paylaşımı** ve **metin kanalları** uygulaması.
-Masaüstü uygulaması (Electron) + kendi sunucun (LiveKit SFU + API).
+Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (LiveKit SFU + API).
 
 İndirme sayfası: **https://diskort.ziroo.net**
 
@@ -26,15 +26,16 @@ Masaüstü uygulaması (Electron) + kendi sunucun (LiveKit SFU + API).
   (okul, yurt, iş yeri) TURN/TLS 443 — röle üzerinden gecikme doğrudan bağlantıya göre ~2 ms fazla (ölçüldü)
 - Tepsiye küçültme, başlangıçta açılma, otomatik güncelleme
 
-| | Windows | Linux | macOS |
-|---|---|---|---|
-| Ses, mute/deafen, cihaz seçimi | ✅ | ✅ | ✅ |
-| Ekran/pencere paylaşımı | ✅ | ✅ (Wayland'da sistem seçicisi) | ✅ (sistem seçicisi) |
-| Yayına sistem sesi | ✅ | ❌ (planlı) | ❌ (planlı) |
-| Global kısayollar / bas-konuş | ✅ | ✅ X11 · ⚠️ Wayland | ✅ (Erişilebilirlik izni) |
-| Paket | NSIS kurulum (x64) | AppImage, .deb (x64) | .dmg (Apple Silicon, Intel) |
-| Otomatik güncelleme | ✅ | ✅ | ❌ (Apple imzası gerekir; indirme sayfasından) |
-| Kod imzası | ❌ (SmartScreen uyarısı, yalnızca ilk kurulumda) | — | ad-hoc (ilk açılışta “Yine de Aç”) |
+| | Windows | Linux | macOS | Android |
+|---|---|---|---|---|
+| Ses, mute/deafen | ✅ | ✅ | ✅ | ✅ (hoparlör/ahize, ekran kilitliyken de) |
+| Metin kanalları | ✅ | ✅ | ✅ | ✅ |
+| Ekran/pencere paylaşımı | ✅ | ✅ (Wayland'da sistem seçicisi) | ✅ (sistem seçicisi) | yalnızca izleme (paylaşma planlı) |
+| Yayına sistem sesi | ✅ | ❌ (planlı) | ❌ (planlı) | — |
+| Global kısayollar / bas-konuş | ✅ | ✅ X11 · ⚠️ Wayland | ✅ (Erişilebilirlik izni) | — |
+| Paket | NSIS kurulum (x64) | AppImage, .deb (x64) | .dmg (Apple Silicon, Intel) | APK (Android 7+) |
+| Otomatik güncelleme | ✅ | ✅ | ❌ (Apple imzası gerekir; indirme sayfasından) | ❌ (uygulama yeni sürümü indirme sayfasına yönlendirir) |
+| Kod imzası | ❌ (SmartScreen uyarısı, yalnızca ilk kurulumda) | — | ad-hoc (ilk açılışta “Yine de Aç”) | kendi anahtarımız |
 
 ## Mimari
 
@@ -50,6 +51,9 @@ Masaüstü (Electron + React) ──HTTPS/WSS──► Caddy :443 ──► API 
   - Mikrofon zinciri (RNNoise + ses kapısı): `micProcessor.ts`, `gate-worklet.js`
   - TURN/TLS portu güvencesi (olası 5349 bildirimini 443'e çevirir): `turnPort.ts`
   - Metin kanalları: `features/messages` (mesaj deposu, biçimlendirme), `components/text` (görünüm)
+- `apps/mobile` — Android uygulaması (Expo SDK 57 + React Native, `src/app` ekranlar, `src/voice` sesli sohbet).
+  Ekran kilitliyken sesin sürmesi için yerel Android modülü: `modules/voice-service` (ön plan servisi).
+  `android/` klasörü üretilir (`expo prebuild`), elle düzenlenmez; ayarlar `app.config.ts` ve eklentilerde.
 - `apps/server` — API + gateway + LiveKit entegrasyonu, indirme yönlendirmeleri
 - `apps/web` — indirme ve gizlilik sayfası (derleme adımı yok; Caddy doğrudan sunar). Butonlar `/download/<platform>`
   adresine gider; API en son GitHub sürümünü bulup dosyaya yönlendirir, kullanıcı GitHub'ı görmez.
@@ -196,13 +200,26 @@ Windows kurulum düzeni (yönetici izni istemez, `build/installer.nsh`):
 `appId`, paket adı (`diskort`), `productName` ve `nsis.guid` kurulu uygulamaların birbirini tanıması için
 **değiştirilmemelidir** (`apps/desktop/electron-builder.yml`).
 
+### Android APK
+
+APK, GitHub Actions'ta derlenir (`.github/workflows/android.yml`) ve depoda **olmayan** kalıcı bir anahtarla
+imzalanır (gizli değişkenler `ANDROID_KEYSTORE_*`; yedeği sahibinin bilgisayarında). Anahtar kaybolursa kurulu
+uygulamalar güncellenemez, herkes kaldırıp yeniden kurmak zorunda kalır.
+
+- Test APK'sı: GitHub → Actions → **Android APK** → *Run workflow* (çıktı "artifact" olarak iner).
+- Sürümde: etiket gönderilince APK da derlenip sürüme `Diskort-<sürüm>-android.apk` olarak eklenir;
+  indirme sayfası `/download/android` ile sunar.
+- Mobil uygulamanın bağlanabilmesi için gereken en düşük sürüm sunucuda `MIN_ANDROID_VERSION`
+  (yalnızca uyumsuz bir değişiklikte artırılır; her sürümde değil).
+
 ### Sürüm yayınlama
 
 Paketlenmiş uygulamanın varsayılan sunucusu `apps/desktop/.env.production` içindeki `VITE_DEFAULT_SERVER`
 değeridir (şu an `https://diskort.ziroo.net`; kullanıcılar giriş ekranından değiştirebilir).
 
 1. Sunucu değişikliği varsa **önce sunucuyu** güncelle (yeni istemci eski sunucuyla çalışmayabilir).
-2. `apps/desktop/package.json` içindeki `version`'ı artır ve commit'le.
+2. `apps/desktop/package.json` ve `apps/mobile/package.json` içindeki `version`'ı artır (ikisi aynı olmalı)
+   ve commit'le.
 3. Sürüm etiketini gönder:
    ```bash
    git tag v0.1.3 && git push origin v0.1.3
