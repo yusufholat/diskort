@@ -1,0 +1,97 @@
+# Sürüm derleme: "v*" etiketi gönderilince Windows, Linux ve macOS paketlerini derleyip
+# GitHub'daki taslak (draft) sürüme yükler. Taslak GitHub'da yayınlanınca indirme sayfası
+# ve uygulama içi güncellemeler yeni sürümü görür.
+#
+# Kullanım: apps/desktop/package.json'daki "version"u artır, commit'le, sonra
+#   git tag v0.1.1 && git push origin v0.1.1
+name: Sürüm derle
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    name: Taslak sürüm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Etiket ile uygulama sürümü aynı mı?
+        run: |
+          version=$(node -p "require('./apps/desktop/package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Etiket ($GITHUB_REF_NAME) ile apps/desktop/package.json sürümü (v$version) uyuşmuyor"
+            exit 1
+          fi
+
+      # Paralel derlemeler aynı sürümü ayrı ayrı oluşturmaya çalışmasın diye taslak önceden açılır.
+      - name: Taslak oluştur (yoksa)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --draft --verify-tag \
+              --title "${GITHUB_REF_NAME#v}" --notes "Diskort ${GITHUB_REF_NAME#v}"
+          fi
+
+  build:
+    name: ${{ matrix.name }}
+    needs: draft
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            args: --win
+          - name: Linux
+            os: ubuntu-latest
+            args: --linux
+          - name: macOS
+            os: macos-latest
+            args: --mac
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Derle
+        run: pnpm --filter @diskort/desktop exec electron-vite build
+
+      - name: Paketle ve taslağa yükle
+        run: pnpm --filter @diskort/desktop exec electron-builder ${{ matrix.args }} --publish always
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # macOS: Developer ID yok; ad-hoc imza electron-builder.yml'de (identity: '-')
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      # Paketlenmiş uygulama açılıyor mu? (sanal ekranda 20 sn çalışmalı, çökmemeli)
+      - name: Açılış testi (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y -qq xvfb >/dev/null
+          set +e
+          timeout 20 xvfb-run -a apps/desktop/release/*/linux-unpacked/diskort --no-sandbox --disable-gpu
+          code=$?
+          set -e
+          if [ "$code" -ne 124 ]; then
+            echo "::error::Uygulama 20 saniye dolmadan kapandı (çıkış kodu $code)"
+            exit 1
+          fi
+          echo "Uygulama 20 saniye boyunca sorunsuz çalıştı."

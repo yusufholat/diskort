@@ -2,7 +2,14 @@ import type { FastifyInstance } from 'fastify';
 import { sendError, type AppContext } from '../context.js';
 import { PLATFORMS, type Platform } from '../releases.js';
 
-const ALIASES: Record<string, Platform> = { linux: 'linux-appimage', appimage: 'linux-appimage', deb: 'linux-deb' };
+const ALIASES: Record<string, Platform> = {
+  linux: 'linux-appimage',
+  appimage: 'linux-appimage',
+  deb: 'linux-deb',
+  mac: 'mac-arm64',
+  macos: 'mac-arm64',
+  'mac-intel': 'mac-x64',
+};
 
 export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): void {
   const { releases } = ctx;

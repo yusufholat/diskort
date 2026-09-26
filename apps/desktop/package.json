@@ -5,7 +5,11 @@
   "license": "MIT",
   "private": true,
   "description": "Diskort masaüstü uygulaması",
-  "author": "Diskort",
+  "homepage": "https://diskort.ziroo.net",
+  "author": {
+    "name": "Diskort",
+    "email": "diskort@ziroo.net"
+  },
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

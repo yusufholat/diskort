@@ -3,9 +3,13 @@ import electronUpdater from 'electron-updater';
 
 const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
-/** Paketlenmiş sürümde güncellemeleri arka planda indirir; hazır olunca arayüze haber verir. */
+/**
+ * Paketlenmiş sürümde güncellemeleri arka planda indirir; hazır olunca arayüze haber verir.
+ * macOS'ta Apple imzası (Developer ID) olmadan kendi kendine güncelleme mümkün değildir; orada
+ * arayüz yeni sürümü indirme sayfasından alması için kullanıcıyı bilgilendirir (useDesktopIntegration).
+ */
 export function initAutoUpdates(window: BrowserWindow): void {
-  if (!app.isPackaged) return;
+  if (!app.isPackaged || process.platform === 'darwin') return;
   const { autoUpdater } = electronUpdater;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;

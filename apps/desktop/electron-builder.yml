@@ -32,18 +32,31 @@ nsis:
   shortcutName: Diskort
 
 linux:
-  target: [AppImage, deb]
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
   category: Network
   icon: resources/icon.png
+  executableName: diskort
+  synopsis: Arkadaşlarınla sesli sohbet ve ekran paylaşımı
+  maintainer: Diskort <diskort@ziroo.net>
   artifactName: Diskort-${version}-${arch}.${ext}
 
 mac:
-  target: [dmg]
+  target:
+    - target: dmg
+      arch: [arm64, x64]
   category: public.app-category.social-networking
   icon: resources/icon.png
-  hardenedRuntime: true
-  entitlements: build/entitlements.mac.plist
-  entitlementsInherit: build/entitlements.mac.plist
+  artifactName: Diskort-${version}-${arch}.${ext}
+  # Apple Developer ID olmadan: ad-hoc imza (Apple Silicon'da çalışabilmek için şart).
+  # Kullanıcı ilk açılışta Sistem Ayarları → Gizlilik ve Güvenlik → "Yine de Aç" der.
+  # Developer ID + notarizasyon eklenince: identity kaldırılır, hardenedRuntime: true,
+  # entitlements: build/entitlements.mac.plist ve hedeflere zip eklenir (otomatik güncelleme için).
+  identity: '-'
+  hardenedRuntime: false
   extendInfo:
     NSMicrophoneUsageDescription: Diskort sesli sohbet için mikrofonunu kullanır.
     NSCameraUsageDescription: Diskort ileride görüntülü sohbet için kamerayı kullanabilir.

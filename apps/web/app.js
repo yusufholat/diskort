@@ -3,7 +3,7 @@
   const PLATFORM_INFO = {
     windows: { label: 'Windows için İndir', icon: '#i-windows', req: 'Windows 10 / 11 · 64-bit', asset: 'windows' },
     linux: { label: 'Linux için İndir', icon: '#i-linux', req: 'AppImage · 64-bit', asset: 'linux-appimage' },
-    mac: { label: 'macOS için İndir', icon: '#i-mac', req: 'macOS 12 ve üzeri', asset: 'mac' },
+    mac: { label: 'macOS için İndir', icon: '#i-mac', req: 'Apple Silicon · macOS 12 ve üzeri', asset: 'mac-arm64' },
   };
 
   function detectOS() {
@@ -21,6 +21,19 @@
   }
 
   const os = detectOS();
+
+  // Chromium tabanlı tarayıcılar Mac işlemci mimarisini söyleyebilir; Intel ise o sürümü öne çıkar.
+  if (os === 'mac' && navigator.userAgentData?.getHighEntropyValues) {
+    navigator.userAgentData
+      .getHighEntropyValues(['architecture'])
+      .then(({ architecture }) => {
+        if (architecture === 'x86') {
+          PLATFORM_INFO.mac.asset = 'mac-x64';
+          PLATFORM_INFO.mac.req = 'Intel · macOS 12 ve üzeri';
+        }
+      })
+      .catch(() => undefined);
+  }
   const primaryLinks = document.querySelectorAll('[data-primary-download]');
   const primaryLabel = document.getElementById('primary-label');
   const primaryIcon = document.getElementById('primary-icon');
@@ -71,7 +84,7 @@
       const sizes = {
         windows: platforms.windows?.size,
         linux: platforms['linux-appimage']?.size ?? platforms['linux-deb']?.size,
-        mac: platforms.mac?.size,
+        mac: platforms['mac-arm64']?.size ?? platforms['mac-x64']?.size,
       };
       document.querySelectorAll('[data-meta]').forEach((el) => {
         const size = sizes[el.dataset.meta];

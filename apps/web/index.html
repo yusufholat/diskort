@@ -131,9 +131,8 @@
               <h3>macOS</h3>
               <p class="platform-req">macOS 12 ve üzeri</p>
               <div class="platform-actions">
-                <a class="btn btn-primary" href="/download/mac" data-asset="mac">
-                  <svg class="icon" aria-hidden="true"><use href="#i-download" /></svg>İndir
-                </a>
+                <a class="btn btn-primary" href="/download/mac-arm64" data-asset="mac-arm64">Apple Silicon</a>
+                <a class="btn btn-ghost" href="/download/mac-x64" data-asset="mac-x64">Intel</a>
               </div>
               <p class="platform-meta" data-meta="mac"></p>
             </article>
@@ -196,10 +195,27 @@
               <p>Arkadaşından aldığın <strong>davet koduyla</strong> kaydol ve bir ses kanalına gir.</p>
             </li>
           </ol>
-          <p class="fineprint">
-            Linux'ta AppImage dosyasına çalıştırma izni ver (<code>chmod +x Diskort-*.AppImage</code>) ya da
-            <code>sudo apt install ./Diskort-*.deb</code> ile kur. Uygulama yeni sürümleri kendisi indirir.
-          </p>
+          <div class="notes">
+            <div class="note">
+              <h3>Windows</h3>
+              <p>Uygulama yeni sürümleri kendisi indirir; uyarı yalnızca ilk kurulumda çıkar.</p>
+            </div>
+            <div class="note">
+              <h3>Linux</h3>
+              <p>
+                AppImage: <code>chmod +x Diskort-*.AppImage</code> ile çalıştırma izni ver (Ubuntu 22.04+ için
+                <code>libfuse2</code> gerekir). Debian/Ubuntu: <code>sudo apt install ./Diskort-*.deb</code>.
+              </p>
+            </div>
+            <div class="note">
+              <h3>macOS</h3>
+              <p>
+                M1/M2/M3/M4 Mac'ler için <strong>Apple Silicon</strong>, eski Mac'ler için <strong>Intel</strong> sürümünü indir.
+                İlk açılışta macOS engellerse <strong>Sistem Ayarları → Gizlilik ve Güvenlik → Yine de Aç</strong>'a tıkla.
+                Yeni sürümleri bu sayfadan indirirsin.
+              </p>
+            </div>
+          </div>
         </section>
       </main>
 

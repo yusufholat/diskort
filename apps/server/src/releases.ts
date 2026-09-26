@@ -1,7 +1,7 @@
 // İndirme sayfası için en son masaüstü sürümünü GitHub Releases'ten okur (önbellekli).
 // Kullanıcılar GitHub'a gitmez: sayfa /download/<platform> adresine bağlanır, API dosyaya yönlendirir.
 
-export type Platform = 'windows' | 'linux-appimage' | 'linux-deb' | 'mac';
+export type Platform = 'windows' | 'linux-appimage' | 'linux-deb' | 'mac-arm64' | 'mac-x64';
 
 export interface PlatformAsset {
   name: string;
@@ -25,7 +25,8 @@ const MATCHERS: Record<Platform, RegExp> = {
   windows: /setup.*\.exe$/i,
   'linux-appimage': /\.appimage$/i,
   'linux-deb': /\.deb$/i,
-  mac: /\.dmg$/i,
+  'mac-arm64': /arm64\.dmg$/i,
+  'mac-x64': /x64\.dmg$/i,
 };
 
 export const PLATFORMS = Object.keys(MATCHERS) as Platform[];

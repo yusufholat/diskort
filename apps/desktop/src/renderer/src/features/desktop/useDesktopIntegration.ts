@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { normalizeServerUrl } from '../../lib/api';
 import { bridge } from '../../lib/bridge';
 import { useSettings } from '../../stores/settings';
 import { toast } from '../../stores/ui';
@@ -55,4 +56,26 @@ export function useDesktopIntegration(): void {
       toast(`Diskort ${version} indirildi; uygulamayı yeniden başlatınca kurulacak.`, 'success');
     });
   }, []);
+
+  // macOS'ta kendi kendine güncelleme yok: yeni sürüm varsa indirme sayfasını öner
+  useEffect(() => {
+    if (!bridge || bridge.platform !== 'darwin') return;
+    const serverUrl = normalizeServerUrl(useSettings.getState().serverUrl);
+    void Promise.all([bridge.getVersion(), fetch(`${serverUrl}/api/download/latest`).then((r) => r.json())])
+      .then(([current, latest]: [string, { version?: string }]) => {
+        if (latest.version && isNewer(latest.version, current)) {
+          toast(`Diskort ${latest.version} yayınlandı. ${serverUrl}/download adresinden indirip kurabilirsin.`);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+}
+
+function isNewer(candidate: string, current: string): boolean {
+  const a = candidate.split('.').map(Number);
+  const b = current.split('.').map(Number);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+  }
+  return false;
 }

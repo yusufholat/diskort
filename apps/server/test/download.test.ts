@@ -14,6 +14,8 @@ const githubRelease = {
     { name: 'Diskort-Setup-0.2.0.exe.blockmap', size: 10, browser_download_url: 'https://example.test/x.blockmap' },
     { name: 'latest.yml', size: 5, browser_download_url: 'https://example.test/latest.yml' },
     { name: 'Diskort-0.2.0-x86_64.AppImage', size: 2000, browser_download_url: 'https://example.test/app.AppImage' },
+    { name: 'Diskort-0.2.0-arm64.dmg', size: 3000, browser_download_url: 'https://example.test/arm.dmg' },
+    { name: 'Diskort-0.2.0-arm64.dmg.blockmap', size: 30, browser_download_url: 'https://example.test/arm.dmg.blockmap' },
   ],
 };
 
@@ -39,7 +41,8 @@ describe('sürüm dosyası eşleştirme', () => {
     expect(assets.windows?.name).toBe('Diskort-Setup-0.2.0.exe');
     expect(assets['linux-appimage']?.name).toBe('Diskort-0.2.0-x86_64.AppImage');
     expect(assets['linux-deb']).toBeUndefined();
-    expect(assets.mac).toBeUndefined();
+    expect(assets['mac-arm64']?.name).toBe('Diskort-0.2.0-arm64.dmg');
+    expect(assets['mac-x64']).toBeUndefined();
   });
 
   it('GitHub geçici olarak ulaşılamazsa son bilinen sürümü kullanır', async () => {
@@ -73,8 +76,11 @@ describe('indirme uçları', () => {
     const linux = await app.inject({ method: 'GET', url: '/download/linux' });
     expect(linux.headers.location).toBe('https://example.test/app.AppImage');
 
+    const mac = await app.inject({ method: 'GET', url: '/download/mac' });
+    expect(mac.headers.location).toBe('https://example.test/arm.dmg');
+
     // Henüz olmayan platform veya bilinmeyen adres indirme sayfasına döner
-    for (const url of ['/download/mac', '/download/bilinmeyen']) {
+    for (const url of ['/download/mac-x64', '/download/bilinmeyen']) {
       const res = await app.inject({ method: 'GET', url });
       expect(res.statusCode).toBe(302);
       expect(res.headers.location).toBe('/download');
