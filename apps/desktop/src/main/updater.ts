@@ -1,3 +1,6 @@
+import { readFileSync, rmSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { app, net } from 'electron';
 import electronUpdater from 'electron-updater';
 import { compareVersions } from '@diskort/shared';
@@ -48,6 +51,7 @@ export class UpdateManager {
         const version = 'version' in this.state ? this.state.version : '';
         this.set({ kind: 'downloading', version, percent: p.percent, transferred: p.transferred, total: p.total });
       });
+      if (app.isPackaged) removeInstalledPending();
     }
     updateLog.info(`Diskort ${app.getVersion()} (${process.platform}), güncelleme: ${this.support} ${this.feedUrl}`);
   }
@@ -158,4 +162,30 @@ function describe(err: unknown): string {
     return 'İnternet bağlantısı yok ya da sunucuya ulaşılamıyor.';
   }
   return message.split('\n')[0]!.slice(0, 200);
+}
+
+/**
+ * Kurulan güncellemenin indirme kopyası ("pending" klasörü, ~100 MB) bir sonraki güncellemeye kadar
+ * boşuna yer kaplar; sürümü şu an çalışan sürümden yeni değilse silinir. (Önbellekteki installer.exe
+ * kalır: sonraki güncellemede yalnızca değişen blokların indirilmesi için gerekir.)
+ */
+function removeInstalledPending(): void {
+  try {
+    const config = readFileSync(join(process.resourcesPath, 'app-update.yml'), 'utf8');
+    const cacheName = /^updaterCacheDirName:\s*['"]?([^\s'"]+)/m.exec(config)?.[1];
+    if (!cacheName) return;
+    const base =
+      process.platform === 'win32'
+        ? (process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'))
+        : (process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'));
+    const pending = join(base, cacheName, 'pending');
+    const info = JSON.parse(readFileSync(join(pending, 'update-info.json'), 'utf8')) as { fileName?: string };
+    const version = /(\d+\.\d+\.\d+)/.exec(info.fileName ?? '')?.[1];
+    if (version && compareVersions(version, app.getVersion()) <= 0) {
+      rmSync(pending, { recursive: true, force: true });
+      updateLog.info(`Kurulmuş güncellemenin indirme kopyası silindi (${version})`);
+    }
+  } catch {
+    // bekleyen güncelleme yok
+  }
 }
