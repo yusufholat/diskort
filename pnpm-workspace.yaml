@@ -1,0 +1,12 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Kurulumda derleme/indirme betiği çalıştırmasına izin verilen paketler
+allowBuilds:
+  electron: true
+  esbuild: true
+  uiohook-napi: true
+  '@node-rs/argon2': true
+  # Squirrel yükleyicisi kullanılmıyor (NSIS kullanılıyor)
+  electron-winstaller: false

@@ -1,0 +1,131 @@
+@import 'tailwindcss';
+
+/* Discord koyu temasına yakın renk paleti */
+@theme {
+  --color-bg-deep: #111214;
+  --color-bg-rail: #1e1f22;
+  --color-bg-side: #2b2d31;
+  --color-bg-main: #313338;
+  --color-bg-input: #1e1f22;
+  --color-bg-hover: #35373c;
+  --color-bg-active: #404249;
+  --color-bg-float: #111214;
+  --color-bg-panel: #232428;
+  --color-line: #3f4147;
+
+  --color-text-normal: #dbdee1;
+  --color-text-muted: #949ba4;
+  --color-text-faint: #6d6f78;
+  --color-text-head: #f2f3f5;
+
+  --color-brand: #5865f2;
+  --color-brand-hover: #4752c4;
+  --color-ok: #23a55a;
+  --color-danger: #f23f43;
+  --color-danger-hover: #da373c;
+  --color-warn: #f0b232;
+
+  --font-sans: 'gg sans', 'Segoe UI Variable Text', 'Segoe UI', 'Noto Sans', 'Helvetica Neue', system-ui, sans-serif;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-bg-rail);
+    color: var(--color-text-normal);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    overflow: hidden;
+  }
+
+  input,
+  textarea,
+  select {
+    user-select: text;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1a1b1e;
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 1px;
+  }
+}
+
+@layer utilities {
+  .drag {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+}
+
+/* Konuşan kullanıcı yeşil halkası */
+.speaking-ring {
+  box-shadow:
+    0 0 0 2px var(--color-bg-side),
+    0 0 0 4px var(--color-ok);
+}
+
+.tile-speaking {
+  box-shadow: inset 0 0 0 2px var(--color-ok);
+}
+
+input[type='range'].slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 8px;
+  border-radius: 4px;
+  background: #4e5058;
+  outline: none;
+}
+input[type='range'].slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 24px;
+  border-radius: 3px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.4);
+  cursor: pointer;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.animate-pop {
+  animation: fade-in 120ms ease-out;
+}

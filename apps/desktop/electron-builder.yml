@@ -1,0 +1,55 @@
+appId: com.diskurt.app
+productName: Diskurt
+copyright: Copyright © 2026 Diskurt
+
+directories:
+  output: release/${version}
+  buildResources: build
+
+files:
+  - out/**
+  - resources/**
+  - package.json
+
+# uiohook-napi N-API ön-derlemeli ikili dosyalarla gelir (ABI bağımsız); derleyici gerekmez.
+npmRebuild: false
+
+# Yerel (native) modül .node dosyaları asar dışında olmalı
+asarUnpack:
+  - node_modules/uiohook-napi/**
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: resources/icon.png
+  artifactName: Diskurt-Setup-${version}.${ext}
+
+nsis:
+  oneClick: true
+  perMachine: false
+  deleteAppDataOnUninstall: false
+  shortcutName: Diskurt
+
+linux:
+  target: [AppImage, deb]
+  category: Network
+  icon: resources/icon.png
+  artifactName: Diskurt-${version}-${arch}.${ext}
+
+mac:
+  target: [dmg]
+  category: public.app-category.social-networking
+  icon: resources/icon.png
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: Diskurt sesli sohbet için mikrofonunu kullanır.
+    NSCameraUsageDescription: Diskurt ileride görüntülü sohbet için kamerayı kullanabilir.
+
+# Otomatik güncelleme: sürümler GitHub Releases'e yüklenir.
+publish:
+  provider: github
+  owner: yusufholat
+  repo: diskurt

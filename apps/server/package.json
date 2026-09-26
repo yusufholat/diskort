@@ -1,0 +1,33 @@
+{
+  "name": "@diskurt/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@fastify/websocket": "^11.3.1",
+    "@node-rs/argon2": "^2.2.1",
+    "fastify": "^5.12.5",
+    "jose": "^6.1.0",
+    "livekit-server-sdk": "^2.19.1",
+    "nanoid": "^5.1.5",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@diskurt/shared": "workspace:*",
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.1",
+    "tsup": "^8.5.0",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "vitest": "^4.0.0",
+    "ws": "^8.21.3"
+  }
+}

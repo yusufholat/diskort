@@ -1,0 +1,35 @@
+# Yerel geliştirme için LiveKit yapılandırması.
+# Başlatma: pnpm dev:livekit
+port: 7880
+bind_addresses:
+  - 0.0.0.0
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50200
+  use_external_ip: false
+
+# apps/server/src/config.ts içindeki geliştirme anahtarıyla aynı olmalı
+keys:
+  devkey: diskurt-dev-livekit-secret-0123456789abcdef
+
+room:
+  auto_create: true
+  empty_timeout: 30
+  departure_timeout: 10
+
+# Konuşan göstergesinin Discord gibi hızlı tepki vermesi için sık güncelleme
+audio:
+  active_level: 35
+  min_percentile: 40
+  update_interval: 100
+  smooth_intervals: 1
+
+webhook:
+  api_key: devkey
+  urls:
+    - http://127.0.0.1:3000/api/livekit/webhook
+
+logging:
+  level: info

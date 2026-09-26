@@ -1,0 +1,12 @@
+node_modules/
+dist/
+out/
+release/
+*.log
+.env
+.env.local
+
+# Yerel veri / araçlar
+data/
+tools/
+apps/server/data/

@@ -1,0 +1,19 @@
+{
+  "name": "diskurt",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Discord kalitesinde ses ve ekran paylaşımı platformu",
+  "scripts": {
+    "dev:livekit": "node scripts/livekit-dev.mjs",
+    "dev:server": "pnpm --filter @diskurt/server dev",
+    "dev:desktop": "pnpm --filter @diskurt/desktop dev",
+    "dev:desktop2": "node scripts/dev-second-client.mjs",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "build": "pnpm -r build"
+  },
+  "packageManager": "pnpm@12.6.0",
+  "engines": {
+    "node": ">=22.12"
+  }
+}

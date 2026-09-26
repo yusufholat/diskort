@@ -1,0 +1,9 @@
+# Otomatik Let's Encrypt sertifikalı HTTPS / WSS
+{$DISKURT_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3000
+}
+
+{$LIVEKIT_DOMAIN} {
+	reverse_proxy 127.0.0.1:7880
+}

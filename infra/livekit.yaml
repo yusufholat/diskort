@@ -1,0 +1,35 @@
+# Üretim LiveKit yapılandırması (VPS). Anahtarlar LIVEKIT_KEYS ortam değişkeninden gelir.
+port: 7880
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  # Sunucunun genel IP'sini STUN ile otomatik bulur
+  use_external_ip: true
+
+# UDP'nin kısıtlı olduğu ağlar (okul/iş yeri) için yedek röle
+turn:
+  enabled: true
+  udp_port: 3478
+
+room:
+  auto_create: true
+  empty_timeout: 30
+  departure_timeout: 10
+  max_participants: 25
+
+# Konuşan göstergesinin Discord gibi hızlı tepki vermesi için
+audio:
+  active_level: 35
+  min_percentile: 40
+  update_interval: 100
+  smooth_intervals: 1
+
+webhook:
+  api_key: diskurt
+  urls:
+    - http://127.0.0.1:3000/api/livekit/webhook
+
+logging:
+  level: info

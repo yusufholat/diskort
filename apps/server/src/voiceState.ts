@@ -1,0 +1,94 @@
+import { EventEmitter } from 'node:events';
+import type { VoiceState } from '@diskurt/shared';
+
+type SelfFlags = { selfMute: boolean; selfDeaf: boolean };
+
+export interface VoiceSnapshotEntry {
+  channelId: string;
+  streaming: boolean;
+}
+
+interface VoiceEvents {
+  update: [VoiceState];
+  delete: [{ userId: string; channelId: string }];
+}
+
+/**
+ * Kimin hangi ses kanalında olduğunu tutar. Katılma/ayrılma bilgisi LiveKit
+ * webhook'larından gelir (tek doğruluk kaynağı); mute/deafen bayrakları
+ * istemcinin gateway üzerinden bildirdiği değerlerdir.
+ */
+export class VoiceStateStore extends EventEmitter<VoiceEvents> {
+  private readonly states = new Map<string, VoiceState>();
+  private readonly selfFlags = new Map<string, SelfFlags>();
+
+  list(): VoiceState[] {
+    return [...this.states.values()];
+  }
+
+  get(userId: string): VoiceState | undefined {
+    return this.states.get(userId);
+  }
+
+  join(userId: string, channelId: string, streaming = false): VoiceState {
+    const prev = this.states.get(userId);
+    if (prev && prev.channelId === channelId) return prev;
+    if (prev) this.remove(userId);
+    const flags = this.selfFlags.get(userId) ?? { selfMute: false, selfDeaf: false };
+    const state: VoiceState = { userId, channelId, ...flags, streaming, joinedAt: Date.now() };
+    this.states.set(userId, state);
+    this.emit('update', state);
+    return state;
+  }
+
+  /** Yalnızca kullanıcı hâlâ o kanaldaysa çıkarır (geç gelen webhook'lara karşı). */
+  leave(userId: string, channelId: string): boolean {
+    const prev = this.states.get(userId);
+    if (!prev || prev.channelId !== channelId) return false;
+    this.remove(userId);
+    return true;
+  }
+
+  leaveChannel(channelId: string): void {
+    for (const state of this.list()) {
+      if (state.channelId === channelId) this.remove(state.userId);
+    }
+  }
+
+  setSelf(userId: string, flags: SelfFlags): void {
+    this.selfFlags.set(userId, flags);
+    const prev = this.states.get(userId);
+    if (!prev || (prev.selfMute === flags.selfMute && prev.selfDeaf === flags.selfDeaf)) return;
+    const next = { ...prev, ...flags };
+    this.states.set(userId, next);
+    this.emit('update', next);
+  }
+
+  setStreaming(userId: string, channelId: string, streaming: boolean): void {
+    const prev = this.states.get(userId);
+    if (!prev || prev.channelId !== channelId || prev.streaming === streaming) return;
+    const next = { ...prev, streaming };
+    this.states.set(userId, next);
+    this.emit('update', next);
+  }
+
+  /** LiveKit'ten alınan anlık görüntüyle durumu eşitler (sunucu yeniden başlatma, kaçan webhook). */
+  reconcile(snapshot: Map<string, VoiceSnapshotEntry>): void {
+    for (const state of this.list()) {
+      const live = snapshot.get(state.userId);
+      if (!live || live.channelId !== state.channelId) this.remove(state.userId);
+    }
+    for (const [userId, live] of snapshot) {
+      const state = this.states.get(userId);
+      if (!state) this.join(userId, live.channelId, live.streaming);
+      else this.setStreaming(userId, live.channelId, live.streaming);
+    }
+  }
+
+  private remove(userId: string): void {
+    const prev = this.states.get(userId);
+    if (!prev) return;
+    this.states.delete(userId);
+    this.emit('delete', { userId, channelId: prev.channelId });
+  }
+}
