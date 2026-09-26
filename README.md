@@ -211,6 +211,13 @@ uygulamalar güncellenemez, herkes kaldırıp yeniden kurmak zorunda kalır.
   indirme sayfası `/download/android` ile sunar.
 - Mobil uygulamanın bağlanabilmesi için gereken en düşük sürüm sunucuda `MIN_ANDROID_VERSION`
   (yalnızca uyumsuz bir değişiklikte artırılır; her sürümde değil).
+- **Güncelleme:** uygulama açılırken (seste değilse) yeni sürüm varsa telefona uygun APK'yı indirir
+  (`Diskort-<sürüm>-android-arm64-v8a.apk` / `-armeabi-v7a.apk`, ~50–60 MB) ve Android'in kurulum ekranını
+  açar; son onay kullanıcıdadır (Android sessiz kuruluma izin vermez). İndirme sayfası hepsini içeren APK'yı sunar.
+- **Bildirimler (bahsetmeler):** sunucu, Google'ın FCM HTTP v1 arayüzüne doğrudan gönderir; Firebase yalnızca
+  teslimat yapar. Sunucuda `infra/secrets/fcm.json` (Firebase → Proje ayarları → Service accounts →
+  Generate new private key, `chmod 600`) ve `.env`'de `FCM_SERVICE_ACCOUNT_FILE=/run/secrets/fcm.json`.
+  Uygulama tarafı `google-services.json` GitHub gizli değişkeni `GOOGLE_SERVICES_JSON`'dan (base64) derlemede yazılır.
 
 ### Sürüm yayınlama
 
