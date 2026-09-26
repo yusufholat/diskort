@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { AudioLines } from 'lucide-react';
 import { voice } from '../../features/voice/voiceClient';
-import { membersOf, useGuild } from '../../stores/guild';
+import { membersOf, useGuild } from '@diskort/client-core';
 import { useUi } from '../../stores/ui';
 
 /** Ses kanalına bağlı değilken ana alan. */

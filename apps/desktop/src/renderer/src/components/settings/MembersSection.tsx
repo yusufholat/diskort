@@ -1,10 +1,8 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Copy, KeyRound, PhoneOff, Shield, ShieldOff, Trash2 } from 'lucide-react';
 import type { User } from '@diskort/shared';
-import { api, errorMessage } from '../../lib/api';
+import { api, errorMessage, useGuild, useSession } from '@diskort/client-core';
 import { cn } from '../../lib/utils';
-import { useGuild } from '../../stores/guild';
-import { useSession } from '../../stores/session';
 import { toast } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 

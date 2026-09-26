@@ -1,18 +1,17 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Copy, Trash2, X } from 'lucide-react';
 import { AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH, type Invite } from '@diskort/shared';
-import { gateway } from '../../features/gateway/gateway';
+import { gateway, api, errorMessage, useSession } from '@diskort/client-core';
 import { SCREEN_CODECS, SCREEN_PRESETS } from '../../features/voice/screenPresets';
 import { voice } from '../../features/voice/voiceClient';
-import { api, errorMessage } from '../../lib/api';
 import { bridge, isWindows } from '../../lib/bridge';
 import { cn } from '../../lib/utils';
-import { useSession } from '../../stores/session';
 import { useSettings, type ScreenCodec, type ScreenPresetId } from '../../stores/settings';
 import { toast, useUi, type SettingsSection } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 import { Button, Divider, Field, SectionTitle, Select, TextInput, Toggle } from '../ui/controls';
 import { ChangePassword } from './ChangePassword';
+import { DeleteAccount } from './DeleteAccount';
 import { KeybindInput } from './KeybindInput';
 import { MembersSection } from './MembersSection';
 import { VoiceSettings } from './VoiceSettings';
@@ -175,6 +174,8 @@ function AccountSection() {
       </div>
       <Divider />
       <ChangePassword />
+      <Divider />
+      <DeleteAccount />
     </div>
   );
 }

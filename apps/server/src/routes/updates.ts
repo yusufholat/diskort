@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { parsePlatform } from '../clientVersion.js';
 import { sendError, type AppContext } from '../context.js';
 
 const SAFE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -33,10 +34,14 @@ export function registerUpdateRoutes(app: FastifyInstance, ctx: AppContext): voi
     return reply.redirect(`${base}/download/v${version}/${file}`, 302);
   });
 
-  // İstemcinin "güncel miyim?" sorusu (macOS açılış denetimi ve tanılama için)
-  app.get('/api/client/version', async (_req, reply) => {
-    const [latest, required] = await Promise.all([releases.latest(), clientVersions.required()]);
+  // İstemcinin "güncel miyim?" sorusu (?platform=desktop|android|ios; varsayılan masaüstü)
+  app.get<{ Querystring: { platform?: string } }>('/api/client/version', async (req, reply) => {
+    const platform = parsePlatform(req.query.platform);
+    const [latest, required] = await Promise.all([
+      platform === 'desktop' ? releases.latest() : Promise.resolve(null),
+      clientVersions.required(platform),
+    ]);
     void reply.header('Cache-Control', 'no-store');
-    return { latest: latest?.version ?? null, required };
+    return { platform, latest: latest?.version ?? required, required };
   });
 }

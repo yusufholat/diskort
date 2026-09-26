@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { CHANNEL_NAME_MAX_LENGTH } from '@diskort/shared';
+import { removeAccount } from '../accounts.js';
 import { parseBody, sendError, type AppContext } from '../context.js';
 
 const createInviteSchema = z.object({
@@ -97,14 +98,9 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void
   app.delete<{ Params: { id: string } }>('/api/users/:id', { preHandler: auth.requireAdmin }, async (req, reply) => {
     const id = req.params.id;
     if (id === req.user.id) return sendError(reply, 400, 'self_delete', 'Kendi hesabını buradan silemezsin.');
-    if (!store.deleteUser(id)) return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
-    const state = voice.get(id);
-    if (state) {
-      await livekit.removeParticipant(state.channelId, id);
-      voice.leave(id, state.channelId);
+    if (!(await removeAccount(ctx, id, 'Hesabın bir yönetici tarafından silindi.'))) {
+      return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
     }
-    gateway.disconnectUser(id, 'Hesabın bir yönetici tarafından silindi.');
-    gateway.broadcast({ t: 'USER_DELETE', d: { id } });
     return reply.code(204).send();
   });
 

@@ -175,6 +175,9 @@ importers:
         specifier: ^1.5.5
         version: 1.5.5
     devDependencies:
+      '@diskort/client-core':
+        specifier: workspace:*
+        version: link:../../packages/client-core
       '@diskort/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -284,6 +287,25 @@ importers:
       ws:
         specifier: ^8.21.3
         version: 8.21.3
+
+  packages/client-core:
+    dependencies:
+      '@diskort/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      react:
+        specifier: ^19.3.0
+        version: 19.3.0
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.0
+        version: 4.1.11(@types/node@24.13.6)(vite@8.3.1(@types/node@24.13.6)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.23.15))
+      zustand:
+        specifier: ^5.0.15
+        version: 5.0.15(@types/react@19.3.0)(react@19.3.0)
 
   packages/shared:
     devDependencies:

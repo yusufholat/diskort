@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Download } from 'lucide-react';
 import { DOWNLOAD_PAGE_URL } from '../../../shared/distribution';
 import { bridge } from '../lib/bridge';
-import { errorMessage } from '../lib/api';
+import { errorMessage } from '@diskort/client-core';
 import { useUpdate } from '../stores/update';
 
 const mb = (bytes: number): string => (bytes / 1048576).toFixed(1).replace('.', ',');

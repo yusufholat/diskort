@@ -1,9 +1,8 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Hash } from 'lucide-react';
 import type { Channel, User } from '@diskort/shared';
-import { loadOlder, useMessages, type LocalMessage } from '../../features/messages/messages';
+import { loadOlder, useMessages, type LocalMessage, useGuild } from '@diskort/client-core';
 import type { MarkdownContext } from '../../features/messages/markdown';
-import { useGuild } from '../../stores/guild';
 import { MessageItem } from './MessageItem';
 import { formatDay, sameDay } from './format';
 

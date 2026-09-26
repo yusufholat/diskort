@@ -1,7 +1,7 @@
 import { Monitor, MonitorOff, PhoneOff, Signal } from 'lucide-react';
 import { voice } from '../../features/voice/voiceClient';
 import { cn } from '../../lib/utils';
-import { useGuild } from '../../stores/guild';
+import { useGuild } from '@diskort/client-core';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
 

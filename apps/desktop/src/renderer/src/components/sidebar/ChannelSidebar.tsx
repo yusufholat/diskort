@@ -1,8 +1,7 @@
 import { ChevronDown, Plus } from 'lucide-react';
 import type { ChannelType } from '@diskort/shared';
 import { useMainView } from '../../lib/mainView';
-import { useGuild } from '../../stores/guild';
-import { useSession } from '../../stores/session';
+import { useGuild, useSession } from '@diskort/client-core';
 import { useUi } from '../../stores/ui';
 import { TextChannelItem } from './TextChannelItem';
 import { UserPanel } from './UserPanel';

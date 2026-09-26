@@ -1,10 +1,7 @@
 import { Hash } from 'lucide-react';
 import type { Channel } from '@diskort/shared';
-import { useMessages } from '../../features/messages/messages';
-import { api, errorMessage } from '../../lib/api';
+import { useMessages, api, errorMessage, isUnread, useGuild, useSession } from '@diskort/client-core';
 import { cn } from '../../lib/utils';
-import { isUnread, useGuild } from '../../stores/guild';
-import { useSession } from '../../stores/session';
 import { toast, useUi } from '../../stores/ui';
 
 export function TextChannelItem({ channel, selected }: { channel: Channel; selected: boolean }) {

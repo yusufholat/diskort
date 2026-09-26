@@ -171,6 +171,23 @@ describe('üye yönetimi', () => {
     expect(ctx.store.getUser(member.user.id)).toBeNull();
   });
 
+  it('kullanıcı şifresini onaylayarak kendi hesabını siler; son yönetici silemez', async () => {
+    const { admin, member } = await setup();
+    const del = (token: string, password: string) =>
+      app.inject({ method: 'DELETE', url: '/api/me', headers: auth(token), payload: { password } });
+
+    expect((await del(member.token, 'yanlis')).statusCode).toBe(400);
+    expect(ctx.store.getUser(member.user.id)).not.toBeNull();
+
+    const lastAdmin = await del(admin.token, 'sifre12345');
+    expect(lastAdmin.statusCode).toBe(400);
+    expect(lastAdmin.json().error).toBe('last_admin');
+
+    expect((await del(member.token, 'eskisifre1')).statusCode).toBe(204);
+    expect(ctx.store.getUser(member.user.id)).toBeNull();
+    expect((await app.inject({ method: 'GET', url: '/api/me', headers: auth(member.token) })).statusCode).toBe(401);
+  });
+
   it('sesten atma yalnızca sesteki kullanıcı için çalışır', async () => {
     const { admin, member } = await setup();
     const kick = () =>

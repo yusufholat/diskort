@@ -1,8 +1,7 @@
 import { forwardRef, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { MESSAGE_MAX_LENGTH, type Channel, type User } from '@diskort/shared';
-import { notifyTyping, sendMessage, setEditing, useMessages } from '../../features/messages/messages';
+import { notifyTyping, sendMessage, setEditing, useMessages, useGuild } from '@diskort/client-core';
 import { cn } from '../../lib/utils';
-import { useGuild } from '../../stores/guild';
 import { toast } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 

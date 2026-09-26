@@ -3,6 +3,7 @@ import type {
   AuthResponse,
   Channel,
   ChangePasswordRequest,
+  DeleteAccountRequest,
   Message,
   CreateChannelRequest,
   CreateInviteRequest,
@@ -17,8 +18,8 @@ import type {
   User,
   VoiceJoinResponse,
 } from '@diskort/shared';
-import { useSession } from '../stores/session';
-import { getSettings } from '../stores/settings';
+import { env } from './env';
+import { useSession } from './session';
 
 export class ApiError extends Error {
   constructor(
@@ -43,7 +44,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   let res: Response;
   try {
-    res = await fetch(normalizeServerUrl(getSettings().serverUrl) + path, {
+    res = await fetch(normalizeServerUrl(env().serverUrl()) + path, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -69,6 +70,7 @@ export const api = {
   me: () => request<User>('GET', '/api/me'),
   updateMe: (body: UpdateMeRequest) => request<User>('PATCH', '/api/me', body),
   changePassword: (body: ChangePasswordRequest) => request<AuthResponse>('POST', '/api/me/password', body),
+  deleteAccount: (body: DeleteAccountRequest) => request<void>('DELETE', '/api/me', body),
 
   createResetCode: (userId: string) => request<ResetCodeResponse>('POST', `/api/users/${userId}/reset-code`),
   updateUser: (userId: string, body: UpdateUserRequest) => request<User>('PATCH', `/api/users/${userId}`, body),

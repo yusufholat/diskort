@@ -3,12 +3,10 @@ import {
   type GatewayClientMessage,
   type GatewayServerMessage,
 } from '@diskort/shared';
-import { normalizeServerUrl } from '../../lib/api';
-import { bridge } from '../../lib/bridge';
-import { useGuild } from '../../stores/guild';
-import { useSession } from '../../stores/session';
-import { getSettings } from '../../stores/settings';
-import { useUpdate } from '../../stores/update';
+import { normalizeServerUrl } from './api';
+import { env } from './env';
+import { useGuild } from './guild';
+import { useSession } from './session';
 
 const RECONNECT_DELAYS_MS = [500, 1000, 2000, 5000, 10000];
 
@@ -17,8 +15,8 @@ type Listener = (msg: GatewayServerMessage) => void;
 /** Sunucuyla gerçek zamanlı bağlantı; kopunca otomatik yeniden bağlanır ve durumu tazeler. */
 class GatewayClient {
   private ws: WebSocket | null = null;
-  private heartbeatTimer: number | null = null;
-  private reconnectTimer: number | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private attempts = 0;
   private awaitingAck = false;
   private active = false;
@@ -38,6 +36,16 @@ class GatewayClient {
     useGuild.getState().reset();
   }
 
+  /**
+   * Bekleyen yeniden bağlanma denemesini beklemeden hemen bağlan (mobilde uygulama öne gelince ya da
+   * ağ değişince). Bağlantı zaten açıksa bir şey yapmaz.
+   */
+  resume(): void {
+    if (!this.active || this.ws) return;
+    this.attempts = 0;
+    this.open();
+  }
+
   send(msg: GatewayClientMessage): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
   }
@@ -53,7 +61,7 @@ class GatewayClient {
     if (!token || !this.active) return;
     this.clearTimers();
 
-    const url = normalizeServerUrl(getSettings().serverUrl).replace(/^http/, 'ws') + '/gateway';
+    const url = normalizeServerUrl(env().serverUrl()).replace(/^http/, 'ws') + '/gateway';
     const guild = useGuild.getState();
     guild.setStatus(guild.status === 'ready' || this.attempts > 0 ? 'reconnecting' : 'connecting');
 
@@ -87,7 +95,7 @@ class GatewayClient {
   private handle(msg: GatewayServerMessage, token: string): void {
     switch (msg.t) {
       case 'HELLO':
-        this.send({ t: 'IDENTIFY', d: { token, version: __APP_VERSION__ } });
+        this.send({ t: 'IDENTIFY', d: { token, version: env().version, platform: env().platform } });
         this.startHeartbeat(msg.d.heartbeatInterval);
         break;
       case 'READY':
@@ -102,11 +110,10 @@ class GatewayClient {
         useSession.getState().logout();
         break;
       case 'UPDATE_REQUIRED':
-        useUpdate.setState({ required: msg.d.version });
+        env().onUpdateRequired?.(msg.d.version);
         break;
       case 'UPDATE_AVAILABLE':
-        // Yeni sürüm yayınlandı: hemen arka planda indirmeye başla
-        void bridge?.updates.check();
+        env().onUpdateAvailable?.(msg.d.version);
         break;
       case 'USER_UPDATE':
         useGuild.getState().apply(msg);
@@ -120,7 +127,7 @@ class GatewayClient {
 
   private startHeartbeat(interval: number): void {
     this.awaitingAck = false;
-    this.heartbeatTimer = window.setInterval(() => {
+    this.heartbeatTimer = setInterval(() => {
       if (this.awaitingAck) {
         // Yanıt gelmedi: bağlantı ölü, yeniden bağlan.
         this.ws?.close(4000, 'heartbeat timeout');
@@ -135,12 +142,12 @@ class GatewayClient {
     useGuild.getState().setStatus('reconnecting');
     const delay = RECONNECT_DELAYS_MS[Math.min(this.attempts, RECONNECT_DELAYS_MS.length - 1)]!;
     this.attempts++;
-    this.reconnectTimer = window.setTimeout(() => this.open(), delay);
+    this.reconnectTimer = setTimeout(() => this.open(), delay);
   }
 
   private clearTimers(): void {
-    if (this.heartbeatTimer !== null) window.clearInterval(this.heartbeatTimer);
-    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+    if (this.heartbeatTimer !== null) clearInterval(this.heartbeatTimer);
+    if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
     this.heartbeatTimer = null;
     this.reconnectTimer = null;
   }

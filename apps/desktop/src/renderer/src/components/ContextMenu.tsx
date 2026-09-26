@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useGuild } from '../stores/guild';
+import { useGuild } from '@diskort/client-core';
 import { useSettings } from '../stores/settings';
 import { useUi } from '../stores/ui';
 import { cn } from '../lib/utils';

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Headphones, HeadphoneOff, Mic, MicOff, Settings } from 'lucide-react';
 import { voice } from '../../features/voice/voiceClient';
 import { cn } from '../../lib/utils';
-import { useSession } from '../../stores/session';
+import { useSession } from '@diskort/client-core';
 import { useSettings } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';

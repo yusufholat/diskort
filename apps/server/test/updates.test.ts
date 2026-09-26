@@ -29,12 +29,13 @@ afterEach(async () => {
   app = undefined;
 });
 
-async function start(latest: string, enforce = true) {
+async function start(latest: string, enforce = true, extraEnv: Record<string, string> = {}) {
   const config = loadConfig({
     NODE_ENV: 'test',
     DATA_DIR: '.',
     GITHUB_REPO: 'sahip/depo',
     CLIENT_UPDATE_ENFORCE: enforce ? '1' : '0',
+    ...extraEnv,
   });
   const releases = new ReleaseService('sahip/depo', fakeGithub(latest));
   ({ app, ctx } = await buildApp(config, { dbFile: ':memory:', logger: false, releases }));
@@ -79,6 +80,7 @@ describe('güncelleme adresleri', () => {
   it('istemciye en son ve gereken sürümü söyler', async () => {
     const server = await start('0.2.0');
     expect((await server.inject({ method: 'GET', url: '/api/client/version' })).json()).toEqual({
+      platform: 'desktop',
       latest: '0.2.0',
       required: '0.2.0',
     });
@@ -89,7 +91,7 @@ describe('güncelleme adresleri', () => {
 });
 
 describe('zorunlu güncelleme', () => {
-  async function identify(version: string | undefined) {
+  async function identify(version: string | undefined, platform?: string) {
     const bootstrap = ctx.store.ensureBootstrapInvite()!;
     const reg = await app!.inject({
       method: 'POST',
@@ -106,7 +108,7 @@ describe('zorunlu güncelleme', () => {
       ws.on('message', (raw) => {
         const msg = JSON.parse(raw.toString()) as GatewayServerMessage;
         messages.push(msg);
-        if (msg.t === 'HELLO') ws.send(JSON.stringify({ t: 'IDENTIFY', d: { token, version } }));
+        if (msg.t === 'HELLO') ws.send(JSON.stringify({ t: 'IDENTIFY', d: { token, version, platform } }));
         if (msg.t === 'READY') {
           ws.close();
           resolve({ messages, closeCode: null });
@@ -135,6 +137,20 @@ describe('zorunlu güncelleme', () => {
     await app!.close();
     await start('0.1.3');
     expect((await identify(undefined)).closeCode).toBe(GATEWAY_CLOSE_UPDATE_REQUIRED);
+  });
+
+  it('mobil uygulamalar masaüstü sürümüyle değil kendi en düşük sürümüyle karşılaştırılır', async () => {
+    await start('0.5.0', true, { MIN_ANDROID_VERSION: '1.2.0' });
+    expect((await identify('1.2.0', 'android')).messages.some((m) => m.t === 'READY')).toBe(true);
+    await app!.close();
+    await start('0.5.0', true, { MIN_ANDROID_VERSION: '1.2.0' });
+    expect((await identify('1.1.9', 'android')).closeCode).toBe(GATEWAY_CLOSE_UPDATE_REQUIRED);
+    await app!.close();
+    // iOS için en düşük sürüm tanımlı değil: engellenmez
+    await start('0.5.0', true, { MIN_ANDROID_VERSION: '1.2.0' });
+    expect((await identify('0.0.1', 'ios')).messages.some((m) => m.t === 'READY')).toBe(true);
+    const version = await app!.inject({ method: 'GET', url: '/api/client/version?platform=android' });
+    expect(version.json()).toEqual({ platform: 'android', latest: '1.2.0', required: '1.2.0' });
   });
 
   it('kural kapalıysa kimse engellenmez', async () => {

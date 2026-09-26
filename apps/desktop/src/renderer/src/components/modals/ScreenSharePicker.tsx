@@ -3,7 +3,7 @@ import { AppWindow, Monitor, RefreshCw } from 'lucide-react';
 import type { ScreenSource } from '../../../../shared/bridge';
 import { SCREEN_PRESETS } from '../../features/voice/screenPresets';
 import { voice } from '../../features/voice/voiceClient';
-import { errorMessage } from '../../lib/api';
+import { errorMessage } from '@diskort/client-core';
 import { bridge, isMac } from '../../lib/bridge';
 import { cn } from '../../lib/utils';
 import { useSettings, type ScreenPresetId } from '../../stores/settings';

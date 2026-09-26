@@ -33,7 +33,7 @@
 	# İndirme sayfası (apps/web); bilinmeyen yollar da sayfayı gösterir (/download dahil)
 	handle {
 		root * /srv/web
-		try_files {path} /index.html
+		try_files {path} {path}.html /index.html
 		file_server
 		header {
 			X-Content-Type-Options nosniff

@@ -9,7 +9,7 @@ import {
   retryMessage,
   setEditing,
   type LocalMessage,
-} from '../../features/messages/messages';
+} from '@diskort/client-core';
 import { renderMarkdown, type MarkdownContext } from '../../features/messages/markdown';
 import { cn } from '../../lib/utils';
 import { toast, useUi } from '../../stores/ui';

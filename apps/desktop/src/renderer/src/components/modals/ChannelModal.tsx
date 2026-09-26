@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Hash, Volume2 } from 'lucide-react';
 import type { Channel, ChannelType } from '@diskort/shared';
 import { CHANNEL_NAME_MAX_LENGTH } from '@diskort/shared';
-import { api, errorMessage } from '../../lib/api';
+import { api, errorMessage } from '@diskort/client-core';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
 import { Modal } from '../ui/Modal';

@@ -1,5 +1,4 @@
-import { api, errorMessage } from './api';
-import { useSession } from '../stores/session';
+import { api, errorMessage, useSession } from '@diskort/client-core';
 import { toast, type ContextMenuItem } from '../stores/ui';
 
 /** Sesteki bir üyeye sağ tıklandığında yöneticiye gösterilen ek menü öğeleri. */

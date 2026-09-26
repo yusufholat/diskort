@@ -73,6 +73,10 @@ export interface AuthResponse {
   user: User;
 }
 
+export interface DeleteAccountRequest {
+  password: string;
+}
+
 export interface UpdateMeRequest {
   displayName?: string;
   avatarColor?: string;
@@ -177,10 +181,15 @@ export type GatewayServerMessage =
   /** Yeni sürüm yayınlandı: istemci arka planda indirmeye başlar */
   | { t: 'UPDATE_AVAILABLE'; d: { version: string } };
 
+/** İstemci türü: sürüm kuralı her platform için ayrı uygulanır */
+export type ClientPlatform = 'desktop' | 'android' | 'ios';
+
 export interface IdentifyPayload {
   token: string;
-  /** Masaüstü uygulamasının sürümü (0.1.3'ten itibaren gönderilir) */
+  /** Uygulama sürümü (masaüstünde 0.1.3'ten itibaren gönderilir) */
   version?: string;
+  /** Bildirilmezse masaüstü sayılır (0.1.4 öncesi masaüstü sürümleri göndermez) */
+  platform?: ClientPlatform;
 }
 
 export type GatewayClientMessage =

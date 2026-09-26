@@ -14,13 +14,11 @@ import {
   type RemoteVideoTrack,
 } from 'livekit-client';
 import type { VoiceJoinResponse } from '@diskort/shared';
-import { api, errorMessage } from '../../lib/api';
+import { api, errorMessage, useSession, gateway } from '@diskort/client-core';
 import { bridge } from '../../lib/bridge';
 import { playSound, sharedAudioContext } from '../../lib/sfx';
-import { useSession } from '../../stores/session';
 import { getSettings, useSettings, type Settings } from '../../stores/settings';
 import { setVoice, useVoice, type MicLevel } from '../../stores/voice';
-import { gateway } from '../gateway/gateway';
 import { MicProcessor, type GateConfig } from './micProcessor';
 import { SCREEN_PRESETS } from './screenPresets';
 import type { ScreenCodec, ScreenContent, ScreenPresetId } from '../../stores/settings';

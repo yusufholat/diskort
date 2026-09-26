@@ -7,7 +7,7 @@ import { Toasts } from './components/Toasts';
 import { UpdateRequired } from './components/UpdateRequired';
 import { useDesktopIntegration } from './features/desktop/useDesktopIntegration';
 import { bridge, isMac, isWindows } from './lib/bridge';
-import { useSession } from './stores/session';
+import { useSession } from '@diskort/client-core';
 import { useUpdate } from './stores/update';
 
 const hasTitleBar = Boolean(bridge) && (isWindows || isMac);

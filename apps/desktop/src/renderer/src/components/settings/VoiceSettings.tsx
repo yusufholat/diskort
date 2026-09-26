@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { voice } from '../../features/voice/voiceClient';
 import { bridge } from '../../lib/bridge';
-import { errorMessage } from '../../lib/api';
+import { errorMessage } from '@diskort/client-core';
 import { cn, clamp } from '../../lib/utils';
 import { useSettings, type NoiseMode } from '../../stores/settings';
 import { useVoice } from '../../stores/voice';

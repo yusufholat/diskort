@@ -6,14 +6,11 @@ import {
   type GatewayServerMessage,
   type Message,
 } from '@diskort/shared';
-import { api, errorMessage } from '../../lib/api';
-import { bridge } from '../../lib/bridge';
-import { currentView } from '../../lib/mainView';
-import { playSound } from '../../lib/sfx';
-import { useGuild } from '../../stores/guild';
-import { useSession } from '../../stores/session';
-import { toast, useUi } from '../../stores/ui';
-import { gateway } from '../gateway/gateway';
+import { api, errorMessage } from './api';
+import { env } from './env';
+import { gateway } from './gateway';
+import { useGuild } from './guild';
+import { useSession } from './session';
 
 /** Sunucuya henüz ulaşmamış (pending) veya gönderilemeyen (failed) yerel mesajlar da listede tutulur. */
 export type LocalMessage = Message & { status?: 'pending' | 'failed'; nonce?: string };
@@ -82,7 +79,7 @@ export async function loadInitial(channelId: string): Promise<void> {
     }));
   } catch (err) {
     patch(channelId, () => ({ loading: false }));
-    toast(errorMessage(err), 'error');
+    env().notifyError(errorMessage(err));
   }
 }
 
@@ -101,7 +98,7 @@ export async function loadOlder(channelId: string): Promise<void> {
     }));
   } catch (err) {
     patch(channelId, () => ({ loading: false }));
-    toast(errorMessage(err), 'error');
+    env().notifyError(errorMessage(err));
   }
 }
 
@@ -143,7 +140,7 @@ async function deliver(channelId: string, pending: LocalMessage): Promise<void> 
     patch(channelId, (c) => ({
       messages: c.messages.map((m) => (m.nonce === pending.nonce ? { ...m, status: 'failed' as const } : m)),
     }));
-    toast(errorMessage(err), 'error');
+    env().notifyError(errorMessage(err));
   }
 }
 
@@ -165,7 +162,7 @@ export async function editMessage(message: Message, content: string): Promise<vo
     const updated = await api.updateMessage(message.id, content);
     patch(message.channelId, (c) => ({ messages: c.messages.map((m) => (m.id === updated.id ? updated : m)) }));
   } catch (err) {
-    toast(errorMessage(err), 'error');
+    env().notifyError(errorMessage(err));
   }
 }
 
@@ -174,7 +171,7 @@ export async function deleteMessage(message: Message): Promise<void> {
     await api.deleteMessage(message.id);
     removeLocal(message.channelId, message.id);
   } catch (err) {
-    toast(errorMessage(err), 'error');
+    env().notifyError(errorMessage(err));
   }
 }
 
@@ -191,7 +188,7 @@ function removeLocal(channelId: string, id: string): void {
 
 // ---------- Okundu bilgisi ----------
 
-const ackTimers = new Map<string, number>();
+const ackTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /** Kanaldaki en son mesajı okundu olarak işaretler (sunucuya kısa bir gecikmeyle bildirir). */
 export function ackChannel(channelId: string): void {
@@ -205,10 +202,10 @@ export function ackChannel(channelId: string): void {
   const last = guild.lastMessageIds[channelId];
   if (!last || Number(last) <= Number(guild.readStates[channelId] ?? 0)) return;
   guild.markRead(channelId, last);
-  window.clearTimeout(ackTimers.get(channelId));
+  clearTimeout(ackTimers.get(channelId));
   ackTimers.set(
     channelId,
-    window.setTimeout(() => {
+    setTimeout(() => {
       ackTimers.delete(channelId);
       api.ack(channelId, last).catch(() => undefined);
     }, 500),
@@ -241,29 +238,11 @@ function setTyping(channelId: string, userId: string, until: number | null): voi
 export const mentions = (content: string, username: string): boolean => extractMentions(content).includes(username);
 
 function notifyMention(message: Message): void {
-  const guild = useGuild.getState();
-  const view = currentView();
-  const watching = view.kind === 'text' && view.channelId === message.channelId && document.hasFocus();
-  if (watching) return;
+  if (env().isViewingChannel?.(message.channelId)) return;
   useMessages.setState((s) => ({
     mentionCounts: { ...s.mentionCounts, [message.channelId]: (s.mentionCounts[message.channelId] ?? 0) + 1 },
   }));
-  playSound('mention');
-  bridge?.requestAttention();
-  const author = message.authorId ? guild.users[message.authorId]?.displayName : undefined;
-  const channel = guild.channels.find((c) => c.id === message.channelId)?.name;
-  try {
-    const notification = new Notification(`${author ?? 'Biri'} senden bahsetti · #${channel ?? ''}`, {
-      body: message.content.length > 140 ? `${message.content.slice(0, 140)}…` : message.content,
-      silent: true,
-    });
-    notification.onclick = () => {
-      bridge?.showWindow();
-      useUi.getState().setView({ kind: 'text', channelId: message.channelId });
-    };
-  } catch {
-    // bildirim izni yoksa yalnızca ses
-  }
+  env().onMention?.(message);
 }
 
 // ---------- Gateway olayları ----------
@@ -296,7 +275,7 @@ gateway.on((msg: GatewayServerMessage) => {
       const { channelId, userId } = msg.d;
       const until = Date.now() + TYPING_TIMEOUT_MS;
       setTyping(channelId, userId, until);
-      window.setTimeout(() => {
+      setTimeout(() => {
         if ((useMessages.getState().typing[channelId]?.[userId] ?? 0) <= Date.now()) setTyping(channelId, userId, null);
       }, TYPING_TIMEOUT_MS + 50);
       break;

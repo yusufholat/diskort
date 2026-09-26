@@ -7,6 +7,7 @@ import {
   USERNAME_PATTERN,
   type AuthResponse,
 } from '@diskort/shared';
+import { removeAccount } from '../accounts.js';
 import { parseBody, sendError, type AppContext } from '../context.js';
 
 const displayName = z
@@ -46,6 +47,8 @@ const resetPasswordSchema = z.object({
   code: z.string().trim().min(1, 'Sıfırlama kodu gerekli.'),
   newPassword,
 });
+
+const deleteAccountSchema = z.object({ password: z.string().min(1, 'Şifre gerekli.') });
 
 const updateMeSchema = z.object({
   displayName: displayName.optional(),
@@ -138,6 +141,22 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     store.setPassword(req.user.id, await auth.hashPassword(body.newPassword));
     const response: AuthResponse = { token: await auth.issueToken(req.user.id), user: req.user };
     return response;
+  });
+
+  // Kullanıcı kendi hesabını siler (şifre onayıyla). Son yönetici, topluluk sahipsiz kalmasın diye silemez.
+  app.delete('/api/me', { preHandler: auth.requireUser }, async (req, reply) => {
+    if (!limit(req.ip)) return sendError(reply, 429, 'rate_limited', 'Çok fazla deneme. Biraz bekle.');
+    const body = parseBody(deleteAccountSchema, req.body, reply);
+    if (!body) return reply;
+    const record = store.getUserAuthByUsername(req.user.username);
+    if (!record || !(await auth.verifyPassword(record.passwordHash, body.password))) {
+      return sendError(reply, 400, 'invalid_password', 'Şifre hatalı.');
+    }
+    if (req.user.isAdmin && store.countAdmins() <= 1) {
+      return sendError(reply, 400, 'last_admin', 'Son yönetici hesabı silinemez. Önce başka birini yönetici yap.');
+    }
+    await removeAccount(ctx, req.user.id, 'Hesabın silindi.');
+    return reply.code(204).send();
   });
 
   app.patch('/api/me', { preHandler: auth.requireUser }, async (req, reply) => {

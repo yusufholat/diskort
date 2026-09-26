@@ -5,6 +5,7 @@ WORKDIR /repo
 RUN npm install -g pnpm@12.6.0
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/package.json
+COPY packages/client-core/package.json packages/client-core/package.json
 COPY apps/server/package.json apps/server/package.json
 COPY apps/desktop/package.json apps/desktop/package.json
 RUN pnpm install --frozen-lockfile --filter "@diskort/server..."

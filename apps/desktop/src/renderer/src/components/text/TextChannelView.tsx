@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Hash } from 'lucide-react';
 import type { Channel } from '@diskort/shared';
-import { ackChannel, loadInitial, useMessages } from '../../features/messages/messages';
-import { useGuild } from '../../stores/guild';
-import { useSession } from '../../stores/session';
+import { ackChannel, loadInitial, useMessages, useGuild, useSession } from '@diskort/client-core';
 import { useUi } from '../../stores/ui';
 import { Composer, type ComposerHandle } from './Composer';
 import { MessageList } from './MessageList';

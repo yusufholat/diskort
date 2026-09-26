@@ -16,6 +16,8 @@ export default defineConfig({
   renderer: {
     resolve: {
       alias: { '@': resolve(__dirname, 'src/renderer/src') },
+      // Ortak çekirdek paket de aynı React ve zustand kopyasını kullanmalı
+      dedupe: ['react', 'react-dom', 'zustand'],
     },
     plugins: [react(), tailwindcss()],
     // Gateway'e bildirilen uygulama sürümü (sunucu eski sürümleri reddeder)

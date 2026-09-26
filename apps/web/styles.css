@@ -737,3 +737,36 @@ h3 {
 .c3 {
   --c: #faa61a;
 }
+
+/* ---------- Gizlilik sayfası ---------- */
+.legal {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+  line-height: 1.65;
+}
+.legal h1 {
+  font-size: clamp(2rem, 5vw, 2.6rem);
+  margin-bottom: 4px;
+}
+.legal h2 {
+  margin: 36px 0 10px;
+  font-size: 1.25rem;
+}
+.legal p,
+.legal li {
+  color: var(--muted);
+}
+.legal ul {
+  padding-left: 1.2em;
+}
+.legal li + li {
+  margin-top: 8px;
+}
+.legal a {
+  color: #8ea1ff;
+}
+.legal-updated {
+  font-size: 0.9rem;
+  opacity: 0.7;
+}

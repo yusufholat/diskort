@@ -16,6 +16,8 @@ export interface Config {
   githubRepo: string;
   /** En son sürümden eski masaüstü istemcileri reddedilsin mi (üretimde varsayılan: evet) */
   enforceClientVersion: boolean;
+  /** Mobil uygulamaların bağlanabilmesi için gereken en düşük sürüm (yoksa kural uygulanmaz) */
+  minMobileVersions: { android: string | null; ios: string | null };
   isDev: boolean;
 }
 
@@ -48,6 +50,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     guildName: env.GUILD_NAME ?? 'Diskort',
     githubRepo: env.GITHUB_REPO ?? 'yusufholat/diskort',
     enforceClientVersion: env.CLIENT_UPDATE_ENFORCE ? env.CLIENT_UPDATE_ENFORCE !== '0' : !isDev,
+    minMobileVersions: { android: env.MIN_ANDROID_VERSION || null, ios: env.MIN_IOS_VERSION || null },
     isDev,
   };
 }

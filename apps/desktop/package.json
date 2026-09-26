@@ -27,6 +27,7 @@
     "uiohook-napi": "^1.5.5"
   },
   "devDependencies": {
+    "@diskort/client-core": "workspace:*",
     "@diskort/shared": "workspace:*",
     "@sapphi-red/web-noise-suppressor": "^0.4.1",
     "@tailwindcss/vite": "^4.3.3",

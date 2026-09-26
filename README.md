@@ -51,9 +51,13 @@ Masaüstü (Electron + React) ──HTTPS/WSS──► Caddy :443 ──► API 
   - TURN/TLS portu güvencesi (olası 5349 bildirimini 443'e çevirir): `turnPort.ts`
   - Metin kanalları: `features/messages` (mesaj deposu, biçimlendirme), `components/text` (görünüm)
 - `apps/server` — API + gateway + LiveKit entegrasyonu, indirme yönlendirmeleri
-- `apps/web` — indirme sayfası (derleme adımı yok; Caddy doğrudan sunar). Butonlar `/download/<platform>`
+- `apps/web` — indirme ve gizlilik sayfası (derleme adımı yok; Caddy doğrudan sunar). Butonlar `/download/<platform>`
   adresine gider; API en son GitHub sürümünü bulup dosyaya yönlendirir, kullanıcı GitHub'ı görmez.
-- `packages/shared` — ortak tipler
+- `packages/shared` — sunucu ve istemcilerin ortak tipleri
+- `packages/client-core` — masaüstü ve (gelecekteki) mobil uygulamanın ortak mantığı: API, gateway,
+  oturum/topluluk/mesaj depoları, biçimlendirme ayrıştırıcısı. Platforma özgü işler (bildirim, ses,
+  pencere, depolama) `configureClient()` ile verilir; masaüstü karşılığı `apps/desktop/src/renderer/src/platform.ts`.
+  Yeni özellikler önce buraya yazılır, iki arayüz de kullanır.
 - `infra` — VPS için Docker Compose, LiveKit, Caddy (katman-4 eklentili), yedekleme betikleri
 
 ## Geliştirme (Windows)

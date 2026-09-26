@@ -42,7 +42,7 @@ export async function buildApp(
   const voice = new VoiceStateStore();
   const livekit = opts.livekit ?? new LiveKitService(config);
   const releases = opts.releases ?? new ReleaseService(config.githubRepo);
-  const clientVersions = new ClientVersionPolicy(releases, config.enforceClientVersion);
+  const clientVersions = new ClientVersionPolicy(releases, config.enforceClientVersion, config.minMobileVersions);
   const gateway = new Gateway(store, auth, voice, guild, clientVersions);
   const ctx: AppContext = { config, store, auth, voice, livekit, gateway, releases, clientVersions, guild };
 

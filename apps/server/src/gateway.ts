@@ -122,7 +122,7 @@ export class Gateway {
       if (s.userId) return;
       // Zorunlu güncelleme: eski istemci önce güncellemeli (0.1.3 öncesi sürümler bu mesajı yok sayar
       // ve yeniden bağlanmayı dener; kendi güncelleyicileri yeni sürümü indirip kurar).
-      const required = await this.clientVersions?.outdated(msg.d?.version);
+      const required = await this.clientVersions?.outdated(msg.d?.version, msg.d?.platform);
       if (required) {
         this.send(s, { t: 'UPDATE_REQUIRED', d: { version: required } });
         s.socket.close(GATEWAY_CLOSE_UPDATE_REQUIRED, 'update required');

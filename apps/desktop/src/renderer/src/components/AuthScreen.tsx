@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { AudioLines } from 'lucide-react';
-import { api, errorMessage, normalizeServerUrl } from '../lib/api';
-import { useSession } from '../stores/session';
+import { api, errorMessage, normalizeServerUrl, useSession } from '@diskort/client-core';
 import { useSettings } from '../stores/settings';
 import { Button, Field, TextInput } from './ui/controls';
 

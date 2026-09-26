@@ -1,4 +1,4 @@
-import { useGuild } from '../stores/guild';
+import { useGuild } from '@diskort/client-core';
 import { initials } from '../lib/utils';
 
 /** Sol dikey sunucu çubuğu (şimdilik tek topluluk; ileride çoklu sunucu için yer hazır). */

@@ -1,9 +1,7 @@
 import { useEffect } from 'react';
 import { AudioLines } from 'lucide-react';
-import { gateway } from '../features/gateway/gateway';
+import { gateway, useGuild, useSession } from '@diskort/client-core';
 import { voice } from '../features/voice/voiceClient';
-import { useGuild } from '../stores/guild';
-import { useSession } from '../stores/session';
 import { toast, useUi } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import { useMainView } from '../lib/mainView';

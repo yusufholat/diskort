@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { Channel } from '@diskort/shared';
-import { useGuild } from '../stores/guild';
+import { useGuild } from '@diskort/client-core';
 import { useUi, type View } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 

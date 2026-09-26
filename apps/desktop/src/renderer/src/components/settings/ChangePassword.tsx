@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { api, errorMessage } from '../../lib/api';
-import { useSession } from '../../stores/session';
+import { api, errorMessage, useSession } from '@diskort/client-core';
 import { toast } from '../../stores/ui';
 import { Button, Field, SectionTitle, TextInput } from '../ui/controls';
 
