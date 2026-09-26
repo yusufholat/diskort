@@ -27,9 +27,11 @@ const isMac = process.platform === 'darwin';
 const isWindows = process.platform === 'win32';
 const isLinux = process.platform === 'linux';
 
-// Geliştirmede birden çok istemciyi aynı makinede çalıştırmak için ayrı profil: DISKORT_PROFILE=2
+// Geliştirme sürümü kurulu uygulamayla aynı ayarları/oturumu paylaşmasın (ör. localhost sunucu adresi).
+// Aynı makinede birden çok istemci için ayrı profil: DISKORT_PROFILE=2
 const profile = process.env.DISKORT_PROFILE;
-if (profile) app.setPath('userData', `${app.getPath('userData')}-${profile}`);
+const suffix = [app.isPackaged ? null : 'dev', profile].filter(Boolean).join('-');
+if (suffix) app.setPath('userData', `${app.getPath('userData')}-${suffix}`);
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();

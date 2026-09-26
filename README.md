@@ -110,11 +110,10 @@ Açık olması gereken portlar: `80/tcp`, `443/tcp`, `7881/tcp`, `3478/udp`, `50
 
 ## Masaüstü paketleri
 
-Uygulamanın varsayılan sunucu adresini gömmek için `apps/desktop/.env.production` oluştur:
-
-```
-VITE_DEFAULT_SERVER=https://diskort.ornek.com
-```
+Paketlenmiş uygulamanın varsayılan sunucusu `apps/desktop/.env.production` içindeki
+`VITE_DEFAULT_SERVER` değeridir (şu an `https://diskort.ziroo.net`; kullanıcılar giriş ekranından
+değiştirebilir). Geliştirme sürümü ayrı bir profil (`%APPDATA%\Diskort-dev`) kullanır, kurulu
+uygulamanın oturumuna karışmaz.
 
 ```bash
 pnpm --filter @diskort/desktop dist:win
@@ -126,10 +125,10 @@ macOS paketi macOS'ta derlenmelidir (`dist:linux`, `dist:mac`).
 ### Güncelleme yayınlama
 
 Uygulama güncellemeleri `yusufholat/diskort` deposunun GitHub Releases'inden otomatik indirir.
-Yeni sürüm için `apps/desktop/package.json` içindeki `version`'ı artır ve (bash):
+Yeni sürüm için `apps/desktop/package.json` içindeki `version`'ı artır ve (gh CLI ile giriş yapılmış olarak):
 
 ```bash
-GH_TOKEN=$(gh auth token) pnpm --filter @diskort/desktop release:win
+pnpm release:win
 ```
 
 Bu, kurulum dosyasını taslak (draft) bir GitHub sürümüne yükler. GitHub'da taslağı yayınladığında

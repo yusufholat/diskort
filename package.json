@@ -8,6 +8,7 @@
     "dev:server": "pnpm --filter @diskort/server dev",
     "dev:desktop": "pnpm --filter @diskort/desktop dev",
     "dev:desktop2": "node scripts/dev-second-client.mjs",
+    "release:win": "node scripts/release-win.mjs",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "build": "pnpm -r build"
