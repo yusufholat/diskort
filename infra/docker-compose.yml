@@ -9,12 +9,16 @@
 services:
   livekit:
     image: livekit/livekit-server:v1.13.7
-    command: --config /etc/livekit.yaml
+    # livekit.yaml içindeki __TURN_DOMAIN__ yer tutucusunu doldurup sunucuyu başlatır
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - sed "s/__TURN_DOMAIN__/$$TURN_DOMAIN/" /etc/livekit.yaml > /tmp/livekit.yaml && exec /livekit-server --config /tmp/livekit.yaml
     network_mode: host
     restart: unless-stopped
     environment:
       # API anahtarı adı sabit "diskort"; gizli anahtar .env'den gelir
       LIVEKIT_KEYS: "diskort: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET gerekli}"
+      TURN_DOMAIN: ${TURN_DOMAIN:?TURN_DOMAIN gerekli}
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml:ro
 
@@ -39,12 +43,15 @@ services:
       - diskort-data:/data
 
   caddy:
-    image: caddy:2
+    # Katman-4 eklentili Caddy (TURN/TLS'i 443'te HTTPS ile paylaşmak için)
+    build: ./caddy
+    image: diskort-caddy
     network_mode: host
     restart: unless-stopped
     environment:
       DISKORT_DOMAIN: ${DISKORT_DOMAIN:?DISKORT_DOMAIN gerekli}
       LIVEKIT_DOMAIN: ${LIVEKIT_DOMAIN}
+      TURN_DOMAIN: ${TURN_DOMAIN:?TURN_DOMAIN gerekli}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ../apps/web:/srv/web:ro

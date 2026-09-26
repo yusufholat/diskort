@@ -1,3 +1,25 @@
+{
+	# Yedek bağlantı (TURN/TLS): 443'e gelen ve TLS alan adı (SNI) TURN alan adı olan bağlantıların
+	# şifrelemesi burada açılır ve LiveKit'in TURN dinleyicisine (127.0.0.1:5349, PROXY protokolü v2)
+	# iletilir. Diğer tüm bağlantılar aşağıdaki HTTPS sitelerine gider. Yalnızca 443'e izin veren
+	# ağlardan (okul, yurt, iş yeri) bağlanabilmek için. Katman-4 eklentisi: infra/caddy/Dockerfile
+	servers :443 {
+		listener_wrappers {
+			layer4 {
+				@turn tls sni {$TURN_DOMAIN}
+				route @turn {
+					tls
+					proxy {
+						proxy_protocol v2
+						upstream tcp/127.0.0.1:5349
+					}
+				}
+			}
+			tls
+		}
+	}
+}
+
 # Otomatik Let's Encrypt sertifikalı HTTPS / WSS
 {$DISKORT_DOMAIN} {
 	encode zstd gzip
@@ -25,4 +47,10 @@
 
 {$LIVEKIT_DOMAIN} {
 	reverse_proxy 127.0.0.1:7880
+}
+
+# TURN alan adının sertifikasını almak için. Bu alan adına gelen 443 trafiği yukarıdaki
+# katman-4 kuralıyla LiveKit'e gider; bu blok yalnızca sertifika yönetimi içindir.
+{$TURN_DOMAIN} {
+	respond "Diskort TURN" 404
 }

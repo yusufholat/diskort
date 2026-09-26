@@ -8,10 +8,19 @@ rtc:
   # Sunucunun genel IP'sini STUN ile otomatik bulur
   use_external_ip: true
 
-# UDP'nin kısıtlı olduğu ağlar (okul/iş yeri) için yedek röle
+# Yedek röle (TURN): doğrudan UDP bağlantı kurulamayan ağlar için.
+# - TURN/UDP 3478
+# - TURN/TLS: TLS 443'te Caddy tarafından açılıp (bkz. Caddyfile) PROXY protokolüyle 5349'a iletilir.
+#   LiveKit istemcilere 5349'u bildirir; masaüstü uygulaması bunu 443 olarak düzeltir (turnPort.ts).
+#   5349 dışarıya kapalıdır (güvenlik duvarı + yalnızca yerel PROXY başlığına güvenilir).
+# __TURN_DOMAIN__ başlangıçta TURN_DOMAIN ortam değişkeniyle değiştirilir (docker-compose.yml).
 turn:
   enabled: true
   udp_port: 3478
+  domain: __TURN_DOMAIN__
+  tls_port: 5349
+  external_tls: true
+  proxy_protocol: true
 
 room:
   auto_create: true
