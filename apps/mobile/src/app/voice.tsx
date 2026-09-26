@@ -25,6 +25,7 @@ export default function VoiceScreen() {
   const selfMute = useSettings((s) => s.selfMute);
   const selfDeaf = useSettings((s) => s.selfDeaf);
   const speaker = useSettings((s) => s.speaker);
+  const sharing = useVoice((s) => s.sharing);
   const [fullscreen, setFullscreen] = useState(false);
 
   if (status === 'idle' || !channelId) {
@@ -55,6 +56,12 @@ export default function VoiceScreen() {
         </View>
       )}
 
+      {sharing && (
+        <View style={[styles.banner, { backgroundColor: colors.ok }]}>
+          <Text style={[styles.bannerText, { color: '#fff' }]}>Ekranını paylaşıyorsun</Text>
+        </View>
+      )}
+
       {watching && (
         <Pressable onPress={() => setFullscreen(true)} style={styles.stream}>
           <StreamVideo userId={watching} />
@@ -72,6 +79,12 @@ export default function VoiceScreen() {
 
       <View style={styles.controls}>
         <IconButton icon={speaker ? 'volume-high' : 'ear'} onPress={() => void voice.setSpeaker(!speaker)} size={24} />
+        <IconButton
+          icon={sharing ? 'stop-circle-outline' : 'phone-portrait-outline'}
+          on={sharing}
+          onPress={() => void voice.toggleScreenShare()}
+          size={24}
+        />
         <IconButton icon={selfMute || selfDeaf ? 'mic-off' : 'mic'} active={selfMute || selfDeaf} onPress={() => voice.toggleMute()} size={24} />
         <IconButton icon={selfDeaf ? 'volume-mute' : 'headset'} active={selfDeaf} onPress={() => voice.toggleDeafen()} size={24} />
         <IconButton
@@ -134,6 +147,11 @@ function Member({ state }: { state: VoiceState }) {
           {user?.displayName ?? '…'}
         </Text>
       </View>
+      {state.streaming && state.userId === selfId && (
+        <View style={[styles.watch, { backgroundColor: colors.danger }]}>
+          <Text style={styles.watchText}>CANLI</Text>
+        </View>
+      )}
       {hasStream && state.userId !== selfId && (
         <Pressable onPress={() => voice.watch(watching ? null : state.userId)} style={[styles.watch, watching && { backgroundColor: colors.active }]}>
           <Text style={styles.watchText}>{watching ? 'İzlemeyi bırak' : 'Yayını izle'}</Text>

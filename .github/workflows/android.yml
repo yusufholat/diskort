@@ -78,35 +78,39 @@ jobs:
           ORG_GRADLE_PROJECT_DISKORT_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: ./gradlew assembleRelease --no-daemon
 
-      - name: İmzayı doğrula ve adlandır
+      - name: İmzaları doğrula ve adlandır
         env:
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           version=$(node -p "require('./apps/mobile/package.json').version")
-          apk="Diskort-$version-android.apk"
-          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk "$apk"
+          out=apps/mobile/android/app/build/outputs/apk/release
+          mkdir -p dist
+          # universal: indirme sayfası (ilk kurulum); diğerleri: uygulama içi güncelleme (daha küçük)
+          cp "$out/app-universal-release.apk" "dist/Diskort-$version-android.apk"
+          cp "$out/app-arm64-v8a-release.apk" "dist/Diskort-$version-android-arm64-v8a.apk"
+          cp "$out/app-armeabi-v7a-release.apk" "dist/Diskort-$version-android-armeabi-v7a.apk"
           apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
-          if ! out=$("$apksigner" verify --verbose "$apk" 2>&1); then
-            echo "$out"
-            echo "::error::APK imzası geçersiz"
-            exit 1
-          fi
-          echo "$out" | grep "Verified using"
-          # APK'nın imza bloğunda Diskort sertifikasının kendisi bulunmalı (hata ayıklama anahtarı değil)
           keytool -exportcert -keystore "$RUNNER_TEMP/diskort-release.p12" -storetype PKCS12             -alias "$KEY_ALIAS" -storepass "$STORE_PASSWORD" -file "$RUNNER_TEMP/diskort.der" >/dev/null
-          node -e "const fs=require('fs');if(!fs.readFileSync(process.argv[1]).includes(fs.readFileSync(process.argv[2]))){console.error('::error::APK Diskort anahtarıyla imzalanmamış');process.exit(1)}console.log('İmza: Diskort anahtarı')" "$apk" "$RUNNER_TEMP/diskort.der"
-          ls -la "$apk"
-          echo "APK=$apk" >> "$GITHUB_ENV"
+          for apk in dist/*.apk; do
+            if ! result=$("$apksigner" verify "$apk" 2>&1); then
+              echo "$result"
+              echo "::error::$apk imzası geçersiz"
+              exit 1
+            fi
+            # İmza bloğunda Diskort sertifikasının kendisi bulunmalı (hata ayıklama anahtarı değil)
+            node -e "const fs=require('fs');if(!fs.readFileSync(process.argv[1]).includes(fs.readFileSync(process.argv[2]))){console.error('::error::'+process.argv[1]+' Diskort anahtarıyla imzalanmamış');process.exit(1)}" "$apk" "$RUNNER_TEMP/diskort.der"
+          done
+          ls -la dist
 
       - uses: actions/upload-artifact@v4
         with:
           name: diskort-android-apk
-          path: ${{ env.APK }}
+          path: dist/*.apk
           retention-days: 14
 
       - name: Taslak sürüme yükle
         if: inputs.release-tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ inputs.release-tag }}" "$APK" --clobber -R "$GITHUB_REPOSITORY"
+        run: gh release upload "${{ inputs.release-tag }}" dist/*.apk --clobber -R "$GITHUB_REPOSITORY"

@@ -39,12 +39,16 @@ export function IconButton({
   icon,
   onPress,
   active,
+  on,
   danger,
   size = 22,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   onPress: () => void;
+  /** Kırmızı: kapalı olan bir şey (susturuldu) */
   active?: boolean;
+  /** Yeşil: açık olan bir şey (yayında) */
+  on?: boolean;
   danger?: boolean;
   size?: number;
 }) {
@@ -61,7 +65,7 @@ export function IconButton({
       <Ionicons
         name={icon}
         size={size}
-        color={danger ? '#fff' : active ? colors.danger : colors.text}
+        color={danger ? '#fff' : active ? colors.danger : on ? colors.ok : colors.text}
         style={danger ? { transform: [{ rotate: '135deg' }] } : undefined}
       />
     </Pressable>

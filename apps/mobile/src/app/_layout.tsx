@@ -5,11 +5,12 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { gateway, useSession } from '@diskort/client-core';
-import { UpdateRequired } from '../components/UpdateRequired';
+import { UpdateScreen } from '../components/UpdateScreen';
 import { clientReady } from '../setup';
+import { checkForUpdate, cleanupDownloads, useAppUpdate } from '../update/updater';
 import { useUi } from '../stores/ui';
 import { colors } from '../theme';
-import { voice } from '../voice/voice';
+import { useVoice, voice } from '../voice/voice';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -17,9 +18,19 @@ export default function RootLayout() {
   const [ready, setReady] = useState(false);
   const token = useSession((s) => s.token);
   const updateRequired = useUi((s) => s.updateRequired);
+  const updatePending = useAppUpdate((s) => s.status.kind !== 'idle');
+  const inVoice = useVoice((s) => s.status !== 'idle');
+  // Yeni sürüm zorunludur; ama süren sesli sohbet bölünmez, sesten çıkınca gösterilir
+  const showUpdate = Boolean(updateRequired) || (updatePending && !inVoice);
 
   useEffect(() => {
     void clientReady.finally(() => setReady(true));
+    void cleanupDownloads();
+    void checkForUpdate(true);
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void checkForUpdate();
+    });
+    return () => sub.remove();
   }, []);
 
   useEffect(() => {
@@ -45,8 +56,8 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
-      {updateRequired ? (
-        <UpdateRequired version={updateRequired} />
+      {showUpdate ? (
+        <UpdateScreen requiredVersion={updateRequired} />
       ) : (
         <>
           <Stack

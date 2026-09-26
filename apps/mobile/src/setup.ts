@@ -1,11 +1,12 @@
 // Uygulamanın her şeyden önce çalışan kurulumu (index.ts'te ilk içe aktarılır).
 import { registerGlobals } from '@livekit/react-native';
 import { configureClient, useGuild } from '@diskort/client-core';
-import * as Application from 'expo-application';
 import * as SecureStore from 'expo-secure-store';
 import { AppState, Vibration } from 'react-native';
 import { getSettings } from './stores/settings';
 import { toast, useUi } from './stores/ui';
+import { checkForUpdate } from './update/updater';
+import { APP_VERSION } from './version';
 
 // LiveKit'in kullandığı WebRTC ve tarayıcı API'lerini React Native'e tanıtır
 registerGlobals();
@@ -17,7 +18,7 @@ const secureStorage = {
   removeItem: (key: string) => SecureStore.deleteItemAsync(key),
 };
 
-export const APP_VERSION = Application.nativeApplicationVersion ?? '0.0.0';
+export { APP_VERSION };
 
 /** Kayıtlı oturum yüklenince çözülür; kök yerleşim o zamana dek açılış ekranını tutar. */
 export const clientReady = configureClient({
@@ -36,4 +37,6 @@ export const clientReady = configureClient({
     toast(`${author ?? 'Biri'} senden bahsetti · #${channel ?? ''}`);
   },
   onUpdateRequired: (version) => useUi.setState({ updateRequired: version }),
+  // Yeni sürüm yayınlandı: hemen denetle (sesteyse sesten çıkınca güncelleme ekranı gösterilir)
+  onUpdateAvailable: () => void checkForUpdate(true),
 });

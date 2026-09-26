@@ -42,6 +42,8 @@ interface VoiceStore {
   watching: string | null;
   /** Mikrofon izni yoksa yalnızca dinlenir */
   listenOnly: boolean;
+  /** Telefonun ekranı paylaşılıyor */
+  sharing: boolean;
   /** Abonelikler değişince artar (video bileşenlerini tazelemek için) */
   tracksVersion: number;
 }
@@ -51,6 +53,7 @@ const IDLE: Omit<VoiceStore, 'channelId' | 'status'> = {
   streams: {},
   watching: null,
   listenOnly: false,
+  sharing: false,
   tracksVersion: 0,
 };
 
@@ -197,6 +200,33 @@ class MobileVoiceClient {
     useVoice.setState({ watching: userId });
   }
 
+  /**
+   * Telefonun ekranını paylaşır / durdurur. Android her seferinde "ekranın kaydedilecek" onayı ister;
+   * paylaşım bildirimden ya da sistemden durdurulursa durum kendiliğinden güncellenir.
+   */
+  async toggleScreenShare(): Promise<void> {
+    const room = this.room;
+    if (!room || useVoice.getState().status !== 'connected') return;
+    const next = !useVoice.getState().sharing;
+    try {
+      await room.localParticipant.setScreenShareEnabled(
+        next,
+        { audio: false },
+        {
+          videoCodec: 'h264',
+          simulcast: false,
+          screenShareEncoding: { maxBitrate: 2_500_000, maxFramerate: 30 },
+        },
+      );
+      useVoice.setState({ sharing: next && Boolean(room.localParticipant.getTrackPublication(Track.Source.ScreenShare)) });
+    } catch (err) {
+      useVoice.setState({ sharing: false });
+      const message = errorMessage(err);
+      // Kullanıcı Android'in onay penceresinde vazgeçtiyse hata gösterme
+      if (!/permission|denied|cancel|NotAllowed/i.test(message)) toast(`Ekran paylaşılamadı: ${message}`, 'error');
+    }
+  }
+
   getScreenPublication(userId: string): { participant: RemoteParticipant; publication: RemoteTrackPublication } | null {
     const participant = this.room?.remoteParticipants.get(userId);
     const publication = participant?.getTrackPublication(Track.Source.ScreenShare);
@@ -256,6 +286,9 @@ class MobileVoiceClient {
           const { [p.identity]: _gone, ...streams } = s.streams;
           return { streams, watching: s.watching === p.identity ? null : s.watching };
         });
+      })
+      .on(RoomEvent.LocalTrackUnpublished, (pub) => {
+        if (pub.source === Track.Source.ScreenShare) useVoice.setState({ sharing: false });
       })
       .on(RoomEvent.TrackSubscribed, bump)
       .on(RoomEvent.TrackUnsubscribed, bump)

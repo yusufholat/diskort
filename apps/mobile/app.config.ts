@@ -32,6 +32,10 @@ const config: ExpoConfig = {
       'android.permission.POST_NOTIFICATIONS',
       'android.permission.INTERNET',
       'android.permission.ACCESS_NETWORK_STATE',
+      // Uygulama içi güncelleme: indirilen yeni APK'nın kurulumunu başlatmak için
+      'android.permission.REQUEST_INSTALL_PACKAGES',
+      // Telefondan ekran paylaşımı (WebRTC'nin MediaProjection servisi)
+      'android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION',
     ],
     // Kamera henüz kullanılmıyor (WebRTC eklentisi varsayılan olarak ister)
     blockedPermissions: [
@@ -54,13 +58,15 @@ const config: ExpoConfig = {
         },
       },
     ],
-    ['@livekit/react-native-expo-plugin', { android: { audioType: 'communication' } }],
+    // enableScreenShareService: telefondan ekran paylaşımı için MediaProjection ön plan servisi
+    ['@livekit/react-native-expo-plugin', { android: { audioType: 'communication', enableScreenShareService: true } }],
     '@config-plugins/react-native-webrtc',
     [
       'expo-splash-screen',
       { image: './assets/splash-icon.png', imageWidth: 120, backgroundColor: '#1e1f22', resizeMode: 'contain' },
     ],
     './plugins/withReleaseSigning',
+    './plugins/withAbiSplits',
   ],
   experiments: {
     typedRoutes: true,

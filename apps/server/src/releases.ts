@@ -28,7 +28,8 @@ const MATCHERS: Record<Platform, RegExp> = {
   'linux-deb': /\.deb$/i,
   'mac-arm64': /arm64\.dmg$/i,
   'mac-x64': /x64\.dmg$/i,
-  android: /\.apk$/i,
+  // Hepsini içeren APK (ilk kurulum); işlemciye özel olanlar yalnızca uygulama içi güncellemede
+  android: /-android\.apk$/i,
 };
 
 export const PLATFORMS = Object.keys(MATCHERS) as Platform[];
