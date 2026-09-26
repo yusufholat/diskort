@@ -1,0 +1,105 @@
+# Android APK derlemesi (apps/mobile). İki kullanım:
+# - Elle (Actions → "Android APK" → Run workflow): test APK'sı derlenir, "artifact" olarak saklanır.
+# - Sürüm iş akışından (release.yml): APK taslak sürüme Diskort-<sürüm>-android.apk olarak yüklenir.
+#
+# APK, depoda olmayan kalıcı anahtarla imzalanır (gizli değişkenler: ANDROID_KEYSTORE_BASE64,
+# ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS). Anahtar kaybedilirse kurulu uygulamalar güncellenemez.
+name: Android APK
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release-tag:
+        description: APK'nın yükleneceği sürüm etiketi (boşsa yalnızca artifact)
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    name: Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Sürüm etiketiyle uyumlu mu?
+        if: inputs.release-tag != ''
+        run: |
+          version=$(node -p "require('./apps/mobile/package.json').version")
+          if [ "v$version" != "${{ inputs.release-tag }}" ]; then
+            echo "::error::Etiket (${{ inputs.release-tag }}) ile apps/mobile/package.json sürümü (v$version) uyuşmuyor"
+            exit 1
+          fi
+
+      - name: Tip denetimi
+        working-directory: apps/mobile
+        run: pnpm exec tsc --noEmit
+
+      - name: Android projesini oluştur (expo prebuild)
+        working-directory: apps/mobile
+        run: pnpm exec expo prebuild --platform android --no-install
+
+      - name: İmza anahtarını hazırla
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 gizli değişkeni yok"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/diskort-release.p12"
+
+      - name: APK derle
+        working-directory: apps/mobile/android
+        env:
+          ORG_GRADLE_PROJECT_DISKORT_UPLOAD_STORE_FILE: ${{ runner.temp }}/diskort-release.p12
+          ORG_GRADLE_PROJECT_DISKORT_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_DISKORT_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_DISKORT_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: İmzayı doğrula ve adlandır
+        run: |
+          version=$(node -p "require('./apps/mobile/package.json').version")
+          apk="Diskort-$version-android.apk"
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk "$apk"
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$apksigner" verify --print-certs "$apk" | grep -E "Signer #1 certificate (DN|SHA-256)"
+          if "$apksigner" verify --print-certs "$apk" | grep -q "CN=Android Debug"; then
+            echo "::error::APK hata ayıklama anahtarıyla imzalanmış"
+            exit 1
+          fi
+          ls -la "$apk"
+          echo "APK=$apk" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diskort-android-apk
+          path: ${{ env.APK }}
+          retention-days: 14
+
+      - name: Taslak sürüme yükle
+        if: inputs.release-tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.release-tag }}" "$APK" --clobber -R "$GITHUB_REPOSITORY"

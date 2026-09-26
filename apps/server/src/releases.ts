@@ -2,7 +2,7 @@
 // yönlendirmeleri ve "eski istemci bağlanamaz" kuralı bu tek kaynağı kullanır.
 // Kullanıcılar GitHub'a gitmez: sayfa /download/<platform> adresine bağlanır, API dosyaya yönlendirir.
 
-export type Platform = 'windows' | 'linux-appimage' | 'linux-deb' | 'mac-arm64' | 'mac-x64';
+export type Platform = 'windows' | 'linux-appimage' | 'linux-deb' | 'mac-arm64' | 'mac-x64' | 'android';
 
 export interface PlatformAsset {
   name: string;
@@ -28,6 +28,7 @@ const MATCHERS: Record<Platform, RegExp> = {
   'linux-deb': /\.deb$/i,
   'mac-arm64': /arm64\.dmg$/i,
   'mac-x64': /x64\.dmg$/i,
+  android: /\.apk$/i,
 };
 
 export const PLATFORMS = Object.keys(MATCHERS) as Platform[];

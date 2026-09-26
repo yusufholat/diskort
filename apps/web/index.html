@@ -23,6 +23,7 @@
         <symbol id="i-windows" viewBox="0 0 24 24"><path fill="currentColor" d="M3 5.3 10.4 4.3v7.2H3zM11.4 4.1 21 2.8v8.7h-9.6zM3 12.5h7.4v7.2L3 18.7zM11.4 12.5H21v8.7l-9.6-1.3z" /></symbol>
         <symbol id="i-linux" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="19" height="17" rx="3" /><path d="m7 9 3 3-3 3M12.5 15H17" /></g></symbol>
         <symbol id="i-mac" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" /></symbol>
+        <symbol id="i-phone" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2.5" /><path d="M11 18h2" /></g></symbol>
         <symbol id="i-download" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12m0 0-5-5m5 5 5-5M4 19h16" /></symbol>
         <symbol id="i-speaker" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z" /><path d="M15.5 9a4.5 4.5 0 0 1 0 6M18.5 6a8.5 8.5 0 0 1 0 12" /></g></symbol>
         <symbol id="i-mic" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4" /></g></symbol>
@@ -64,7 +65,7 @@
               </a>
               <p class="meta" id="primary-meta">Windows 10 / 11 · 64-bit</p>
               <p class="notice" id="mobile-notice" hidden>
-                Diskort bir masaüstü uygulamasıdır. Bu sayfayı bilgisayarından açarak indirebilirsin.
+                iPhone sürümü henüz yok. Diskort'u bilgisayarına ya da Android telefonuna indirebilirsin.
               </p>
               <p class="alt">Başka bir sistem mi kullanıyorsun? <a href="#platformlar">Tüm platformlar</a></p>
             </div>
@@ -101,7 +102,7 @@
 
         <section id="platformlar" class="section">
           <h2>Platformunu seç</h2>
-          <p class="section-lead">Tek bir hesapla tüm bilgisayarlarında aynı topluluk.</p>
+          <p class="section-lead">Tek bir hesapla bilgisayarında ve telefonunda aynı topluluk.</p>
           <div class="platforms">
             <article class="platform" data-platform="windows">
               <svg class="platform-icon" aria-hidden="true"><use href="#i-windows" /></svg>
@@ -135,6 +136,19 @@
                 <a class="btn btn-ghost" href="/download/mac-x64" data-asset="mac-x64">Intel</a>
               </div>
               <p class="platform-meta" data-meta="mac"></p>
+            </article>
+
+            <article class="platform" data-platform="android">
+              <svg class="platform-icon" aria-hidden="true"><use href="#i-phone" /></svg>
+              <h3>Android</h3>
+              <p class="platform-req">Android 7 ve üzeri</p>
+              <div class="platform-actions">
+                <a class="btn btn-primary" href="/download/android" data-asset="android">
+                  <svg class="icon" aria-hidden="true"><use href="#i-download" /></svg>APK indir
+                </a>
+              </div>
+              <p class="platform-meta" data-meta="android"></p>
+              <p class="platform-note">İlk kurulumda telefon “bilinmeyen kaynaklardan yükleme” izni ister; tarayıcına bu izni ver.</p>
             </article>
           </div>
         </section>
@@ -224,7 +238,7 @@
           <img src="/assets/logo.svg" alt="" width="24" height="24" />
           <span>Diskort</span>
         </div>
-        <p id="footer-version">Masaüstü uygulaması</p>
+        <p id="footer-version"></p>
         <p><a href="/privacy">Gizlilik</a></p>
       </footer>
     </div>

@@ -497,8 +497,20 @@ h3 {
 
 .platforms {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 20px;
+}
+
+.platform-note {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 8px;
+}
+
+@media (max-width: 1100px) {
+  .platforms {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 .platform {

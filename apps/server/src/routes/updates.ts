@@ -37,11 +37,10 @@ export function registerUpdateRoutes(app: FastifyInstance, ctx: AppContext): voi
   // İstemcinin "güncel miyim?" sorusu (?platform=desktop|android|ios; varsayılan masaüstü)
   app.get<{ Querystring: { platform?: string } }>('/api/client/version', async (req, reply) => {
     const platform = parsePlatform(req.query.platform);
-    const [latest, required] = await Promise.all([
-      platform === 'desktop' ? releases.latest() : Promise.resolve(null),
-      clientVersions.required(platform),
-    ]);
+    const [release, required] = await Promise.all([releases.latest(), clientVersions.required(platform)]);
+    // Mobil için "en son" yalnızca o sürümde bu platformun paketi varsa geçerlidir
+    const hasPackage = platform === 'desktop' || (platform === 'android' && Boolean(release?.assets.android));
     void reply.header('Cache-Control', 'no-store');
-    return { platform, latest: latest?.version ?? required, required };
+    return { platform, latest: (hasPackage ? release?.version : null) ?? required, required };
   });
 }

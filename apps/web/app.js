@@ -4,12 +4,14 @@
     windows: { label: 'Windows için İndir', icon: '#i-windows', req: 'Windows 10 / 11 · 64-bit', asset: 'windows' },
     linux: { label: 'Linux için İndir', icon: '#i-linux', req: 'AppImage · 64-bit', asset: 'linux-appimage' },
     mac: { label: 'macOS için İndir', icon: '#i-mac', req: 'Apple Silicon · macOS 12 ve üzeri', asset: 'mac-arm64' },
+    android: { label: 'Android için İndir', icon: '#i-phone', req: 'Android 7 ve üzeri · APK', asset: 'android' },
   };
 
   function detectOS() {
     const ua = navigator.userAgent || '';
     const platform = ((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '').toLowerCase();
-    if (/android|iphone|ipad|ipod/i.test(ua) || navigator.userAgentData?.mobile) return 'mobile';
+    if (/android/i.test(ua)) return 'android';
+    if (/iphone|ipad|ipod/i.test(ua) || navigator.userAgentData?.mobile) return 'mobile';
     if (platform.includes('win') || /windows/i.test(ua)) return 'windows';
     if (platform.includes('mac') || /mac os x/i.test(ua)) return 'mac';
     if (platform.includes('linux') || /linux|x11/i.test(ua)) return 'linux';
@@ -51,7 +53,7 @@
       primaryMeta.textContent = [version && `Sürüm ${version}`, size && formatSize(size), info.req].filter(Boolean).join(' · ');
     } else {
       // Bu platform henüz yok: Windows sürümüne yönlendir, durumu açıkça yaz.
-      primaryLabel.textContent = `${key === 'mac' ? 'macOS' : 'Linux'} sürümü yakında`;
+      primaryLabel.textContent = `${{ mac: 'macOS', linux: 'Linux', android: 'Android' }[key] ?? key} sürümü yakında`;
       primaryLinks.forEach((a) => {
         a.setAttribute('aria-disabled', 'true');
         a.removeAttribute('href');
@@ -85,6 +87,7 @@
         windows: platforms.windows?.size,
         linux: platforms['linux-appimage']?.size ?? platforms['linux-deb']?.size,
         mac: platforms['mac-arm64']?.size ?? platforms['mac-x64']?.size,
+        android: platforms.android?.size,
       };
       document.querySelectorAll('[data-meta]').forEach((el) => {
         const size = sizes[el.dataset.meta];
@@ -96,7 +99,7 @@
         const asset = platforms[info.asset];
         setPrimary(os, Boolean(asset), latest.version, asset?.size);
       }
-      document.getElementById('footer-version').textContent = `Masaüstü uygulaması · Sürüm ${latest.version}`;
+      document.getElementById('footer-version').textContent = `Sürüm ${latest.version}`;
     })
     .catch(() => {
       // Sürüm bilgisi alınamazsa butonlar yine çalışır (sunucu doğru dosyaya yönlendirir).

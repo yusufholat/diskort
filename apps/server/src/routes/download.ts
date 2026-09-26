@@ -9,6 +9,7 @@ const ALIASES: Record<string, Platform> = {
   mac: 'mac-arm64',
   macos: 'mac-arm64',
   'mac-intel': 'mac-x64',
+  apk: 'android',
 };
 
 export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): void {
