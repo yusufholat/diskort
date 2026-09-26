@@ -49,6 +49,11 @@ const resetPasswordSchema = z.object({
 });
 
 const deleteAccountSchema = z.object({ password: z.string().min(1, 'Şifre gerekli.') });
+const pushTokenSchema = z.object({
+  token: z.string().min(10).max(4096),
+  platform: z.enum(['android', 'ios']),
+});
+const removePushTokenSchema = z.object({ token: z.string().min(10).max(4096) });
 
 const updateMeSchema = z.object({
   displayName: displayName.optional(),
@@ -141,6 +146,22 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     store.setPassword(req.user.id, await auth.hashPassword(body.newPassword));
     const response: AuthResponse = { token: await auth.issueToken(req.user.id), user: req.user };
     return response;
+  });
+
+  // Telefon bildirimleri için cihaz jetonu (uygulama açılışta ve jeton yenilenince gönderir)
+  app.post('/api/me/push-tokens', { preHandler: auth.requireUser }, async (req, reply) => {
+    const body = parseBody(pushTokenSchema, req.body, reply);
+    if (!body) return reply;
+    store.savePushToken(req.user.id, body.token, body.platform);
+    return reply.code(204).send();
+  });
+
+  // Çıkış yaparken: bu cihaza artık bu hesabın bildirimleri gitmesin
+  app.delete('/api/me/push-tokens', { preHandler: auth.requireUser }, async (req, reply) => {
+    const body = parseBody(removePushTokenSchema, req.body, reply);
+    if (!body) return reply;
+    store.removePushToken(body.token);
+    return reply.code(204).send();
   });
 
   // Kullanıcı kendi hesabını siler (şifre onayıyla). Son yönetici, topluluk sahipsiz kalmasın diye silemez.

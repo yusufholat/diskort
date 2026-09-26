@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import type { ExpoConfig } from 'expo/config';
 import { version } from './package.json';
 
@@ -20,6 +21,8 @@ const config: ExpoConfig = {
   android: {
     package: 'com.diskort.app',
     versionCode: versionCode(version),
+    // Firebase (yalnızca bildirim teslimatı). Dosya depoda değil; CI gizli değişkenden yazar.
+    googleServicesFile: existsSync('./google-services.json') ? './google-services.json' : undefined,
     adaptiveIcon: {
       backgroundColor: '#5865f2',
       foregroundImage: './assets/android-icon-foreground.png',
@@ -64,6 +67,10 @@ const config: ExpoConfig = {
     [
       'expo-splash-screen',
       { image: './assets/splash-icon.png', imageWidth: 120, backgroundColor: '#1e1f22', resizeMode: 'contain' },
+    ],
+    [
+      'expo-notifications',
+      { icon: './assets/android-icon-monochrome.png', color: '#5865f2', defaultChannel: 'diskort-mentions' },
     ],
     './plugins/withReleaseSigning',
     './plugins/withAbiSplits',

@@ -4,6 +4,7 @@ import type {
   Channel,
   ChangePasswordRequest,
   DeleteAccountRequest,
+  PushTokenRequest,
   Message,
   CreateChannelRequest,
   CreateInviteRequest,
@@ -71,6 +72,8 @@ export const api = {
   updateMe: (body: UpdateMeRequest) => request<User>('PATCH', '/api/me', body),
   changePassword: (body: ChangePasswordRequest) => request<AuthResponse>('POST', '/api/me/password', body),
   deleteAccount: (body: DeleteAccountRequest) => request<void>('DELETE', '/api/me', body),
+  registerPushToken: (body: PushTokenRequest) => request<void>('POST', '/api/me/push-tokens', body),
+  unregisterPushToken: (token: string) => request<void>('DELETE', '/api/me/push-tokens', { token }),
 
   createResetCode: (userId: string) => request<ResetCodeResponse>('POST', `/api/users/${userId}/reset-code`),
   updateUser: (userId: string, body: UpdateUserRequest) => request<User>('PATCH', `/api/users/${userId}`, body),

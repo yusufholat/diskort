@@ -9,6 +9,7 @@ import type { AppContext } from './context.js';
 import { Store } from './db.js';
 import { Gateway } from './gateway.js';
 import { LiveKitService } from './livekit.js';
+import { PushService } from './push.js';
 import { ReleaseService } from './releases.js';
 import { VoiceStateStore } from './voiceState.js';
 import { registerAdminRoutes } from './routes/admin.js';
@@ -24,6 +25,7 @@ export interface BuildOptions {
   logger?: boolean;
   livekit?: LiveKitService;
   releases?: ReleaseService;
+  push?: PushService;
 }
 
 export async function buildApp(
@@ -44,7 +46,8 @@ export async function buildApp(
   const releases = opts.releases ?? new ReleaseService(config.githubRepo);
   const clientVersions = new ClientVersionPolicy(releases, config.enforceClientVersion, config.minMobileVersions);
   const gateway = new Gateway(store, auth, voice, guild, clientVersions);
-  const ctx: AppContext = { config, store, auth, voice, livekit, gateway, releases, clientVersions, guild };
+  const push = opts.push ?? new PushService(store, config.fcmServiceAccountFile, app.log);
+  const ctx: AppContext = { config, store, auth, voice, livekit, gateway, releases, clientVersions, push, guild };
 
   // Yeni sürüm yayınlanınca bağlı istemciler arka planda indirmeye başlasın
   releases.onNewRelease((release) => gateway.broadcast({ t: 'UPDATE_AVAILABLE', d: { version: release.version } }));

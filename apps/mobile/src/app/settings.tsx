@@ -3,7 +3,8 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-na
 import { api, errorMessage, gateway, useSession } from '@diskort/client-core';
 import { Avatar } from '../components/Avatar';
 import { Button, Field, SectionTitle, ui } from '../components/ui';
-import { APP_VERSION } from '../setup';
+import { unregisterPush } from '../notifications';
+import { APP_VERSION } from '../version';
 import { DEFAULT_SERVER_URL, useSettings } from '../stores/settings';
 import { toast } from '../stores/ui';
 import { colors } from '../theme';
@@ -28,7 +29,8 @@ export default function SettingsScreen() {
     }
   };
 
-  const logout = (): void => {
+  const logout = async (): Promise<void> => {
+    await unregisterPush();
     void voice.leave();
     gateway.disconnect();
     useSession.getState().logout();
@@ -63,10 +65,10 @@ export default function SettingsScreen() {
       </Pressable>
 
       <View style={{ marginTop: 24 }}>
-        <Button title="Çıkış Yap" variant="secondary" onPress={logout} />
+        <Button title="Çıkış Yap" variant="secondary" onPress={() => void logout()} />
       </View>
 
-      <DeleteAccount onDeleted={logout} />
+      <DeleteAccount onDeleted={() => void logout()} />
     </ScrollView>
   );
 }

@@ -72,6 +72,17 @@ const MIGRATIONS: string[] = [
     SELECT lower(hex(randomblob(6))), g.id, 'genel-sohbet', 'text', 0, CAST(strftime('%s', 'now') AS INTEGER) * 1000
     FROM guilds g WHERE NOT EXISTS (SELECT 1 FROM channels WHERE type = 'text');
   `,
+  // 4: telefonlara bildirim göndermek için cihaz jetonları (FCM / APNs)
+  `
+  CREATE TABLE push_tokens (
+    token      TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    platform   TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    last_seen  INTEGER NOT NULL
+  );
+  CREATE INDEX push_tokens_by_user ON push_tokens(user_id);
+  `,
 ];
 
 type Param = string | number | null;
@@ -447,6 +458,34 @@ export class Store {
     return this.run('DELETE FROM channels WHERE id = ?', id) > 0;
   }
 
+  // ---------- Bildirim jetonları ----------
+
+  /** Cihaz jetonunu kaydeder; aynı cihaz başka hesaba geçtiyse jeton yeni hesaba taşınır. */
+  savePushToken(userId: string, token: string, platform: string): void {
+    const now = Date.now();
+    this.run(
+      `INSERT INTO push_tokens (token, user_id, platform, created_at, last_seen) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (token) DO UPDATE SET user_id = excluded.user_id, platform = excluded.platform, last_seen = excluded.last_seen`,
+      token,
+      userId,
+      platform,
+      now,
+      now,
+    );
+  }
+
+  removePushToken(token: string): void {
+    this.run('DELETE FROM push_tokens WHERE token = ?', token);
+  }
+
+  pushTokens(userIds: string[]): { token: string; userId: string; platform: string }[] {
+    if (userIds.length === 0) return [];
+    return this.all<{ token: string; user_id: string; platform: string }>(
+      `SELECT token, user_id, platform FROM push_tokens WHERE user_id IN (${userIds.map(() => '?').join(',')})`,
+      ...userIds,
+    ).map((r) => ({ token: r.token, userId: r.user_id, platform: r.platform }));
+  }
+
   // ---------- Mesajlar ----------
 
   /** En yeni mesajlardan geriye doğru bir sayfa; sonuç eskiden yeniye sıralıdır. */
@@ -474,17 +513,25 @@ export class Store {
         .prepare('INSERT INTO messages (channel_id, author_id, content, created_at) VALUES (?, ?, ?, ?)')
         .run(channelId, authorId, content, Date.now()).lastInsertRowid,
     );
-    for (const username of extractMentions(content)) {
-      const user = this.one<{ id: string }>('SELECT id FROM users WHERE username = ?', username);
-      if (!user || user.id === authorId) continue;
+    for (const userId of this.resolveMentions(content, authorId)) {
       this.run(
         `INSERT INTO read_states (user_id, channel_id, last_read_id, mention_count) VALUES (?, ?, 0, 1)
          ON CONFLICT (user_id, channel_id) DO UPDATE SET mention_count = mention_count + 1`,
-        user.id,
+        userId,
         channelId,
       );
     }
     return this.getMessage(id)!;
+  }
+
+  /** Metinde bahsedilen (var olan) kullanıcıların kimlikleri; yazar hariç. */
+  resolveMentions(content: string, authorId: string | null): string[] {
+    const ids: string[] = [];
+    for (const username of extractMentions(content)) {
+      const user = this.one<{ id: string }>('SELECT id FROM users WHERE username = ?', username);
+      if (user && user.id !== authorId) ids.push(user.id);
+    }
+    return ids;
   }
 
   updateMessage(id: number, content: string): Message | null {

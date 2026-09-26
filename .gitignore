@@ -13,3 +13,6 @@ apps/server/data/
 
 # Test APK gibi geçici dosyalar (sunucuda elle konur)
 apps/web/test/
+
+# Sunucu gizli anahtarları (Firebase hizmet hesabı vb.)
+infra/secrets/

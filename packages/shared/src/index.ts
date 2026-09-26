@@ -73,6 +73,11 @@ export interface AuthResponse {
   user: User;
 }
 
+export interface PushTokenRequest {
+  token: string;
+  platform: 'android' | 'ios';
+}
+
 export interface DeleteAccountRequest {
   password: string;
 }

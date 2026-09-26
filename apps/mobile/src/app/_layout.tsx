@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { AppState, StyleSheet, Text, View } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
+import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { gateway, useSession } from '@diskort/client-core';
 import { UpdateScreen } from '../components/UpdateScreen';
+import { channelFromResponse, registerForPush } from '../notifications';
 import { clientReady } from '../setup';
 import { checkForUpdate, cleanupDownloads, useAppUpdate } from '../update/updater';
 import { useUi } from '../stores/ui';
@@ -36,6 +38,24 @@ export default function RootLayout() {
   useEffect(() => {
     if (ready) void SplashScreen.hideAsync();
   }, [ready]);
+
+  // Oturum açılınca bu telefonu bildirimler için kaydet
+  useEffect(() => {
+    if (ready && token) void registerForPush();
+  }, [ready, token]);
+
+  // Bildirime dokunulunca o kanalı aç (uygulama kapalıyken açıldıysa da)
+  const router = useRouter();
+  useEffect(() => {
+    if (!ready || !token) return;
+    const open = (response: Notifications.NotificationResponse | null): void => {
+      const channelId = channelFromResponse(response);
+      if (channelId) router.push(`/channel/${channelId}`);
+    };
+    open(Notifications.getLastNotificationResponse());
+    const sub = Notifications.addNotificationResponseReceivedListener(open);
+    return () => sub.remove();
+  }, [ready, token, router]);
 
   // Oturum açıkken gateway'e bağlan; uygulama öne gelince beklemeden yeniden bağlan
   useEffect(() => {

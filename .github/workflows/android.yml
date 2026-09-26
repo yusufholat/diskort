@@ -55,6 +55,16 @@ jobs:
         working-directory: apps/mobile
         run: pnpm exec tsc --noEmit
 
+      - name: Firebase yapılandırması (bildirimler)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
+            echo "::warning::GOOGLE_SERVICES_JSON yok; APK bildirimsiz derlenecek"
+          else
+            echo "$GOOGLE_SERVICES_JSON" | base64 -d > apps/mobile/google-services.json
+          fi
+
       - name: Android projesini oluştur (expo prebuild)
         working-directory: apps/mobile
         run: pnpm exec expo prebuild --platform android --no-install

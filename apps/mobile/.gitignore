@@ -43,3 +43,6 @@ yarn-error.*
 # Android imza anahtarı asla depoya girmez
 *.keystore
 !android/app/debug.keystore
+
+# Firebase yapılandırması CI'da gizli değişkenden yazılır
+google-services.json

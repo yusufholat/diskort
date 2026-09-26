@@ -42,8 +42,11 @@ services:
       CLIENT_UPDATE_ENFORCE: ${CLIENT_UPDATE_ENFORCE:-1}
       MIN_ANDROID_VERSION: ${MIN_ANDROID_VERSION:-}
       MIN_IOS_VERSION: ${MIN_IOS_VERSION:-}
+      # Telefon bildirimleri: Firebase hizmet hesabı anahtarı (infra/secrets/fcm.json, depoda değil)
+      FCM_SERVICE_ACCOUNT_FILE: ${FCM_SERVICE_ACCOUNT_FILE:-}
     volumes:
       - diskort-data:/data
+      - ./secrets:/run/secrets:ro
 
   caddy:
     # Katman-4 eklentili Caddy (TURN/TLS'i 443'te HTTPS ile paylaşmak için)

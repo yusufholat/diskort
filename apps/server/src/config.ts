@@ -18,6 +18,8 @@ export interface Config {
   enforceClientVersion: boolean;
   /** Mobil uygulamaların bağlanabilmesi için gereken en düşük sürüm (yoksa kural uygulanmaz) */
   minMobileVersions: { android: string | null; ios: string | null };
+  /** Telefon bildirimleri: Firebase hizmet hesabı anahtarının (JSON) yolu; yoksa bildirim gönderilmez */
+  fcmServiceAccountFile: string | null;
   isDev: boolean;
 }
 
@@ -51,6 +53,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     githubRepo: env.GITHUB_REPO ?? 'yusufholat/diskort',
     enforceClientVersion: env.CLIENT_UPDATE_ENFORCE ? env.CLIENT_UPDATE_ENFORCE !== '0' : !isDev,
     minMobileVersions: { android: env.MIN_ANDROID_VERSION || null, ios: env.MIN_IOS_VERSION || null },
+    fcmServiceAccountFile: env.FCM_SERVICE_ACCOUNT_FILE || null,
     isDev,
   };
 }

@@ -41,7 +41,7 @@ function createMessageLimiter(max = 10, windowMs = 10_000) {
 }
 
 export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const { store, auth, gateway } = ctx;
+  const { store, auth, gateway, push } = ctx;
   const allowMessage = createMessageLimiter();
 
   const textChannel = (id: string, reply: FastifyReply): Channel | null => {
@@ -69,7 +69,8 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
     '/api/channels/:id/messages',
     { preHandler: auth.requireUser },
     async (req, reply) => {
-      if (!textChannel(req.params.id, reply)) return reply;
+      const channel = textChannel(req.params.id, reply);
+      if (!channel) return reply;
       if (!allowMessage(req.user.id)) {
         return sendError(reply, 429, 'rate_limited', 'Çok hızlı mesaj gönderiyorsun, biraz yavaşla.');
       }
@@ -79,6 +80,8 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
       // Yazar kendi mesajını okumuş sayılır.
       store.ack(req.user.id, req.params.id, Number(message.id));
       gateway.broadcast({ t: 'MESSAGE_CREATE', d: message });
+      // Telefonlara bildirim yanıtı bekletmez
+      void push.notifyMention(message, store.resolveMentions(message.content, req.user.id), channel.name);
       return reply.code(201).send(message);
     },
   );
