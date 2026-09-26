@@ -1,7 +1,7 @@
 import { hash, verify } from '@node-rs/argon2';
 import { SignJWT, jwtVerify } from 'jose';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import type { User } from '@diskurt/shared';
+import type { User } from '@diskort/shared';
 import type { Store } from './db.js';
 
 const SESSION_TTL = '30d';

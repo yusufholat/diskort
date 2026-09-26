@@ -1,6 +1,6 @@
 import type { FastifyReply } from 'fastify';
 import type { ZodType } from 'zod';
-import type { Guild } from '@diskurt/shared';
+import type { Guild } from '@diskort/shared';
 import type { AuthService } from './auth.js';
 import type { Config } from './config.js';
 import type { Store } from './db.js';

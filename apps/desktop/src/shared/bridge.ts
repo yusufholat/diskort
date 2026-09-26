@@ -44,7 +44,7 @@ export interface TrayState {
 
 export type TrayAction = 'toggleMute' | 'toggleDeafen' | 'disconnect';
 
-export interface DiskurtBridge {
+export interface DiskortBridge {
   platform: 'win32' | 'linux' | 'darwin' | string;
   getVersion(): Promise<string>;
   openExternal(url: string): Promise<void>;

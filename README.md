@@ -1,4 +1,4 @@
-# Diskurt
+# Diskort
 
 10–20 kişilik kapalı topluluklar için Discord kalitesinde **ses** ve **ekran paylaşımı** uygulaması.
 Masaüstü uygulaması (Electron) + kendi sunucun (LiveKit SFU + API).
@@ -74,7 +74,7 @@ Aynı bilgisayarda ikinci bir istemci açmak için (ayrı profil, `dev:desktop` 
 pnpm dev:desktop2
 ```
 
-Geliştirme bayrakları: `DISKURT_FAKE_MEDIA=1` (sahte mikrofon/kamera), `DISKURT_DEBUG_PORT=9222`
+Geliştirme bayrakları: `DISKORT_FAKE_MEDIA=1` (sahte mikrofon/kamera), `DISKORT_DEBUG_PORT=9222`
 (Chrome DevTools Protokolü ile otomatik test). Paketlenmiş sürümde devre dışıdır.
 
 Testler ve tip kontrolü:
@@ -92,12 +92,12 @@ pnpm typecheck
 Önerilen: Türkiye'deki kullanıcılar için İstanbul lokasyonlu bir VPS veya Hetzner (Almanya/Finlandiya),
 2 vCPU / 2–4 GB RAM yeterli. 20 kişilik ses ≈ 1–2 Mbps; 1080p60 yayını izleyen her kişi ≈ 7 Mbps.
 
-1. İki alan adı (ör. `diskurt.ornek.com`, `lk.ornek.com`) için DNS A kaydını VPS IP'sine yönlendir.
+1. İki alan adı (ör. `diskort.ornek.com`, `lk.ornek.com`) için DNS A kaydını VPS IP'sine yönlendir.
 2. Depoyu VPS'e kopyala ve hazırlık betiğini çalıştır (Docker + güvenlik duvarı + rastgele anahtarlar):
    ```bash
    sudo bash infra/setup-vps.sh
    ```
-3. `infra/.env` içindeki `DISKURT_DOMAIN` ve `LIVEKIT_DOMAIN` değerlerini düzenle, sonra:
+3. `infra/.env` içindeki `DISKORT_DOMAIN` ve `LIVEKIT_DOMAIN` değerlerini düzenle, sonra:
    ```bash
    cd infra && docker compose up -d --build
    ```
@@ -113,16 +113,16 @@ Açık olması gereken portlar: `80/tcp`, `443/tcp`, `7881/tcp`, `3478/udp`, `50
 Uygulamanın varsayılan sunucu adresini gömmek için `apps/desktop/.env.production` oluştur:
 
 ```
-VITE_DEFAULT_SERVER=https://diskurt.ornek.com
+VITE_DEFAULT_SERVER=https://diskort.ornek.com
 ```
 
 ```bash
-pnpm --filter @diskurt/desktop dist:win
+pnpm --filter @diskort/desktop dist:win
 ```
 
-Çıktı: `apps/desktop/release/<sürüm>/Diskurt-Setup-<sürüm>.exe`. Linux paketleri Linux'ta,
+Çıktı: `apps/desktop/release/<sürüm>/Diskort-Setup-<sürüm>.exe`. Linux paketleri Linux'ta,
 macOS paketi macOS'ta derlenmelidir (`dist:linux`, `dist:mac`). Otomatik güncelleme
-`yusufholat/diskurt` deposunun GitHub Releases'ini kullanır (`apps/desktop/electron-builder.yml`);
+`yusufholat/diskort` deposunun GitHub Releases'ini kullanır (`apps/desktop/electron-builder.yml`);
 depo gizliyken istemciler güncellemeleri indiremez — sürümleri herkese açık bir depoda yayınla.
 
 ## Yol haritası

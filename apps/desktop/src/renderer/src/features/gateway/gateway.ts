@@ -1,4 +1,4 @@
-import type { GatewayClientMessage, GatewayServerMessage } from '@diskurt/shared';
+import type { GatewayClientMessage, GatewayServerMessage } from '@diskort/shared';
 import { normalizeServerUrl } from '../../lib/api';
 import { useGuild } from '../../stores/guild';
 import { useSession } from '../../stores/session';

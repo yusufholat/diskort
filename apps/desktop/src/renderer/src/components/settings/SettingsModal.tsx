@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Copy, Trash2, X } from 'lucide-react';
-import { AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH, type Invite } from '@diskurt/shared';
+import { AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH, type Invite } from '@diskort/shared';
 import { gateway } from '../../features/gateway/gateway';
 import { SCREEN_CODECS, SCREEN_PRESETS } from '../../features/voice/screenPresets';
 import { voice } from '../../features/voice/voiceClient';
@@ -277,7 +277,7 @@ function AppSection() {
       <h2 className="mb-5 text-xl font-bold text-text-head">Uygulama</h2>
       <Toggle
         label="Kapatınca sistem tepsisine küçült"
-        description="Pencereyi kapatınca Diskurt arka planda çalışmaya ve sesi iletmeye devam eder."
+        description="Pencereyi kapatınca Diskort arka planda çalışmaya ve sesi iletmeye devam eder."
         checked={s.minimizeToTray}
         disabled={!bridge}
         onChange={(minimizeToTray) => s.set({ minimizeToTray })}

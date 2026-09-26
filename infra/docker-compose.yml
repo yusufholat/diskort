@@ -1,4 +1,4 @@
-# Diskurt sunucu yığını (VPS): LiveKit (ses/görüntü SFU) + API + Caddy (otomatik HTTPS)
+# Diskort sunucu yığını (VPS): LiveKit (ses/görüntü SFU) + API + Caddy (otomatik HTTPS)
 # Kullanım (infra klasöründe):
 #   cp .env.example .env   # alan adlarını ve gizli anahtarları doldur
 #   docker compose up -d --build
@@ -13,8 +13,8 @@ services:
     network_mode: host
     restart: unless-stopped
     environment:
-      # API anahtarı adı sabit "diskurt"; gizli anahtar .env'den gelir
-      LIVEKIT_KEYS: "diskurt: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET gerekli}"
+      # API anahtarı adı sabit "diskort"; gizli anahtar .env'den gelir
+      LIVEKIT_KEYS: "diskort: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET gerekli}"
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml:ro
 
@@ -32,18 +32,18 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET gerekli}
       LIVEKIT_URL: wss://${LIVEKIT_DOMAIN:?LIVEKIT_DOMAIN gerekli}
       LIVEKIT_API_URL: http://127.0.0.1:7880
-      LIVEKIT_API_KEY: diskurt
+      LIVEKIT_API_KEY: diskort
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
-      GUILD_NAME: ${GUILD_NAME:-Diskurt}
+      GUILD_NAME: ${GUILD_NAME:-Diskort}
     volumes:
-      - diskurt-data:/data
+      - diskort-data:/data
 
   caddy:
     image: caddy:2
     network_mode: host
     restart: unless-stopped
     environment:
-      DISKURT_DOMAIN: ${DISKURT_DOMAIN:?DISKURT_DOMAIN gerekli}
+      DISKORT_DOMAIN: ${DISKORT_DOMAIN:?DISKORT_DOMAIN gerekli}
       LIVEKIT_DOMAIN: ${LIVEKIT_DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
@@ -51,6 +51,6 @@ services:
       - caddy-config:/config
 
 volumes:
-  diskurt-data:
+  diskort-data:
   caddy-data:
   caddy-config:

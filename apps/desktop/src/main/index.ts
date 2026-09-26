@@ -27,8 +27,8 @@ const isMac = process.platform === 'darwin';
 const isWindows = process.platform === 'win32';
 const isLinux = process.platform === 'linux';
 
-// Geliştirmede birden çok istemciyi aynı makinede çalıştırmak için ayrı profil: DISKURT_PROFILE=2
-const profile = process.env.DISKURT_PROFILE;
+// Geliştirmede birden çok istemciyi aynı makinede çalıştırmak için ayrı profil: DISKORT_PROFILE=2
+const profile = process.env.DISKORT_PROFILE;
 if (profile) app.setPath('userData', `${app.getPath('userData')}-${profile}`);
 
 if (!app.requestSingleInstanceLock()) {
@@ -44,10 +44,10 @@ if (isLinux) app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapt
 
 // Yalnızca geliştirme: otomatik test için hata ayıklama portu ve sahte mikrofon/kamera.
 if (!app.isPackaged) {
-  if (process.env.DISKURT_DEBUG_PORT) {
-    app.commandLine.appendSwitch('remote-debugging-port', process.env.DISKURT_DEBUG_PORT);
+  if (process.env.DISKORT_DEBUG_PORT) {
+    app.commandLine.appendSwitch('remote-debugging-port', process.env.DISKORT_DEBUG_PORT);
   }
-  if (process.env.DISKURT_FAKE_MEDIA) {
+  if (process.env.DISKORT_FAKE_MEDIA) {
     app.commandLine.appendSwitch('use-fake-device-for-media-stream');
     app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
   }
@@ -123,7 +123,7 @@ function createWindow(): void {
     minHeight: 560,
     show: false,
     backgroundColor: '#1e1f22',
-    title: 'Diskurt',
+    title: 'Diskort',
     icon: join(__dirname, '../../resources/icon.png'),
     autoHideMenuBar: true,
     // Windows'ta Discord gibi özel başlık çubuğu; Linux'ta yerel çerçeve (en uyumlu), macOS'ta gömülü trafik ışıkları.
@@ -185,7 +185,7 @@ function sendTrayAction(action: TrayAction): void {
 function updateTrayMenu(): void {
   if (!tray) return;
   const menu = Menu.buildFromTemplate([
-    { label: "Diskurt'u Aç", click: showWindow },
+    { label: "Diskort'u Aç", click: showWindow },
     { type: 'separator' },
     {
       label: 'Sustur',
@@ -206,7 +206,7 @@ function updateTrayMenu(): void {
     },
     { type: 'separator' },
     {
-      label: "Diskurt'tan Çık",
+      label: "Diskort'tan Çık",
       click: () => {
         quitting = true;
         app.quit();
@@ -214,7 +214,7 @@ function updateTrayMenu(): void {
     },
   ]);
   tray.setContextMenu(menu);
-  tray.setToolTip(trayState.connected ? 'Diskurt — Sese bağlı' : 'Diskurt');
+  tray.setToolTip(trayState.connected ? 'Diskort — Sese bağlı' : 'Diskort');
 }
 
 function createTray(): void {
@@ -272,7 +272,7 @@ app.on('window-all-closed', () => {
 app.on('activate', showWindow);
 
 void app.whenReady().then(async () => {
-  if (isWindows) app.setAppUserModelId('com.diskurt.app');
+  if (isWindows) app.setAppUserModelId('com.diskort.app');
   Menu.setApplicationMenu(null);
 
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {

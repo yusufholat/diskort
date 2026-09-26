@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { nanoid, customAlphabet } from 'nanoid';
-import type { Channel, ChannelType, Guild, Invite, User } from '@diskurt/shared';
-import { AVATAR_COLORS } from '@diskurt/shared';
+import type { Channel, ChannelType, Guild, Invite, User } from '@diskort/shared';
+import { AVATAR_COLORS } from '@diskort/shared';
 
 const MIGRATIONS: string[] = [
   `

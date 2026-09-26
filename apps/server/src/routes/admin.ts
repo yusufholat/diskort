@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { CHANNEL_NAME_MAX_LENGTH } from '@diskurt/shared';
+import { CHANNEL_NAME_MAX_LENGTH } from '@diskort/shared';
 import { parseBody, sendError, type AppContext } from '../context.js';
 
 const createInviteSchema = z.object({

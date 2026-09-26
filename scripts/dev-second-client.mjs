@@ -1,4 +1,4 @@
-// Aynı bilgisayarda ikinci bir Diskurt istemcisi açar (ayrı profil). Önce `pnpm dev:desktop` çalışıyor olmalı.
+// Aynı bilgisayarda ikinci bir Diskort istemcisi açar (ayrı profil). Önce `pnpm dev:desktop` çalışıyor olmalı.
 // Kullanım: pnpm dev:desktop2 [profil-adı]
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -13,7 +13,7 @@ const child = spawn(electronPath, ['.'], {
   stdio: 'inherit',
   env: {
     ...process.env,
-    DISKURT_PROFILE: process.argv[2] ?? '2',
+    DISKORT_PROFILE: process.argv[2] ?? '2',
     ELECTRON_RENDERER_URL: process.env.ELECTRON_RENDERER_URL ?? 'http://localhost:5173',
   },
 });

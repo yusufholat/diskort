@@ -21,7 +21,7 @@ let rnnoiseBinary: Promise<ArrayBuffer> | null = null;
  * diğerleri seni "susturulmuş" görmez (Discord'daki ses aktivitesi/bas-konuş davranışı).
  */
 export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProcessorOptions> {
-  readonly name = 'diskurt-mic';
+  readonly name = 'diskort-mic';
   processedTrack?: MediaStreamTrack;
 
   private ctx: AudioContext | null = null;
@@ -78,7 +78,7 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
       }
     }
 
-    this.gate = new AudioWorkletNode(ctx, 'diskurt-gate', {
+    this.gate = new AudioWorkletNode(ctx, 'diskort-gate', {
       numberOfInputs: 1,
       numberOfOutputs: 1,
       outputChannelCount: [1],

@@ -52,7 +52,7 @@ export function useDesktopIntegration(): void {
   useEffect(() => {
     if (!bridge) return;
     return bridge.updates.onReady((version) => {
-      toast(`Diskurt ${version} indirildi; uygulamayı yeniden başlatınca kurulacak.`, 'success');
+      toast(`Diskort ${version} indirildi; uygulamayı yeniden başlatınca kurulacak.`, 'success');
     });
   }, []);
 }

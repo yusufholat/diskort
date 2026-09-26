@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { channelIdFromRoom, voiceRoomName, type VoiceJoinResponse } from '@diskurt/shared';
+import { channelIdFromRoom, voiceRoomName, type VoiceJoinResponse } from '@diskort/shared';
 import { TrackSource } from '../livekit.js';
 import { sendError, type AppContext } from '../context.js';
 

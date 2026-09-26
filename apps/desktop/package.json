@@ -1,10 +1,10 @@
 {
-  "name": "@diskurt/desktop",
-  "productName": "Diskurt",
+  "name": "@diskort/desktop",
+  "productName": "Diskort",
   "version": "0.1.0",
   "private": true,
-  "description": "Diskurt masaüstü uygulaması",
-  "author": "Diskurt",
+  "description": "Diskort masaüstü uygulaması",
+  "author": "Diskort",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -21,7 +21,7 @@
     "uiohook-napi": "^1.5.5"
   },
   "devDependencies": {
-    "@diskurt/shared": "workspace:*",
+    "@diskort/shared": "workspace:*",
     "@sapphi-red/web-noise-suppressor": "^0.4.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.0.0",

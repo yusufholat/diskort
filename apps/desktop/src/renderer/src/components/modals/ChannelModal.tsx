@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import type { Channel } from '@diskurt/shared';
-import { CHANNEL_NAME_MAX_LENGTH } from '@diskurt/shared';
+import type { Channel } from '@diskort/shared';
+import { CHANNEL_NAME_MAX_LENGTH } from '@diskort/shared';
 import { api, errorMessage } from '../../lib/api';
 import { useUi } from '../../stores/ui';
 import { Modal } from '../ui/Modal';

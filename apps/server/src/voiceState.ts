@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { VoiceState } from '@diskurt/shared';
+import type { VoiceState } from '@diskort/shared';
 
 type SelfFlags = { selfMute: boolean; selfDeaf: boolean };
 

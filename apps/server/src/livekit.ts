@@ -5,7 +5,7 @@ import {
   WebhookReceiver,
   type WebhookEvent,
 } from 'livekit-server-sdk';
-import { channelIdFromRoom, voiceRoomName, type User } from '@diskurt/shared';
+import { channelIdFromRoom, voiceRoomName, type User } from '@diskort/shared';
 import type { Config } from './config.js';
 import type { VoiceSnapshotEntry } from './voiceState.js';
 

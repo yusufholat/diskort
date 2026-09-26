@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Channel, GatewayServerMessage, Guild, ReadyPayload, User, VoiceState } from '@diskurt/shared';
+import type { Channel, GatewayServerMessage, Guild, ReadyPayload, User, VoiceState } from '@diskort/shared';
 
 export type GatewayStatus = 'idle' | 'connecting' | 'ready' | 'reconnecting';
 

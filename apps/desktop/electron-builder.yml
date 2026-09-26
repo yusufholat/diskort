@@ -1,6 +1,6 @@
-appId: com.diskurt.app
-productName: Diskurt
-copyright: Copyright © 2026 Diskurt
+appId: com.diskort.app
+productName: Diskort
+copyright: Copyright © 2026 Diskort
 
 directories:
   output: release/${version}
@@ -23,19 +23,19 @@ win:
     - target: nsis
       arch: [x64]
   icon: resources/icon.png
-  artifactName: Diskurt-Setup-${version}.${ext}
+  artifactName: Diskort-Setup-${version}.${ext}
 
 nsis:
   oneClick: true
   perMachine: false
   deleteAppDataOnUninstall: false
-  shortcutName: Diskurt
+  shortcutName: Diskort
 
 linux:
   target: [AppImage, deb]
   category: Network
   icon: resources/icon.png
-  artifactName: Diskurt-${version}-${arch}.${ext}
+  artifactName: Diskort-${version}-${arch}.${ext}
 
 mac:
   target: [dmg]
@@ -45,11 +45,11 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
-    NSMicrophoneUsageDescription: Diskurt sesli sohbet için mikrofonunu kullanır.
-    NSCameraUsageDescription: Diskurt ileride görüntülü sohbet için kamerayı kullanabilir.
+    NSMicrophoneUsageDescription: Diskort sesli sohbet için mikrofonunu kullanır.
+    NSCameraUsageDescription: Diskort ileride görüntülü sohbet için kamerayı kullanabilir.
 
 # Otomatik güncelleme: sürümler GitHub Releases'e yüklenir.
 publish:
   provider: github
   owner: yusufholat
-  repo: diskurt
+  repo: diskort

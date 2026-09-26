@@ -6,7 +6,7 @@ import {
   type GatewayServerMessage,
   type Guild,
   type User,
-} from '@diskurt/shared';
+} from '@diskort/shared';
 import type { AuthService } from './auth.js';
 import type { Store } from './db.js';
 import type { VoiceStateStore } from './voiceState.js';

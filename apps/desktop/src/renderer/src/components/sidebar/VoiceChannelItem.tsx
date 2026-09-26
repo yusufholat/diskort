@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Volume2 } from 'lucide-react';
-import type { Channel } from '@diskurt/shared';
+import type { Channel } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
 import { api, errorMessage } from '../../lib/api';
 import { cn } from '../../lib/utils';

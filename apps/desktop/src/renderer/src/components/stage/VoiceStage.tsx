@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from 'react';
 import { Eye, HeadphoneOff, Headphones, Mic, MicOff, Monitor, MonitorOff, PhoneOff, Volume2 } from 'lucide-react';
-import type { VoiceState } from '@diskurt/shared';
+import type { VoiceState } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
 import { cn } from '../../lib/utils';
 import { membersOf, useGuild } from '../../stores/guild';

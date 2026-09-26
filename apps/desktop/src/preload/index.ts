@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { DiskurtBridge, HotkeyEvent, TrayAction } from '../shared/bridge';
+import type { DiskortBridge, HotkeyEvent, TrayAction } from '../shared/bridge';
 
 function listen<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, payload: T): void => cb(payload);
@@ -7,7 +7,7 @@ function listen<T>(channel: string, cb: (payload: T) => void): () => void {
   return () => ipcRenderer.removeListener(channel, listener);
 }
 
-const bridge: DiskurtBridge = {
+const bridge: DiskortBridge = {
   platform: process.platform,
   getVersion: () => ipcRenderer.invoke('app:version'),
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
@@ -35,4 +35,4 @@ const bridge: DiskurtBridge = {
   },
 };
 
-contextBridge.exposeInMainWorld('diskurt', bridge);
+contextBridge.exposeInMainWorld('diskort', bridge);

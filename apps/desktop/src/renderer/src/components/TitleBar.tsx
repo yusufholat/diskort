@@ -10,7 +10,7 @@ export function TitleBar() {
   return (
     <div className="drag flex h-[30px] shrink-0 items-center bg-bg-rail">
       <span className={isMac ? 'pl-[78px]' : 'pl-3'}>
-        <span className="text-xs font-bold tracking-wide text-text-muted">Diskurt</span>
+        <span className="text-xs font-bold tracking-wide text-text-muted">Diskort</span>
       </span>
     </div>
   );

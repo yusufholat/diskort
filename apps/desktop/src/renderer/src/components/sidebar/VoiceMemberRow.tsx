@@ -1,5 +1,5 @@
 import { HeadphoneOff, MicOff } from 'lucide-react';
-import type { VoiceState } from '@diskurt/shared';
+import type { VoiceState } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
 import { cn } from '../../lib/utils';
 import { useGuild } from '../../stores/guild';

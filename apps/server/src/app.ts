@@ -30,7 +30,7 @@ export async function buildApp(
     bodyLimit: 64 * 1024,
   });
 
-  const store = new Store(opts.dbFile ?? path.join(config.dataDir, 'diskurt.db'));
+  const store = new Store(opts.dbFile ?? path.join(config.dataDir, 'diskort.db'));
   const guild = store.ensureGuild(config.guildName);
   const auth = new AuthService(config.jwtSecret, store);
   const voice = new VoiceStateStore();

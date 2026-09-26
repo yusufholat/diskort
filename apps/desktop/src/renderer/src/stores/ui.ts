@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Channel } from '@diskurt/shared';
+import type { Channel } from '@diskort/shared';
 
 export type Modal =
   | { type: 'settings'; section?: SettingsSection }

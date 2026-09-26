@@ -1,4 +1,4 @@
-import type { User } from '@diskurt/shared';
+import type { User } from '@diskort/shared';
 import { cn, initials } from '../../lib/utils';
 
 interface Props {

@@ -13,7 +13,7 @@ import {
   type RemoteTrackPublication,
   type RemoteVideoTrack,
 } from 'livekit-client';
-import type { VoiceJoinResponse } from '@diskurt/shared';
+import type { VoiceJoinResponse } from '@diskort/shared';
 import { api, errorMessage } from '../../lib/api';
 import { bridge } from '../../lib/bridge';
 import { playSound, sharedAudioContext } from '../../lib/sfx';
@@ -249,7 +249,7 @@ class VoiceClient {
       setVoice({
         error:
           name === 'NotAllowedError'
-            ? 'Mikrofon izni verilmedi. Sistem ayarlarından Diskurt için mikrofon erişimini aç.'
+            ? 'Mikrofon izni verilmedi. Sistem ayarlarından Diskort için mikrofon erişimini aç.'
             : name === 'NotFoundError' || name === 'OverconstrainedError'
               ? 'Mikrofon bulunamadı. Ayarlar > Ses bölümünden bir giriş aygıtı seç.'
               : `Mikrofon açılamadı: ${errorMessage(err)}`,

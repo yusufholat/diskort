@@ -126,7 +126,7 @@ export function AuthScreen() {
                   setSettings({ serverUrl: normalizeServerUrl(serverUrl) });
                   setEditingServer(false);
                 }}
-                placeholder="https://diskurt.ornek.com"
+                placeholder="https://diskort.ornek.com"
                 autoFocus
               />
             </Field>

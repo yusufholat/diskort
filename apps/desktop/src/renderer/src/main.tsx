@@ -9,7 +9,7 @@ import './styles.css';
 
 // Yalnızca geliştirme: otomatik testlerin iç duruma erişebilmesi için.
 if (import.meta.env.DEV) {
-  Object.assign(window, { __diskurt: { voice, useVoice, useGuild, useSettings } });
+  Object.assign(window, { __diskort: { voice, useVoice, useGuild, useSettings } });
 }
 
 createRoot(document.getElementById('root')!).render(

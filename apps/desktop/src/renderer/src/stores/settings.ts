@@ -81,7 +81,7 @@ export const useSettings = create<SettingsStore>()(
       set: (patch) => set(patch),
     }),
     {
-      name: 'diskurt-settings',
+      name: 'diskort-settings',
       version: 1,
       storage: createJSONStorage(() => localStorage),
       partialize: ({ set: _set, ...rest }) => rest,

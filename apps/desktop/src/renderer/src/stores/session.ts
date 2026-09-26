@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import type { User } from '@diskurt/shared';
+import type { User } from '@diskort/shared';
 
 interface SessionStore {
   token: string | null;
@@ -20,7 +20,7 @@ export const useSession = create<SessionStore>()(
       logout: () => set({ token: null, user: null }),
     }),
     {
-      name: 'diskurt-session',
+      name: 'diskort-session',
       storage: createJSONStorage(() => localStorage),
       partialize: ({ token, user }) => ({ token, user }),
     },

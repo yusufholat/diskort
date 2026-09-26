@@ -11,7 +11,7 @@ import type {
   UpdateMeRequest,
   User,
   VoiceJoinResponse,
-} from '@diskurt/shared';
+} from '@diskort/shared';
 import { useSession } from '../stores/session';
 import { getSettings } from '../stores/settings';
 

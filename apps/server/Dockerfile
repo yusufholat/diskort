@@ -1,4 +1,4 @@
-# Diskurt API sunucusu. Derleme bağlamı depo köküdür:
+# Diskort API sunucusu. Derleme bağlamı depo köküdür:
 #   docker build -f apps/server/Dockerfile .
 FROM node:24-slim AS build
 WORKDIR /repo
@@ -7,10 +7,10 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/package.json
 COPY apps/server/package.json apps/server/package.json
 COPY apps/desktop/package.json apps/desktop/package.json
-RUN pnpm install --frozen-lockfile --filter "@diskurt/server..."
+RUN pnpm install --frozen-lockfile --filter "@diskort/server..."
 COPY packages/shared packages/shared
 COPY apps/server apps/server
-RUN pnpm --filter @diskurt/server build
+RUN pnpm --filter @diskort/server build
 
 FROM node:24-slim
 WORKDIR /app

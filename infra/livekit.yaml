@@ -27,7 +27,7 @@ audio:
   smooth_intervals: 1
 
 webhook:
-  api_key: diskurt
+  api_key: diskort
   urls:
     - http://127.0.0.1:3000/api/livekit/webhook
 

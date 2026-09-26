@@ -6,7 +6,7 @@ const ATTACK_S = 0.004;
 const RELEASE_S = 0.06;
 const REPORT_INTERVAL_S = 0.05;
 
-class DiskurtGateProcessor extends AudioWorkletProcessor {
+class DiskortGateProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
     this.mode = 'vad'; // 'vad' | 'ptt' | 'open'
@@ -80,4 +80,4 @@ class DiskurtGateProcessor extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor('diskurt-gate', DiskurtGateProcessor);
+registerProcessor('diskort-gate', DiskortGateProcessor);

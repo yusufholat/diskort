@@ -12,7 +12,7 @@ rtc:
 
 # apps/server/src/config.ts içindeki geliştirme anahtarıyla aynı olmalı
 keys:
-  devkey: diskurt-dev-livekit-secret-0123456789abcdef
+  devkey: diskort-dev-livekit-secret-0123456789abcdef
 
 room:
   auto_create: true

@@ -6,7 +6,7 @@ import {
   PASSWORD_MIN_LENGTH,
   USERNAME_PATTERN,
   type AuthResponse,
-} from '@diskurt/shared';
+} from '@diskort/shared';
 import { parseBody, sendError, type AppContext } from '../context.js';
 
 const displayName = z
