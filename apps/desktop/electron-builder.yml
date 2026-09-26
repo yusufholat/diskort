@@ -6,6 +6,12 @@ directories:
   output: release/${version}
   buildResources: build
 
+# Paketlenen uygulamanın adı: kurulum klasörü (Programs\diskort) ve güncelleme önbelleği bu adı kullanır.
+# (Çalışma alanındaki paket adı "@diskort/desktop" olduğu için aksi hâlde "@diskortdesktop" olurdu.)
+# Görünen ad ve ayar klasörü productName'den gelir, değişmez.
+extraMetadata:
+  name: diskort
+
 files:
   - out/**
   - resources/**
