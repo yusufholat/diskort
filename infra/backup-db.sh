@@ -29,7 +29,7 @@ if (check !== 'ok') { console.error('bütünlük kontrolü başarısız: ' + che
 console.log('kullanıcı=' + users + ' davet=' + invites);
 ")"
 
-docker compose cp "api:${tmp}" "$out" >/dev/null
+docker compose cp "api:${tmp}" "$out" >/dev/null 2>&1
 docker compose exec -T api rm -f "$tmp"
 gzip -9 -f "$out"
 chmod 600 "${out}.gz"
