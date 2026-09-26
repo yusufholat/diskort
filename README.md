@@ -109,6 +109,21 @@ pnpm typecheck
    docker compose logs api | grep -i davet
    ```
 
+### Yedekleme
+
+- **Sunucuda:** `diskort-backup.timer` her gece 04:00'te (Türkiye saati) `infra/backup-db.sh`'ı çalıştırır.
+  Betik tutarlı bir kopya alıp bütünlüğünü kontrol eder ve `/var/backups/diskort/` altına sıkıştırarak koyar.
+  Son 14 gün saklanır; `latest.db.gz` her zaman en yenisini gösterir.
+- **Sunucu dışında:** `scripts/pull-db-backups.ps1`, Windows Görev Zamanlayıcı'daki "Diskort veritabanı yedeği"
+  göreviyle her gün 12:00'de en son yedeği `OneDrive\Yedekler\Diskort` klasörüne indirir (60 gün saklanır,
+  sonuçlar `yedek-gunlugu.txt` dosyasına yazılır).
+- **Geri yükleme** (önce mevcut veritabanının güvenlik kopyasını alır):
+  ```bash
+  bash /opt/diskort/infra/restore-db.sh /var/backups/diskort/diskort-2026-09-27_0400.db.gz
+  ```
+  Bilgisayardaki bir yedeği geri yüklemek için önce sunucuya kopyala:
+  `scp -i ~/.ssh/diskort_vps <dosya>.db.gz root@185.92.0.242:/root/`
+
 Açık olması gereken portlar: `80/tcp`, `443/tcp`, `7881/tcp`, `3478/udp`, `50000–60000/udp`.
 
 ## Masaüstü paketleri
