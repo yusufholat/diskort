@@ -121,9 +121,19 @@ pnpm --filter @diskort/desktop dist:win
 ```
 
 Çıktı: `apps/desktop/release/<sürüm>/Diskort-Setup-<sürüm>.exe`. Linux paketleri Linux'ta,
-macOS paketi macOS'ta derlenmelidir (`dist:linux`, `dist:mac`). Otomatik güncelleme
-`yusufholat/diskort` deposunun GitHub Releases'ini kullanır (`apps/desktop/electron-builder.yml`);
-depo gizliyken istemciler güncellemeleri indiremez — sürümleri herkese açık bir depoda yayınla.
+macOS paketi macOS'ta derlenmelidir (`dist:linux`, `dist:mac`).
+
+### Güncelleme yayınlama
+
+Uygulama güncellemeleri `yusufholat/diskort` deposunun GitHub Releases'inden otomatik indirir.
+Yeni sürüm için `apps/desktop/package.json` içindeki `version`'ı artır ve (bash):
+
+```bash
+GH_TOKEN=$(gh auth token) pnpm --filter @diskort/desktop release:win
+```
+
+Bu, kurulum dosyasını taslak (draft) bir GitHub sürümüne yükler. GitHub'da taslağı yayınladığında
+açık olan tüm uygulamalar güncellemeyi arka planda indirir ve yeniden başlatınca kurar.
 
 ## Yol haritası
 
