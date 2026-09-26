@@ -156,7 +156,7 @@ describe('üye yönetimi', () => {
 
   it('silinen üyenin oturumu ve ses durumu kalkar; yönetici kendini silemez', async () => {
     const { admin, member } = await setup();
-    const channel = ctx.store.listChannels(ctx.guild.id)[0]!;
+    const channel = ctx.store.listChannels(ctx.guild.id).find((c) => c.type === 'voice')!;
     ctx.voice.join(member.user.id, channel.id);
 
     expect(
@@ -176,7 +176,7 @@ describe('üye yönetimi', () => {
     const kick = () =>
       app.inject({ method: 'POST', url: `/api/users/${member.user.id}/voice-kick`, headers: auth(admin.token) });
     expect((await kick()).statusCode).toBe(404);
-    ctx.voice.join(member.user.id, ctx.store.listChannels(ctx.guild.id)[0]!.id);
+    ctx.voice.join(member.user.id, ctx.store.listChannels(ctx.guild.id).find((c) => c.type === 'voice')!.id);
     expect((await kick()).statusCode).toBe(204);
     expect(ctx.voice.get(member.user.id)).toBeUndefined();
   });

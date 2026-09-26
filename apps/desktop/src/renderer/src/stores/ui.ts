@@ -1,10 +1,10 @@
 import { create } from 'zustand';
-import type { Channel } from '@diskort/shared';
+import type { Channel, ChannelType } from '@diskort/shared';
 
 export type Modal =
   | { type: 'settings'; section?: SettingsSection }
   | { type: 'screenPicker' }
-  | { type: 'channel'; channel?: Channel }
+  | { type: 'channel'; channel?: Channel; channelType?: ChannelType }
   | null;
 
 export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app' | 'members' | 'invites';
@@ -29,7 +29,14 @@ export interface Toast {
   kind: 'info' | 'error' | 'success';
 }
 
+/** Ana alanda gösterilen: bir metin kanalı ya da bağlı olunan ses kanalının sahnesi */
+export type View = { kind: 'text'; channelId: string } | { kind: 'voice' } | { kind: 'home' };
+
 interface UiStore {
+  view: View;
+  /** Ses sahnesinden dönülecek metin kanalı */
+  lastTextChannelId: string | null;
+  setView: (view: View) => void;
   modal: Modal;
   contextMenu: ContextMenuState | null;
   toasts: Toast[];
@@ -43,7 +50,33 @@ interface UiStore {
 
 let toastId = 0;
 
+const LAST_TEXT_CHANNEL_KEY = 'diskort-last-text-channel';
+
+function storedTextChannel(): string | null {
+  try {
+    return localStorage.getItem(LAST_TEXT_CHANNEL_KEY);
+  } catch {
+    return null; // depolama kullanılamıyor
+  }
+}
+
+const initialTextChannel = storedTextChannel();
+
 export const useUi = create<UiStore>()((set, get) => ({
+  view: initialTextChannel ? { kind: 'text', channelId: initialTextChannel } : { kind: 'home' },
+  lastTextChannelId: initialTextChannel,
+  setView: (view) => {
+    if (view.kind !== 'text') {
+      set({ view });
+      return;
+    }
+    try {
+      localStorage.setItem(LAST_TEXT_CHANNEL_KEY, view.channelId);
+    } catch {
+      // depolama kullanılamıyor
+    }
+    set({ view, lastTextChannelId: view.channelId });
+  },
   modal: null,
   contextMenu: null,
   toasts: [],

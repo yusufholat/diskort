@@ -3,6 +3,7 @@ import type {
   AuthResponse,
   Channel,
   ChangePasswordRequest,
+  Message,
   CreateChannelRequest,
   CreateInviteRequest,
   Invite,
@@ -83,6 +84,15 @@ export const api = {
   deleteChannel: (id: string) => request<void>('DELETE', `/api/channels/${id}`),
 
   joinVoice: (channelId: string) => request<VoiceJoinResponse>('POST', `/api/voice/${channelId}/join`),
+
+  listMessages: (channelId: string, before?: string) =>
+    request<Message[]>('GET', `/api/channels/${channelId}/messages${before ? `?before=${before}` : ''}`),
+  sendMessage: (channelId: string, content: string) =>
+    request<Message>('POST', `/api/channels/${channelId}/messages`, { content }),
+  updateMessage: (id: string, content: string) => request<Message>('PATCH', `/api/messages/${id}`, { content }),
+  deleteMessage: (id: string) => request<void>('DELETE', `/api/messages/${id}`),
+  ack: (channelId: string, messageId: string) =>
+    request<void>('POST', `/api/channels/${channelId}/ack`, { messageId }),
 };
 
 export function errorMessage(err: unknown): string {

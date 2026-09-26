@@ -11,7 +11,8 @@ export type SoundName =
   | 'deafen'
   | 'undeafen'
   | 'streamStart'
-  | 'streamStop';
+  | 'streamStop'
+  | 'mention';
 
 type Note = [freq: number, startMs: number, durMs: number];
 
@@ -26,6 +27,7 @@ const SOUNDS: Record<SoundName, { notes: Note[]; type: OscillatorType; gain: num
   undeafen: { notes: [[330, 0, 70], [494, 60, 110]], type: 'sine', gain: 0.16 },
   streamStart: { notes: [[523, 0, 70], [659, 60, 70], [784, 120, 120]], type: 'triangle', gain: 0.12 },
   streamStop: { notes: [[784, 0, 70], [659, 60, 70], [523, 120, 120]], type: 'triangle', gain: 0.12 },
+  mention: { notes: [[988, 0, 60], [1319, 70, 150]], type: 'sine', gain: 0.14 },
 };
 
 let ctx: AudioContext | null = null;

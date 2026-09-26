@@ -34,6 +34,17 @@ export interface VoiceState {
   joinedAt: number;
 }
 
+export interface Message {
+  /** Kanal içinde artan sayısal kimlik (metin olarak) */
+  id: string;
+  channelId: string;
+  /** Yazarın hesabı silindiyse null */
+  authorId: string | null;
+  content: string;
+  createdAt: number;
+  editedAt: number | null;
+}
+
 export interface Invite {
   code: string;
   createdBy: string;
@@ -103,6 +114,18 @@ export interface UpdateChannelRequest {
   position?: number;
 }
 
+export interface CreateMessageRequest {
+  content: string;
+}
+
+export interface UpdateMessageRequest {
+  content: string;
+}
+
+export interface AckRequest {
+  messageId: string;
+}
+
 export interface VoiceJoinResponse {
   /** İstemcinin bağlanacağı LiveKit adresi (ws:// veya wss://) */
   url: string;
@@ -124,6 +147,12 @@ export interface ReadyPayload {
   users: User[];
   voiceStates: VoiceState[];
   online: string[];
+  /** Metin kanallarındaki en son mesaj kimliği (kanal → mesaj) */
+  lastMessageIds: Record<string, string>;
+  /** Bu kullanıcının kanal başına okuduğu son mesaj (kanal → mesaj) */
+  readStates: Record<string, string>;
+  /** Bu kullanıcının kanal başına okunmamış bahsetme sayısı */
+  mentionCounts: Record<string, number>;
 }
 
 export type GatewayServerMessage =
@@ -138,12 +167,17 @@ export type GatewayServerMessage =
   | { t: 'CHANNEL_CREATE'; d: Channel }
   | { t: 'CHANNEL_UPDATE'; d: Channel }
   | { t: 'CHANNEL_DELETE'; d: { id: string } }
+  | { t: 'MESSAGE_CREATE'; d: Message }
+  | { t: 'MESSAGE_UPDATE'; d: Message }
+  | { t: 'MESSAGE_DELETE'; d: { id: string; channelId: string } }
+  | { t: 'TYPING_START'; d: { channelId: string; userId: string } }
   | { t: 'INVALID_SESSION'; d: { reason: string } };
 
 export type GatewayClientMessage =
   | { t: 'IDENTIFY'; d: { token: string } }
   | { t: 'HEARTBEAT' }
-  | { t: 'VOICE_STATE_SET'; d: { selfMute: boolean; selfDeaf: boolean } };
+  | { t: 'VOICE_STATE_SET'; d: { selfMute: boolean; selfDeaf: boolean } }
+  | { t: 'TYPING_START'; d: { channelId: string } };
 
 // ---------- Sabitler ----------
 
@@ -153,6 +187,10 @@ export const USERNAME_PATTERN = /^[a-z0-9_.]{3,32}$/;
 export const PASSWORD_MIN_LENGTH = 8;
 export const DISPLAY_NAME_MAX_LENGTH = 32;
 export const CHANNEL_NAME_MAX_LENGTH = 48;
+export const MESSAGE_MAX_LENGTH = 2000;
+export const MESSAGE_PAGE_SIZE = 50;
+/** "Yazıyor…" göstergesinin geçerlilik süresi; istemci bu aralıkta en fazla bir kez bildirir */
+export const TYPING_TIMEOUT_MS = 8000;
 
 export const AVATAR_COLORS = [
   '#5865f2',
@@ -174,4 +212,16 @@ export function voiceRoomName(channelId: string): string {
 
 export function channelIdFromRoom(roomName: string): string | null {
   return roomName.startsWith(VOICE_ROOM_PREFIX) ? roomName.slice(VOICE_ROOM_PREFIX.length) : null;
+}
+
+// ---------- Yardımcılar ----------
+
+/**
+ * Metindeki @kullanıcıadı bahsetmeleri (küçük harfle, tekrarsız). E-posta gibi bir kelimenin
+ * ortasındaki @ sayılmaz; sondaki noktalar ("@ali.") cümle noktalaması kabul edilir.
+ */
+export function extractMentions(content: string): string[] {
+  const names = new Set<string>();
+  for (const m of content.matchAll(/(?<![a-z0-9_.@])@([a-z0-9_.]*[a-z0-9_])/gi)) names.add(m[1]!.toLowerCase());
+  return [...names];
 }

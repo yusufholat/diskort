@@ -13,11 +13,15 @@ import type { VoiceStateStore } from './voiceState.js';
 
 const IDENTIFY_TIMEOUT_MS = 10_000;
 const PING_INTERVAL_MS = 20_000;
+/** Aynı kanal için "yazıyor" bildirimleri arasındaki en kısa süre (sel koruması) */
+const TYPING_MIN_INTERVAL_MS = 1_000;
 
 interface Session {
   socket: WebSocket;
   userId: string | null;
   alive: boolean;
+  /** Kanal başına son "yazıyor" bildirimi (sel koruması) */
+  lastTyping: Map<string, number>;
 }
 
 /**
@@ -60,10 +64,12 @@ export class Gateway {
     }
   }
 
-  broadcast(msg: GatewayServerMessage): void {
+  /** Tüm bağlı istemcilere gönderir; exceptUserId verilirse o kullanıcının oturumlarını atlar. */
+  broadcast(msg: GatewayServerMessage, exceptUserId?: string): void {
     const data = JSON.stringify(msg);
     for (const s of this.sessions) {
-      if (s.userId && s.socket.readyState === s.socket.OPEN) s.socket.send(data);
+      if (!s.userId || s.userId === exceptUserId) continue;
+      if (s.socket.readyState === s.socket.OPEN) s.socket.send(data);
     }
   }
 
@@ -72,7 +78,7 @@ export class Gateway {
   }
 
   private accept(socket: WebSocket): void {
-    const session: Session = { socket, userId: null, alive: true };
+    const session: Session = { socket, userId: null, alive: true, lastTyping: new Map() };
     this.sessions.add(session);
     this.send(session, { t: 'HELLO', d: { heartbeatInterval: GATEWAY_HEARTBEAT_INTERVAL_MS } });
 
@@ -134,6 +140,15 @@ export class Gateway {
           selfDeaf: Boolean(msg.d.selfDeaf),
         });
         break;
+      case 'TYPING_START': {
+        const channelId = String(msg.d?.channelId ?? '');
+        const now = Date.now();
+        if (now - (s.lastTyping.get(channelId) ?? 0) < TYPING_MIN_INTERVAL_MS) break;
+        if (this.store.getChannel(channelId)?.type !== 'text') break;
+        s.lastTyping.set(channelId, now);
+        this.broadcast({ t: 'TYPING_START', d: { channelId, userId: s.userId } }, s.userId);
+        break;
+      }
     }
   }
 
@@ -153,6 +168,9 @@ export class Gateway {
         users: this.store.listUsers(),
         voiceStates: this.voice.list(),
         online: [...this.byUser.keys()],
+        lastMessageIds: this.store.lastMessageIds(),
+        readStates: this.store.readStates(user.id),
+        mentionCounts: this.store.mentionCounts(user.id),
       },
     });
     if (!wasOnline) this.broadcast({ t: 'PRESENCE_UPDATE', d: { userId: user.id, online: true } });

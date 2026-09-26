@@ -6,6 +6,8 @@ import { useGuild } from '../stores/guild';
 import { useSession } from '../stores/session';
 import { toast, useUi } from '../stores/ui';
 import { useVoice } from '../stores/voice';
+import { useMainView } from '../lib/mainView';
+import { TextChannelView } from './text/TextChannelView';
 import { ChannelSidebar } from './sidebar/ChannelSidebar';
 import { GuildRail } from './GuildRail';
 import { VoiceStage } from './stage/VoiceStage';
@@ -18,7 +20,10 @@ export function MainLayout() {
   const token = useSession((s) => s.token);
   const status = useGuild((s) => s.status);
   const hasGuild = useGuild((s) => s.guild !== null);
-  const inVoice = useVoice((s) => s.channelId !== null);
+  const view = useMainView();
+  const textChannel = useGuild((s) =>
+    view.kind === 'text' ? s.channels.find((c) => c.id === view.channelId) : undefined,
+  );
   const voiceError = useVoice((s) => s.error);
   const modal = useUi((s) => s.modal);
 
@@ -64,12 +69,20 @@ export function MainLayout() {
             Sunucu bağlantısı koptu, yeniden bağlanılıyor…
           </div>
         )}
-        <div className="min-h-0 flex-1">{inVoice ? <VoiceStage /> : <Welcome />}</div>
+        <div className="min-h-0 flex-1">
+          {view.kind === 'voice' ? (
+            <VoiceStage />
+          ) : textChannel ? (
+            <TextChannelView key={textChannel.id} channel={textChannel} />
+          ) : (
+            <Welcome />
+          )}
+        </div>
       </main>
 
       {modal?.type === 'settings' && <SettingsModal initial={modal.section} />}
       {modal?.type === 'screenPicker' && <ScreenSharePicker />}
-      {modal?.type === 'channel' && <ChannelModal channel={modal.channel} />}
+      {modal?.type === 'channel' && <ChannelModal channel={modal.channel} channelType={modal.channelType} />}
     </div>
   );
 }

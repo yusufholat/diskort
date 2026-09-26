@@ -1,7 +1,10 @@
-import { ChevronDown, Plus, UserPlus } from 'lucide-react';
+import { ChevronDown, Plus } from 'lucide-react';
+import type { ChannelType } from '@diskort/shared';
+import { useMainView } from '../../lib/mainView';
 import { useGuild } from '../../stores/guild';
 import { useSession } from '../../stores/session';
 import { useUi } from '../../stores/ui';
+import { TextChannelItem } from './TextChannelItem';
 import { UserPanel } from './UserPanel';
 import { VoiceChannelItem } from './VoiceChannelItem';
 import { VoiceConnectionPanel } from './VoiceConnectionPanel';
@@ -12,7 +15,9 @@ export function ChannelSidebar() {
   const isAdmin = useSession((s) => s.user?.isAdmin ?? false);
   const openModal = useUi((s) => s.openModal);
   const openContextMenu = useUi((s) => s.openContextMenu);
+  const view = useMainView();
 
+  const textChannels = channels.filter((c) => c.type === 'text');
   const voiceChannels = channels.filter((c) => c.type === 'voice');
 
   return (
@@ -37,35 +42,44 @@ export function ChannelSidebar() {
       </button>
 
       <div className="flex-1 overflow-y-auto px-2 pt-4 pb-2">
-        <div className="group mb-1 flex items-center justify-between pr-1 pl-1">
-          <span className="text-xs font-bold tracking-wide text-text-muted uppercase hover:text-text-normal">
-            Ses Kanalları
-          </span>
-          {isAdmin && (
-            <button
-              className="text-text-muted hover:text-text-head"
-              title="Kanal Oluştur"
-              onClick={() => openModal({ type: 'channel' })}
-            >
-              <Plus size={16} />
-            </button>
-          )}
-        </div>
+        <SectionHeader title="Metin Kanalları" type="text" canCreate={isAdmin} />
+        {textChannels.map((channel) => (
+          <TextChannelItem
+            key={channel.id}
+            channel={channel}
+            selected={view.kind === 'text' && view.channelId === channel.id}
+          />
+        ))}
+
+        <div className="h-4" />
+        <SectionHeader title="Ses Kanalları" type="voice" canCreate={isAdmin} />
         {voiceChannels.map((channel) => (
           <VoiceChannelItem key={channel.id} channel={channel} />
         ))}
-        {isAdmin && voiceChannels.length === 0 && (
-          <button
-            className="mt-2 flex items-center gap-2 px-2 text-sm text-text-muted hover:text-text-head"
-            onClick={() => openModal({ type: 'channel' })}
-          >
-            <UserPlus size={16} /> İlk ses kanalını oluştur
-          </button>
-        )}
       </div>
 
       <VoiceConnectionPanel />
       <UserPanel />
     </aside>
+  );
+}
+
+function SectionHeader({ title, type, canCreate }: { title: string; type: ChannelType; canCreate: boolean }) {
+  const openModal = useUi((s) => s.openModal);
+  return (
+    <div className="group mb-1 flex items-center justify-between pr-1 pl-1">
+      <span className="text-xs font-bold tracking-wide text-text-muted uppercase group-hover:text-text-normal">
+        {title}
+      </span>
+      {canCreate && (
+        <button
+          className="text-text-muted hover:text-text-head"
+          title="Kanal Oluştur"
+          onClick={() => openModal({ type: 'channel', channelType: type })}
+        >
+          <Plus size={16} />
+        </button>
+      )}
+    </div>
   );
 }

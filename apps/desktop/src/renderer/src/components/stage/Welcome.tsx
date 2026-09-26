@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { AudioLines } from 'lucide-react';
 import { voice } from '../../features/voice/voiceClient';
 import { membersOf, useGuild } from '../../stores/guild';
+import { useUi } from '../../stores/ui';
 
 /** Ses kanalına bağlı değilken ana alan. */
 export function Welcome() {
@@ -25,7 +26,10 @@ export function Welcome() {
             <button
               key={c.id}
               onMouseEnter={() => voice.prefetch(c.id)}
-              onClick={() => void voice.join(c.id)}
+              onClick={() => {
+                void voice.join(c.id);
+                useUi.getState().setView({ kind: 'voice' });
+              }}
               className="min-w-40 rounded-lg bg-bg-side px-5 py-4 text-left transition-colors hover:bg-bg-hover"
             >
               <div className="font-semibold text-text-head">{c.name}</div>

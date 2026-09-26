@@ -10,6 +10,12 @@ interface GuildStore {
   users: Record<string, User>;
   voiceStates: Record<string, VoiceState>;
   online: Record<string, true>;
+  /** Metin kanalı → en son mesaj kimliği */
+  lastMessageIds: Record<string, string>;
+  /** Metin kanalı → bu kullanıcının okuduğu son mesaj */
+  readStates: Record<string, string>;
+  markRead: (channelId: string, messageId: string) => void;
+  setLastMessageId: (channelId: string, messageId: string | null) => void;
   setStatus: (status: GatewayStatus) => void;
   setReady: (payload: ReadyPayload) => void;
   apply: (msg: GatewayServerMessage) => void;
@@ -26,6 +32,8 @@ const initial = {
   users: {},
   voiceStates: {},
   online: {},
+  lastMessageIds: {},
+  readStates: {},
 };
 
 /** Gateway'den gelen topluluk durumu: kanallar, kullanıcılar, kim hangi ses kanalında. */
@@ -40,6 +48,21 @@ export const useGuild = create<GuildStore>()((set) => ({
       users: Object.fromEntries(p.users.map((u) => [u.id, u])),
       voiceStates: Object.fromEntries(p.voiceStates.map((v) => [v.userId, v])),
       online: Object.fromEntries(p.online.map((id) => [id, true as const])),
+      lastMessageIds: p.lastMessageIds,
+      readStates: p.readStates,
+    }),
+  markRead: (channelId, messageId) =>
+    set((s) =>
+      Number(messageId) > Number(s.readStates[channelId] ?? 0)
+        ? { readStates: { ...s.readStates, [channelId]: messageId } }
+        : {},
+    ),
+  setLastMessageId: (channelId, messageId) =>
+    set((s) => {
+      const lastMessageIds = { ...s.lastMessageIds };
+      if (messageId) lastMessageIds[channelId] = messageId;
+      else delete lastMessageIds[channelId];
+      return { lastMessageIds };
     }),
   apply: (msg) =>
     set((s) => {
@@ -70,12 +93,22 @@ export const useGuild = create<GuildStore>()((set) => ({
           return { channels: sortChannels([...s.channels.filter((c) => c.id !== msg.d.id), msg.d]) };
         case 'CHANNEL_DELETE':
           return { channels: s.channels.filter((c) => c.id !== msg.d.id) };
+        case 'MESSAGE_CREATE':
+          return Number(msg.d.id) > Number(s.lastMessageIds[msg.d.channelId] ?? 0)
+            ? { lastMessageIds: { ...s.lastMessageIds, [msg.d.channelId]: msg.d.id } }
+            : {};
         default:
           return {};
       }
     }),
   reset: () => set(initial),
 }));
+
+/** Kanalda okunmamış mesaj var mı */
+export function isUnread(state: Pick<GuildStore, 'lastMessageIds' | 'readStates'>, channelId: string): boolean {
+  const last = state.lastMessageIds[channelId];
+  return last !== undefined && Number(last) > Number(state.readStates[channelId] ?? 0);
+}
 
 export function membersOf(voiceStates: Record<string, VoiceState>, channelId: string): VoiceState[] {
   return Object.values(voiceStates)

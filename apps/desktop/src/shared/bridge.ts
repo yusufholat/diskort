@@ -51,6 +51,10 @@ export interface DiskortBridge {
   setPreferences(prefs: AppPreferences): Promise<void>;
   setTrayState(state: TrayState): void;
   onTrayAction(cb: (action: TrayAction) => void): () => void;
+  /** Pencereyi (tepsiden/küçültülmüşse) öne getirir. */
+  showWindow(): void;
+  /** Pencere odakta değilse görev çubuğu simgesini yakıp söndürerek dikkat çeker. */
+  requestAttention(): void;
 
   screen: {
     /** Sistem sesi paylaşımı destekleniyor mu (şu an yalnızca Windows) */

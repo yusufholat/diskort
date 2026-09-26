@@ -17,6 +17,7 @@ export function VoiceChannelItem({ channel }: { channel: Channel }) {
   const isAdmin = useSession((s) => s.user?.isAdmin ?? false);
   const openModal = useUi((s) => s.openModal);
   const openContextMenu = useUi((s) => s.openContextMenu);
+  const setView = useUi((s) => s.setView);
   const isActive = activeChannel === channel.id;
 
   return (
@@ -27,7 +28,10 @@ export function VoiceChannelItem({ channel }: { channel: Channel }) {
           isActive ? 'bg-bg-active text-text-head' : 'text-text-muted hover:bg-bg-hover hover:text-text-normal',
         )}
         onMouseEnter={() => voice.prefetch(channel.id)}
-        onClick={() => void voice.join(channel.id)}
+        onClick={() => {
+          if (!isActive) void voice.join(channel.id);
+          setView({ kind: 'voice' });
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           if (!isAdmin) return;

@@ -156,6 +156,7 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+  mainWindow.on('focus', () => mainWindow?.flashFrame(false));
 
   // Harici bağlantılar varsayılan tarayıcıda açılır; uygulama içinde yeni pencere açılmaz.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -240,6 +241,12 @@ function registerIpc(): void {
   ipcMain.on('app:tray-state', (_e, state: TrayState) => {
     trayState = state;
     updateTrayMenu();
+  });
+  ipcMain.on('app:show-window', showWindow);
+  ipcMain.on('app:request-attention', () => {
+    if (!mainWindow || mainWindow.isFocused()) return;
+    if (isMac) app.dock?.bounce('informational');
+    else mainWindow.flashFrame(true);
   });
 
   ipcMain.handle('screen:get-sources', () => getScreenSources());

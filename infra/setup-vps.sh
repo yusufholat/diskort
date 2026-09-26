@@ -17,6 +17,14 @@ if command -v ufw >/dev/null 2>&1; then
   ufw --force enable
 fi
 
+# Yayın trafiği ani UDP patlamaları üretir; varsayılan 208 KB çekirdek tamponu paket düşürebilir.
+# (LiveKit bir sonraki yeniden başlatılışında büyük tamponu kullanır.)
+cat > /etc/sysctl.d/60-diskort-udp.conf <<'EOF'
+net.core.rmem_max = 5000000
+net.core.wmem_max = 5000000
+EOF
+sysctl --system >/dev/null
+
 cd "$(dirname "$0")"
 
 # Günlük veritabanı yedeği (her gece 04:00, /var/backups/diskort, 14 gün saklanır).

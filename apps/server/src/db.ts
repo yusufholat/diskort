@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { nanoid, customAlphabet } from 'nanoid';
-import type { Channel, ChannelType, Guild, Invite, User } from '@diskort/shared';
+import { extractMentions, type Channel, type ChannelType, type Guild, type Invite, type Message, type User } from '@diskort/shared';
 import { AVATAR_COLORS } from '@diskort/shared';
 
 const MIGRATIONS: string[] = [
@@ -49,6 +49,28 @@ const MIGRATIONS: string[] = [
     expires_at INTEGER NOT NULL,
     created_at INTEGER NOT NULL
   );
+  `,
+  // 3: metin kanalları — mesajlar ve kullanıcı başına okunma durumu; mevcut topluluğa bir metin kanalı
+  `
+  CREATE TABLE messages (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    author_id  TEXT REFERENCES users(id) ON DELETE SET NULL,
+    content    TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    edited_at  INTEGER
+  );
+  CREATE INDEX messages_by_channel ON messages(channel_id, id);
+  CREATE TABLE read_states (
+    user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    channel_id   TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    last_read_id INTEGER NOT NULL,
+    mention_count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, channel_id)
+  );
+  INSERT INTO channels (id, guild_id, name, type, position, created_at)
+    SELECT lower(hex(randomblob(6))), g.id, 'genel-sohbet', 'text', 0, CAST(strftime('%s', 'now') AS INTEGER) * 1000
+    FROM guilds g WHERE NOT EXISTS (SELECT 1 FROM channels WHERE type = 'text');
   `,
 ];
 
@@ -97,6 +119,24 @@ const toInvite = (r: InviteRow): Invite => ({
   uses: r.uses,
   expiresAt: r.expires_at,
   createdAt: r.created_at,
+});
+
+interface MessageRow {
+  id: number;
+  channel_id: string;
+  author_id: string | null;
+  content: string;
+  created_at: number;
+  edited_at: number | null;
+}
+
+const toMessage = (r: MessageRow): Message => ({
+  id: String(r.id),
+  channelId: r.channel_id,
+  authorId: r.author_id,
+  content: r.content,
+  createdAt: r.created_at,
+  editedAt: r.edited_at,
 });
 
 const toChannel = (r: ChannelRow): Channel => ({
@@ -346,13 +386,19 @@ export class Store {
     const guild: Guild = { id: nanoid(12), name };
     this.tx(() => {
       this.run('INSERT INTO guilds (id, name, created_at) VALUES (?, ?, ?)', guild.id, name, Date.now());
-      ['Genel', 'Oyun', 'Müzik'].forEach((channelName, i) => {
+      const defaults: [string, ChannelType][] = [
+        ['genel-sohbet', 'text'],
+        ['Genel', 'voice'],
+        ['Oyun', 'voice'],
+        ['Müzik', 'voice'],
+      ];
+      defaults.forEach(([channelName, type], i) => {
         this.run(
           'INSERT INTO channels (id, guild_id, name, type, position, created_at) VALUES (?, ?, ?, ?, ?, ?)',
           nanoid(12),
           guild.id,
           channelName,
-          'voice',
+          type,
           i,
           Date.now(),
         );
@@ -399,5 +445,96 @@ export class Store {
 
   deleteChannel(id: string): boolean {
     return this.run('DELETE FROM channels WHERE id = ?', id) > 0;
+  }
+
+  // ---------- Mesajlar ----------
+
+  /** En yeni mesajlardan geriye doğru bir sayfa; sonuç eskiden yeniye sıralıdır. */
+  listMessages(channelId: string, before: number | null, limit: number): Message[] {
+    const rows = before
+      ? this.all<MessageRow>(
+          'SELECT * FROM messages WHERE channel_id = ? AND id < ? ORDER BY id DESC LIMIT ?',
+          channelId,
+          before,
+          limit,
+        )
+      : this.all<MessageRow>('SELECT * FROM messages WHERE channel_id = ? ORDER BY id DESC LIMIT ?', channelId, limit);
+    return rows.reverse().map(toMessage);
+  }
+
+  getMessage(id: number): Message | null {
+    const row = this.one<MessageRow>('SELECT * FROM messages WHERE id = ?', id);
+    return row ? toMessage(row) : null;
+  }
+
+  /** Mesajı kaydeder; bahsedilen kullanıcıların okunmamış bahsetme sayısını artırır. */
+  createMessage(channelId: string, authorId: string, content: string): Message {
+    const id = Number(
+      this.db
+        .prepare('INSERT INTO messages (channel_id, author_id, content, created_at) VALUES (?, ?, ?, ?)')
+        .run(channelId, authorId, content, Date.now()).lastInsertRowid,
+    );
+    for (const username of extractMentions(content)) {
+      const user = this.one<{ id: string }>('SELECT id FROM users WHERE username = ?', username);
+      if (!user || user.id === authorId) continue;
+      this.run(
+        `INSERT INTO read_states (user_id, channel_id, last_read_id, mention_count) VALUES (?, ?, 0, 1)
+         ON CONFLICT (user_id, channel_id) DO UPDATE SET mention_count = mention_count + 1`,
+        user.id,
+        channelId,
+      );
+    }
+    return this.getMessage(id)!;
+  }
+
+  updateMessage(id: number, content: string): Message | null {
+    this.run('UPDATE messages SET content = ?, edited_at = ? WHERE id = ?', content, Date.now(), id);
+    return this.getMessage(id);
+  }
+
+  deleteMessage(id: number): boolean {
+    return this.run('DELETE FROM messages WHERE id = ?', id) > 0;
+  }
+
+  /** Kanal başına en son mesaj kimliği (okunmamış göstergesi için). */
+  lastMessageIds(): Record<string, string> {
+    return Object.fromEntries(
+      this.all<{ channel_id: string; id: number }>(
+        'SELECT channel_id, MAX(id) AS id FROM messages GROUP BY channel_id',
+      ).map((r) => [r.channel_id, String(r.id)]),
+    );
+  }
+
+  readStates(userId: string): Record<string, string> {
+    return Object.fromEntries(
+      this.all<{ channel_id: string; last_read_id: number }>(
+        'SELECT channel_id, last_read_id FROM read_states WHERE user_id = ?',
+        userId,
+      ).map((r) => [r.channel_id, String(r.last_read_id)]),
+    );
+  }
+
+  mentionCounts(userId: string): Record<string, number> {
+    return Object.fromEntries(
+      this.all<{ channel_id: string; mention_count: number }>(
+        'SELECT channel_id, mention_count FROM read_states WHERE user_id = ? AND mention_count > 0',
+        userId,
+      ).map((r) => [r.channel_id, r.mention_count]),
+    );
+  }
+
+  /** Okunma durumunu yalnızca ileri taşır; kanalın sonuna kadar okunduysa bahsetme sayısı sıfırlanır. */
+  ack(userId: string, channelId: string, messageId: number): void {
+    this.run(
+      `INSERT INTO read_states (user_id, channel_id, last_read_id) VALUES (?, ?, ?)
+       ON CONFLICT (user_id, channel_id) DO UPDATE SET
+         last_read_id = MAX(last_read_id, excluded.last_read_id),
+         mention_count = CASE
+           WHEN excluded.last_read_id >= (SELECT COALESCE(MAX(id), 0) FROM messages WHERE channel_id = excluded.channel_id)
+           THEN 0 ELSE mention_count END`,
+      userId,
+      channelId,
+      messageId,
+    );
   }
 }

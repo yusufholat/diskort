@@ -14,6 +14,8 @@ const bridge: DiskortBridge = {
   setPreferences: (prefs) => ipcRenderer.invoke('app:set-preferences', prefs),
   setTrayState: (state) => ipcRenderer.send('app:tray-state', state),
   onTrayAction: (cb) => listen<TrayAction>('tray-action', cb),
+  showWindow: () => ipcRenderer.send('app:show-window'),
+  requestAttention: () => ipcRenderer.send('app:request-attention'),
 
   screen: {
     supportsAudio: process.platform === 'win32',

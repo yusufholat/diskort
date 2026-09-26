@@ -121,7 +121,7 @@ describe('kimlik doğrulama ve davetler', () => {
 describe('ses kanalları', () => {
   it('ses jetonu yalnızca ilgili odaya ve izin verilen kaynaklara yetki verir', async () => {
     const token = await adminToken();
-    const channel = ctx.store.listChannels(ctx.guild.id)[0]!;
+    const channel = ctx.store.listChannels(ctx.guild.id).find((c) => c.type === 'voice')!;
     const res = await app.inject({
       method: 'POST',
       url: `/api/voice/${channel.id}/join`,
@@ -148,7 +148,7 @@ describe('ses kanalları', () => {
     const token = await adminToken();
     const userId = (await app.inject({ method: 'GET', url: '/api/me', headers: { authorization: `Bearer ${token}` } })).json()
       .id as string;
-    const [a, b] = ctx.store.listChannels(ctx.guild.id);
+    const [a, b] = ctx.store.listChannels(ctx.guild.id).filter((c) => c.type === 'voice');
     const room = (id: string) => ({ name: `ch_${id}` });
 
     const unsigned = await app.inject({
@@ -184,7 +184,7 @@ describe('ses kanalları', () => {
 
 describe('ses durumu eşitleme', () => {
   it('LiveKit anlık görüntüsüyle kaçan katılma/ayrılmaları düzeltir', () => {
-    const [a, b] = ctx.store.listChannels(ctx.guild.id);
+    const [a, b] = ctx.store.listChannels(ctx.guild.id).filter((c) => c.type === 'voice');
     ctx.voice.join('u1', a!.id);
     ctx.voice.join('u2', a!.id);
     ctx.voice.reconcile(

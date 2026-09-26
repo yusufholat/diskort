@@ -13,6 +13,7 @@ import { VoiceStateStore } from './voiceState.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerDownloadRoutes } from './routes/download.js';
+import { registerMessageRoutes } from './routes/messages.js';
 import { registerVoiceRoutes } from './routes/voice.js';
 
 export interface BuildOptions {
@@ -55,6 +56,7 @@ export async function buildApp(
   registerAdminRoutes(app, ctx);
   registerVoiceRoutes(app, ctx);
   registerDownloadRoutes(app, ctx);
+  registerMessageRoutes(app, ctx);
 
   return { app, ctx };
 }

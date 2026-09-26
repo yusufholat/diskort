@@ -1,6 +1,6 @@
 # Diskort
 
-10–20 kişilik kapalı topluluklar için Discord kalitesinde **ses** ve **ekran paylaşımı** uygulaması.
+10–20 kişilik kapalı topluluklar için Discord kalitesinde **ses**, **ekran paylaşımı** ve **metin kanalları** uygulaması.
 Masaüstü uygulaması (Electron) + kendi sunucun (LiveKit SFU + API).
 
 İndirme sayfası: **https://diskort.ziroo.net**
@@ -16,6 +16,10 @@ Masaüstü uygulaması (Electron) + kendi sunucun (LiveKit SFU + API).
   sistem sesi (Windows; sohbet sesleri otomatik hariç tutulur → yankı yok)
 - **“Yayını İzle”:** video yalnızca izlemek isteyene gönderilir; tam ekran, yayın sesi ayarı
 - Kanala girmeden **kim hangi kanalda**, kim susturulmuş, kim yayında görünür
+- **Metin kanalları:** kalıcı mesaj geçmişi (yukarı kaydırdıkça yüklenir), düzenleme (↑ ile son mesaj) ve silme,
+  **kalın**/*italik*/~~çizik~~/`kod`/kod bloğu/alıntı/sürpriz (`||metin||`) biçimlendirme, bağlantılar,
+  “yazıyor…” göstergesi, okunmamış kanal ve **@bahsetme** rozetleri (sunucuda tutulur, çevrimdışıyken gelenler de
+  görünür), bahsetmede bildirim + görev çubuğu uyarısı, “YENİ” ayracı
 - **Davet kodu + hesap** sistemi; **şifre sıfırlama** (yöneticinin verdiği tek kullanımlık kodla) ve şifre değiştirme
 - **Yönetici paneli:** davetler, kanallar, üyeler (sıfırlama kodu, yöneticilik, sesten atma, hesap silme)
 - **Yedek bağlantı:** doğrudan UDP kurulamayan ağlarda TURN/UDP 3478, yalnızca 443'e izin veren ağlarda
@@ -45,6 +49,7 @@ Masaüstü (Electron + React) ──HTTPS/WSS──► Caddy :443 ──► API 
   - Ses motoru: `src/renderer/src/features/voice/voiceClient.ts`
   - Mikrofon zinciri (RNNoise + ses kapısı): `micProcessor.ts`, `gate-worklet.js`
   - TURN/TLS portu güvencesi (olası 5349 bildirimini 443'e çevirir): `turnPort.ts`
+  - Metin kanalları: `features/messages` (mesaj deposu, biçimlendirme), `components/text` (görünüm)
 - `apps/server` — API + gateway + LiveKit entegrasyonu, indirme yönlendirmeleri
 - `apps/web` — indirme sayfası (derleme adımı yok; Caddy doğrudan sunar). Butonlar `/download/<platform>`
   adresine gider; API en son GitHub sürümünü bulup dosyaya yönlendirir, kullanıcı GitHub'ı görmez.
@@ -173,7 +178,7 @@ Yalnızca Windows paketini kendi bilgisayarından yüklemek için: `pnpm release
 ## Yol haritası
 
 - Kod imzalama (Windows: Certum Open Source veya SignPath Foundation; macOS: Apple Developer ID)
-- Metin kanalları ve mesaj geçmişi, emoji/tepkiler, dosya paylaşımı
+- Emoji/tepkiler, dosya ve resim paylaşımı, mesaj arama
 - Roller ve yetkiler, özel mesajlar (DM)
 - Kamera, Linux/macOS'ta yayın sesi, mobil uygulama
 - Birden çok topluluk (sunucu) desteği — veri modeli hazır (`guilds` tablosu)

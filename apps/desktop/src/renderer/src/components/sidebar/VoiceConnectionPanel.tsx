@@ -27,6 +27,7 @@ export function VoiceConnectionPanel() {
   const channel = useGuild((s) => s.channels.find((c) => c.id === channelId));
   const guildName = useGuild((s) => s.guild?.name);
   const openModal = useUi((s) => s.openModal);
+  const setView = useUi((s) => s.setView);
 
   if (status === 'idle') return null;
   const connected = status === 'connected';
@@ -46,9 +47,13 @@ export function VoiceConnectionPanel() {
             {STATUS_TEXT[status]}
             {connected && ping !== null && <span className="ml-1.5 text-xs font-normal text-text-muted">{ping} ms</span>}
           </div>
-          <div className="truncate text-xs text-text-muted">
+          <button
+            className="block max-w-full truncate text-left text-xs text-text-muted hover:text-text-normal hover:underline"
+            title="Ses kanalını göster"
+            onClick={() => setView({ kind: 'voice' })}
+          >
             {channel?.name} / {guildName}
-          </div>
+          </button>
         </div>
         <button
           className="rounded p-1.5 text-text-normal hover:bg-bg-hover hover:text-text-head"
