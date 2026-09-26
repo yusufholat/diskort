@@ -2,6 +2,7 @@ import { AndroidAudioTypePresets, AudioSession } from '@livekit/react-native';
 import { api, errorMessage, gateway, useGuild } from '@diskort/client-core';
 import {
   ConnectionState,
+  DisconnectReason,
   type Participant,
   type RemoteParticipant,
   type RemoteTrackPublication,
@@ -13,6 +14,20 @@ import { PermissionsAndroid, Platform } from 'react-native';
 import { create } from 'zustand';
 import { VoiceService } from '../../modules/voice-service';
 import { getSettings, useSettings } from '../stores/settings';
+import { toast } from '../stores/ui';
+
+function disconnectMessage(reason?: DisconnectReason): string {
+  switch (reason) {
+    case DisconnectReason.DUPLICATE_IDENTITY:
+      return 'Bu hesapla başka bir cihazdan ses kanalına bağlanıldı.';
+    case DisconnectReason.PARTICIPANT_REMOVED:
+      return 'Ses kanalından çıkarıldın.';
+    case DisconnectReason.ROOM_DELETED:
+      return 'Ses kanalı kapatıldı.';
+    default:
+      return 'Ses bağlantısı koptu.';
+  }
+}
 
 export type VoiceStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting';
 
@@ -258,9 +273,11 @@ class MobileVoiceClient {
         useVoice.setState({ status: 'connected' });
         this.syncVoiceState();
       })
-      .on(RoomEvent.Disconnected, () => {
-        // Sunucu çıkardıysa (sesten atma, kanal silindi) ya da bağlantı tamamen koptuysa
-        if (this.room === room && room.state === ConnectionState.Disconnected) void this.leave();
+      .on(RoomEvent.Disconnected, (reason) => {
+        // Kendi başlattığımız ayrılma değilse: sunucu çıkardı, başka cihaza geçildi ya da bağlantı koptu
+        if (this.room !== room || room.state !== ConnectionState.Disconnected) return;
+        toast(disconnectMessage(reason), reason === DisconnectReason.CLIENT_INITIATED ? 'info' : 'error');
+        void this.leave();
       });
   }
 

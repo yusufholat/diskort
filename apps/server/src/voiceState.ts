@@ -21,6 +21,8 @@ interface VoiceEvents {
 export class VoiceStateStore extends EventEmitter<VoiceEvents> {
   private readonly states = new Map<string, VoiceState>();
   private readonly selfFlags = new Map<string, SelfFlags>();
+  /** Kullanıcının geçerli LiveKit oturumu (participant SID) */
+  private readonly sessions = new Map<string, string>();
 
   list(): VoiceState[] {
     return [...this.states.values()];
@@ -30,7 +32,8 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
     return this.states.get(userId);
   }
 
-  join(userId: string, channelId: string, streaming = false): VoiceState {
+  join(userId: string, channelId: string, streaming = false, sessionId?: string): VoiceState {
+    if (sessionId) this.sessions.set(userId, sessionId);
     const prev = this.states.get(userId);
     if (prev && prev.channelId === channelId) return prev;
     if (prev) this.remove(userId);
@@ -41,10 +44,16 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
     return state;
   }
 
-  /** Yalnızca kullanıcı hâlâ o kanaldaysa çıkarır (geç gelen webhook'lara karşı). */
-  leave(userId: string, channelId: string): boolean {
+  /**
+   * Yalnızca kullanıcı hâlâ o kanaldaysa çıkarır (geç gelen webhook'lara karşı). Aynı hesap aynı kanala
+   * başka bir cihazdan bağlanınca LiveKit eski oturumu kapatır; o eski oturumun "ayrıldı" bildirimi,
+   * oturum kimliği güncel olanla uyuşmadığı için yok sayılır.
+   */
+  leave(userId: string, channelId: string, sessionId?: string): boolean {
     const prev = this.states.get(userId);
     if (!prev || prev.channelId !== channelId) return false;
+    const current = this.sessions.get(userId);
+    if (sessionId && current && current !== sessionId) return false;
     this.remove(userId);
     return true;
   }
@@ -89,6 +98,7 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
     const prev = this.states.get(userId);
     if (!prev) return;
     this.states.delete(userId);
+    this.sessions.delete(userId);
     this.emit('delete', { userId, channelId: prev.channelId });
   }
 }

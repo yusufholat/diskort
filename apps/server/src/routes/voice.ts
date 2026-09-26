@@ -48,14 +48,14 @@ export function registerVoiceRoutes(app: FastifyInstance, ctx: AppContext): void
         case 'participant_joined': {
           if (!userId || !store.getUser(userId)) break;
           const prev = voice.get(userId);
-          voice.join(userId, channelId);
+          voice.join(userId, channelId, false, event.participant?.sid);
           // Aynı hesap başka bir cihazdan farklı kanalda kaldıysa oradan çıkar.
           if (prev && prev.channelId !== channelId) void livekit.removeParticipant(prev.channelId, userId);
           break;
         }
         case 'participant_left':
         case 'participant_connection_aborted':
-          if (userId) voice.leave(userId, channelId);
+          if (userId) voice.leave(userId, channelId, event.participant?.sid);
           break;
         case 'track_published':
         case 'track_unpublished':
