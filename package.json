@@ -2,6 +2,7 @@
   "name": "diskort",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Discord kalitesinde ses ve ekran paylaşımı platformu",
   "scripts": {
     "dev:livekit": "node scripts/livekit-dev.mjs",

@@ -2,6 +2,7 @@
   "name": "@diskort/desktop",
   "productName": "Diskort",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "Diskort masaüstü uygulaması",
   "author": "Diskort",

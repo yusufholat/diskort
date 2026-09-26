@@ -143,3 +143,7 @@ açık olan tüm uygulamalar güncellemeyi arka planda indirir ve yeniden başla
 - Roller ve yetkiler, özel mesajlar (DM)
 - Kamera, Linux/macOS'ta yayın sesi
 - Birden çok topluluk (sunucu) desteği — veri modeli hazır (`guilds` tablosu)
+
+## Lisans
+
+[MIT](LICENSE)
