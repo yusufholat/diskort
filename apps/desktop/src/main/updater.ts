@@ -51,7 +51,8 @@ export class UpdateManager {
         const version = 'version' in this.state ? this.state.version : '';
         this.set({ kind: 'downloading', version, percent: p.percent, transferred: p.transferred, total: p.total });
       });
-      if (app.isPackaged) removeInstalledPending();
+      // Güncellemeden hemen sonra kurulum programı kendi dosyasını hâlâ kullanıyor olabilir; biraz bekle
+      if (app.isPackaged) setTimeout(removeInstalledPending, 60_000).unref();
     }
     updateLog.info(`Diskort ${app.getVersion()} (${process.platform}), güncelleme: ${this.support} ${this.feedUrl}`);
   }
@@ -182,10 +183,11 @@ function removeInstalledPending(): void {
     const info = JSON.parse(readFileSync(join(pending, 'update-info.json'), 'utf8')) as { fileName?: string };
     const version = /(\d+\.\d+\.\d+)/.exec(info.fileName ?? '')?.[1];
     if (version && compareVersions(version, app.getVersion()) <= 0) {
-      rmSync(pending, { recursive: true, force: true });
+      rmSync(pending, { recursive: true, force: true, maxRetries: 3, retryDelay: 1000 });
       updateLog.info(`Kurulmuş güncellemenin indirme kopyası silindi (${version})`);
     }
-  } catch {
-    // bekleyen güncelleme yok
+  } catch (err) {
+    // Bekleyen güncelleme yoksa (ENOENT) sessiz geç; başka hata günlüğe yazılır, sonraki açılışta yeniden denenir
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') updateLog.warn(`İndirme kopyası silinemedi: ${String(err)}`);
   }
 }
