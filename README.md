@@ -132,6 +132,10 @@ Sunucuyu güncellemek için:
 cd /opt/diskort && git pull && cd infra && docker compose up -d --build
 ```
 
+`Caddyfile` değiştiyse Caddy'yi ayrıca yeniden başlat (tek dosya olarak bağlandığı için `git pull` sonrası
+eski hâlini görmeye devam eder): `docker compose restart caddy`. LiveKit veya Caddy yeniden başlatılınca
+süren görüşmeler birkaç saniye kopar; kimse seste değilken yap.
+
 Açık olması gereken portlar: `80/tcp`, `443/tcp`, `7881/tcp`, `3478/udp`, `50000–60000/udp`
 (TURN/TLS 443'ü HTTPS ile paylaşır; 5349 yalnızca sunucunun içinde kullanılır).
 
