@@ -74,6 +74,7 @@ export const api = {
   deleteAccount: (body: DeleteAccountRequest) => request<void>('DELETE', '/api/me', body),
   registerPushToken: (body: PushTokenRequest) => request<void>('POST', '/api/me/push-tokens', body),
   unregisterPushToken: (token: string) => request<void>('DELETE', '/api/me/push-tokens', { token }),
+  sendTestPush: () => request<{ devices: number }>('POST', '/api/me/push-test'),
 
   createResetCode: (userId: string) => request<ResetCodeResponse>('POST', `/api/users/${userId}/reset-code`),
   updateUser: (userId: string, body: UpdateUserRequest) => request<User>('PATCH', `/api/users/${userId}`, body),

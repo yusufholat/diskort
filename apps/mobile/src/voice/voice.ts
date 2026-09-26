@@ -10,7 +10,7 @@ import {
   RoomEvent,
   Track,
 } from 'livekit-client';
-import { PermissionsAndroid, Platform } from 'react-native';
+import { Dimensions, PermissionsAndroid, PixelRatio, Platform } from 'react-native';
 import { create } from 'zustand';
 import { VoiceService } from '../../modules/voice-service';
 import { getSettings, useSettings } from '../stores/settings';
@@ -30,6 +30,9 @@ function disconnectMessage(reason?: DisconnectReason): string {
 }
 
 export type VoiceStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting';
+
+/** Telefon ekranı paylaşılırken gönderilen görüntünün kısa kenarı (piksel) */
+const SCREEN_SHARE_SHORT_SIDE = 720;
 
 interface VoiceStore {
   channelId: string | null;
@@ -215,15 +218,38 @@ class MobileVoiceClient {
         {
           videoCodec: 'h264',
           simulcast: false,
-          screenShareEncoding: { maxBitrate: 2_500_000, maxFramerate: 30 },
+          screenShareEncoding: { maxBitrate: 2_500_000, maxFramerate: 24 },
+          // Sıkışınca kare atlamak (donma) yerine netliği düşür
+          degradationPreference: 'maintain-framerate',
         },
       );
+      if (next) await this.scaleScreenShare(room);
       useVoice.setState({ sharing: next && Boolean(room.localParticipant.getTrackPublication(Track.Source.ScreenShare)) });
     } catch (err) {
       useVoice.setState({ sharing: false });
       const message = errorMessage(err);
       // Kullanıcı Android'in onay penceresinde vazgeçtiyse hata gösterme
       if (!/permission|denied|cancel|NotAllowed/i.test(message)) toast(`Ekran paylaşılamadı: ${message}`, 'error');
+    }
+  }
+
+  /**
+   * Android ekranı her zaman tam çözünürlükte yakalar (ör. 1220×2656). Gönderilen görüntü kısa kenarı
+   * ~720 piksel olacak şekilde küçültülür; aksi hâlde kodlayıcı yetişemez ve yayın donar.
+   */
+  private async scaleScreenShare(room: Room): Promise<void> {
+    const sender = room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.videoTrack?.sender;
+    if (!sender) return;
+    const { width, height } = Dimensions.get('screen');
+    const shortSide = Math.min(width, height) * PixelRatio.get();
+    const scale = Math.max(1, shortSide / SCREEN_SHARE_SHORT_SIDE);
+    try {
+      const params = sender.getParameters() as RTCRtpSendParameters & { degradationPreference?: string };
+      for (const encoding of params.encodings ?? []) encoding.scaleResolutionDownBy = scale;
+      params.degradationPreference = 'maintain-framerate';
+      await sender.setParameters(params);
+    } catch {
+      // desteklenmiyorsa tam çözünürlükte devam eder
     }
   }
 

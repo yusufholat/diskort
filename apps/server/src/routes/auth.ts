@@ -79,7 +79,7 @@ function createLimiter(maxAttempts: number, windowMs: number) {
 }
 
 export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const { store, auth, gateway } = ctx;
+  const { store, auth, gateway, push } = ctx;
   const limit = createLimiter(20, 60_000);
 
   app.post('/api/auth/register', async (req, reply) => {
@@ -162,6 +162,13 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     if (!body) return reply;
     store.removePushToken(body.token);
     return reply.code(204).send();
+  });
+
+  // Ayarlardaki "Test bildirimi gönder"
+  app.post('/api/me/push-test', { preHandler: auth.requireUser }, async (req, reply) => {
+    if (!limit(req.ip)) return sendError(reply, 429, 'rate_limited', 'Çok fazla deneme. Biraz bekle.');
+    if (!push.enabled) return sendError(reply, 503, 'push_disabled', 'Sunucuda telefon bildirimleri kapalı.');
+    return { devices: await push.sendTest(req.user.id) };
   });
 
   // Kullanıcı kendi hesabını siler (şifre onayıyla). Son yönetici, topluluk sahipsiz kalmasın diye silemez.

@@ -3,7 +3,7 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-na
 import { api, errorMessage, gateway, useSession } from '@diskort/client-core';
 import { Avatar } from '../components/Avatar';
 import { Button, Field, SectionTitle, ui } from '../components/ui';
-import { unregisterPush } from '../notifications';
+import { registerForPush, unregisterPush, usePushState } from '../notifications';
 import { APP_VERSION } from '../version';
 import { DEFAULT_SERVER_URL, useSettings } from '../stores/settings';
 import { toast } from '../stores/ui';
@@ -57,6 +57,8 @@ export default function SettingsScreen() {
         onPress={() => void saveName()}
       />
 
+      <NotificationSettings />
+
       <SectionTitle>Uygulama</SectionTitle>
       <Info label="Sürüm" value={APP_VERSION} />
       {serverUrl !== DEFAULT_SERVER_URL && <Info label="Sunucu" value={serverUrl} />}
@@ -70,6 +72,45 @@ export default function SettingsScreen() {
 
       <DeleteAccount onDeleted={() => void logout()} />
     </ScrollView>
+  );
+}
+
+function NotificationSettings() {
+  const state = usePushState((s) => s.state);
+  const [busy, setBusy] = useState(false);
+  const text =
+    state.kind === 'registered'
+      ? 'Açık: biri senden bahsedince uygulama kapalıyken de bildirim gelir.'
+      : state.kind === 'denied'
+        ? 'Kapalı: bildirim izni verilmedi. Telefonun Ayarlar → Uygulamalar → Diskort → Bildirimler kısmından açabilirsin.'
+        : state.kind === 'error'
+          ? `Çalışmıyor: ${state.message}`
+          : 'Denetleniyor…';
+
+  const test = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      const { devices } = await api.sendTestPush();
+      toast(devices ? 'Test bildirimi gönderildi; birkaç saniye içinde gelmeli.' : 'Bu hesaba kayıtlı cihaz yok.', devices ? 'info' : 'error');
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View>
+      <SectionTitle>Bildirimler</SectionTitle>
+      <Text style={[styles.warning, state.kind === 'error' && { color: '#fa777c' }]} selectable>
+        {text}
+      </Text>
+      {state.kind === 'registered' ? (
+        <Button title="Test bildirimi gönder" variant="secondary" busy={busy} onPress={() => void test()} />
+      ) : (
+        <Button title="Yeniden dene" variant="secondary" onPress={() => void registerForPush()} />
+      )}
+    </View>
   );
 }
 

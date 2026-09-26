@@ -2,6 +2,17 @@ import { api } from '@diskort/client-core';
 import * as Notifications from 'expo-notifications';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import { create } from 'zustand';
+
+export type PushState =
+  | { kind: 'unknown' }
+  | { kind: 'registered' }
+  | { kind: 'denied' }
+  | { kind: 'error'; message: string };
+
+/** Ayarlar ekranında gösterilir (sorun olunca nedenini görmek için) */
+export const usePushState = create<{ state: PushState }>()(() => ({ state: { kind: 'unknown' } }));
+const setPushState = (state: PushState): void => usePushState.setState({ state });
 
 /**
  * Telefon bildirimleri (bahsetmeler). Sunucu, bahsedilen kullanıcının kayıtlı cihazlarına Google'ın
@@ -40,14 +51,19 @@ export async function registerForPush(): Promise<void> {
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     });
     const permission = await Notifications.requestPermissionsAsync();
-    if (!permission.granted) return;
+    if (!permission.granted) {
+      setPushState({ kind: 'denied' });
+      return;
+    }
     const { data } = await Notifications.getDevicePushTokenAsync();
     await sendToken(String(data));
+    setPushState({ kind: 'registered' });
     tokenSubscription?.remove();
     // Google jetonu yenilerse sunucuya yenisini bildir
     tokenSubscription = Notifications.addPushTokenListener(({ data: next }) => void sendToken(String(next)).catch(() => undefined));
-  } catch {
-    // Firebase yapılandırılmamış ya da Google Play Hizmetleri yok: uygulama bildirimsiz çalışır
+  } catch (err) {
+    // Ör. Google Play Hizmetleri yok ya da ağ hatası: uygulama bildirimsiz çalışır, nedeni ayarlarda görünür
+    setPushState({ kind: 'error', message: err instanceof Error ? err.message : String(err) });
   }
 }
 

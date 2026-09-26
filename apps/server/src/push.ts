@@ -82,6 +82,22 @@ export class PushService {
     );
   }
 
+  /** Ayarlardaki "Test bildirimi gönder": kullanıcının kendi cihazlarına. Gönderilen cihaz sayısını döner. */
+  async sendTest(userId: string): Promise<number> {
+    if (!this.account) return 0;
+    const tokens = this.store.pushTokens([userId]);
+    await Promise.all(
+      tokens.map((t) =>
+        this.send(t.token, {
+          notification: { title: 'Diskort', body: 'Bildirimler çalışıyor ✓' },
+          data: { type: 'test' },
+          android: { priority: 'HIGH', notification: { channel_id: 'diskort-mentions', color: '#5865f2' } },
+        }),
+      ),
+    );
+    return tokens.length;
+  }
+
   /** @kullanıcıadı yerine görünen ad */
   private readable(content: string): string {
     return content.replace(/(?<![\w.@])@([a-z0-9_.]*[a-z0-9_])/gi, (raw, name: string) => {
