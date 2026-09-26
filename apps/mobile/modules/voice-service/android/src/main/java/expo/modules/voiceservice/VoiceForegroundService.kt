@@ -20,7 +20,9 @@ import androidx.core.app.ServiceCompat
  */
 class VoiceForegroundService : Service() {
   companion object {
-    private const val CHANNEL_ID = "diskort_voice"
+    // Kanal önemi sonradan değiştirilemez; ayar değişince yeni kimlik gerekir (eskisi silinir)
+    private const val CHANNEL_ID = "diskort_voice_call"
+    private val OLD_CHANNEL_IDS = listOf("diskort_voice")
     const val NOTIFICATION_ID = 4101
 
     const val ACTION_SHOW = "expo.modules.voiceservice.SHOW"
@@ -34,10 +36,15 @@ class VoiceForegroundService : Service() {
     fun ensureChannel(context: Context) {
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
       val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      for (old in OLD_CHANNEL_IDS) manager.deleteNotificationChannel(old)
       if (manager.getNotificationChannel(CHANNEL_ID) != null) return
-      val channel = NotificationChannel(CHANNEL_ID, "Sesli sohbet", NotificationManager.IMPORTANCE_LOW).apply {
-        description = "Sesli sohbete bağlıyken gösterilir"
+      // Varsayılan önem (sessiz): düşük önemli bildirimleri birçok telefon kilit ekranında göstermez
+      val channel = NotificationChannel(CHANNEL_ID, "Sesli sohbet", NotificationManager.IMPORTANCE_DEFAULT).apply {
+        description = "Sesli sohbete bağlıyken gösterilir; kilit ekranından susturabilirsin"
+        setSound(null, null)
+        enableVibration(false)
         setShowBadge(false)
+        lockscreenVisibility = Notification.VISIBILITY_PUBLIC
       }
       manager.createNotificationChannel(channel)
     }
@@ -65,7 +72,8 @@ class VoiceForegroundService : Service() {
         .setOnlyAlertOnce(true)
         .setSilent(true)
         .setCategory(NotificationCompat.CATEGORY_CALL)
-        .setPriority(NotificationCompat.PRIORITY_LOW)
+        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
         .addAction(0, if (muted) "Susturmayı kaldır" else "Sustur", action(ACTION_TOGGLE_MUTE, 1))
         .addAction(0, "Bağlantıyı kes", action(ACTION_DISCONNECT, 2))
