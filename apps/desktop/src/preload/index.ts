@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { DiskortBridge, HotkeyEvent, TrayAction } from '../shared/bridge';
+import type { DiskortBridge, HotkeyEvent, TrayAction, UpdateState, UpdateSupport } from '../shared/bridge';
 
 function listen<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, payload: T): void => cb(payload);
@@ -32,7 +32,12 @@ const bridge: DiskortBridge = {
   },
 
   updates: {
-    onReady: (cb) => listen<string>('updates:ready', cb),
+    // Ana süreç, pencere oluşturulurken destek türünü komut satırı argümanıyla bildirir
+    support: (process.argv.find((a) => a.startsWith('--diskort-update-support='))?.split('=')[1] ??
+      'none') as UpdateSupport,
+    getState: () => ipcRenderer.invoke('updates:get-state'),
+    onState: (cb) => listen<UpdateState>('updates:state', cb),
+    check: () => ipcRenderer.invoke('updates:check'),
     install: () => ipcRenderer.invoke('updates:install'),
   },
 };

@@ -171,10 +171,20 @@ export type GatewayServerMessage =
   | { t: 'MESSAGE_UPDATE'; d: Message }
   | { t: 'MESSAGE_DELETE'; d: { id: string; channelId: string } }
   | { t: 'TYPING_START'; d: { channelId: string; userId: string } }
-  | { t: 'INVALID_SESSION'; d: { reason: string } };
+  | { t: 'INVALID_SESSION'; d: { reason: string } }
+  /** İstemci sürümü eski: bağlantı kapatılır, güncellemeden yeniden bağlanılamaz */
+  | { t: 'UPDATE_REQUIRED'; d: { version: string } }
+  /** Yeni sürüm yayınlandı: istemci arka planda indirmeye başlar */
+  | { t: 'UPDATE_AVAILABLE'; d: { version: string } };
+
+export interface IdentifyPayload {
+  token: string;
+  /** Masaüstü uygulamasının sürümü (0.1.3'ten itibaren gönderilir) */
+  version?: string;
+}
 
 export type GatewayClientMessage =
-  | { t: 'IDENTIFY'; d: { token: string } }
+  | { t: 'IDENTIFY'; d: IdentifyPayload }
   | { t: 'HEARTBEAT' }
   | { t: 'VOICE_STATE_SET'; d: { selfMute: boolean; selfDeaf: boolean } }
   | { t: 'TYPING_START'; d: { channelId: string } };
@@ -182,6 +192,8 @@ export type GatewayClientMessage =
 // ---------- Sabitler ----------
 
 export const GATEWAY_HEARTBEAT_INTERVAL_MS = 15_000;
+/** Gateway kapanış kodu: istemci güncellenmeden yeniden bağlanmamalı */
+export const GATEWAY_CLOSE_UPDATE_REQUIRED = 4010;
 
 export const USERNAME_PATTERN = /^[a-z0-9_.]{3,32}$/;
 export const PASSWORD_MIN_LENGTH = 8;
@@ -224,4 +236,21 @@ export function extractMentions(content: string): string[] {
   const names = new Set<string>();
   for (const m of content.matchAll(/(?<![a-z0-9_.@])@([a-z0-9_.]*[a-z0-9_])/gi)) names.add(m[1]!.toLowerCase());
   return [...names];
+}
+
+/** "1.2.3" biçimindeki sürümleri karşılaştırır (ön ek "v" ve "-beta" gibi ekler yok sayılır). */
+export function compareVersions(a: string, b: string): number {
+  const parse = (v: string): number[] =>
+    v
+      .replace(/^v/i, '')
+      .split(/[-+]/)[0]!
+      .split('.')
+      .map((n) => Number.parseInt(n, 10) || 0);
+  const x = parse(a);
+  const y = parse(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] ?? 0) - (y[i] ?? 0);
+    if (d !== 0) return Math.sign(d);
+  }
+  return 0;
 }

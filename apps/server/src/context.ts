@@ -2,6 +2,7 @@ import type { FastifyReply } from 'fastify';
 import type { ZodType } from 'zod';
 import type { Guild } from '@diskort/shared';
 import type { AuthService } from './auth.js';
+import type { ClientVersionPolicy } from './clientVersion.js';
 import type { Config } from './config.js';
 import type { Store } from './db.js';
 import type { Gateway } from './gateway.js';
@@ -17,6 +18,7 @@ export interface AppContext {
   livekit: LiveKitService;
   gateway: Gateway;
   releases: ReleaseService;
+  clientVersions: ClientVersionPolicy;
   guild: Guild;
 }
 

@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { AuthService } from './auth.js';
+import { ClientVersionPolicy } from './clientVersion.js';
 import type { Config } from './config.js';
 import type { AppContext } from './context.js';
 import { Store } from './db.js';
@@ -14,6 +15,7 @@ import { registerAdminRoutes } from './routes/admin.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerDownloadRoutes } from './routes/download.js';
 import { registerMessageRoutes } from './routes/messages.js';
+import { registerUpdateRoutes } from './routes/updates.js';
 import { registerVoiceRoutes } from './routes/voice.js';
 
 export interface BuildOptions {
@@ -39,9 +41,15 @@ export async function buildApp(
   const auth = new AuthService(config.jwtSecret, store);
   const voice = new VoiceStateStore();
   const livekit = opts.livekit ?? new LiveKitService(config);
-  const gateway = new Gateway(store, auth, voice, guild);
   const releases = opts.releases ?? new ReleaseService(config.githubRepo);
-  const ctx: AppContext = { config, store, auth, voice, livekit, gateway, releases, guild };
+  const clientVersions = new ClientVersionPolicy(releases, config.enforceClientVersion);
+  const gateway = new Gateway(store, auth, voice, guild, clientVersions);
+  const ctx: AppContext = { config, store, auth, voice, livekit, gateway, releases, clientVersions, guild };
+
+  // Yeni sürüm yayınlanınca bağlı istemciler arka planda indirmeye başlasın
+  releases.onNewRelease((release) => gateway.broadcast({ t: 'UPDATE_AVAILABLE', d: { version: release.version } }));
+  if (!config.isDev) releases.startPolling();
+  app.addHook('onClose', async () => releases.stopPolling());
 
   app.decorateRequest('user', null as never);
   app.addHook('onClose', async () => store.close());
@@ -57,6 +65,7 @@ export async function buildApp(
   registerVoiceRoutes(app, ctx);
   registerDownloadRoutes(app, ctx);
   registerMessageRoutes(app, ctx);
+  registerUpdateRoutes(app, ctx);
 
   return { app, ctx };
 }

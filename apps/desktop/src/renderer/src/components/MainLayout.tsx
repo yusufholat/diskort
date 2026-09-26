@@ -8,6 +8,7 @@ import { toast, useUi } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import { useMainView } from '../lib/mainView';
 import { TextChannelView } from './text/TextChannelView';
+import { UpdateReadyBar } from './UpdateRequired';
 import { ChannelSidebar } from './sidebar/ChannelSidebar';
 import { GuildRail } from './GuildRail';
 import { VoiceStage } from './stage/VoiceStage';
@@ -64,6 +65,7 @@ export function MainLayout() {
       <GuildRail />
       <ChannelSidebar />
       <main className="flex min-w-0 flex-1 flex-col">
+        <UpdateReadyBar />
         {status === 'reconnecting' && (
           <div className="bg-warn px-4 py-1 text-center text-sm font-medium text-black">
             Sunucu bağlantısı koptu, yeniden bağlanılıyor…

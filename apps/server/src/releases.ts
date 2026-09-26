@@ -1,4 +1,5 @@
-// İndirme sayfası için en son masaüstü sürümünü GitHub Releases'ten okur (önbellekli).
+// En son masaüstü sürümünü GitHub Releases'ten okur (önbellekli). İndirme sayfası, güncelleme
+// yönlendirmeleri ve "eski istemci bağlanamaz" kuralı bu tek kaynağı kullanır.
 // Kullanıcılar GitHub'a gitmez: sayfa /download/<platform> adresine bağlanır, API dosyaya yönlendirir.
 
 export type Platform = 'windows' | 'linux-appimage' | 'linux-deb' | 'mac-arm64' | 'mac-x64';
@@ -42,9 +43,13 @@ export function pickAssets(assets: GithubAsset[]): Partial<Record<Platform, Plat
 
 const CACHE_TTL_MS = 5 * 60_000;
 
+type ReleaseListener = (release: LatestRelease) => void;
+
 export class ReleaseService {
   private cache: { at: number; value: LatestRelease } | null = null;
   private inflight: Promise<LatestRelease | null> | null = null;
+  private readonly listeners = new Set<ReleaseListener>();
+  private timer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly repo: string,
@@ -54,13 +59,36 @@ export class ReleaseService {
   /** En son yayınlanmış sürüm; GitHub'a ulaşılamazsa son bilinen değer (yoksa null). */
   latest(): Promise<LatestRelease | null> {
     if (this.cache && Date.now() - this.cache.at < CACHE_TTL_MS) return Promise.resolve(this.cache.value);
-    this.inflight ??= this.refresh().finally(() => {
+    return this.refresh();
+  }
+
+  /** Yeni bir sürüm yayınlandığında (sürüm numarası değişince) çağrılır. */
+  onNewRelease(listener: ReleaseListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  /** Düzenli aralıklarla GitHub'ı yoklar; böylece yeni sürüm birkaç dakika içinde fark edilir. */
+  startPolling(intervalMs = CACHE_TTL_MS): void {
+    if (this.timer) return;
+    void this.refresh();
+    this.timer = setInterval(() => void this.refresh(), intervalMs);
+    this.timer.unref();
+  }
+
+  stopPolling(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  private refresh(): Promise<LatestRelease | null> {
+    this.inflight ??= this.fetchLatest().finally(() => {
       this.inflight = null;
     });
     return this.inflight;
   }
 
-  private async refresh(): Promise<LatestRelease | null> {
+  private async fetchLatest(): Promise<LatestRelease | null> {
     try {
       const res = await this.fetchImpl(`https://api.github.com/repos/${this.repo}/releases/latest`, {
         headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'diskort-server' },
@@ -73,7 +101,11 @@ export class ReleaseService {
         publishedAt: body.published_at,
         assets: pickAssets(body.assets),
       };
+      const previous = this.cache?.value.version;
       this.cache = { at: Date.now(), value };
+      if (previous && previous !== value.version) {
+        for (const listener of this.listeners) listener(value);
+      }
       return value;
     } catch {
       return this.cache?.value ?? null;

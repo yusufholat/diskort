@@ -157,21 +157,55 @@ Açık olması gereken portlar: `80/tcp`, `443/tcp`, `7881/tcp`, `3478/udp`, `50
   Bilgisayardaki bir yedeği geri yüklemek için önce sunucuya kopyala:
   `scp -i ~/.ssh/diskort_vps <dosya>.db.gz root@185.92.0.242:/root/`
 
-## Sürüm yayınlama
+## Kurulum ve güncellemeler
+
+**Herkes her zaman en son sürümü kullanır** (Discord'daki gibi):
+
+1. **Açılışta:** uygulama önce küçük bir açılış penceresinde güncellemeyi denetler. Yeni sürüm varsa
+   indirir (yalnızca değişen bloklar, genelde birkaç MB), kurar ve yeni sürümle yeniden açılır.
+   İnternet yoksa uygulama açılır; bağlanınca sunucu yine denetler.
+2. **Sunucuda:** gateway, en son yayınlanan sürümden eski istemcileri kabul etmez (`UPDATE_REQUIRED`);
+   uygulama "Güncelleme gerekli" ekranını gösterip güncellemeyi kendisi kurar.
+3. **Çalışırken:** yeni sürüm yayınlanınca sunucu bağlı uygulamalara haber verir, güncelleme arka planda
+   iner ve üstte "Şimdi yeniden başlat" şeridi çıkar. Kullanıcı seste değilken uygulama 5 dakikadır
+   tepside/simge durumundaysa güncelleme sessizce kurulur; uygulamadan çıkınca da kurulur.
+
+Uygulamalar güncellemeyi `https://diskort.ziroo.net/updates/` adresinden ister
+(`apps/desktop/src/shared/distribution.ts`); sunucu (`apps/server/src/routes/updates.ts`) dosyaları
+GitHub Releases'e yönlendirir. Dağıtım yeri değişirse yalnızca sunucu değişir. macOS'ta Apple imzası
+olmadan kendi kendine güncelleme mümkün olmadığından açılış penceresi indirme sayfasına yönlendirir.
+Zorunluluk sunucuda `CLIENT_UPDATE_ENFORCE=0` ile kapatılabilir (acil durumlar için).
+
+Windows kurulum düzeni (yönetici izni istemez, `build/installer.nsh`):
+
+| | Konum |
+|---|---|
+| Uygulama | `%LOCALAPPDATA%\Programs\diskort` |
+| Ayarlar ve oturum (kaldırınca silinmez) | `%APPDATA%\Diskort` |
+| Günlükler (güncelleme sorunları için) | `%APPDATA%\Diskort\logs\updater.log` |
+| İndirilen güncellemeler | `%LOCALAPPDATA%\diskort-updater` |
+
+`appId`, paket adı (`diskort`), `productName` ve `nsis.guid` kurulu uygulamaların birbirini tanıması için
+**değiştirilmemelidir** (`apps/desktop/electron-builder.yml`).
+
+### Sürüm yayınlama
 
 Paketlenmiş uygulamanın varsayılan sunucusu `apps/desktop/.env.production` içindeki `VITE_DEFAULT_SERVER`
 değeridir (şu an `https://diskort.ziroo.net`; kullanıcılar giriş ekranından değiştirebilir).
 
-1. `apps/desktop/package.json` içindeki `version`'ı artır ve commit'le.
-2. Sürüm etiketini gönder:
+1. Sunucu değişikliği varsa **önce sunucuyu** güncelle (yeni istemci eski sunucuyla çalışmayabilir).
+2. `apps/desktop/package.json` içindeki `version`'ı artır ve commit'le.
+3. Sürüm etiketini gönder:
    ```bash
-   git tag v0.1.1 && git push origin v0.1.1
+   git tag v0.1.3 && git push origin v0.1.3
    ```
-3. GitHub Actions (`.github/workflows/release.yml`) Windows, Linux ve macOS paketlerini derleyip taslak
+4. GitHub Actions (`.github/workflows/release.yml`) Windows, Linux ve macOS paketlerini derleyip taslak
    (draft) sürüme yükler; Linux paketi sanal ekranda açılış testinden geçer.
-4. GitHub'da taslağı yayınla. İndirme sayfası yeni sürümü birkaç dakika içinde gösterir; Windows ve Linux
-   uygulamaları güncellemeyi arka planda indirip yeniden başlatınca kurar. macOS'ta uygulama yeni sürümü
-   haber verir, kullanıcı indirme sayfasından kurar.
+5. Taslağı yayınla (`gh release edit v0.1.3 --draft=false --latest`). **Yayınladığın anda bu sürüm
+   zorunlu olur:** açılan her uygulama güncellenir, sunucu birkaç dakika içinde eski sürümleri reddeder.
+
+Hatalı bir sürüm yayınlanırsa geri alınmaz (uygulamalar eski sürüme dönmez); düzeltmeyi daha yüksek bir
+sürüm numarasıyla yayınla. Acil durumda sunucuda `CLIENT_UPDATE_ENFORCE=0` ile zorunluluğu geçici olarak kapat.
 
 Yalnızca Windows paketini kendi bilgisayarından yüklemek için: `pnpm release:win`.
 

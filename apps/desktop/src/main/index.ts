@@ -21,7 +21,9 @@ import type {
   TrayState,
 } from '../shared/bridge';
 import { HotkeyManager } from './hotkeys';
-import { initAutoUpdates, installUpdate } from './updater';
+import { Splash } from './splash';
+import { consumeLaunchMode, rememberLaunchMode, runStartupGate, type LaunchMode } from './startup';
+import { UpdateManager } from './updater';
 
 const isMac = process.platform === 'darwin';
 const isWindows = process.platform === 'win32';
@@ -66,11 +68,16 @@ const ALLOWED_PERMISSIONS = new Set([
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let splash: Splash | null = null;
+/** Açılış güncelleme kapısı geçildi mi (öncesinde ana pencere açılmaz) */
+let started = false;
 let quitting = false;
 let preferences: AppPreferences = { minimizeToTray: true, openAtLogin: false };
 let trayState: TrayState = { connected: false, muted: false, deafened: false };
 
 const hotkeys = new HotkeyManager((event) => mainWindow?.webContents.send('hotkey', event));
+const updates = new UpdateManager();
+updates.onState((state) => mainWindow?.webContents.send('updates:state', state));
 
 // ---------- Ekran paylaşımı ----------
 
@@ -117,7 +124,7 @@ function setupDisplayMedia(): void {
 
 // ---------- Pencere ----------
 
-function createWindow(): void {
+function createWindow(launch: LaunchMode = 'normal'): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -142,10 +149,16 @@ function createWindow(): void {
       backgroundThrottling: false,
       spellcheck: false,
       autoplayPolicy: 'no-user-gesture-required',
+      additionalArguments: [`--diskort-update-support=${updates.support}`],
     },
   });
 
-  mainWindow.once('ready-to-show', () => mainWindow?.show());
+  mainWindow.once('ready-to-show', () => {
+    if (launch === 'normal') mainWindow?.show();
+    else if (launch === 'minimized') mainWindow?.minimize();
+    splash?.close();
+    splash = null;
+  });
 
   mainWindow.on('close', (event) => {
     if (!quitting && preferences.minimizeToTray && tray) {
@@ -156,7 +169,13 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
-  mainWindow.on('focus', () => mainWindow?.flashFrame(false));
+  mainWindow.on('focus', () => {
+    mainWindow?.flashFrame(false);
+    lastActiveAt = Date.now();
+  });
+  mainWindow.on('blur', () => {
+    lastActiveAt = Date.now();
+  });
 
   // Harici bağlantılar varsayılan tarayıcıda açılır; uygulama içinde yeni pencere açılmaz.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -173,6 +192,7 @@ function createWindow(): void {
 }
 
 function showWindow(): void {
+  if (!started) return; // açılış güncellemesi sürüyor
   if (!mainWindow) createWindow();
   if (mainWindow?.isMinimized()) mainWindow.restore();
   mainWindow?.show();
@@ -259,10 +279,39 @@ function registerIpc(): void {
   ipcMain.handle('hotkeys:record', () => hotkeys.record());
   ipcMain.handle('hotkeys:cancel-record', () => hotkeys.cancelRecord());
 
-  ipcMain.handle('updates:install', () => {
+  ipcMain.handle('updates:get-state', () => updates.getState());
+  ipcMain.handle('updates:check', () => updates.checkInBackground());
+  ipcMain.handle('updates:install', async () => {
+    if (updates.support !== 'auto') throw new Error('Bu platformda otomatik güncelleme yok.');
+    if (updates.getState().kind !== 'ready') {
+      if (!(await updates.check())) throw new Error('Yeni sürüm bulunamadı.');
+      await updates.downloadUpdate();
+    }
     quitting = true;
-    installUpdate();
+    updates.install(false);
   });
+}
+
+// ---------- Boştayken güncelleme ----------
+
+const IDLE_INSTALL_AFTER_MS = 5 * 60_000;
+let lastActiveAt = Date.now();
+
+/**
+ * İndirilmiş güncelleme, kullanıcı seste değilken ve pencere en az 5 dakikadır tepside/simge
+ * durumundaysa sessizce kurulur; uygulama aynı durumda (tepside/simge durumunda) yeniden açılır.
+ */
+function startIdleInstaller(): void {
+  setInterval(() => {
+    if (updates.getState().kind !== 'ready' || trayState.connected || quitting) return;
+    const hidden = !mainWindow || !mainWindow.isVisible();
+    const minimized = mainWindow?.isMinimized() ?? false;
+    if (!hidden && !minimized) return;
+    if (Date.now() - lastActiveAt < IDLE_INSTALL_AFTER_MS) return;
+    rememberLaunchMode(hidden ? 'hidden' : 'minimized');
+    quitting = true;
+    updates.install(true);
+  }, 60_000).unref();
 }
 
 // ---------- Uygulama yaşam döngüsü ----------
@@ -289,14 +338,27 @@ void app.whenReady().then(async () => {
   });
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission));
 
+  registerIpc();
+
+  // Açılış: güncelleme varsa uygulama açılmadan kurulur (Discord'daki gibi)
+  const launch = consumeLaunchMode();
+  splash = launch === 'normal' ? new Splash() : null;
+  const gate = await runStartupGate(updates, splash);
+  if (gate !== 'continue') {
+    quitting = true;
+    if (gate === 'quit') app.quit();
+    return;
+  }
+  started = true;
+  splash?.setState({ kind: 'starting' });
+
   if (isMac && systemPreferences.getMediaAccessStatus('microphone') !== 'granted') {
     await systemPreferences.askForMediaAccess('microphone');
   }
-
   setupDisplayMedia();
-  registerIpc();
   await hotkeys.init();
-  createWindow();
+  createWindow(launch);
   createTray();
-  if (mainWindow) initAutoUpdates(mainWindow);
+  updates.startBackgroundChecks();
+  startIdleInstaller();
 });

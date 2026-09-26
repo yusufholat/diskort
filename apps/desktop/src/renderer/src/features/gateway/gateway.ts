@@ -1,8 +1,14 @@
-import type { GatewayClientMessage, GatewayServerMessage } from '@diskort/shared';
+import {
+  GATEWAY_CLOSE_UPDATE_REQUIRED,
+  type GatewayClientMessage,
+  type GatewayServerMessage,
+} from '@diskort/shared';
 import { normalizeServerUrl } from '../../lib/api';
+import { bridge } from '../../lib/bridge';
 import { useGuild } from '../../stores/guild';
 import { useSession } from '../../stores/session';
 import { getSettings } from '../../stores/settings';
+import { useUpdate } from '../../stores/update';
 
 const RECONNECT_DELAYS_MS = [500, 1000, 2000, 5000, 10000];
 
@@ -72,6 +78,8 @@ class GatewayClient {
         useSession.getState().logout();
         return;
       }
+      // Sürüm eski: güncelleme ekranı açılır, yeniden bağlanmanın anlamı yok
+      if (ev.code === GATEWAY_CLOSE_UPDATE_REQUIRED) return;
       if (this.active) this.scheduleReconnect();
     };
   }
@@ -79,7 +87,7 @@ class GatewayClient {
   private handle(msg: GatewayServerMessage, token: string): void {
     switch (msg.t) {
       case 'HELLO':
-        this.send({ t: 'IDENTIFY', d: { token } });
+        this.send({ t: 'IDENTIFY', d: { token, version: __APP_VERSION__ } });
         this.startHeartbeat(msg.d.heartbeatInterval);
         break;
       case 'READY':
@@ -92,6 +100,13 @@ class GatewayClient {
         break;
       case 'INVALID_SESSION':
         useSession.getState().logout();
+        break;
+      case 'UPDATE_REQUIRED':
+        useUpdate.setState({ required: msg.d.version });
+        break;
+      case 'UPDATE_AVAILABLE':
+        // Yeni sürüm yayınlandı: hemen arka planda indirmeye başla
+        void bridge?.updates.check();
         break;
       case 'USER_UPDATE':
         useGuild.getState().apply(msg);

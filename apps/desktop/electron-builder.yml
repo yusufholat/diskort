@@ -6,9 +6,11 @@ directories:
   output: release/${version}
   buildResources: build
 
-# Paketlenen uygulamanın adı: kurulum klasörü (Programs\diskort) ve güncelleme önbelleği bu adı kullanır.
-# (Çalışma alanındaki paket adı "@diskort/desktop" olduğu için aksi hâlde "@diskortdesktop" olurdu.)
-# Görünen ad ve ayar klasörü productName'den gelir, değişmez.
+# ─── Kimlik: bu değerler kurulu uygulamaların güncellenebilmesi için DEĞİŞTİRİLMEMELİ ───
+# appId: Windows bildirim kimliği (AppUserModelId) ve macOS paket kimliği
+# name: kurulum klasörü (Programs\diskort) ve güncelleme önbelleği (diskort-updater)
+# productName: görünen ad, exe adı ve ayar klasörü (%APPDATA%\Diskort)
+# nsis.guid: kayıt defteri anahtarları; aynı kaldıkça yeni sürüm eskisinin üstüne kurulur
 extraMetadata:
   name: diskort
 
@@ -16,6 +18,9 @@ files:
   - out/**
   - resources/**
   - package.json
+
+# Chromium'un yalnızca Türkçe ve İngilizce dil dosyaları (~45 MB daha küçük kurulum ve güncelleme)
+electronLanguages: [tr, en-US]
 
 # uiohook-napi N-API ön-derlemeli ikili dosyalarla gelir (ABI bağımsız); derleyici gerekmez.
 npmRebuild: false
@@ -31,11 +36,15 @@ win:
   icon: resources/icon.png
   artifactName: Diskort-Setup-${version}.${ext}
 
+# Tek tıkla, yönetici izni istemeden kullanıcıya özel kurulum (Discord gibi). Ayrıntılar: build/installer.nsh
 nsis:
   oneClick: true
   perMachine: false
+  guid: 921913cc-d4e1-5f2f-9679-952e9a2927d6
   deleteAppDataOnUninstall: false
   shortcutName: Diskort
+  runAfterFinish: true
+  include: build/installer.nsh
 
 linux:
   target:
@@ -67,7 +76,9 @@ mac:
     NSMicrophoneUsageDescription: Diskort sesli sohbet için mikrofonunu kullanır.
     NSCameraUsageDescription: Diskort ileride görüntülü sohbet için kamerayı kullanabilir.
 
-# Otomatik güncelleme: sürümler GitHub Releases'e yüklenir.
+# Sürüm dosyaları GitHub Releases'e yüklenir. Uygulamalar güncellemeyi GitHub'dan değil
+# https://diskort.ziroo.net/updates adresinden ister (src/shared/distribution.ts); sunucu dosyalara
+# yönlendirir. Böylece dağıtım yeri değişse bile kurulu uygulamalar etkilenmez.
 publish:
   provider: github
   owner: yusufholat

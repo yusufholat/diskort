@@ -14,6 +14,8 @@ export interface Config {
   guildName: string;
   /** İndirme sayfasının sürüm okuduğu GitHub deposu (sahip/ad) */
   githubRepo: string;
+  /** En son sürümden eski masaüstü istemcileri reddedilsin mi (üretimde varsayılan: evet) */
+  enforceClientVersion: boolean;
   isDev: boolean;
 }
 
@@ -45,6 +47,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     livekitApiSecret: required('LIVEKIT_API_SECRET', DEV_LIVEKIT_SECRET),
     guildName: env.GUILD_NAME ?? 'Diskort',
     githubRepo: env.GITHUB_REPO ?? 'yusufholat/diskort',
+    enforceClientVersion: env.CLIENT_UPDATE_ENFORCE ? env.CLIENT_UPDATE_ENFORCE !== '0' : !isDev,
     isDev,
   };
 }

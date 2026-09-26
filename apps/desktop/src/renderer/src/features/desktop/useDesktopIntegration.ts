@@ -1,8 +1,7 @@
 import { useEffect } from 'react';
-import { normalizeServerUrl } from '../../lib/api';
 import { bridge } from '../../lib/bridge';
 import { useSettings } from '../../stores/settings';
-import { toast } from '../../stores/ui';
+import { useUpdate } from '../../stores/update';
 import { useVoice } from '../../stores/voice';
 import { voice } from '../voice/voiceClient';
 
@@ -49,33 +48,10 @@ export function useDesktopIntegration(): void {
     });
   }, []);
 
-  // Güncelleme hazır
+  // Güncelleyici durumu (arka planda indirme, "hazır" şeridi, zorunlu güncelleme ekranı)
   useEffect(() => {
     if (!bridge) return;
-    return bridge.updates.onReady((version) => {
-      toast(`Diskort ${version} indirildi; uygulamayı yeniden başlatınca kurulacak.`, 'success');
-    });
+    void bridge.updates.getState().then((state) => useUpdate.setState({ state }));
+    return bridge.updates.onState((state) => useUpdate.setState({ state }));
   }, []);
-
-  // macOS'ta kendi kendine güncelleme yok: yeni sürüm varsa indirme sayfasını öner
-  useEffect(() => {
-    if (!bridge || bridge.platform !== 'darwin') return;
-    const serverUrl = normalizeServerUrl(useSettings.getState().serverUrl);
-    void Promise.all([bridge.getVersion(), fetch(`${serverUrl}/api/download/latest`).then((r) => r.json())])
-      .then(([current, latest]: [string, { version?: string }]) => {
-        if (latest.version && isNewer(latest.version, current)) {
-          toast(`Diskort ${latest.version} yayınlandı. ${serverUrl}/download adresinden indirip kurabilirsin.`);
-        }
-      })
-      .catch(() => undefined);
-  }, []);
-}
-
-function isNewer(candidate: string, current: string): boolean {
-  const a = candidate.split('.').map(Number);
-  const b = current.split('.').map(Number);
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
-  }
-  return false;
 }

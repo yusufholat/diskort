@@ -44,6 +44,22 @@ export interface TrayState {
 
 export type TrayAction = 'toggleMute' | 'toggleDeafen' | 'disconnect';
 
+/**
+ * Güncelleme desteği: auto = indirip kendisi kurar (Windows, Linux), manual = kullanıcı indirme
+ * sayfasından kurar (macOS; Apple imzası olmadan kendi kendine güncelleme mümkün değil),
+ * none = geliştirme sürümü.
+ */
+export type UpdateSupport = 'auto' | 'manual' | 'none';
+
+export type UpdateState =
+  | { kind: 'idle' }
+  | { kind: 'checking' }
+  | { kind: 'available'; version: string }
+  | { kind: 'downloading'; version: string; percent: number; transferred: number; total: number }
+  | { kind: 'ready'; version: string }
+  | { kind: 'installing'; version: string }
+  | { kind: 'error'; message: string };
+
 export interface DiskortBridge {
   platform: 'win32' | 'linux' | 'darwin' | string;
   getVersion(): Promise<string>;
@@ -73,7 +89,12 @@ export interface DiskortBridge {
   };
 
   updates: {
-    onReady(cb: (version: string) => void): () => void;
+    support: UpdateSupport;
+    getState(): Promise<UpdateState>;
+    onState(cb: (state: UpdateState) => void): () => void;
+    /** Arka planda denetle ve varsa indir (kurulum için yeniden başlatma beklenir). */
+    check(): Promise<void>;
+    /** Gerekirse indirip hemen kurar; uygulama kapanıp yeni sürümle yeniden açılır. */
     install(): Promise<void>;
   };
 }

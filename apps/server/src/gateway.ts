@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
 import {
+  GATEWAY_CLOSE_UPDATE_REQUIRED,
   GATEWAY_HEARTBEAT_INTERVAL_MS,
   type GatewayClientMessage,
   type GatewayServerMessage,
@@ -8,6 +9,7 @@ import {
   type User,
 } from '@diskort/shared';
 import type { AuthService } from './auth.js';
+import type { ClientVersionPolicy } from './clientVersion.js';
 import type { Store } from './db.js';
 import type { VoiceStateStore } from './voiceState.js';
 
@@ -38,6 +40,7 @@ export class Gateway {
     private readonly auth: AuthService,
     private readonly voice: VoiceStateStore,
     private readonly guild: Guild,
+    private readonly clientVersions?: ClientVersionPolicy,
   ) {
     voice.on('update', (state) => this.broadcast({ t: 'VOICE_STATE_UPDATE', d: state }));
     voice.on('delete', (d) => this.broadcast({ t: 'VOICE_STATE_DELETE', d }));
@@ -117,6 +120,14 @@ export class Gateway {
   private async handle(s: Session, msg: GatewayClientMessage): Promise<void> {
     if (msg.t === 'IDENTIFY') {
       if (s.userId) return;
+      // Zorunlu güncelleme: eski istemci önce güncellemeli (0.1.3 öncesi sürümler bu mesajı yok sayar
+      // ve yeniden bağlanmayı dener; kendi güncelleyicileri yeni sürümü indirip kurar).
+      const required = await this.clientVersions?.outdated(msg.d?.version);
+      if (required) {
+        this.send(s, { t: 'UPDATE_REQUIRED', d: { version: required } });
+        s.socket.close(GATEWAY_CLOSE_UPDATE_REQUIRED, 'update required');
+        return;
+      }
       const user = await this.auth.userFromToken(msg.d.token);
       if (!user) {
         this.send(s, { t: 'INVALID_SESSION', d: { reason: 'Oturum geçersiz.' } });

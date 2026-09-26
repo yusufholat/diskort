@@ -24,8 +24,8 @@
 {$DISKORT_DOMAIN} {
 	encode zstd gzip
 
-	# API, gerçek zamanlı gateway ve indirme yönlendirmeleri (/download/windows vb.)
-	@api path /api/* /gateway /download/*
+	# API, gerçek zamanlı gateway, indirme ve uygulama güncelleme yönlendirmeleri (/download/windows, /updates/latest.yml)
+	@api path /api/* /gateway /download/* /updates/*
 	handle @api {
 		reverse_proxy 127.0.0.1:3000
 	}

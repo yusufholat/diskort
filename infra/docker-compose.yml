@@ -39,6 +39,7 @@ services:
       LIVEKIT_API_KEY: diskort
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
       GUILD_NAME: ${GUILD_NAME:-Diskort}
+      CLIENT_UPDATE_ENFORCE: ${CLIENT_UPDATE_ENFORCE:-1}
     volumes:
       - diskort-data:/data
 
