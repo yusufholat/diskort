@@ -79,22 +79,23 @@ jobs:
         run: ./gradlew assembleRelease --no-daemon
 
       - name: İmzayı doğrula ve adlandır
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           version=$(node -p "require('./apps/mobile/package.json').version")
           apk="Diskort-$version-android.apk"
           cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk "$apk"
           apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
-          echo "apksigner: $apksigner"
-          if ! out=$("$apksigner" verify --verbose --print-certs "$apk" 2>&1); then
+          if ! out=$("$apksigner" verify --verbose "$apk" 2>&1); then
             echo "$out"
-            echo "::error::APK imzası doğrulanamadı"
+            echo "::error::APK imzası geçersiz"
             exit 1
           fi
-          echo "$out" | grep -E "Verified using|Signer #1 certificate" || echo "$out"
-          if echo "$out" | grep -q "CN=Android Debug"; then
-            echo "::error::APK hata ayıklama anahtarıyla imzalanmış"
-            exit 1
-          fi
+          echo "$out" | grep "Verified using"
+          # APK'nın imza bloğunda Diskort sertifikasının kendisi bulunmalı (hata ayıklama anahtarı değil)
+          keytool -exportcert -keystore "$RUNNER_TEMP/diskort-release.p12" -storetype PKCS12             -alias "$KEY_ALIAS" -storepass "$STORE_PASSWORD" -file "$RUNNER_TEMP/diskort.der" >/dev/null
+          node -e "const fs=require('fs');if(!fs.readFileSync(process.argv[1]).includes(fs.readFileSync(process.argv[2]))){console.error('::error::APK Diskort anahtarıyla imzalanmamış');process.exit(1)}console.log('İmza: Diskort anahtarı')" "$apk" "$RUNNER_TEMP/diskort.der"
           ls -la "$apk"
           echo "APK=$apk" >> "$GITHUB_ENV"
 

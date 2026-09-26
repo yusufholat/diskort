@@ -10,3 +10,6 @@ release/
 data/
 tools/
 apps/server/data/
+
+# Test APK gibi geçici dosyalar (sunucuda elle konur)
+apps/web/test/

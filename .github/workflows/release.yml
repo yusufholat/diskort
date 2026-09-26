@@ -1,8 +1,8 @@
-# Sürüm derleme: "v*" etiketi gönderilince Windows, Linux ve macOS paketlerini derleyip
+# Sürüm derleme: "v*" etiketi gönderilince Windows, Linux, macOS ve Android paketlerini derleyip
 # GitHub'daki taslak (draft) sürüme yükler. Taslak GitHub'da yayınlanınca indirme sayfası
 # ve uygulama içi güncellemeler yeni sürümü görür.
 #
-# Kullanım: apps/desktop/package.json'daki "version"u artır, commit'le, sonra
+# Kullanım: apps/desktop ve apps/mobile package.json'daki "version"u artır (aynı olmalı), commit'le, sonra
 #   git tag v0.1.1 && git push origin v0.1.1
 name: Sürüm derle
 
@@ -24,13 +24,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Etiket ile uygulama sürümü aynı mı?
+      - name: Etiket ile uygulama sürümleri aynı mı?
         run: |
-          version=$(node -p "require('./apps/desktop/package.json').version")
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::Etiket ($GITHUB_REF_NAME) ile apps/desktop/package.json sürümü (v$version) uyuşmuyor"
-            exit 1
-          fi
+          for app in desktop mobile; do
+            version=$(node -p "require('./apps/$app/package.json').version")
+            if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+              echo "::error::Etiket ($GITHUB_REF_NAME) ile apps/$app/package.json sürümü (v$version) uyuşmuyor"
+              exit 1
+            fi
+          done
 
       # Paralel derlemeler aynı sürümü ayrı ayrı oluşturmaya çalışmasın diye taslak önceden açılır.
       - name: Taslak oluştur (yoksa)
@@ -95,3 +97,11 @@ jobs:
             exit 1
           fi
           echo "Uygulama 20 saniye boyunca sorunsuz çalıştı."
+
+  android:
+    name: Android
+    needs: draft
+    uses: ./.github/workflows/android.yml
+    with:
+      release-tag: ${{ github.ref_name }}
+    secrets: inherit
