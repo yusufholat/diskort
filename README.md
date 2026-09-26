@@ -19,7 +19,7 @@ Masaüstü uygulaması (Electron) + kendi sunucun (LiveKit SFU + API).
 - **Davet kodu + hesap** sistemi; **şifre sıfırlama** (yöneticinin verdiği tek kullanımlık kodla) ve şifre değiştirme
 - **Yönetici paneli:** davetler, kanallar, üyeler (sıfırlama kodu, yöneticilik, sesten atma, hesap silme)
 - **Yedek bağlantı:** doğrudan UDP kurulamayan ağlarda TURN/UDP 3478, yalnızca 443'e izin veren ağlarda
-  (okul, yurt, iş yeri) TURN/TLS 443
+  (okul, yurt, iş yeri) TURN/TLS 443 — röle üzerinden gecikme doğrudan bağlantıya göre ~2 ms fazla (ölçüldü)
 - Tepsiye küçültme, başlangıçta açılma, otomatik güncelleme
 
 | | Windows | Linux | macOS |
@@ -44,7 +44,7 @@ Masaüstü (Electron + React) ──HTTPS/WSS──► Caddy :443 ──► API 
 - `apps/desktop` — Electron uygulaması (`src/main` ana süreç, `src/preload` köprü, `src/renderer` arayüz)
   - Ses motoru: `src/renderer/src/features/voice/voiceClient.ts`
   - Mikrofon zinciri (RNNoise + ses kapısı): `micProcessor.ts`, `gate-worklet.js`
-  - TURN/TLS portu düzeltmesi (5349 → 443): `turnPort.ts`
+  - TURN/TLS portu güvencesi (olası 5349 bildirimini 443'e çevirir): `turnPort.ts`
 - `apps/server` — API + gateway + LiveKit entegrasyonu, indirme yönlendirmeleri
 - `apps/web` — indirme sayfası (derleme adımı yok; Caddy doğrudan sunar). Butonlar `/download/<platform>`
   adresine gider; API en son GitHub sürümünü bulup dosyaya yönlendirir, kullanıcı GitHub'ı görmez.

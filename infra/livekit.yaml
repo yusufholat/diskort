@@ -11,7 +11,8 @@ rtc:
 # Yedek röle (TURN): doğrudan UDP bağlantı kurulamayan ağlar için.
 # - TURN/UDP 3478
 # - TURN/TLS: TLS 443'te Caddy tarafından açılıp (bkz. Caddyfile) PROXY protokolüyle 5349'a iletilir.
-#   LiveKit istemcilere 5349'u bildirir; masaüstü uygulaması bunu 443 olarak düzeltir (turnPort.ts).
+#   LiveKit external_tls modunda istemcilere turns:<alan adı>:443 bildirir (1.13'te ölçüldü); masaüstü
+#   uygulaması olası 5349 bildirimine karşı da 443'e düzeltir (turnPort.ts).
 #   5349 dışarıya kapalıdır (güvenlik duvarı + yalnızca yerel PROXY başlığına güvenilir).
 # __TURN_DOMAIN__ başlangıçta TURN_DOMAIN ortam değişkeniyle değiştirilir (docker-compose.yml).
 turn:

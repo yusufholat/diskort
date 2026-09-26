@@ -1,7 +1,8 @@
-// LiveKit, TURN/TLS için dinlediği portu (5349) istemcilere bildirir. Sunucuda bu port dışarıya kapalıdır;
-// TURN/TLS trafiği 443'te Caddy tarafından karşılanıp (SNI: turn alan adı) LiveKit'e iletilir. Böylece yalnızca
-// 443'e izin veren ağlardan (okul, yurt, iş yeri) da bağlanılabilir. Bu modül RTCPeerConnection'a verilen
-// "turns:...:5349" adreslerini "turns:...:443" olarak düzeltir.
+// TURN/TLS trafiği 443'te Caddy tarafından karşılanıp (SNI: turn alan adı) LiveKit'in 5349'daki dinleyicisine
+// iletilir; 5349 dışarıya kapalıdır. Böylece yalnızca 443'e izin veren ağlardan da (okul, yurt, iş yeri) bağlanılır.
+// LiveKit 1.13 external_tls modunda istemcilere zaten "turns:<alan adı>:443" bildiriyor (canlıda ölçüldü).
+// Belgesi ise tls_port'un (5349) bildirileceğini söylüyor; ileride o davranışa dönülürse bağlantı sessizce
+// bozulmasın diye bu modül "turns:...:5349" adreslerini "turns:...:443" olarak düzeltir.
 
 const LIVEKIT_TURN_TLS_PORT = 5349;
 const PUBLIC_TURN_TLS_PORT = 443;
