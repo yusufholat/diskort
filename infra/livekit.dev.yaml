@@ -4,10 +4,11 @@ port: 7880
 bind_addresses:
   - 0.0.0.0
 
+# Tüm medya tek UDP portundan (7882) akar; arkadaşlarla VPN/LAN üzerinden test ederken
+# güvenlik duvarında yalnızca TCP 3000/7880/7881 ve UDP 7882 açmak yeterlidir.
 rtc:
   tcp_port: 7881
-  port_range_start: 50000
-  port_range_end: 50200
+  udp_port: 7882
   use_external_ip: false
 
 # apps/server/src/config.ts içindeki geliştirme anahtarıyla aynı olmalı
