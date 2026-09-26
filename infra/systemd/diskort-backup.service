@@ -1,0 +1,8 @@
+[Unit]
+Description=Diskort veritabanı yedeği
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/diskort/infra/backup-db.sh

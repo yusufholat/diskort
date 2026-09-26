@@ -1,0 +1,11 @@
+[Unit]
+Description=Diskort veritabanını her gece yedekle
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=10min
+# Sunucu o saatte kapalıysa açılınca yedek alınır
+Persistent=true
+
+[Install]
+WantedBy=timers.target

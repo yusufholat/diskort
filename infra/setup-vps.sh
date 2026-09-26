@@ -18,6 +18,15 @@ if command -v ufw >/dev/null 2>&1; then
 fi
 
 cd "$(dirname "$0")"
+
+# Günlük veritabanı yedeği (her gece 04:00, /var/backups/diskort, 14 gün saklanır).
+# Birim dosyaları /opt/diskort yolunu varsayar.
+if [ "$(pwd)" = "/opt/diskort/infra" ]; then
+  cp systemd/diskort-backup.service systemd/diskort-backup.timer /etc/systemd/system/
+  systemctl daemon-reload
+  systemctl enable --now diskort-backup.timer
+fi
+
 if [ ! -f .env ]; then
   cp .env.example .env
   sed -i "s/^JWT_SECRET=.*/JWT_SECRET=$(openssl rand -hex 32)/" .env
