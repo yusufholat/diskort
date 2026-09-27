@@ -57,8 +57,9 @@ export function registerAttachmentRoutes(app: FastifyInstance, ctx: AppContext):
     );
   });
 
-  // Yetenek adresi: kimlik yeterlidir, sondaki ad yalnızca indirilen dosyanın adı içindir.
-  app.get<{ Params: { id: string; name: string } }>('/api/attachments/:id/:name', async (req, reply) => {
+  // Yetenek adresi: kimlik yeterlidir, sondaki ad yalnızca indirilen dosyanın adı içindir (joker: uzun,
+  // kodlanmış adlar yol parametresi uzunluk sınırına takılmasın).
+  app.get<{ Params: { id: string } }>('/api/attachments/:id/*', async (req, reply) => {
     const { id } = req.params;
     const found = ATTACHMENT_ID.test(id) ? store.getAttachment(id) : null;
     // Henüz bir mesaja eklenmemiş dosyalar sunulmaz

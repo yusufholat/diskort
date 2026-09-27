@@ -39,7 +39,7 @@ export class AttachmentService {
     private readonly store: Store,
     readonly dir: string,
     readonly maxBytes: number,
-    private readonly log?: { warn(obj: unknown, msg?: string): void },
+    private readonly log?: { info(obj: unknown, msg?: string): void },
   ) {}
 
   pathOf(id: string): string {
@@ -140,7 +140,7 @@ export class AttachmentService {
       await fs.promises.rm(full, { force: true });
       removed++;
     }
-    if (removed > 0) this.log?.warn({ removed }, 'artık dosya ekleri silindi');
+    if (removed > 0) this.log?.info({ removed }, 'kullanılmayan dosya ekleri silindi');
     return removed;
   }
 

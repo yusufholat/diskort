@@ -160,6 +160,13 @@ describe('dosya yükleme', () => {
     expect(served.headers['content-disposition']).toContain(`filename*=UTF-8''${encodeURIComponent('tatil fotoğrafı.png')}`);
     expect(served.headers['content-security-policy']).toContain('sandbox');
 
+    // Uzun (kodlanınca yüzlerce karakter) Türkçe ad da adreste çalışır
+    const longName = `${'çğüşöı'.repeat(15)}.png`;
+    const long = (await upload(member.token, text.id, longName, png(2, 2), 'image/png')).json() as Attachment;
+    await send(member.token, text.id, { attachmentIds: [long.id] });
+    expect(long.url.length).toBeGreaterThan(500);
+    expect((await app.inject({ method: 'GET', url: long.url })).statusCode).toBe(200);
+
     // Adresteki ad önemsizdir; kimlik tek başına yeterli ve gereklidir
     expect((await app.inject({ method: 'GET', url: `/api/attachments/${attachment.id}/baska.png` })).statusCode).toBe(200);
     const guessed = `/api/attachments/${'0'.repeat(32)}/tatil.png`;
