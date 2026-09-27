@@ -9,6 +9,7 @@ import { Avatar } from '../components/Avatar';
 import { EmptyState } from '../components/States';
 import { Button } from '../components/ui';
 import { animateNextLayout, useBump } from '../motion';
+import { showChat } from '../stores/nav';
 import { colors, createStyles, font, radius, ripple, space } from '../theme';
 
 const NOBODY: string[] = [];
@@ -69,8 +70,8 @@ export default function NewDmScreen() {
         return;
       }
       const dm = await createDm(selected, makesGroup ? name.trim() || null : null);
-      // Seçim ekranının yerine konuşma açılır (geri gelince listeye dönülür)
-      if (dm) router.replace(`/channel/${dm.id}`);
+      // Konuşma ana ekranın sohbeti olur, seçim ekranı kapanır
+      if (dm) showChat(dm.id);
     } finally {
       setBusy(false);
     }

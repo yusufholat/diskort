@@ -22,6 +22,8 @@ const dark = {
   panel: '#232428',
   side: '#2b2d31',
   main: '#313338',
+  /** Sunucu çubuğundaki yuvarlak düğmeler (ana sayfa, sunucu ekle) */
+  raised: '#313338',
   /** Sohbetin altında beliren "yazıyor" şeridi (sohbet zemini, hafif saydam) */
   mainTranslucent: 'rgba(49,51,56,0.94)',
   input: '#1e1f22',
@@ -70,10 +72,11 @@ export type Palette = typeof dark;
 const black: Palette = {
   ...dark,
   deep: '#000000',
-  rail: '#0c0c0c',
+  rail: '#000000',
   panel: '#101010',
-  side: '#0a0a0a',
+  side: '#0b0b0b',
   main: '#000000',
+  raised: '#1a1a1a',
   mainTranslucent: 'rgba(0,0,0,0.94)',
   input: '#161616',
   code: '#1a1a1a',

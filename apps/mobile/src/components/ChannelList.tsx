@@ -7,7 +7,6 @@ import {
   isUnread,
   membersOf,
   useCan,
-  useDmUnreadTotal,
   useGuild,
   useMemberColor,
   useMessages,
@@ -15,7 +14,7 @@ import {
 } from '@diskort/client-core';
 import { animateNextLayout, useLayoutAnimationOn, useTimingTo } from '../motion';
 import { toast } from '../stores/ui';
-import { colors, font, radius, ripple, space } from '../theme';
+import { colors, createStyles, font, radius, ripple, space } from '../theme';
 import { useVoice } from '../voice/voice';
 import { Avatar } from './Avatar';
 import { CountBadge, UnreadMarker } from './Badge';
@@ -23,13 +22,12 @@ import { HeaderButton } from './HeaderButton';
 import { ChannelListSkeleton } from './Skeleton';
 import { SpeakingRing } from './SpeakingRing';
 import { EmptyState } from './States';
-import { GuildIcon, GuildSwitcher, openGuildMenu } from './GuildSwitcher';
+import { openGuildMenu } from './ServerRail';
 import { TypingDots } from './TypingDots';
 import { VoiceStateIcon } from './VoiceStateIcon';
 
-// Sunucu şeridi ve seçili sunucunun kanal listesi (metin ve ses kanalları, ses kanalındakiler). Ana
-// ekranda ve sohbet ekranındaki kaydırmalı kanal çekmecesinde (ChannelDrawer) aynı liste kullanılır:
-// çekmecede sunucu değiştirilince o sunucunun kanalları görünür.
+// Seçili sunucunun kanal listesi (metin ve ses kanalları, ses kanalındakiler). Sol panelde sunucu
+// çubuğunun yanında durur (LeftPanel); çubukta sunucu değiştirilince o sunucunun kanalları görünür.
 
 type SectionKey = 'text' | 'voice';
 
@@ -55,24 +53,46 @@ function useSomeoneTyping(channelId: string): boolean {
   });
 }
 
-/** Sunucu başlığı: simge, ad, direkt mesajlar ve üyeler düğmeleri */
-export function GuildHeader({ onDms, onMembers }: { onDms: () => void; onMembers: () => void }) {
+/**
+ * Sol paneldeki sunucu başlığı (Discord mobil gibi): sunucunun adı; dokununca sunucu menüsü (davet,
+ * ayrıl). Sağda üyeler düğmesi.
+ */
+export function GuildHeader({ onMembers }: { onMembers: () => void }) {
   const guild = useGuild((s) => s.guild);
+  if (!guild) return <View style={styles.header} />;
   return (
     <View style={styles.header}>
-      <View style={styles.guildIcon}>
-        <GuildIcon guild={guild ?? { name: 'Diskort', iconUrl: null }} size={34} radius={12} />
-      </View>
-      <Text
-        style={styles.guild}
-        numberOfLines={1}
-        onPress={guild ? () => openGuildMenu(guild) : undefined}
-        accessibilityHint={guild ? 'Sunucu menüsü' : undefined}
+      <Pressable
+        style={styles.headerName}
+        onPress={() => openGuildMenu(guild)}
+        android_ripple={ripple.row}
+        accessibilityRole="button"
+        accessibilityLabel={`${guild.name}, sunucu menüsü`}
       >
-        {guild?.name ?? 'Diskort'}
+        <Text style={styles.guild} numberOfLines={1}>
+          {guild.name}
+        </Text>
+        <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+      </Pressable>
+      <HeaderButton icon="people" label="Üyeler" size={21} onPress={onMembers} />
+    </View>
+  );
+}
+
+/** Hiç sunucu yok (yeni hesap ya da hepsinden ayrıldı): sunucuya katıl ya da kendi sunucunu kur */
+export function NoGuilds() {
+  const router = useRouter();
+  return (
+    <View style={styles.noGuilds}>
+      <EmptyState
+        icon="planet-outline"
+        title="Henüz bir sunucun yok"
+        text="Arkadaşlarınla konuşmak için kendi sunucunu kur ya da bir davet bağlantısıyla arkadaşının sunucusuna katıl."
+        action={{ title: 'Sunucuya katıl', onPress: () => router.push('/sunucu-ekle') }}
+      />
+      <Text style={styles.createLink} onPress={() => router.push({ pathname: '/sunucu-ekle', params: { tab: 'create' } })}>
+        ya da kendi sunucunu kur
       </Text>
-      <DmButton onPress={onDms} />
-      <HeaderButton icon="people" label="Üyeler" onPress={onMembers} />
     </View>
   );
 }
@@ -87,10 +107,9 @@ export function ChannelList({
   onOpenVoice: (id: string) => void;
   /** Ses kanalındaki üyeye uzun basıldı (yönetim menüsü) */
   onMemberPress: (userId: string) => void;
-  /** Açık olan metin kanalı (çekmecede vurgulanır) */
+  /** Açık olan metin kanalı (ana ekrandaki sohbet; vurgulanır) */
   selectedId?: string;
 }) {
-  const router = useRouter();
   const status = useGuild((s) => s.status);
   const guild = useGuild((s) => s.guild);
   const channels = useGuild((s) => s.channels);
@@ -134,21 +153,10 @@ export function ChannelList({
 
   return (
     <View style={styles.fill}>
-      <GuildSwitcher />
       {loading ? (
         <ChannelListSkeleton />
       ) : noGuilds ? (
-        <View style={styles.noGuilds}>
-          <EmptyState
-            icon="planet-outline"
-            title="Henüz bir sunucun yok"
-            text="Arkadaşlarınla konuşmak için kendi sunucunu kur ya da bir davet bağlantısıyla arkadaşının sunucusuna katıl."
-            action={{ title: 'Sunucuya katıl', onPress: () => router.push('/sunucu-ekle') }}
-          />
-          <Text style={styles.createLink} onPress={() => router.push({ pathname: '/sunucu-ekle', params: { tab: 'create' } })}>
-            ya da kendi sunucunu kur
-          </Text>
-        </View>
+        <NoGuilds />
       ) : (
         <SectionList
           sections={sections}
@@ -217,21 +225,6 @@ function SectionHeader({
         </>
       )}
     </Pressable>
-  );
-}
-
-/** Direkt mesajlar düğmesi: okunmamış mesaj sayısıyla */
-function DmButton({ onPress }: { onPress: () => void }) {
-  const unread = useDmUnreadTotal();
-  return (
-    <HeaderButton
-      icon="chatbubbles"
-      label={unread > 0 ? `Direkt mesajlar, ${unread} okunmamış` : 'Direkt mesajlar'}
-      color={unread > 0 ? colors.head : colors.muted}
-      onPress={onPress}
-    >
-      {unread > 0 ? <CountBadge count={unread} ring={colors.side} /> : null}
-    </HeaderButton>
   );
 }
 
@@ -360,22 +353,31 @@ const VoiceMember = memo(function VoiceMember({ state, onLongPress }: { state: V
   );
 });
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   header: {
-    height: 58,
+    height: 56,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.xs,
-    paddingLeft: space.lg,
+    paddingLeft: space.xs,
     paddingRight: space.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(0,0,0,0.45)',
+    borderBottomColor: colors.edge,
+  },
+  headerName: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+    height: 44,
+    paddingHorizontal: space.md,
+    borderRadius: radius.md,
+    overflow: 'hidden',
   },
   fill: { flex: 1 },
-  guildIcon: { marginRight: space.sm },
-  noGuilds: { flex: 1, justifyContent: 'center' },
+  noGuilds: { flex: 1, justifyContent: 'center', paddingHorizontal: space.sm },
   createLink: { color: colors.link, fontSize: font.body, fontWeight: '600', textAlign: 'center', marginTop: space.md },
-  guild: { color: colors.head, fontSize: font.heading - 1, fontWeight: '800', flex: 1, marginRight: space.sm },
+  guild: { color: colors.head, fontSize: font.title + 1, fontWeight: '800', flexShrink: 1 },
   listContent: { paddingBottom: space.lg },
   section: {
     flexDirection: 'row',
@@ -431,4 +433,4 @@ const styles = StyleSheet.create({
   memberName: { color: colors.muted, fontSize: font.body - 0.5, flex: 1 },
   live: { backgroundColor: colors.danger, borderRadius: radius.sm, paddingHorizontal: 5, paddingVertical: 1 },
   liveText: { color: '#fff', fontSize: 10, fontWeight: '800' },
-});
+}));

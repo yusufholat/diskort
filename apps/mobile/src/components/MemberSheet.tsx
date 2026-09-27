@@ -1,6 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
 import {
   memberActions,
   memberColorOf,
@@ -12,6 +11,7 @@ import {
 } from '@diskort/client-core';
 import { feedback } from '../haptics';
 import { animateNextLayout } from '../motion';
+import { showChat } from '../stores/nav';
 import { toast } from '../stores/ui';
 import { colors, createStyles, font, radius, space } from '../theme';
 import { Avatar } from './Avatar';
@@ -52,7 +52,6 @@ export function MemberSheet({
   );
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [moving, setMoving] = useState(false);
-  const router = useRouter();
   const selfId = useSession((s) => s.user?.id);
   // Mesaj: ortak sunucusu olan herkese (DM'deki başka sunucudan biri de)
   const reachable = useGuild((s) => (userId ? Boolean(s.reachable[userId]) : false));
@@ -91,7 +90,7 @@ export function MemberSheet({
   const message = async (): Promise<void> => {
     close();
     const dm = await openDirectMessage(userId!);
-    if (dm) router.push(`/channel/${dm.id}`);
+    if (dm) showChat(dm.id);
   };
 
   return (

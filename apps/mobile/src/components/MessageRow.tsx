@@ -22,7 +22,6 @@ import { duration, useAppear } from '../motion';
 import { colors, createStyles, font, layout, radius, ripple, space } from '../theme';
 import { Avatar } from './Avatar';
 import { AttachmentList, UploadList } from './Attachments';
-import { DRAWER_EDGE } from './ChannelDrawer';
 import { GifEmbed } from './GifEmbed';
 import { Markdown, type MarkdownContext } from './Markdown';
 import { ReactionPill } from './ReactionPill';
@@ -69,11 +68,11 @@ interface Props {
   animateIn?: boolean;
   /** Alıntıdan bu mesaja atlandı: değiştikçe (0 değilse) satır kısa süre vurgulanır */
   flash?: number;
-  /** Satırı sağa kaydırınca yanıtla (yoksa ya da yazma izni yoksa kaydırma kapalı) */
+  /** Satırı sola kaydırınca yanıtla (yoksa ya da yazma izni yoksa kaydırma kapalı) */
   onReply?: (message: LocalMessage) => void;
 }
 
-/** Bu kadar sağa kaydırılınca bırakınca yanıtlanır (titreşimle bildirilir) */
+/** Bu kadar sola kaydırılınca bırakınca yanıtlanır (titreşimle bildirilir) */
 const REPLY_TRIGGER = 64;
 
 export const MessageRow = memo(function MessageRow({
@@ -108,8 +107,9 @@ export const MessageRow = memo(function MessageRow({
     highlight.setValue(1);
     Animated.timing(highlight, { toValue: 0, duration: 1400, delay: duration(700), useNativeDriver: true }).start();
   }, [flash, highlight]);
-  // Sağa kaydırıp bırakınca yanıtla (Discord'daki gibi). Dikey kaydırma listenin; sola ve kenardan
-  // başlayan kaydırma (kanal çekmecesi) satırın değil. Dokunma ve uzun basma olduğu gibi çalışır.
+  // Sola kaydırıp bırakınca yanıtla (Discord mobildeki gibi). Sağa kaydırma sohbetin her yerinde sol
+  // paneli açar (NavShell), dikey kaydırma listenindir; dokunma ve uzun basma olduğu gibi çalışır.
+  // `swipe` sola kaydırılan mesafedir (pozitif).
   const swipe = useSharedValue(0);
   const armed = useSharedValue(false);
   const canSwipe = Boolean(onReply) && !message.status;
@@ -117,14 +117,11 @@ export const MessageRow = memo(function MessageRow({
     const reply = (): void => onReply?.(message);
     return Gesture.Pan()
       .enabled(canSwipe)
-      .activeOffsetX(16)
-      .failOffsetX(-12)
+      .activeOffsetX(-16)
+      .failOffsetX(10)
       .failOffsetY([-12, 12])
-      .onTouchesDown((e, manager) => {
-        if ((e.allTouches[0]?.absoluteX ?? DRAWER_EDGE) < DRAWER_EDGE) manager.fail();
-      })
       .onUpdate((e) => {
-        const x = Math.max(0, e.translationX);
+        const x = Math.max(0, -e.translationX);
         // Eşikten sonra direnç: satır parmaktan geri kalır
         swipe.value = x <= REPLY_TRIGGER ? x : REPLY_TRIGGER + (x - REPLY_TRIGGER) * 0.25;
         const past = x >= REPLY_TRIGGER;
@@ -141,7 +138,7 @@ export const MessageRow = memo(function MessageRow({
         swipe.value = withTiming(0, { duration: 180 });
       });
   }, [canSwipe, onReply, message, swipe, armed]);
-  const rowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: swipe.value }] }));
+  const rowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: -swipe.value }] }));
   const iconStyle = useAnimatedStyle(() => ({
     opacity: interpolate(swipe.value, [8, REPLY_TRIGGER], [0, 1], 'clamp'),
     transform: [{ scale: interpolate(swipe.value, [8, REPLY_TRIGGER, REPLY_TRIGGER + 10], [0.5, 1, 1.15], 'clamp') }],
@@ -279,7 +276,7 @@ const styles = createStyles(() => ({
   reactions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
   replyIcon: {
     position: 'absolute',
-    left: space.lg,
+    right: space.lg,
     top: 0,
     bottom: 0,
     width: 34,
