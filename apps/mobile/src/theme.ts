@@ -14,6 +14,8 @@ export const colors = {
   main: '#313338',
   input: '#1e1f22',
   hover: '#35373c',
+  /** Yazma kutusu ve yanındaki yuvarlak düğmeler (sohbet zemininden bir ton açık) */
+  field: '#383a40',
   active: '#404249',
   /** İkincil düğme, kaydırıcı yolu */
   control: '#4e5058',
