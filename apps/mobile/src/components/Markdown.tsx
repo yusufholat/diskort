@@ -1,8 +1,8 @@
 import { Fragment, useState, type ReactNode } from 'react';
-import { Linking, StyleSheet, Text, View } from 'react-native';
+import { Linking, Text, View } from 'react-native';
 import { broadcastMention, parseMarkdown, type MdInline } from '@diskort/client-core';
 import type { Message, User } from '@diskort/shared';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 
 /** Ortak çekirdeğin ayrıştırdığı biçimlendirmeyi React Native metnine çizer. */
 export interface MarkdownContext {
@@ -127,27 +127,27 @@ export function Markdown({ content, ctx, dim }: { content: string; ctx: Markdown
 
 const mono = 'monospace';
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   text: { color: colors.text, fontSize: 15.5, lineHeight: 22 },
   dim: { opacity: 0.5 },
   bold: { fontWeight: '700' },
   italic: { fontStyle: 'italic' },
   underline: { textDecorationLine: 'underline' },
   strike: { textDecorationLine: 'line-through' },
-  code: { fontFamily: mono, fontSize: 13.5, backgroundColor: colors.rail },
+  code: { fontFamily: mono, fontSize: 13.5, backgroundColor: colors.code },
   link: { color: colors.link },
   mention: { color: '#c9cdfb', backgroundColor: 'rgba(88,101,242,0.3)', fontWeight: '500' },
   mentionSelf: { color: '#fff', backgroundColor: 'rgba(88,101,242,0.55)' },
-  spoilerHidden: { backgroundColor: colors.rail, color: colors.rail },
+  spoilerHidden: { backgroundColor: colors.code, color: colors.code },
   spoilerShown: { backgroundColor: 'rgba(255,255,255,0.1)' },
   quote: { borderLeftWidth: 4, borderLeftColor: colors.faint, paddingLeft: 10, marginVertical: 2 },
   codeBlock: {
     backgroundColor: colors.side,
-    borderColor: 'rgba(0,0,0,0.3)',
+    borderColor: colors.edge,
     borderWidth: 1,
     borderRadius: 4,
     padding: 8,
     marginVertical: 4,
   },
   codeBlockText: { fontFamily: mono, fontSize: 13, color: colors.text, lineHeight: 18 },
-});
+}));

@@ -28,7 +28,7 @@ export function ReplyBar({ channelId }: { channelId: string }) {
   return (
     <div
       className={cn(
-        'flex h-9 items-center gap-2 rounded-t-lg border-b border-black/20 bg-bg-side pr-2 pl-4 text-sm text-text-muted',
+        'flex h-9 items-center gap-2 rounded-t-lg border-b border-edge bg-bg-side pr-2 pl-4 text-sm text-text-muted',
         closing ? 'anim-fade-out' : 'anim-slide-down',
       )}
     >

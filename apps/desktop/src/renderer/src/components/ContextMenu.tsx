@@ -62,7 +62,7 @@ export function ContextMenu() {
       ref={ref}
       role="menu"
       className={cn(
-        'fixed z-50 max-h-[calc(100vh-16px)] min-w-[200px] overflow-y-auto rounded-md border border-black/30 bg-bg-float p-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
+        'fixed z-50 max-h-[calc(100vh-16px)] min-w-[200px] overflow-y-auto rounded-md border border-edge bg-bg-float p-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
         closing ? 'anim-pop-out pointer-events-none' : 'anim-pop-in',
       )}
       style={{ left: pos.x, top: pos.y, transformOrigin: pos.origin }}

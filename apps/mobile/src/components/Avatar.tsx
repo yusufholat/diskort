@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, Text, View } from 'react-native';
 import type { User } from '@diskort/shared';
 import { avatarUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 import { StatusDot } from './StatusDot';
 
 function initials(name: string): string {
@@ -67,12 +67,12 @@ export function Avatar({ user, size = 40, speaking, online, status, surface = co
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   circle: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   photo: { width: '100%', height: '100%' },
   text: { color: '#fff', fontWeight: '600' },
   dot: { position: 'absolute', right: -1, bottom: -1 },
-});
+}));
 
 /** Kişinin güncel durum noktasıyla avatar (kendin için görünmezlik de görünür) */
 export function PresenceAvatar({ userId, ...props }: Omit<Props, 'status' | 'online'> & { userId: string }) {

@@ -3,7 +3,7 @@ import { Animated, Keyboard, Modal, PanResponder, Pressable, StyleSheet, Text, V
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EASE_IN, prefersReducedMotion, timing, usePresence } from '../motion';
-import { colors, font, radius, ripple, space } from '../theme';
+import { colors, createStyles, font, radius, ripple, space } from '../theme';
 
 const CLOSE_MS = 200;
 /** Bu kadar aşağı sürüklenirse (ya da hızla fırlatılırsa) kapanır */
@@ -202,7 +202,7 @@ export function SheetNote({ children }: { children: ReactNode }) {
   return <Text style={styles.note}>{children}</Text>;
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   backdrop: { backgroundColor: colors.backdrop },
   sheet: {
     position: 'absolute',
@@ -212,6 +212,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.side,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    // Siyah temada gölge görünmez: ince kenar sayfayı arkadan ayırır
+    borderWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 0,
+    borderColor: colors.edge,
     paddingTop: space.sm,
     elevation: 16,
   },
@@ -244,4 +248,4 @@ const styles = StyleSheet.create({
   itemText: { fontSize: font.row, fontWeight: '500' },
   itemHint: { color: colors.muted, fontSize: font.caption + 0.5, marginTop: 2 },
   note: { color: colors.muted, fontSize: font.small + 0.5, paddingHorizontal: space.lg + 2, paddingBottom: space.md, lineHeight: 20 },
-});
+}));

@@ -1,7 +1,7 @@
 import { Image, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import type { GifEmbed as GifEmbedData } from '@diskort/shared';
 import { fitBox } from '@diskort/client-core';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 
 /** Mesaj satırında avatar sütunu ve sağ boşluk (Attachments ile aynı) */
 const ROW_INSET = 64 + 14;
@@ -23,7 +23,7 @@ export function GifEmbed({ embed, dim = false }: { embed: GifEmbedData; dim?: bo
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   box: { marginTop: 4, borderRadius: 8, overflow: 'hidden', backgroundColor: colors.side },
   badge: {
     position: 'absolute',
@@ -37,4 +37,4 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
   },
-});
+}));

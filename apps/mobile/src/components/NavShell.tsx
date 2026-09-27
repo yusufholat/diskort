@@ -5,7 +5,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Reanimated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { setPanelOpen, useNav } from '../stores/nav';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 
 /**
  * Ana ekranın iskeleti (Discord mobil gibi): üstte sohbet, altında sol panel. Sohbetin herhangi bir
@@ -129,10 +129,21 @@ export function NavShell({ panel, children }: { panel: ReactNode; children: Reac
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   root: { flex: 1, backgroundColor: colors.rail, overflow: 'hidden' },
   fill: { flex: 1 },
   panel: { position: 'absolute', top: 0, bottom: 0, left: 0 },
-  chat: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: colors.main, elevation: 12 },
+  chat: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.main,
+    elevation: 12,
+    // Siyah temada gölge görünmez: ince kenar sohbeti panelden ayırır
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: colors.edge,
+  },
   shade: { backgroundColor: '#000' },
-});
+}));

@@ -11,7 +11,7 @@ export function NoGuilds() {
   return (
     <>
       <aside className="flex w-60 shrink-0 flex-col bg-bg-side">
-        <div className="flex h-12 shrink-0 items-center border-b border-black/30 px-4 font-semibold text-text-head shadow-sm">
+        <div className="flex h-12 shrink-0 items-center border-b border-edge px-4 font-semibold text-text-head shadow-sm">
           Sunucular
         </div>
         <div className="flex-1 px-4 pt-4 text-sm text-text-muted">Henüz bir sunucuya üye değilsin.</div>

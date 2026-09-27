@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { isImageAttachment, isVideoAttachment, type Attachment } from '@diskort/shared';
 import { attachmentUrl, discardMessage, formatBytes, type LocalMessage } from '@diskort/client-core';
 import { openAttachment } from '../attachments';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 import { VideoAttachment } from './VideoAttachment';
 
 /** Mesaj satırında avatar sütunu ve sağ boşluk (MessageRow ile aynı) */
@@ -133,7 +133,7 @@ export function UploadList({ message }: { message: LocalMessage }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   list: { gap: 6, marginTop: 4, alignItems: 'flex-start' },
   image: { borderRadius: 8, overflow: 'hidden', backgroundColor: colors.side },
   card: {
@@ -144,7 +144,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.side,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.2)',
+    borderColor: colors.edge,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -158,4 +158,4 @@ const styles = StyleSheet.create({
   viewerName: { flex: 1, color: '#fff', fontSize: 15 },
   viewerImage: { flex: 1 },
   viewerInfo: { color: 'rgba(255,255,255,0.6)', fontSize: 13, textAlign: 'center', paddingVertical: 12 },
-});
+}));

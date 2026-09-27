@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
-import { Animated, StyleSheet, View, type DimensionValue, type StyleProp, type ViewStyle } from 'react-native';
+import { Animated, View, type DimensionValue, type StyleProp, type ViewStyle } from 'react-native';
 import { usePulse } from '../motion';
-import { colors, radius, space } from '../theme';
+import { colors, createStyles, radius, space } from '../theme';
 
 // Her satır farklı genişlikte ama her çizimde aynı
 const WIDTHS: DimensionValue[][] = [
@@ -103,7 +103,7 @@ export function TextSkeleton({ lines = 4 }: { lines?: number }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   row: { flexDirection: 'row', paddingTop: 14, paddingRight: 14 },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.active, marginHorizontal: 12 },
   body: { flex: 1, gap: 8, paddingTop: 4 },
@@ -113,4 +113,4 @@ const styles = StyleSheet.create({
   sectionBar: { width: 110, height: 10, marginLeft: space.lg, marginTop: space.xxl, marginBottom: space.md },
   channelRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, height: 40, paddingHorizontal: 18 },
   channelIcon: { width: 20, height: 20, borderRadius: radius.sm, backgroundColor: colors.active },
-});
+}));

@@ -23,7 +23,7 @@ import {
   setGifQuery,
   useGifPicker,
 } from '@diskort/client-core';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 import { BottomSheet } from './BottomSheet';
 import { EmojiGrid } from './EmojiGrid';
 
@@ -218,7 +218,7 @@ function GifGrid({ onPick }: { onPick: (gif: GifResult) => void }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   flex: { flex: 1 },
   // Menülerle aynı dilde bölümlü seçici: seçili sekme yükseltilmiş kutu
   tabs: {
@@ -261,4 +261,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: PADDING,
     paddingTop: 6,
   },
-});
+}));

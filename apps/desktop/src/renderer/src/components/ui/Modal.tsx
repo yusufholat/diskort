@@ -34,7 +34,7 @@ export function Modal({ title, subtitle, onClose, children, footer, className }:
         aria-modal="true"
         aria-label={title}
         className={cn(
-          'relative w-[440px] max-w-[92vw] rounded-lg bg-bg-main shadow-2xl',
+          'relative w-[440px] max-w-[92vw] rounded-lg border border-frame bg-bg-main shadow-2xl',
           closing ? 'anim-modal-out' : 'anim-modal-in',
           className,
         )}

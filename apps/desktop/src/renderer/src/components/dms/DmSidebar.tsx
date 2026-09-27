@@ -29,7 +29,7 @@ export function DmSidebar() {
 
   return (
     <aside className="flex w-60 shrink-0 flex-col bg-bg-side">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-black/30 px-2 shadow-sm">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-edge px-2 shadow-sm">
         <button
           className={cn(
             'flex h-8 min-w-0 flex-1 items-center gap-2 rounded px-2 text-left font-semibold transition-colors',

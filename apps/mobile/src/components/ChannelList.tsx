@@ -14,7 +14,7 @@ import {
 } from '@diskort/client-core';
 import { animateNextLayout, useLayoutAnimationOn, useTimingTo } from '../motion';
 import { toast } from '../stores/ui';
-import { colors, font, radius, ripple, space } from '../theme';
+import { colors, createStyles, font, radius, ripple, space } from '../theme';
 import { useVoice } from '../voice/voice';
 import { Avatar } from './Avatar';
 import { CountBadge, UnreadMarker } from './Badge';
@@ -353,7 +353,7 @@ const VoiceMember = memo(function VoiceMember({ state, onLongPress }: { state: V
   );
 });
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   header: {
     height: 56,
     flexDirection: 'row',
@@ -362,7 +362,7 @@ const styles = StyleSheet.create({
     paddingLeft: space.xs,
     paddingRight: space.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(0,0,0,0.45)',
+    borderBottomColor: colors.edge,
   },
   headerName: {
     flex: 1,
@@ -433,4 +433,4 @@ const styles = StyleSheet.create({
   memberName: { color: colors.muted, fontSize: font.body - 0.5, flex: 1 },
   live: { backgroundColor: colors.danger, borderRadius: radius.sm, paddingHorizontal: 5, paddingVertical: 1 },
   liveText: { color: '#fff', fontSize: 10, fontWeight: '800' },
-});
+}));

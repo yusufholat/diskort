@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import {
   memberActions,
   memberColorOf,
@@ -13,7 +13,7 @@ import { feedback } from '../haptics';
 import { animateNextLayout } from '../motion';
 import { showChat } from '../stores/nav';
 import { toast } from '../stores/ui';
-import { colors, font, radius, space } from '../theme';
+import { colors, createStyles, font, radius, space } from '../theme';
 import { Avatar } from './Avatar';
 import { BottomSheet, SheetGroup, SheetItem, SheetNote } from './BottomSheet';
 
@@ -238,7 +238,7 @@ export function MemberSheet({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -253,4 +253,4 @@ const styles = StyleSheet.create({
   roleText: { color: colors.text, fontSize: font.caption, fontWeight: '600' },
   // Uzun menü (çok kanal) sayfanın sınırlı yüksekliğine sığsın diye daralabilir
   scroll: { flexShrink: 1, flexGrow: 0 },
-});
+}));

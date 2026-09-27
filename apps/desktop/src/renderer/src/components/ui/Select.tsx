@@ -238,7 +238,7 @@ export function Select<T extends string | number>({
         onBlur={close}
         className={cn(
           'flex h-10 w-full items-center gap-2 rounded-[3px] border bg-bg-input pr-2 pl-2.5 text-left text-[15px] transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-          open ? 'border-brand/70' : 'border-transparent hover:border-black/60',
+          open ? 'border-brand/70' : 'border-transparent hover:border-edge-strong',
           selected ? 'text-text-normal' : 'text-text-faint',
           className,
         )}
@@ -260,7 +260,7 @@ export function Select<T extends string | number>({
             // Odak düğmede kalsın (klavye olayları orada işlenir)
             onMouseDown={(e) => e.preventDefault()}
             className={cn(
-              'scroll-thin fixed z-[70] overflow-y-auto rounded-md border border-black/40 bg-bg-float p-1 shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
+              'scroll-thin fixed z-[70] overflow-y-auto rounded-md border border-edge bg-bg-float p-1 shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
               presence.closing ? 'anim-drop-out pointer-events-none' : 'anim-drop-in',
             )}
             style={{

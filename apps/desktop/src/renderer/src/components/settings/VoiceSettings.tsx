@@ -62,7 +62,7 @@ function MicMeter({ editable }: { editable: boolean }) {
 
   return (
     <div className="relative h-8">
-      <div className="absolute inset-x-0 top-3 h-2 overflow-hidden rounded bg-[#4e5058]">
+      <div className="absolute inset-x-0 top-3 h-2 overflow-hidden rounded bg-control">
         <div
           className="absolute inset-y-0 left-0 bg-warn transition-[width] duration-75"
           style={{ width: `${Math.min(toPct(level.db), thresholdPct)}%` }}

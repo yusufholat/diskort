@@ -204,7 +204,7 @@ function normalize(list: PermissionOverwrite[]): PermissionOverwrite[] {
 
 const OPTIONS: { value: OverwriteState; label: string; icon: typeof Check; active: string }[] = [
   { value: 'deny', label: 'Engelle', icon: X, active: 'bg-danger text-white' },
-  { value: 'inherit', label: 'Varsayılan (rolden gelir)', icon: Slash, active: 'bg-[#4e5058] text-white' },
+  { value: 'inherit', label: 'Varsayılan (rolden gelir)', icon: Slash, active: 'bg-control text-white' },
   { value: 'allow', label: 'İzin ver', icon: Check, active: 'bg-ok text-white' },
 ];
 

@@ -13,7 +13,7 @@ import { MessageSkeleton } from '../components/Skeleton';
 import { EmptyState } from '../components/States';
 import { VoiceBar } from '../components/VoiceBar';
 import { setPanelOpen, useCurrentChat, useNav } from '../stores/nav';
-import { colors, space } from '../theme';
+import { colors, createStyles, space } from '../theme';
 
 const openPanel = (): void => setPanelOpen(true);
 
@@ -76,7 +76,7 @@ function EmptyChat({ ready }: { ready: boolean }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.main },
   header: {
     height: 56,
@@ -84,7 +84,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: space.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(0,0,0,0.45)',
+    borderBottomColor: colors.edge,
   },
   body: { flex: 1, justifyContent: 'center' },
-});
+}));

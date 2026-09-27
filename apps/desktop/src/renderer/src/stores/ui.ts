@@ -24,7 +24,7 @@ export type Modal =
   | { type: 'customStatus' }
   | null;
 
-export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app' | 'feedback' | 'whatsNew';
+export type SettingsSection = 'account' | 'appearance' | 'voice' | 'stream' | 'keybinds' | 'app' | 'feedback' | 'whatsNew';
 
 export type ServerSettingsSection = 'overview' | 'roles' | 'members' | 'invites' | 'bans' | 'feedback';
 

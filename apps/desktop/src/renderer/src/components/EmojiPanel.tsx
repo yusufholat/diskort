@@ -39,7 +39,7 @@ export function EmojiPanel({
 
   return (
     <div className={cn('flex min-h-0 flex-col', className)}>
-      <div className="flex gap-0.5 border-b border-black/30 bg-bg-panel px-2 py-1.5">
+      <div className="flex gap-0.5 border-b border-edge bg-bg-panel px-2 py-1.5">
         {EMOJI_CATEGORIES.map((c) => (
           <button
             key={c.id}

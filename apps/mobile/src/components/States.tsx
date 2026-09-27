@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
-import { Animated, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Animated, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppear } from '../motion';
-import { colors, font, radius, space } from '../theme';
+import { colors, createStyles, font, radius, space } from '../theme';
 import { Button } from './ui';
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -99,7 +99,7 @@ export function Notice({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   wrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxxl },
   icon: {
     width: 72,
@@ -123,4 +123,4 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   noticeText: { flex: 1, fontSize: font.small, fontWeight: '600', lineHeight: 18 },
-});
+}));

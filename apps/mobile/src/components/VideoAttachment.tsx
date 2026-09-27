@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { Attachment } from '@diskort/shared';
 import { attachmentUrl, fitBox, formatBytes } from '@diskort/client-core';
 import { openAttachment } from '../attachments';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 import { expoVideo, openVideoExternally } from '../video';
 
 const MAX_HEIGHT = 320;
@@ -90,7 +90,7 @@ function InlinePlayer({ uri, style }: { uri: string; style: ViewStyle }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   box: { borderRadius: 8, overflow: 'hidden', backgroundColor: '#000' },
   poster: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.deep },
   playButton: {
@@ -123,4 +123,4 @@ const styles = StyleSheet.create({
     padding: 5,
     backgroundColor: 'rgba(0,0,0,0.6)',
   },
-});
+}));

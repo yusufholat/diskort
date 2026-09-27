@@ -259,7 +259,7 @@
 
 /* İskelet (yükleniyor) yer tutucusu */
 .skeleton {
-  background: linear-gradient(90deg, #3b3d44 0%, #484a51 40%, #3b3d44 80%) 0 0 / 200% 100%;
+  background: linear-gradient(90deg, var(--color-skeleton) 0%, var(--color-skeleton-hi) 40%, var(--color-skeleton) 80%) 0 0 / 200% 100%;
   animation: dk-shimmer 1.4s ease-in-out infinite;
 }
 

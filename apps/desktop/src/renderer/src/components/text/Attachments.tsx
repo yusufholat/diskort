@@ -78,7 +78,7 @@ export function FileCard({ attachment }: { attachment: Attachment }) {
   return (
     <div
       data-attachment-id={attachment.id}
-      className="flex w-[min(440px,100%)] items-center gap-3 rounded-lg border border-black/20 bg-bg-side px-3 py-2.5"
+      className="flex w-[min(440px,100%)] items-center gap-3 rounded-lg border border-edge bg-bg-side px-3 py-2.5"
     >
       <FileIcon type={attachment.contentType} className="shrink-0 text-[#00a8fc]" />
       <div className="min-w-0 flex-1">
@@ -114,7 +114,7 @@ export function UploadList({ message }: { message: LocalMessage }) {
         return (
           <div
             key={i}
-            className="flex w-[min(440px,100%)] items-center gap-3 rounded-lg border border-black/20 bg-bg-side px-3 py-2.5"
+            className="flex w-[min(440px,100%)] items-center gap-3 rounded-lg border border-edge bg-bg-side px-3 py-2.5"
           >
             <FileIcon type={u.file.type} className="shrink-0 text-text-muted" />
             <div className="min-w-0 flex-1">

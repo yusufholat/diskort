@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { openChat, useNav } from '../stores/nav';
-import { colors, font, space } from '../theme';
+import { colors, createStyles, font, space } from '../theme';
 import { joinVoice } from '../voice/actions';
 import { ChannelList, GuildHeader } from './ChannelList';
 import { DmList } from './DmList';
@@ -61,7 +61,7 @@ export function LeftPanel({ currentChat }: { currentChat: string | null }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   root: { flex: 1, backgroundColor: colors.rail },
   top: { flex: 1, flexDirection: 'row' },
   column: { flex: 1, backgroundColor: colors.side, borderTopLeftRadius: 16, overflow: 'hidden' },
@@ -72,7 +72,7 @@ const styles = StyleSheet.create({
     paddingLeft: space.lg,
     paddingRight: space.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(0,0,0,0.45)',
+    borderBottomColor: colors.edge,
   },
   title: { flex: 1, color: colors.head, fontSize: font.title + 1, fontWeight: '800' },
-});
+}));

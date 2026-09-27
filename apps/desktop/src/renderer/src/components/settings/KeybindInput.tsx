@@ -42,7 +42,7 @@ export function KeybindInput({
           'flex h-10 min-w-56 flex-1 items-center rounded-[3px] border px-3 text-left text-sm transition-colors disabled:opacity-50',
           recording
             ? 'border-danger bg-danger/10 text-danger'
-            : 'border-transparent bg-bg-input text-text-normal hover:border-black/40',
+            : 'border-transparent bg-bg-input text-text-normal hover:border-edge-strong',
         )}
       >
         {recording ? 'Bir tuşa bas… (Esc: iptal)' : (value?.label ?? 'Kısayol atanmadı')}

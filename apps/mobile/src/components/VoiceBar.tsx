@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { channelById, useGuild } from '@diskort/client-core';
 import { useAppear, useBump } from '../motion';
 import { useSettings } from '../stores/settings';
-import { colors, font, radius, space } from '../theme';
+import { colors, createStyles, font, radius, space } from '../theme';
 import { leaveVoice, toggleDeafen, toggleMute } from '../voice/actions';
 import { useVoice } from '../voice/voice';
 import { PressableScale } from './PressableScale';
@@ -155,7 +155,7 @@ export function VoiceControl({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   wrap: {
     backgroundColor: colors.panel,
     borderTopLeftRadius: radius.lg,
@@ -190,4 +190,4 @@ const styles = StyleSheet.create({
   count: { color: colors.muted, fontWeight: '600' },
   control: { alignItems: 'center', gap: 6 },
   caption: { color: colors.muted, fontSize: 11.5, fontWeight: '600' },
-});
+}));

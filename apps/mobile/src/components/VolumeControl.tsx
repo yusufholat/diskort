@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSettings } from '../stores/settings';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 import { voice } from '../voice/voice';
 import { Slider } from './Slider';
 
@@ -107,7 +107,7 @@ export function UserVolume({ userId }: { userId: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   mute: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   slider: { flex: 1 },
@@ -130,4 +130,4 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     marginBottom: 2,
   },
-});
+}));

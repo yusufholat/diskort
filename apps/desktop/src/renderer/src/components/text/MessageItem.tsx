@@ -169,11 +169,11 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
   return (
     <div
       className={cn(
-        'group relative flex pr-12 pl-4 transition-colors duration-75 hover:bg-black/[0.06]',
+        'group relative flex pr-12 pl-4 transition-colors duration-75 hover:bg-msg-hover',
         compact ? 'py-0.5' : 'mt-[17px] py-0.5',
         mentioned && !replying && 'border-l-2 border-warn bg-warn/[0.08] pl-[14px] hover:bg-warn/[0.12]',
         replying && 'border-l-2 border-brand bg-brand/[0.08] pl-[14px] hover:bg-brand/[0.12]',
-        editing && 'bg-black/[0.06]',
+        editing && 'bg-msg-hover',
       )}
       onContextMenu={onContextMenu}
       data-message-id={message.id}
@@ -300,7 +300,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
 
       {confirmed && !editing && (canReact || canReply || own || canDelete) && (
         // Üstüne gelince hafifçe belirip yükselen düğme şeridi
-        <div className="pointer-events-none absolute -top-4 right-4 flex translate-y-1 overflow-hidden rounded-md border border-black/30 bg-bg-main opacity-0 shadow transition-[opacity,translate] duration-100 ease-out group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
+        <div className="pointer-events-none absolute -top-4 right-4 flex translate-y-1 overflow-hidden rounded-md border border-edge bg-bg-main opacity-0 shadow transition-[opacity,translate] duration-100 ease-out group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
           {canReact &&
             HOVER_REACTIONS.map((emoji) => (
               <button

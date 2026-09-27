@@ -26,6 +26,7 @@ const bridge: DiskortBridge = {
   download: (url) => ipcRenderer.invoke('app:download', url),
   onDownloadDone: (cb) => listen<DownloadResult>('download:done', cb),
   edit: (command) => ipcRenderer.send('app:edit', command),
+  setTheme: (theme) => ipcRenderer.send('app:set-theme', theme),
   idle: {
     get: () => ipcRenderer.invoke('presence:get-idle'),
     onChange: (cb) => listen<boolean>('presence:idle', cb),

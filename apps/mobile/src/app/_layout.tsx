@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { AppState, StyleSheet, Text, View } from 'react-native';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { AppState, Text, View } from 'react-native';
 import { Stack, type ErrorBoundaryProps } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
@@ -15,7 +15,7 @@ import { clientReady } from '../setup';
 import { applyOta, checkForUpdate, cleanupDownloads, updateOnLaunch, useAppUpdate } from '../update/updater';
 import { showChat } from '../stores/nav';
 import { useUi } from '../stores/ui';
-import { colors } from '../theme';
+import { colors, createStyles, useTheme } from '../theme';
 import { useVoice, voice } from '../voice/voice';
 
 void SplashScreen.preventAutoHideAsync();
@@ -40,15 +40,25 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   );
 }
 
-const errorStyles = StyleSheet.create({
+const errorStyles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.rail, alignItems: 'center', justifyContent: 'center', padding: 32 },
   title: { color: colors.head, fontSize: 21, fontWeight: '700', textAlign: 'center' },
   text: { color: colors.muted, fontSize: 15, textAlign: 'center', marginTop: 10 },
   detail: { color: colors.faint, fontSize: 12.5, textAlign: 'center', marginTop: 14 },
-});
+}));
+
+/**
+ * Tema değişince ekranın içeriği baştan kurulur: stiller ve renkler yeni temayla okunur. Gezinme yığını
+ * (açık ekranlar, geri geçmişi) olduğu gibi kalır; ana ekranın durumu (açık sohbet, panel) stores/nav.ts'te.
+ */
+function ThemedScreen({ children }: { children: ReactNode }) {
+  const version = useTheme((s) => s.version);
+  return <Fragment key={version}>{children}</Fragment>;
+}
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
+  const themeVersion = useTheme((s) => s.version);
   const token = useSession((s) => s.token);
   const updateRequired = useUi((s) => s.updateRequired);
   const apkPending = useAppUpdate((s) => s.status.kind !== 'idle');
@@ -131,10 +141,11 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <StatusBar style="light" />
         {showUpdate ? (
-          <UpdateScreen requiredVersion={updateRequired} />
+          <UpdateScreen key={themeVersion} requiredVersion={updateRequired} />
         ) : (
           <>
             <Stack
+              screenLayout={({ children }) => <ThemedScreen>{children}</ThemedScreen>}
               screenOptions={{
                 // Başlık çubuğu içerikle aynı renkte, altında ince gölge (masaüstündeki kanal başlığı gibi)
                 headerStyle: { backgroundColor: colors.main },
@@ -178,7 +189,7 @@ export default function RootLayout() {
                 <Stack.Screen name="login" options={{ headerShown: false, animation: 'fade', contentStyle: { backgroundColor: colors.rail } }} />
               </Stack.Protected>
             </Stack>
-            <Toast />
+            <Toast key={themeVersion} />
           </>
         )}
       </SafeAreaProvider>

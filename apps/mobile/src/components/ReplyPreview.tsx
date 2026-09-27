@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { jumpToMessage, plainText, useGuild, useMemberColor, type LocalMessage } from '@diskort/client-core';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 import { Avatar } from './Avatar';
 import type { MarkdownContext } from './Markdown';
 
@@ -54,7 +54,7 @@ export function ReplyPreview({ message, md }: { message: LocalMessage; md: Markd
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   wrap: { height: 20, marginBottom: 2, justifyContent: 'center' },
   // Satırın ortasından sola, oradan avatarın ortasına inen kavisli çizgi (gövde avatar sütunundan 64 px sağda)
   spine: {
@@ -66,7 +66,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 2,
     borderLeftWidth: 2,
     borderTopLeftRadius: 6,
-    borderColor: '#4e5058',
+    borderColor: colors.control,
   },
   line: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingRight: 8 },
   name: { color: colors.head, fontSize: 13.5, fontWeight: '600', flexShrink: 0, maxWidth: '45%' },
@@ -80,4 +80,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-});
+}));

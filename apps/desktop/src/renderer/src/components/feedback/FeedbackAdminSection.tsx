@@ -254,7 +254,7 @@ function FeedbackDetail({ item, onBack }: { item: Feedback; onBack: () => void }
         maxLength={FEEDBACK_NOTE_MAX_LENGTH}
         onChange={(e) => setNote(e.target.value)}
         placeholder="ör. 0.4.5 sürümünde düzeltildi"
-        className="block w-full resize-y rounded-[3px] border border-transparent bg-bg-input px-2.5 py-2 text-[15px] leading-snug text-text-normal outline-none transition-colors placeholder:text-text-faint hover:border-black/60 focus:border-brand/70"
+        className="block w-full resize-y rounded-[3px] border border-transparent bg-bg-input px-2.5 py-2 text-[15px] leading-snug text-text-normal outline-none transition-colors placeholder:text-text-faint hover:border-edge-strong focus:border-brand/70"
       />
       <div className="mt-2 flex justify-end">
         <Button disabled={!noteChanged || saving === 'note'} onClick={() => void saveNote()}>

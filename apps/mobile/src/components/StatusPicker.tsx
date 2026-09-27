@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { create } from 'zustand';
 import {
@@ -19,7 +19,7 @@ import {
   useSession,
   useStatus,
 } from '@diskort/client-core';
-import { colors, font, radius, ripple, space } from '../theme';
+import { colors, createStyles, font, radius, ripple, space } from '../theme';
 import { Avatar } from './Avatar';
 import { BottomSheet, SheetGroup } from './BottomSheet';
 import { EmojiGrid } from './EmojiGrid';
@@ -318,7 +318,7 @@ function CustomPage({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   header: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg + 2, paddingBottom: space.md },
   name: { color: colors.head, fontSize: font.title + 1, fontWeight: '700' },
   sub: { color: colors.muted, fontSize: font.small, marginTop: 2 },
@@ -367,4 +367,4 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.pill, backgroundColor: colors.main },
   chipOn: { backgroundColor: colors.brand },
   chipText: { color: colors.text, fontSize: font.small, fontWeight: '600' },
-});
+}));
