@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GUILD_NAME_MAX_LENGTH, parseInviteCode, type InvitePreview } from '@diskort/shared';
@@ -7,7 +7,7 @@ import { api, createGuild, errorMessage, joinGuild, useSession } from '@diskort/
 import { GuildIcon } from '../components/GuildSwitcher';
 import { Button, Field } from '../components/ui';
 import { toast } from '../stores/ui';
-import { colors, font, radius, space } from '../theme';
+import { colors, createStyles, font, radius, space } from '../theme';
 
 type Tab = 'join' | 'create';
 
@@ -155,7 +155,7 @@ export default function AddGuildScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.main },
   body: { padding: space.lg, gap: space.md },
   tabs: { flexDirection: 'row', backgroundColor: colors.input, borderRadius: radius.md, padding: 3 },
@@ -173,4 +173,4 @@ const styles = StyleSheet.create({
     padding: space.md,
   },
   previewName: { color: colors.head, fontSize: font.body, fontWeight: '700' },
-});
+}));

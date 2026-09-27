@@ -53,7 +53,7 @@ export interface ComposerHandle {
 /** Yazma kutusunun üstündeki eklenmiş dosyalar (resimler küçük önizlemeyle) */
 function FileTray({ channelId, files }: { channelId: string; files: LocalFile[] }) {
   return (
-    <div className="flex gap-2 overflow-x-auto border-b border-black/20 px-3 pt-3 pb-2">
+    <div className="flex gap-2 overflow-x-auto border-b border-edge px-3 pt-3 pb-2">
       {files.map((file, i) => (
         <div key={`${file.name}-${i}`} className="anim-pop-in group/file relative w-[132px] shrink-0 rounded-md bg-bg-side p-2">
           <FilePreview file={file} />
@@ -275,7 +275,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
     <div className="relative px-4">
       {suggestions.length > 0 && (
         <div
-          className="anim-drop-in absolute right-4 bottom-full left-4 mb-2 origin-bottom overflow-hidden rounded-lg border border-black/30 bg-bg-side py-2 shadow-xl"
+          className="anim-drop-in absolute right-4 bottom-full left-4 mb-2 origin-bottom overflow-hidden rounded-lg border border-edge bg-bg-side py-2 shadow-xl"
           style={{ ['--drop-from' as string]: '6px' }}
         >
           <div className="px-3 pb-1 text-xs font-bold text-text-muted uppercase">Üyeler</div>

@@ -233,7 +233,7 @@ export function FeedbackModal() {
                 form.clear('body');
               }}
               placeholder={PLACEHOLDERS[type]}
-              className="block max-h-[40vh] min-h-24 w-full resize-y rounded-[3px] border border-transparent bg-bg-input px-2.5 py-2 text-[15px] leading-snug text-text-normal outline-none transition-colors placeholder:text-text-faint hover:border-black/60 focus:border-brand/70"
+              className="block max-h-[40vh] min-h-24 w-full resize-y rounded-[3px] border border-transparent bg-bg-input px-2.5 py-2 text-[15px] leading-snug text-text-normal outline-none transition-colors placeholder:text-text-faint hover:border-edge-strong focus:border-brand/70"
             />
           </FormField>
 

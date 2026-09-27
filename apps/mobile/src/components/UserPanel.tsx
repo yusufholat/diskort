@@ -1,10 +1,10 @@
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Animated, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useSession } from '@diskort/client-core';
 import { useBump } from '../motion';
 import { useSettings } from '../stores/settings';
-import { colors, font, space } from '../theme';
+import { colors, createStyles, font, space } from '../theme';
 import { toggleDeafen, toggleMute } from '../voice/actions';
 import { useVoice } from '../voice/voice';
 import { Avatar } from './Avatar';
@@ -94,7 +94,7 @@ function PanelButton({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   panel: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -107,4 +107,4 @@ const styles = StyleSheet.create({
   name: { color: colors.head, fontSize: font.body - 1, fontWeight: '700' },
   username: { color: colors.muted, fontSize: font.caption },
   button: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-});
+}));

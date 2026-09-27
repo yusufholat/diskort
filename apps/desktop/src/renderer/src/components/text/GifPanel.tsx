@@ -242,7 +242,7 @@ export function GifPanel({ onSend }: { onSend: (gif: GifResult) => void }) {
       </div>
 
       {/* GIPHY'nin kullanım şartı: sonuçların yanında kaynak belirtilir */}
-      <div className="flex items-center justify-end border-t border-black/30 px-3 py-1.5">
+      <div className="flex items-center justify-end border-t border-edge px-3 py-1.5">
         <span className="text-[11px] font-bold tracking-wide text-text-muted">Powered by GIPHY</span>
       </div>
     </div>

@@ -137,7 +137,7 @@ export function ConnectionInfoPopover({
       role="dialog"
       aria-label="Ses bağlantısı"
       className={cn(
-        'fixed z-50 flex flex-col overflow-hidden rounded-lg border border-black/30 bg-bg-side shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
+        'fixed z-50 flex flex-col overflow-hidden rounded-lg border border-edge bg-bg-side shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
         debug ? 'w-[420px]' : 'w-[340px]',
         closing ? 'anim-pop-out pointer-events-none' : 'anim-pop-in',
       )}

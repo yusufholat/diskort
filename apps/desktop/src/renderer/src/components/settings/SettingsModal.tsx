@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { X } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import { AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH } from '@diskort/shared';
 import { gateway, api, errorMessage, useGuild, useSession } from '@diskort/client-core';
 import { SCREEN_CODECS, SCREEN_PRESETS } from '../../features/voice/screenPresets';
@@ -8,8 +8,9 @@ import { bridge, isWindows } from '../../lib/bridge';
 import { confirmDialog } from '../../lib/dialog';
 import { useEscapeLayer } from '../../lib/escape';
 import { usePresenceClosing } from '../../lib/motion';
+import { THEMES } from '../../lib/theme';
 import { cn } from '../../lib/utils';
-import { useSettings, type ScreenCodec, type ScreenPresetId } from '../../stores/settings';
+import { useSettings, type ScreenCodec, type ScreenPresetId, type ThemeId } from '../../stores/settings';
 import { toast, useUi, type SettingsSection } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 import { Button, Divider, Field, SectionTitle, Select, TextInput, Toggle } from '../ui/controls';
@@ -24,6 +25,7 @@ import { WhatsNewSection } from './WhatsNewSection';
 // Üyeler ve davetler Sunucu Ayarları'na taşındı (sunucu adının yanındaki menü)
 const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'account', label: 'Hesabım' },
+  { id: 'appearance', label: 'Görünüm' },
   { id: 'voice', label: 'Ses' },
   { id: 'stream', label: 'Yayın' },
   { id: 'keybinds', label: 'Kısayollar' },
@@ -73,6 +75,7 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
         {/* Bölüm değişince içerik hafifçe yükselerek belirir */}
         <div key={section} className="anim-rise-in max-w-[660px]">
           {section === 'account' && <AccountSection />}
+          {section === 'appearance' && <AppearanceSection />}
           {section === 'voice' && <VoiceSettings />}
           {section === 'stream' && <StreamSection />}
           {section === 'keybinds' && <KeybindsSection />}
@@ -197,6 +200,69 @@ function AccountSection() {
       <ChangePassword />
       <Divider />
       <DeleteAccount />
+    </div>
+  );
+}
+
+/** Tema önizlemesindeki renkler (kanal listesi, sohbet, mesaj satırları, yazma kutusu) */
+const THEME_PREVIEW: Record<ThemeId, { rail: string; side: string; main: string; input: string; line: string; row: string }> = {
+  dark: { rail: '#1e1f22', side: '#2b2d31', main: '#313338', input: '#383a40', line: '#3f4147', row: '#404249' },
+  black: { rail: '#000000', side: '#0b0b0b', main: '#000000', input: '#161616', line: '#2a2a2a', row: '#262626' },
+};
+
+function AppearanceSection() {
+  const theme = useSettings((s) => s.theme);
+  const set = useSettings((s) => s.set);
+
+  return (
+    <div>
+      <h2 className="mb-5 text-xl font-bold text-text-head">Görünüm</h2>
+      <SectionTitle>Tema</SectionTitle>
+      <div className="grid grid-cols-2 gap-4" role="radiogroup" aria-label="Tema">
+        {THEMES.map((t) => {
+          const selected = theme === t.id;
+          const p = THEME_PREVIEW[t.id];
+          return (
+            <button
+              key={t.id}
+              role="radio"
+              aria-checked={selected}
+              onClick={() => set({ theme: t.id })}
+              className={cn(
+                'press group rounded-lg border-2 bg-bg-side p-2.5 text-left transition-colors',
+                selected ? 'border-brand' : 'border-edge hover:border-edge-strong',
+              )}
+            >
+              {/* Küçük önizleme: sunucu şeridi, kanal listesi, sohbet */}
+              <div className="flex h-24 overflow-hidden rounded-md border" style={{ borderColor: p.line, background: p.main }}>
+                <div className="w-[12%]" style={{ background: p.rail }} />
+                <div className="flex w-[28%] flex-col gap-1.5 p-2" style={{ background: p.side }}>
+                  <div className="h-1.5 w-4/5 rounded-full" style={{ background: p.row }} />
+                  <div className="h-1.5 w-3/5 rounded-full" style={{ background: p.line }} />
+                  <div className="h-1.5 w-2/3 rounded-full" style={{ background: p.line }} />
+                </div>
+                <div className="flex flex-1 flex-col justify-end gap-1.5 p-2">
+                  <div className="h-1.5 w-1/3 rounded-full bg-[#949ba4]/60" />
+                  <div className="h-1.5 w-4/5 rounded-full bg-[#dbdee1]/80" />
+                  <div className="mt-1 h-3.5 rounded" style={{ background: p.input }} />
+                </div>
+              </div>
+              <div className="mt-2.5 flex items-center gap-2">
+                <span
+                  className={cn(
+                    'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
+                    selected ? 'border-brand bg-brand text-white' : 'border-text-faint',
+                  )}
+                >
+                  {selected && <Check size={12} strokeWidth={3.5} />}
+                </span>
+                <span className="font-semibold text-text-head">{t.label}</span>
+              </div>
+              <div className="mt-0.5 pl-7 text-xs text-text-muted">{t.description}</div>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

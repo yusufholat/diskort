@@ -54,7 +54,7 @@ import { VoiceBar } from '../../components/VoiceBar';
 import { useKeyboardInset } from '../../keyboard';
 import { animateNextLayout, useSpringTo, useTimingTo } from '../../motion';
 import { toast, useUi } from '../../stores/ui';
-import { colors, font, radius, space } from '../../theme';
+import { colors, createStyles, font, radius, space } from '../../theme';
 import { useVoice } from '../../voice/voice';
 
 const GROUP_WINDOW_MS = 7 * 60_000;
@@ -763,7 +763,7 @@ function MessageMenu({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.main },
   listArea: { flex: 1 },
   loading: { minHeight: 60, justifyContent: 'center', paddingBottom: space.sm },
@@ -792,7 +792,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space.sm,
     paddingHorizontal: space.lg,
-    backgroundColor: 'rgba(49,51,56,0.94)',
+    backgroundColor: colors.mainTranslucent,
   },
   typingText: { color: colors.text, fontSize: font.caption, fontWeight: '600', flexShrink: 1 },
   jump: { position: 'absolute', right: space.md, bottom: TYPING_HEIGHT + space.sm },
@@ -844,4 +844,4 @@ const styles = StyleSheet.create({
   },
   quickMine: { backgroundColor: 'rgba(88,101,242,0.35)', borderWidth: 1, borderColor: colors.brand },
   quickEmoji: { fontSize: 24 },
-});
+}));

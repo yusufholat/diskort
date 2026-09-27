@@ -43,7 +43,7 @@ export function GuildRail() {
         <div
           className={cn(
             'flex h-12 w-12 items-center justify-center text-white transition-[border-radius,background-color] duration-150',
-            inDms ? 'rounded-2xl bg-brand' : 'rounded-3xl bg-bg-side group-hover/rail:rounded-2xl group-hover/rail:bg-brand',
+            inDms ? 'rounded-2xl bg-brand' : 'rounded-3xl bg-bg-raised group-hover/rail:rounded-2xl group-hover/rail:bg-brand',
           )}
         >
           <MessagesSquare size={24} />
@@ -61,7 +61,7 @@ export function GuildRail() {
       ))}
 
       <button
-        className="press flex h-12 w-12 shrink-0 items-center justify-center rounded-3xl bg-bg-main text-ok transition-[border-radius,background-color,color] duration-200 hover:rounded-2xl hover:bg-ok hover:text-white"
+        className="press flex h-12 w-12 shrink-0 items-center justify-center rounded-3xl bg-bg-raised text-ok transition-[border-radius,background-color,color] duration-200 hover:rounded-2xl hover:bg-ok hover:text-white"
         data-tooltip="Sunucu ekle"
         data-tooltip-side="right"
         aria-label="Sunucu ekle"
@@ -72,7 +72,7 @@ export function GuildRail() {
 
       {/* Geri bildirim: en altta */}
       <button
-        className="press mt-auto flex h-12 w-12 shrink-0 items-center justify-center rounded-3xl bg-bg-main text-ok transition-[border-radius,background-color,color] duration-200 hover:rounded-2xl hover:bg-ok hover:text-white"
+        className="press mt-auto flex h-12 w-12 shrink-0 items-center justify-center rounded-3xl bg-bg-raised text-ok transition-[border-radius,background-color,color] duration-200 hover:rounded-2xl hover:bg-ok hover:text-white"
         data-tooltip="Geri bildirim gönder"
         data-tooltip-side="right"
         aria-label="Geri bildirim gönder"

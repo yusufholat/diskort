@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Animated, PanResponder, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { spring } from '../motion';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 
 const THUMB = 18;
 /** Dokunma alanı yüksekliği (görünen çizgi 4 piksel; parmakla tutmak kolay olsun) */
@@ -133,7 +133,7 @@ export function Slider({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   hit: { height: HIT, justifyContent: 'center' },
   track: {
     position: 'absolute',
@@ -161,4 +161,4 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     elevation: 2,
   },
-});
+}));

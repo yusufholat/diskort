@@ -36,6 +36,9 @@ export interface AppPreferences {
   openAtLogin: boolean;
 }
 
+/** Arayüz teması (pencerenin zemin ve başlık çubuğu renkleri buna uyar) */
+export type AppTheme = 'dark' | 'black';
+
 export interface TrayState {
   connected: boolean;
   muted: boolean;
@@ -100,6 +103,8 @@ export interface DiskortBridge {
   download(url: string): Promise<void>;
   /** İndirme bitti (kaydetme penceresinde vazgeçilirse çağrılmaz). */
   onDownloadDone(cb: (result: DownloadResult) => void): () => void;
+  /** Pencere renklerini temaya uydurur (Windows başlık çubuğu, açılış zemini) ve seçimi saklar. */
+  setTheme(theme: AppTheme): void;
   /** Odaktaki metin kutusunda düzenleme komutu (yapıştırma sayfadan izinsiz yapılamaz). */
   edit(command: EditCommand): void;
 

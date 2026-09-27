@@ -1,7 +1,7 @@
 import { useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text } from 'react-native';
+import { Animated, Pressable, Text } from 'react-native';
 import { useAppear, useBump } from '../motion';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 
 /**
  * Mesajın altındaki tepki: mesaj ekrandayken eklenince büyüyerek belirir, sayı ya da benim
@@ -51,7 +51,7 @@ export function ReactionPill({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -67,4 +67,4 @@ const styles = StyleSheet.create({
   emoji: { fontSize: 16 },
   count: { color: colors.muted, fontSize: 13.5, fontWeight: '600' },
   countMine: { color: colors.head },
-});
+}));

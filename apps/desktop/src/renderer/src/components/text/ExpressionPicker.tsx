@@ -70,7 +70,7 @@ export function ExpressionPicker({ tab, gifs, onTab, onClose, onEmoji, onGif, to
       role="dialog"
       aria-label={current === 'gif' ? 'GIF seçici' : 'Emoji seçici'}
       className={cn(
-        'absolute right-4 bottom-full z-30 mb-2 flex h-[min(460px,calc(100vh-140px))] w-[424px] origin-bottom-right flex-col overflow-hidden rounded-lg border border-black/30 bg-bg-side shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
+        'absolute right-4 bottom-full z-30 mb-2 flex h-[min(460px,calc(100vh-140px))] w-[424px] origin-bottom-right flex-col overflow-hidden rounded-lg border border-edge bg-bg-side shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
         closing ? 'anim-pop-out pointer-events-none' : 'anim-pop-in',
       )}
       onContextMenu={(e) => e.preventDefault()}

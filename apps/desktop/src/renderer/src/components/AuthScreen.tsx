@@ -92,7 +92,7 @@ export function AuthScreen() {
         ref={formRef}
         onSubmit={submit}
         noValidate
-        className="anim-modal-in w-[480px] max-w-full rounded-md bg-bg-main p-8 shadow-2xl"
+        className="anim-modal-in w-[480px] max-w-full rounded-md border border-frame bg-bg-main p-8 shadow-2xl"
       >
         <div className="mb-5 flex flex-col items-center text-center">
           <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand text-white">

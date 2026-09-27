@@ -18,7 +18,7 @@ import { RemoteVideoTrack, Track } from 'livekit-client';
 import { isStreamMuted, shownStreamVolume, useGuild } from '@diskort/client-core';
 import { spring, timing } from '../motion';
 import { useSettings } from '../stores/settings';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 import { useVoice, voice } from '../voice/voice';
 import { VolumeControl } from './VolumeControl';
 
@@ -491,7 +491,7 @@ function useViewerGestures(options: {
   return { panHandlers, transform: [{ translateX: panX }, { translateY }, { scale }] };
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   inline: { backgroundColor: '#000', overflow: 'hidden' },
   // Ses ekranının tamamını kaplar (başlık, durum çubuğu ve gezinme çubuğu gizlenir)
   full: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10, backgroundColor: '#000' },
@@ -521,4 +521,4 @@ const styles = StyleSheet.create({
   nameSmall: { fontSize: 13 },
   noAudio: { color: 'rgba(255,255,255,0.7)', fontSize: 12.5, marginLeft: 4 },
   round: { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.1)' },
-});
+}));

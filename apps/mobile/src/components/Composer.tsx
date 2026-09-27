@@ -23,7 +23,7 @@ import {
 import { pickDocuments, pickMedia } from '../attachments';
 import { useAppear, useBump, useLayoutAnimationOn, useTimingTo } from '../motion';
 import { toast } from '../stores/ui';
-import { colors, font, radius, ripple, space, text as textStyles } from '../theme';
+import { colors, createStyles, font, radius, ripple, space, text as textStyles } from '../theme';
 import { fileIcon } from './Attachments';
 import { Avatar } from './Avatar';
 import { BottomSheet, SheetHeader } from './BottomSheet';
@@ -411,7 +411,7 @@ function AttachTile({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   wrap: { backgroundColor: colors.main },
   row: { flexDirection: 'row', alignItems: 'flex-end', gap: space.sm, paddingHorizontal: space.sm + 2, paddingTop: 6, paddingBottom: space.sm },
   circle: {
@@ -516,4 +516,4 @@ const styles = StyleSheet.create({
   suggestionName: { color: colors.head, fontSize: 15, fontWeight: '600' },
   suggestionUser: { color: colors.muted, fontSize: 13 },
   editText: { flex: 1, color: colors.muted, fontSize: 13.5, fontWeight: '600' },
-});
+}));

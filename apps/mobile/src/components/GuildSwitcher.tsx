@@ -20,7 +20,7 @@ import {
   useSession,
 } from '@diskort/client-core';
 import { toast } from '../stores/ui';
-import { colors, space } from '../theme';
+import { colors, createStyles, space } from '../theme';
 
 /** Sunucu simgesi: yüklenmiş resim ya da adın baş harfleri */
 export function GuildIcon({ guild, size = 44, radius = 14 }: { guild: Pick<Guild, 'name' | 'iconUrl'> | undefined; size?: number; radius?: number }) {
@@ -141,8 +141,8 @@ async function shareInvite(guild: Guild): Promise<void> {
   }
 }
 
-const styles = StyleSheet.create({
-  stripWrap: { flexGrow: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(0,0,0,0.45)' },
+const styles = createStyles(() => ({
+  stripWrap: { flexGrow: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.edge },
   strip: { alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, paddingVertical: space.sm },
   guild: { width: 50, height: 50, alignItems: 'center', justifyContent: 'center' },
   ring: { padding: 2, borderRadius: 18, borderWidth: 2, borderColor: 'transparent' },
@@ -173,4 +173,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-});
+}));

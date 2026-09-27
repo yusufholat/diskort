@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 import { useGuild } from '@diskort/client-core';
 import { animateNextLayout } from '../motion';
-import { colors, font, radius, space } from '../theme';
+import { colors, createStyles, font, radius, space } from '../theme';
 
 /** Kısa kopmalarda (uygulama öne gelince yeniden bağlanma) şerit yanıp sönmesin diye bekleme */
 const SHOW_DELAY_MS = 900;
@@ -42,7 +42,7 @@ export function ConnectionBanner() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -56,4 +56,4 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   text: { color: '#000', fontSize: font.small - 0.5, fontWeight: '700' },
-});
+}));

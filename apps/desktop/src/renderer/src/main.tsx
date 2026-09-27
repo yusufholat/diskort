@@ -4,11 +4,15 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { installTurnPortRewrite } from './features/voice/turnPort';
+import { installTheme } from './lib/theme';
 import { voice } from './features/voice/voiceClient';
 import { reportClientError, useGuild, useMessages, useSession } from '@diskort/client-core';
 import { useSettings } from './stores/settings';
 import { useVoice } from './stores/voice';
 import './styles.css';
+
+// Kayıtlı tema ilk çizimden önce uygulanır (koyu temanın bir an görünüp siyaha dönmemesi için)
+installTheme();
 
 // Herhangi bir WebRTC bağlantısı kurulmadan önce (bkz. turnPort.ts)
 installTurnPortRewrite();

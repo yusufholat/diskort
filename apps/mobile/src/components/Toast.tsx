@@ -3,7 +3,7 @@ import { Animated, StyleSheet, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EASE_IN, timing } from '../motion';
 import { useUi } from '../stores/ui';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 
 type ToastState = NonNullable<ReturnType<typeof useUi.getState>['toast']>;
 
@@ -50,7 +50,7 @@ export function Toast() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   toast: {
     position: 'absolute',
     left: 16,
@@ -65,4 +65,4 @@ const styles = StyleSheet.create({
   },
   error: { borderColor: 'rgba(242,63,67,0.5)' },
   text: { color: colors.text, fontSize: 14.5 },
-});
+}));

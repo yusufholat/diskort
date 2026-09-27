@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,7 +25,7 @@ import { EmptyState } from '../components/States';
 import { TypingDots } from '../components/TypingDots';
 import { animateNextLayout, useLayoutAnimationOn } from '../motion';
 import { toast } from '../stores/ui';
-import { colors, font, radius, ripple, space } from '../theme';
+import { colors, createStyles, font, radius, ripple, space } from '../theme';
 
 const dayMonth = new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short' });
 /** Satır yüksekliği sabit: liste kaydırırken ölçmeden konumları bilir (getItemLayout) */
@@ -293,7 +293,7 @@ function DmMenu({ dm: requested, onClose }: { dm: DmChannel | null; onClose: () 
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.main },
   search: {
     flexDirection: 'row',
@@ -324,4 +324,4 @@ const styles = StyleSheet.create({
   typingRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 },
   meta: { alignItems: 'flex-end', gap: 5, minWidth: 36 },
   time: { color: colors.faint, fontSize: font.caption - 0.5, fontWeight: '600' },
-});
+}));

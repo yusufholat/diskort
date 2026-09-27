@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, Text } from 'react-native';
+import { Animated, Text } from 'react-native';
 import { prefersReducedMotion, useAppear } from '../motion';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 
 /**
  * Kırmızı sayı hapı (bahsetme, okunmamış DM): belirirken büyür, sayı artınca kısa zıplar.
@@ -50,7 +50,7 @@ export function UnreadMarker({ left = -8 }: { left?: number }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   badge: {
     minWidth: 18,
     height: 18,
@@ -71,4 +71,4 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 3,
     backgroundColor: colors.white,
   },
-});
+}));
