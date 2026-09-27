@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { GIF_RATINGS } from './gifs.js';
 
 export interface Config {
   host: string;
@@ -22,6 +23,12 @@ export interface Config {
   fcmServiceAccountFile: string | null;
   /** Tek bir dosya ekinin en büyük boyutu (bayt; ATTACHMENT_MAX_MB, varsayılan 25) */
   attachmentMaxBytes: number;
+  /** GIF araması: GIPHY API anahtarı (GIPHY_API_KEY); yoksa GIF düğmesi gösterilmez */
+  giphyApiKey: string | null;
+  /** GIPHY içerik sınırı (GIPHY_RATING: g, pg, pg-13, r; varsayılan pg-13) */
+  giphyRating: string;
+  /** GIPHY arama dili (GIPHY_LANG, varsayılan tr) */
+  giphyLang: string;
   isDev: boolean;
 }
 
@@ -47,6 +54,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`Geçersiz ATTACHMENT_MAX_MB: ${env.ATTACHMENT_MAX_MB}`);
   }
 
+  const giphyRating = (env.GIPHY_RATING || 'pg-13').toLowerCase();
+  if (!(GIF_RATINGS as readonly string[]).includes(giphyRating)) {
+    throw new Error(`Geçersiz GIPHY_RATING: ${env.GIPHY_RATING} (g, pg, pg-13 ya da r)`);
+  }
+  const giphyLang = (env.GIPHY_LANG || 'tr').toLowerCase();
+  if (!/^[a-z]{2}(?:-[a-z]{2})?$/.test(giphyLang)) throw new Error(`Geçersiz GIPHY_LANG: ${env.GIPHY_LANG}`);
+
   return {
     host: env.HOST ?? '0.0.0.0',
     port: Number(env.PORT ?? 3000),
@@ -62,6 +76,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     minMobileVersions: { android: env.MIN_ANDROID_VERSION || null, ios: env.MIN_IOS_VERSION || null },
     fcmServiceAccountFile: env.FCM_SERVICE_ACCOUNT_FILE || null,
     attachmentMaxBytes: Math.floor(attachmentMaxMb * 1024 * 1024),
+    giphyApiKey: env.GIPHY_API_KEY?.trim() || null,
+    giphyRating,
+    giphyLang,
     isDev,
   };
 }

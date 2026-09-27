@@ -9,6 +9,7 @@ import {
   MESSAGE_PAGE_SIZE,
   Permission,
   type Channel,
+  type Embed,
   type Message,
   type MessageUpdate,
 } from '@diskort/shared';
@@ -65,9 +66,15 @@ export function createRateLimiter(max = 10, windowMs = 10_000) {
 }
 
 export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const { store, auth, gateway, push, attachments, permissions } = ctx;
+  const { store, auth, gateway, push, attachments, permissions, gifs } = ctx;
   const allowMessage = createRateLimiter();
   const allowReaction = createRateLimiter(30);
+
+  /** Yeni mesaja gömülü içeriği (GIF) yazar */
+  const withEmbeds = (message: Message, embeds: Embed[]): Message => {
+    store.setMessageEmbeds(Number(message.id), embeds);
+    return { ...message, embeds };
+  };
 
   /** Kullanıcının görebildiği metin kanalı; göremiyorsa kanal yokmuş gibi 404 */
   const textChannel = (id: string, userId: string, reply: FastifyReply): Channel | null => {
@@ -118,19 +125,22 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
         return forbidden(reply, 'Bu kanala dosya gönderme iznin yok.');
       }
       const content = body.content ?? '';
+      // Metin yalnızca bir GIPHY bağlantısıysa GIF gömülür (seçiciden gönderilen GIF önbellekte hazırdır)
+      const embeds = await gifs.embedsFor(content);
       // @everyone yalnızca yetkisi olan yazarda herkese bildirim olur; bahsedilenlerden kanalı göremeyenler sayılmaz
       const everyone = mentionsEveryone(content) && hasPermission(perms, Permission.MENTION_EVERYONE);
       const candidates = everyone
         ? store.listUsers().filter((u) => !u.removed && u.id !== req.user.id).map((u) => u.id)
         : store.resolveMentions(content, req.user.id);
       const mentioned = permissions.viewersOf(channel, candidates);
-      const message = store.createMessage(req.params.id, req.user.id, content, body.attachmentIds, {
+      const created = store.createMessage(req.params.id, req.user.id, content, body.attachmentIds, {
         userIds: mentioned,
         everyone,
       });
-      if (!message) {
+      if (!created) {
         return sendError(reply, 400, 'invalid_attachment', 'Dosya bulunamadı ya da süresi doldu; yeniden eklemeyi dene.');
       }
+      const message = embeds.length ? withEmbeds(created, embeds) : created;
       // Yazar kendi mesajını okumuş sayılır.
       store.ack(req.user.id, req.params.id, Number(message.id));
       gateway.dispatchChannel(channel.id, { t: 'MESSAGE_CREATE', d: message });
@@ -150,6 +160,9 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
     if (!body) return reply;
     if (!body.content && existing.attachments.length === 0) return sendError(reply, 400, 'invalid_body', EMPTY_MESSAGE);
     if (body.content === existing.content) return store.getMessage(Number(existing.id), req.user.id);
+    // Metin değişince GIF de yeniden belirlenir (bağlantı silindiyse GIF kalkar)
+    const embeds = await gifs.embedsFor(body.content);
+    if (embeds.length || existing.embeds?.length) store.setMessageEmbeds(Number(existing.id), embeds);
     const message = store.updateMessage(Number(existing.id), body.content, req.user.id)!;
     gateway.dispatchChannel(message.channelId, { t: 'MESSAGE_UPDATE', d: toUpdate(message) });
     return message;

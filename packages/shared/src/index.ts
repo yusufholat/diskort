@@ -65,16 +65,68 @@ export interface Attachment {
   name: string;
   /** Bayt */
   size: number;
-  /** Resimlerde sunucunun dosya içeriğinden belirlediği tür; diğerlerinde yükleyenin bildirdiği */
+  /**
+   * Resim ve videolarda sunucunun dosya içeriğinden belirlediği tür (INLINE_IMAGE_TYPES,
+   * INLINE_VIDEO_TYPES); diğerlerinde yükleyenin bildirdiği
+   */
   contentType: string;
-  /** Yalnızca resimlerde (okunabildiyse), EXIF yönü uygulanmış hâliyle */
+  /** Resim ve videolarda (okunabildiyse); resimde EXIF yönü, videoda döndürme uygulanmış hâliyle */
   width: number | null;
   height: number | null;
+  /** Videolarda süre (saniye, okunabildiyse); eski sunucularda hiç gelmez */
+  duration?: number | null;
   /**
    * Sunucu köküne göre adres: /api/attachments/<id>/<ad>. Kimlik doğrulaması istemez (resimler
    * <img> ile yüklenebilsin diye); adresi bilen herkes dosyayı alabilir, Discord'daki gibi.
    */
   url: string;
+}
+
+/**
+ * Mesajdaki hareketli GIF (GIPHY). Metni yalnızca bir GIPHY bağlantısı olan mesaja sunucu ekler (GIF
+ * seçiciden gönderilen ya da yapıştırılan bağlantı); bilgiler GIPHY'den alınır, istemci gönderemez.
+ * Bu alanı bilmeyen eski istemciler mesajı düz bağlantı olarak görür. Medya GIPHY'nin sunucularından
+ * doğrudan yüklenir (adresler https://media*.giphy.com / i.giphy.com ile sınırlıdır).
+ */
+export interface GifEmbed {
+  type: 'gif';
+  provider: 'giphy';
+  /** GIPHY kimliği */
+  id: string;
+  /** GIPHY sayfası: mesajın metni bu bağlantıdır */
+  url: string;
+  title: string;
+  /** Özgün boyut (yer ayırmak ve en-boy oranı için) */
+  width: number;
+  height: number;
+  /** Hareketli GIF (2 MB'a kadar küçültülmüş hâli) */
+  gif: string;
+  /** Aynı görüntünün MP4 videosu (çok daha hafif; masaüstü bunu oynatır) */
+  mp4: string | null;
+  /** Hareketli WebP */
+  webp: string | null;
+  /** Durağan ilk kare */
+  still: string | null;
+}
+
+export type Embed = GifEmbed;
+
+/** GIF seçicideki bir sonuç: mesajdaki gösterimi ve ızgaradaki küçük önizlemesi */
+export interface GifResult extends Omit<GifEmbed, 'type' | 'provider'> {
+  /** 200 piksel genişliğinde önizleme */
+  preview: { gif: string; webp: string | null; mp4: string | null; width: number; height: number };
+}
+
+/** GIF araması/popüler GIF'ler: bir sayfa sonuç; `next` sonraki sayfanın başlangıcı (yoksa null) */
+export interface GifPage {
+  results: GifResult[];
+  next: number | null;
+}
+
+/** Sunucunun açık olan isteğe bağlı özellikleri (READY'de; eski sunucularda hiç gelmez) */
+export interface ServerFeatures {
+  /** GIF araması (sunucuda GIPHY anahtarı tanımlı) */
+  gifs: boolean;
 }
 
 /** Bir mesajdaki tek bir emoji tepkisinin özeti */
@@ -99,6 +151,8 @@ export interface Message {
   attachments: Attachment[];
   /** Tepkiler, ilk verilme sırasına göre */
   reactions: Reaction[];
+  /** Sunucunun eklediği gömülü içerik (şimdilik yalnızca GIPHY GIF'i); eski sunucularda hiç gelmez */
+  embeds?: Embed[];
   /** Yazarın yetkisi olan bir @everyone bahsetmesi: kanalı gören herkese bildirim gider */
   mentionEveryone: boolean;
 }
@@ -284,6 +338,8 @@ export interface ReadyPayload {
   mentionCounts: Record<string, number>;
   /** Tek dosyanın en büyük boyutu (bayt); istemci yüklemeden önce denetler */
   attachmentMaxBytes: number;
+  /** İsteğe bağlı özellikler (ör. GIF araması); eski sunucularda hiç gelmez */
+  features?: ServerFeatures;
 }
 
 export type GatewayServerMessage =
@@ -362,6 +418,14 @@ export const INLINE_IMAGE_TYPES: readonly string[] = ['image/png', 'image/jpeg',
 
 export const isImageAttachment = (a: Pick<Attachment, 'contentType'>): boolean =>
   INLINE_IMAGE_TYPES.includes(a.contentType);
+/**
+ * Mesajın içinde oynatılan video türleri (sunucu bunları dosyanın içeriğinden belirler: MP4/QuickTime
+ * "ftyp" kutusu, WebM EBML başlığı). Matroska (.mkv) indirilebilir dosya olarak kalır.
+ */
+export const INLINE_VIDEO_TYPES: readonly string[] = ['video/mp4', 'video/webm', 'video/quicktime'];
+
+export const isVideoAttachment = (a: Pick<Attachment, 'contentType'>): boolean =>
+  INLINE_VIDEO_TYPES.includes(a.contentType);
 /** Yüklenen profil fotoğrafının en büyük boyutu (PNG, JPEG, WebP ya da GIF; sunucu küçültür) */
 export const AVATAR_MAX_BYTES = 8 * 1024 * 1024;
 /** "Yazıyor…" göstergesinin geçerlilik süresi; istemci bu aralıkta en fazla bir kez bildirir */

@@ -10,6 +10,7 @@ import type { Config } from './config.js';
 import type { AppContext } from './context.js';
 import { Store } from './db.js';
 import { Gateway } from './gateway.js';
+import { GifService } from './gifs.js';
 import { LiveKitService } from './livekit.js';
 import { OtaService } from './ota.js';
 import { PermissionService } from './permissions.js';
@@ -23,6 +24,7 @@ import { registerAuthRoutes } from './routes/auth.js';
 import { registerClientErrorRoutes } from './routes/clientErrors.js';
 import { registerAvatarRoutes } from './routes/avatars.js';
 import { registerDownloadRoutes } from './routes/download.js';
+import { registerGifRoutes } from './routes/gifs.js';
 import { registerMessageRoutes } from './routes/messages.js';
 import { registerRoleRoutes } from './routes/roles.js';
 import { registerUpdateRoutes } from './routes/updates.js';
@@ -41,6 +43,8 @@ export interface BuildOptions {
   attachmentsDir?: string;
   /** Profil fotoğraflarının klasörü (varsayılan: <DATA_DIR>/avatars) */
   avatarsDir?: string;
+  /** Testler için sahte GIPHY */
+  gifFetch?: typeof fetch;
 }
 
 /** Süresi geçmiş yüklemelerin ve artık dosyaların temizlenme aralığı */
@@ -64,7 +68,14 @@ export async function buildApp(
   const livekit = opts.livekit ?? new LiveKitService(config);
   const releases = opts.releases ?? new ReleaseService(config.githubRepo);
   const clientVersions = new ClientVersionPolicy(releases, config.enforceClientVersion, config.minMobileVersions);
-  const gateway = new Gateway(store, auth, voice, guild, permissions, clientVersions, config.attachmentMaxBytes);
+  const gifs = new GifService(
+    { apiKey: config.giphyApiKey, rating: config.giphyRating, lang: config.giphyLang },
+    opts.gifFetch,
+    app.log,
+  );
+  const gateway = new Gateway(store, auth, voice, guild, permissions, clientVersions, config.attachmentMaxBytes, {
+    gifs: gifs.enabled,
+  });
   const moderation = new VoiceModeration(store, voice, livekit, permissions, gateway);
   const push = opts.push ?? new PushService(store, config.fcmServiceAccountFile, app.log);
   const ota = new OtaService(releases, app.log, opts.otaFetch);
@@ -88,6 +99,7 @@ export async function buildApp(
     push,
     attachments,
     avatars,
+    gifs,
     permissions,
     moderation,
     guild,
@@ -123,6 +135,7 @@ export async function buildApp(
   registerRoleRoutes(app, ctx);
   registerAttachmentRoutes(app, ctx);
   registerAvatarRoutes(app, ctx);
+  registerGifRoutes(app, ctx);
   registerUpdateRoutes(app, ctx);
   registerClientErrorRoutes(app, ctx);
 

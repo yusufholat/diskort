@@ -13,6 +13,7 @@ import {
   type Attachment,
   type Channel,
   type ChannelType,
+  type Embed,
   type Guild,
   type Invite,
   type Message,
@@ -203,6 +204,12 @@ export const MIGRATIONS: string[] = [
     WHERE u.is_admin = 1;
   UPDATE guilds SET owner_id = (SELECT id FROM users ORDER BY is_admin DESC, created_at, rowid LIMIT 1);
   `,
+  // 11 (birleştirmede DM'ler (9) ve yanıtlardan (10) sonra gelir): GIF'ler ve videolar. embeds: mesaja
+  // sunucunun eklediği gömülü içerik (GIPHY GIF'i; JSON dizi, yoksa boş). duration: videonun süresi (sn).
+  `
+  ALTER TABLE messages ADD COLUMN embeds TEXT;
+  ALTER TABLE attachments ADD COLUMN duration REAL;
+  `,
 ];
 
 type Param = string | number | null;
@@ -297,6 +304,18 @@ interface MessageRow {
   created_at: number;
   edited_at: number | null;
   mention_everyone: number;
+  embeds: string | null;
+}
+
+/** Saklanan gömülü içerik (sunucunun kendi yazdığı JSON); okunamazsa boş */
+function parseEmbeds(raw: string | null): Embed[] {
+  if (!raw) return [];
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return Array.isArray(value) ? (value as Embed[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 const toMessage = (r: MessageRow): Message => ({
@@ -309,6 +328,7 @@ const toMessage = (r: MessageRow): Message => ({
   attachments: [],
   reactions: [],
   mentionEveryone: r.mention_everyone === 1,
+  embeds: parseEmbeds(r.embeds),
 });
 
 interface AttachmentRow {
@@ -321,6 +341,7 @@ interface AttachmentRow {
   content_type: string;
   width: number | null;
   height: number | null;
+  duration: number | null;
 }
 
 const toAttachment = (r: AttachmentRow): Attachment => ({
@@ -330,6 +351,7 @@ const toAttachment = (r: AttachmentRow): Attachment => ({
   contentType: r.content_type,
   width: r.width,
   height: r.height,
+  duration: r.duration ?? null,
   url: `/api/attachments/${r.id}/${encodeURIComponent(r.name)}`,
 });
 
@@ -1163,6 +1185,11 @@ export class Store {
     return ids;
   }
 
+  /** Mesajın gömülü içeriğini (GIF) değiştirir; boş dizi hepsini kaldırır. */
+  setMessageEmbeds(id: number, embeds: Embed[]): void {
+    this.run('UPDATE messages SET embeds = ? WHERE id = ?', embeds.length ? JSON.stringify(embeds) : null, id);
+  }
+
   updateMessage(id: number, content: string, viewerId: string | null = null): Message | null {
     this.run('UPDATE messages SET content = ?, edited_at = ? WHERE id = ?', content, Date.now(), id);
     return this.getMessage(id, viewerId);
@@ -1188,10 +1215,12 @@ export class Store {
     contentType: string;
     width: number | null;
     height: number | null;
+    /** Videolarda süre (saniye) */
+    duration?: number | null;
   }): Attachment {
     this.run(
-      `INSERT INTO attachments (id, channel_id, uploader_id, name, size, content_type, width, height, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO attachments (id, channel_id, uploader_id, name, size, content_type, width, height, duration, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       a.id,
       a.channelId,
       a.uploaderId,
@@ -1200,6 +1229,7 @@ export class Store {
       a.contentType,
       a.width,
       a.height,
+      a.duration ?? null,
       Date.now(),
     );
     return this.getAttachment(a.id)!.attachment;
