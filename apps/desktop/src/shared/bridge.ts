@@ -69,6 +69,22 @@ export type UpdateState =
   | { kind: 'installing'; version: string }
   | { kind: 'error'; message: string };
 
+/** Diskort penceresinin görüntüsü (geri bildirime eklenir) */
+export interface CapturedImage {
+  data: Uint8Array;
+  type: 'image/png' | 'image/jpeg';
+  width: number;
+  height: number;
+}
+
+/** Geri bildirimin teknik bilgileri için işletim sistemi */
+export interface SystemInfo {
+  os: string;
+  osVersion: string;
+  arch: string;
+  electron: string;
+}
+
 export interface DiskortBridge {
   platform: 'win32' | 'linux' | 'darwin' | string;
   getVersion(): Promise<string>;
@@ -101,6 +117,12 @@ export interface DiskortBridge {
     record(): Promise<Keybind | null>;
     cancelRecord(): Promise<void>;
     onEvent(cb: (event: HotkeyEvent) => void): () => void;
+  };
+
+  feedback: {
+    /** Yalnızca Diskort penceresinin görüntüsünü alır (masaüstünün değil) */
+    capture(): Promise<CapturedImage>;
+    systemInfo(): Promise<SystemInfo>;
   };
 
   updates: {

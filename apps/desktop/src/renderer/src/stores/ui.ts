@@ -7,11 +7,12 @@ export type Modal =
   | { type: 'screenPicker' }
   | { type: 'channel'; channel?: Channel; channelType?: ChannelType }
   | { type: 'image'; attachment: Attachment }
+  | { type: 'feedback' }
   | null;
 
-export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app';
+export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app' | 'feedback';
 
-export type ServerSettingsSection = 'overview' | 'roles' | 'members' | 'invites' | 'bans';
+export type ServerSettingsSection = 'overview' | 'roles' | 'members' | 'invites' | 'bans' | 'feedback';
 
 export interface ContextMenuItem {
   label: string;

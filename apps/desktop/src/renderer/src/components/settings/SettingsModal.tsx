@@ -18,6 +18,7 @@ import { DeleteAccount } from './DeleteAccount';
 import { KeybindInput } from './KeybindInput';
 import { ProfilePhoto } from './ProfilePhoto';
 import { VoiceSettings } from './VoiceSettings';
+import { MyFeedback } from '../feedback/MyFeedback';
 
 // Üyeler ve davetler Sunucu Ayarları'na taşındı (sunucu adının yanındaki menü)
 const SECTIONS: { id: SettingsSection; label: string }[] = [
@@ -26,10 +27,12 @@ const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'stream', label: 'Yayın' },
   { id: 'keybinds', label: 'Kısayollar' },
   { id: 'app', label: 'Uygulama' },
+  { id: 'feedback', label: 'Geri Bildirimlerim' },
 ];
 
 export function SettingsModal({ initial }: { initial?: SettingsSection }) {
   const close = useUi((s) => s.closeModal);
+  const openModal = useUi((s) => s.openModal);
   const [section, setSection] = useState<SettingsSection>(initial ?? 'account');
   const closing = usePresenceClosing();
   useEscapeLayer(close, !closing);
@@ -57,6 +60,8 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
             </NavItem>
           ))}
           <div className="mx-2.5 my-2 h-px bg-line" />
+          <NavItem onClick={() => openModal({ type: 'feedback' })}>Geri bildirim gönder</NavItem>
+          <div className="mx-2.5 my-2 h-px bg-line" />
           <NavItem onClick={() => void logout()} danger>
             Çıkış Yap
           </NavItem>
@@ -70,6 +75,7 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
           {section === 'stream' && <StreamSection />}
           {section === 'keybinds' && <KeybindsSection />}
           {section === 'app' && <AppSection />}
+          {section === 'feedback' && <MyFeedback />}
         </div>
         <button
           onClick={close}

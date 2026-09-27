@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { Permission } from '@diskort/shared';
-import { isOwner, usePermissions, useGuild, useSession } from '@diskort/client-core';
+import { isOwner, useFeedback, usePermissions, useGuild, useSession } from '@diskort/client-core';
 import { useEscapeLayer } from '../../lib/escape';
 import { usePresenceClosing } from '../../lib/motion';
 import { cn } from '../../lib/utils';
@@ -11,6 +11,7 @@ import { InvitesSection } from './InvitesSection';
 import { MembersSection } from './MembersSection';
 import { OverviewSection } from './OverviewSection';
 import { RolesSection } from './RolesSection';
+import { FeedbackAdminSection } from '../feedback/FeedbackAdminSection';
 
 const P = Permission;
 
@@ -25,6 +26,7 @@ const SECTIONS: { id: ServerSettingsSection; label: string; any: number[] }[] = 
   },
   { id: 'invites', label: 'Davetler', any: [P.MANAGE_INVITES] },
   { id: 'bans', label: 'Yasaklar', any: [P.BAN_MEMBERS] },
+  { id: 'feedback', label: 'Geri Bildirimler', any: [P.MANAGE_GUILD] },
 ];
 
 /** Kullanıcının görebildiği sunucu ayarları bölümleri (hiçbiri yoksa menüde "Sunucu Ayarları" çıkmaz) */
@@ -42,6 +44,7 @@ export function ServerSettingsModal({ initial }: { initial?: ServerSettingsSecti
   const sections = useServerSettingsSections();
   const [section, setSection] = useState<ServerSettingsSection>(initial ?? 'overview');
   const current = sections.find((s) => s.id === section)?.id ?? sections[0]?.id;
+  const newFeedback = useFeedback((s) => s.newCount);
 
   // Esc yalnızca en üstteki katmanı kapatır (üstte açık menü ya da onay penceresi varsa önce o)
   const closing = usePresenceClosing();
@@ -65,6 +68,7 @@ export function ServerSettingsModal({ initial }: { initial?: ServerSettingsSecti
           {sections.map((s) => (
             <NavItem key={s.id} active={current === s.id} onClick={() => setSection(s.id)}>
               {s.label}
+              {s.id === 'feedback' && newFeedback > 0 && <CountBadge count={newFeedback} />}
             </NavItem>
           ))}
         </div>
@@ -77,6 +81,7 @@ export function ServerSettingsModal({ initial }: { initial?: ServerSettingsSecti
           {current === 'members' && <MembersSection />}
           {current === 'invites' && <InvitesSection />}
           {current === 'bans' && <BansSection />}
+          {current === 'feedback' && <FeedbackAdminSection />}
         </div>
         <button
           onClick={close}
@@ -104,5 +109,20 @@ function NavItem({ active, onClick, children }: { active?: boolean; onClick: () 
     >
       {children}
     </button>
+  );
+}
+
+/** Yeni geri bildirim sayısı (Discord'un kırmızı rozeti gibi) */
+export function CountBadge({ count, className }: { count: number; className?: string }) {
+  return (
+    <span
+      className={cn(
+        'anim-pill-in ml-2 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 align-[1px] text-[11px] leading-none font-bold text-white',
+        className,
+      )}
+      aria-label={`${count} yeni`}
+    >
+      {count > 99 ? '99+' : count}
+    </span>
   );
 }

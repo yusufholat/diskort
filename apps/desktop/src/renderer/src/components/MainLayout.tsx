@@ -18,6 +18,8 @@ import { ChannelModal } from './modals/ChannelModal';
 import { ScreenSharePicker } from './modals/ScreenSharePicker';
 import { ServerSettingsModal } from './serverSettings/ServerSettingsModal';
 import { SettingsModal } from './settings/SettingsModal';
+import { FeedbackModal } from './feedback/FeedbackModal';
+import { useFeedbackToasts } from '../features/feedback/useFeedbackToasts';
 
 export function MainLayout() {
   const token = useSession((s) => s.token);
@@ -28,6 +30,7 @@ export function MainLayout() {
     view.kind === 'text' ? s.channels.find((c) => c.id === view.channelId) : undefined,
   );
   const voiceError = useVoice((s) => s.error);
+  useFeedbackToasts();
   // Kapanan pencere, kapanış animasyonu bitene kadar ekranda kalır
   const { value: modal, closing: modalClosing } = usePresence(
     useUi((s) => s.modal),
@@ -99,6 +102,7 @@ export function MainLayout() {
         {modal?.type === 'screenPicker' && <ScreenSharePicker />}
         {modal?.type === 'channel' && <ChannelModal channel={modal.channel} channelType={modal.channelType} />}
         {modal?.type === 'image' && <ImageViewer attachment={modal.attachment} />}
+        {modal?.type === 'feedback' && <FeedbackModal />}
       </PresenceProvider>
       <BanModal />
     </div>

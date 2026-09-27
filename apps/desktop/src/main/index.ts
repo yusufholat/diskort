@@ -22,6 +22,7 @@ import type {
   TrayAction,
   TrayState,
 } from '../shared/bridge';
+import { registerFeedbackIpc } from './feedback';
 import { HotkeyManager } from './hotkeys';
 import { Splash } from './splash';
 import { consumeLaunchMode, rememberLaunchMode, runStartupGate, type LaunchMode } from './startup';
@@ -302,6 +303,8 @@ function registerIpc(): void {
   ipcMain.handle('hotkeys:set', (_e, config: HotkeyConfig) => hotkeys.setConfig(config));
   ipcMain.handle('hotkeys:record', () => hotkeys.record());
   ipcMain.handle('hotkeys:cancel-record', () => hotkeys.cancelRecord());
+
+  registerFeedbackIpc();
 
   ipcMain.handle('updates:get-state', () => updates.getState());
   ipcMain.handle('updates:check', () => updates.checkInBackground());
