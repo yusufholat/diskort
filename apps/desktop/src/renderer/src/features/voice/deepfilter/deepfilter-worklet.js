@@ -10,6 +10,8 @@
 const BLOCK = 128;
 const REPORT_INTERVAL_S = 2;
 const WARMUP_FRAMES = 50;
+/** Bir ses bloğunun süresi (128 örnek, 48 kHz): bir kare bundan uzun sürerse ses iş parçacığı gecikir */
+const QUANTUM_MS = (BLOCK / 48000) * 1000;
 
 const gcd = (a, b) => (b === 0 ? a : gcd(b, a % b));
 
@@ -62,6 +64,7 @@ class DiskortDeepFilterProcessor extends AudioWorkletProcessor {
       this.writePos = prefill; // halka tampon sıfırla başladığından ön doldurma = yazma konumunu ileri almak
       this.underruns = 0;
       this.busyMs = 0;
+      this.resetFrameStats();
       this.lastReportS = currentTime;
 
       this.ok = true;
@@ -81,6 +84,15 @@ class DiskortDeepFilterProcessor extends AudioWorkletProcessor {
       if (typeof e.data.attenLimDb === 'number') this.w.dfw_set_atten_lim(this.st, e.data.attenLimDb);
       if (typeof e.data.postFilterBeta === 'number') this.w.dfw_set_post_filter_beta(this.st, e.data.postFilterBeta);
     };
+  }
+
+  resetFrameStats() {
+    this.frames = 0;
+    this.maxFrameMs = 0;
+    this.over2ms = 0;
+    this.overQuantum = 0;
+    // p99 için son aralıktaki kare süreleri (2 sn ≈ 200 kare)
+    this.frameTimes = this.frameTimes || new Float32Array(256);
   }
 
   /** Wasm belleği büyürse eski görünümler geçersiz kalır; yeniden bağla. */
@@ -135,12 +147,21 @@ class DiskortDeepFilterProcessor extends AudioWorkletProcessor {
     if (currentTime - this.lastReportS >= REPORT_INTERVAL_S) {
       // İşlemci yükü: işleme süresi / gerçek süre (tek çekirdek oranı)
       const elapsed = currentTime - this.lastReportS;
+      const n = Math.min(this.frames, this.frameTimes.length);
+      const sorted = Array.prototype.slice.call(this.frameTimes, 0, n).sort((a, b) => a - b);
       this.port.postMessage({
         type: 'stats',
         load: this.busyMs / 1000 / elapsed,
         underruns: this.underruns,
+        frames: this.frames,
+        avgFrameMs: this.frames ? this.busyMs / this.frames : 0,
+        maxFrameMs: this.maxFrameMs,
+        p99FrameMs: n ? sorted[Math.min(n - 1, Math.floor(n * 0.99))] : 0,
+        over2ms: this.over2ms,
+        overQuantum: this.overQuantum,
       });
       this.busyMs = 0;
+      this.resetFrameStats();
       this.lastReportS = currentTime;
     }
     return true;
@@ -151,7 +172,15 @@ class DiskortDeepFilterProcessor extends AudioWorkletProcessor {
       if (this.mem !== this.w.memory.buffer) this.bindViews();
       const t0 = now();
       const lsnr = this.w.dfw_process(this.st);
-      this.busyMs += now() - t0;
+      const dt = now() - t0;
+      this.busyMs += dt;
+      // Kare tek bir ses bloğunun içinde eşzamanlı işlenir: blok süresini aşan kare çıkışı geciktirir (cızırtı).
+      // Not: performance yoksa Date.now() 1 ms çözünürlüklüdür; süreler tam ms'ye yuvarlanmış olur.
+      if (this.frames < this.frameTimes.length) this.frameTimes[this.frames] = dt;
+      this.frames++;
+      if (dt > this.maxFrameMs) this.maxFrameMs = dt;
+      if (dt > 2) this.over2ms++;
+      if (dt > QUANTUM_MS) this.overQuantum++;
       if (Number.isNaN(lsnr)) throw new Error(`DeepFilterNet karesi işlenemedi: ${lastError(this.w)}`);
       return true;
     } catch (err) {

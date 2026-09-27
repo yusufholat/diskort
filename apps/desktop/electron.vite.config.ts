@@ -23,6 +23,8 @@ export default defineConfig({
     // Gateway'e bildirilen uygulama sürümü (sunucu eski sürümleri reddeder)
     define: { __APP_VERSION__: JSON.stringify(version) },
     server: { port: 5173, strictPort: true },
+    // DPDFNet işçisi onnxruntime-web'i ES modülü olarak yükler
+    worker: { format: 'es' },
     build: {
       target: 'chrome140',
       // AudioWorklet betikleri CSP gereği data: URL olarak gömülmemeli.

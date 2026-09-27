@@ -4,3 +4,4 @@
 *.wasm binary
 *.exe binary
 *.bin binary
+*.onnx binary

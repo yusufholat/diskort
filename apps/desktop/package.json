@@ -40,6 +40,7 @@
     "electron-vite": "^5.0.0",
     "livekit-client": "^2.22.3",
     "lucide-react": "^1.48.0",
+    "onnxruntime-web": "^1.30.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "tailwindcss": "^4.3.3",
