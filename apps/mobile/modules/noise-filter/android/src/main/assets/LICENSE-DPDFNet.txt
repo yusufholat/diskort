@@ -1,16 +1,20 @@
 DPDFNet — Diskort'taki "Gelişmiş yapay zekâ" gürültü engelleyicisi
 
 Bu klasördeki dosyalar:
-  dpdfnet2_48khz_hr.onnx      Ceva'nın resmi DPDFNet-2 48 kHz (tam bant, "hr") akışlı ONNX modeli, değiştirilmeden
+  dpdfnet2_48khz_hr_int8.onnx Ceva'nın resmi DPDFNet-2 48 kHz (tam bant, "hr") akışlı ONNX modelinin
                               (huggingface.co/Ceva-IP/DPDFNet, onnx/dpdfnet2_48khz_hr.onnx,
-                              sha256 7f0575a5cec0ba4ffd8f8bd657e06d007e4ccdd955d76faab922b9d3291dc14b).
-                              Kod: github.com/ceva-ip/DPDFNet. Makale: "DPDFNet: Boosting DeepFilterNet2 via
-                              Dual-Path RNN", arXiv:2512.16420.
-  dsp.js                      Diskort'un akışlı STFT/ISTFT ve model durumu kodu (resmi
+                              sha256 7f0575a5cec0ba4ffd8f8bd657e06d007e4ccdd955d76faab922b9d3291dc14b)
+                              DİSKORT TARAFINDAN DEĞİŞTİRİLMİŞ hâli: sabit ağırlıklı 26 Gemm/MatMul düğümü dinamik
+                              int8'e çevrildi (ağırlıklar sütun başına int8; com.microsoft DynamicQuantizeMatMul).
+                              Başka değişiklik yok. Üreten betik: scripts/optimize_model.py --int8-all (modelin
+                              "modified" metaverisinde de yazar). Özgün model masaüstü uygulamasında değiştirilmeden
+                              kullanılır. Kod: github.com/ceva-ip/DPDFNet. Makale: "DPDFNet: Boosting DeepFilterNet2
+                              via Dual-Path RNN", arXiv:2512.16420.
+  (Kotlin: DpdfnetDsp.kt)     Diskort'un akışlı STFT/ISTFT ve model durumu kodu (resmi
                               onnx_model/infer_dpdfnet_onnx.py ile aynı işlem).
 
 Model ve kod Apache License 2.0 ile dağıtılır (Hugging Face model kartı: license: apache-2.0).
-Çıkarım onnxruntime-web ile yapılır (© Microsoft, MIT).
+Çıkarım ONNX Runtime ile yapılır (© Microsoft, MIT).
 
 DPDFNet: Ceva-IP (github.com/ceva-ip/DPDFNet). Apache License 2.0 tam metni:
 

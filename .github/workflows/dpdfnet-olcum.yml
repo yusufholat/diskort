@@ -1,0 +1,44 @@
+# DPDFNet (telefondaki gürültü engelleyici) modelinin hız ve eşdeğerlik ölçümü, telefonsuz:
+# ONNX Runtime 1.22.0 (Android'dekiyle aynı sürüm), tek iş parçacığı, x86_64 ve ARM64 (Neoverse N2 ≈
+# Cortex-A710) üzerinde. Özgün model (masaüstündeki) ile telefondaki int8 model karşılaştırılır; ayrıca
+# telefondaki modelin betikten bayt bayt aynı üretildiği denetlenir.
+name: DPDFNet ölçümü
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - apps/mobile/modules/noise-filter/scripts/**
+      - apps/mobile/modules/noise-filter/android/src/main/assets/**
+      - .github/workflows/dpdfnet-olcum.yml
+
+jobs:
+  bench:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/mobile/modules/noise-filter
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install onnxruntime==1.22.0 onnx==1.23.0 numpy
+
+      - name: Telefondaki model betikten aynen üretiliyor mu
+        run: |
+          python scripts/optimize_model.py ../../../desktop/src/renderer/src/features/voice/dpdfnet/dpdfnet2_48khz_hr.onnx /tmp/int8.onnx --int8-all
+          sha256sum /tmp/int8.onnx android/src/main/assets/dpdfnet2_48khz_hr_int8.onnx
+          cmp /tmp/int8.onnx android/src/main/assets/dpdfnet2_48khz_hr_int8.onnx
+
+      - name: Kare başına süre (özgün ve int8)
+        run: |
+          python scripts/bench_model.py --ref ../../../desktop/src/renderer/src/features/voice/dpdfnet/dpdfnet2_48khz_hr.onnx \
+            android/src/main/assets/dpdfnet2_48khz_hr_int8.onnx --profile

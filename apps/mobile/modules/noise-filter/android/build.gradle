@@ -15,6 +15,15 @@ android {
   lintOptions {
     abortOnError false
   }
+  // Birim testlerindeki ölçümler (DSP süresi) CI günlüğünde görünsün
+  testOptions {
+    unitTests.all {
+      testLogging {
+        events "passed", "failed"
+        showStandardStreams = true
+      }
+    }
+  }
 }
 
 dependencies {
