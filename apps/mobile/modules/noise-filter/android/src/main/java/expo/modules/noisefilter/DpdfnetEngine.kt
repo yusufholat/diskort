@@ -23,6 +23,8 @@ class DpdfnetEngine private constructor(
   private val session: OrtSession,
   private val initState: FloatArray,
   names: Names,
+  /** Modeli çalıştıran ONNX Runtime yürütücüsü: "CPU" ya da "XNNPACK" */
+  val provider: String,
 ) : AutoCloseable {
   private data class Names(val specIn: String, val stateIn: String, val specOut: String, val stateOut: String)
 
@@ -50,6 +52,10 @@ class DpdfnetEngine private constructor(
 
   @Volatile
   private var alpha = 0f
+
+  /** Son karede modelin (session.run) süresi, ns; kalanı STFT/ISTFT ve kopyalar */
+  var lastModelNs = 0L
+    private set
 
   init {
     reset()
@@ -79,7 +85,9 @@ class DpdfnetEngine private constructor(
     specInBuf.position(0)
     specInBuf.put(spec)
     specInBuf.position(0)
+    val runStart = System.nanoTime()
     session.run(inputs[cur], outputs[cur]).close()
+    lastModelNs = System.nanoTime() - runStart
     cur = 1 - cur
     specOutBuf.position(0)
     specOutBuf.get(enhanced)
@@ -108,10 +116,14 @@ class DpdfnetEngine private constructor(
     private fun directFloats(n: Int): FloatBuffer =
       ByteBuffer.allocateDirect(n * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
 
-    /** Modeli yükler. Tek iş parçacıklı CPU çalıştırıcı: çağıran (ses) iş parçacığında çalışır, boşta dönmez. */
-    fun create(model: ByteArray, attenLimDb: Double): DpdfnetEngine {
+    /**
+     * Modeli yükler. Tek iş parçacıklı: çağıran (ses) iş parçacığında çalışır, boşta dönmez.
+     * xnnpack: Conv/Gemm/MatMul düğümleri XNNPACK'e verilir (tek iş parçacıklı; geri kalanı CPU'da).
+     */
+    fun create(model: ByteArray, attenLimDb: Double, xnnpack: Boolean = false): DpdfnetEngine {
       val env = OrtEnvironment.getEnvironment()
       val options = OrtSession.SessionOptions().apply {
+        if (xnnpack) addXnnpack(mapOf("intra_op_num_threads" to "1"))
         setIntraOpNumThreads(1)
         setInterOpNumThreads(1)
         setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
@@ -132,7 +144,9 @@ class DpdfnetEngine private constructor(
           specOut = pick(session.outputInfo.mapValues { it.value.info }, spectral = true),
           stateOut = pick(session.outputInfo.mapValues { it.value.info }, spectral = false),
         )
-        return DpdfnetEngine(env, session, state, names).also { it.setAttenLimit(attenLimDb) }
+        return DpdfnetEngine(env, session, state, names, if (xnnpack) "XNNPACK" else "CPU").also {
+          it.setAttenLimit(attenLimDb)
+        }
       } catch (t: Throwable) {
         session.close()
         throw t

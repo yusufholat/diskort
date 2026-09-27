@@ -39,8 +39,32 @@ export function webrtcNoiseSuppression(): boolean {
   return mode === 'standard' || (mode === 'dpdfnet' && !running);
 }
 
-function report(reason: string): void {
-  reportClientError(new Error(`DPDFNet çalışmıyor: ${reason}`), 'dpdfnet');
+/**
+ * Sunucuya bildirir. İleti kısa kalır (aynı nedenler gruplansın); ölçüm ayrıntıları (yürütücü, model/STFT
+ * payı, çekirdek, yonga) yığın alanına yazılır: saha raporundan telefonun neden yetişemediği anlaşılsın.
+ */
+function report(reason: string, status: NoiseFilterStatus | null = null): void {
+  const err = new Error(`DPDFNet çalışmıyor: ${reason}`);
+  const s = status ?? safeStats();
+  if (s) {
+    const n = (v: number | null | undefined): string => (v == null ? '-' : v.toFixed(2));
+    err.stack = [
+      err.message,
+      `yürütücü: ${s.provider ?? '-'}; başarım ipucu: ${s.hint == null ? '-' : s.hint ? 'açık' : 'yok'}`,
+      `ısınma: ${n(s.warmupMs)} ms (model ${n(s.warmupModelMs)}, ilk yarı ${n(s.warmupFirstMs)}, çekirdek ${s.warmupCore ?? '-'})`,
+      `canlı: ort ${n(s.avgMs)} ms (model ${n(s.modelMs)}), en uzun ${n(s.maxMs)}, >10 ms: ${s.overHop}, kare: ${s.frames}`,
+      `ses çekirdeği: ${s.audioCore ?? '-'}; işlemci: ${s.soc ?? '-'} · ${s.cpu ?? '-'}`,
+    ].join('\n');
+  }
+  reportClientError(err, 'dpdfnet');
+}
+
+function safeStats(): NoiseFilterStatus | null {
+  try {
+    return NoiseFilter?.getStats() ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -56,7 +80,7 @@ export async function prepareNoiseFilter(): Promise<void> {
     const status = await NoiseFilter.configure(want, s.noiseStrengthDb);
     running = want && status.active;
     useNoiseFilter.setState({ status: want ? status : null });
-    if (want && !status.active && status.reason) report(status.reason);
+    if (want && !status.active && status.reason) report(status.reason, status);
   } catch (err) {
     reportClientError(err, 'dpdfnet');
     useNoiseFilter.setState({ status: null });
