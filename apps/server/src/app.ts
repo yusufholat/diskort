@@ -32,6 +32,7 @@ import { registerGifRoutes } from './routes/gifs.js';
 import { registerGuildRoutes } from './routes/guilds.js';
 import { registerMessageRoutes } from './routes/messages.js';
 import { registerRoleRoutes } from './routes/roles.js';
+import { registerStatusRoutes } from './routes/status.js';
 import { registerUpdateRoutes } from './routes/updates.js';
 import { registerVoiceRoutes } from './routes/voice.js';
 
@@ -56,6 +57,8 @@ export interface BuildOptions {
 
 /** Süresi geçmiş yüklemelerin ve artık dosyaların temizlenme aralığı */
 const ATTACHMENT_SWEEP_INTERVAL_MS = 10 * 60_000;
+/** Süresi dolan durumların temizlenme aralığı */
+const STATUS_SWEEP_INTERVAL_MS = 15_000;
 
 export async function buildApp(
   config: Config,
@@ -116,7 +119,12 @@ export async function buildApp(
     attachments.sweep().catch((err: unknown) => app.log.warn({ err: String(err) }, 'dosya eki temizliği başarısız'));
     avatars.sweep().catch((err: unknown) => app.log.warn({ err: String(err) }, 'profil fotoğrafı temizliği başarısız'));
   };
-  const sweepTimers = [setTimeout(sweep, 60_000), setInterval(sweep, ATTACHMENT_SWEEP_INTERVAL_MS)];
+  const sweepTimers = [
+    setTimeout(sweep, 60_000),
+    setInterval(sweep, ATTACHMENT_SWEEP_INTERVAL_MS),
+    // Süresi dolan durumlar (ör. "1 saat Rahatsız Etmeyin") ve özel durumlar
+    setInterval(() => gateway.expireStatuses(), STATUS_SWEEP_INTERVAL_MS),
+  ];
   for (const timer of sweepTimers) timer.unref();
   app.addHook('onClose', async () => sweepTimers.forEach((timer) => clearTimeout(timer)));
 
@@ -142,6 +150,7 @@ export async function buildApp(
   registerDmRoutes(app, ctx);
   registerGuildRoutes(app, ctx);
   registerRoleRoutes(app, ctx);
+  registerStatusRoutes(app, ctx);
   registerAttachmentRoutes(app, ctx);
   registerAvatarRoutes(app, ctx);
   registerGifRoutes(app, ctx);

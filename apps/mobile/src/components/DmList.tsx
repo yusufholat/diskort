@@ -9,6 +9,7 @@ import {
   dmPartner,
   dmTitle,
   isUnread,
+  useCustomStatus,
   useDmList,
   useDmUnreadCount,
   useGuild,
@@ -154,10 +155,19 @@ const DmRow = memo(function DmRow({
   const selfId = useSession((s) => s.user?.id);
   const title = useGuild((s) => dmTitle(dm, s.users, selfId));
   const partnerName = useGuild((s) => (dm.group ? undefined : dmPartner(dm, s.users, selfId)?.username));
+  // Bire bir konuşmada karşı tarafın özel durumu (ortak sunucunuz varsa görünür)
+  const partnerId = useGuild((s) => (dm.group ? undefined : dmPartner(dm, s.users, selfId)?.id));
+  const custom = useCustomStatus(partnerId);
   const unread = useGuild((s) => isUnread(s, dm.id));
   const count = useDmUnreadCount(dm.id);
   const typing = useSomeoneTyping(dm.id, selfId);
-  const sub = dm.group ? `${dm.participantIds.length} üye` : partnerName ? `@${partnerName}` : undefined;
+  const sub = dm.group
+    ? `${dm.participantIds.length} üye`
+    : custom
+      ? `${custom.emoji ? `${custom.emoji} ` : ''}${custom.text ?? ''}`
+      : partnerName
+        ? `@${partnerName}`
+        : undefined;
   return (
     <View style={styles.rowWrap}>
       {unread && <UnreadMarker left={0} />}

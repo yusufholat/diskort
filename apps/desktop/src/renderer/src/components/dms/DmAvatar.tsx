@@ -1,6 +1,6 @@
 import { Users } from 'lucide-react';
 import type { DmChannel } from '@diskort/shared';
-import { dmPartner, useGuild, useSession } from '@diskort/client-core';
+import { dmPartner, useGuild, useSession, useStatus } from '@diskort/client-core';
 import { cn } from '../../lib/utils';
 import { Avatar } from '../ui/Avatar';
 
@@ -18,20 +18,30 @@ export function DmAvatar({
   dm,
   size = 32,
   status = false,
+  ringClassName,
   className,
 }: {
   dm: DmChannel;
   size?: number;
   /** Bire bir konuşmada çevrimiçi noktası gösterilsin */
   status?: boolean;
+  ringClassName?: string;
   className?: string;
 }) {
   const selfId = useSession((s) => s.user?.id);
   const partner = useGuild((s) => dmPartner(dm, s.users, selfId));
-  const online = useGuild((s) => (partner ? Boolean(s.online[partner.id]) : false));
+  const shown = useStatus(partner?.id);
   const reachable = useGuild((s) => (partner ? Boolean(s.reachable[partner.id]) : false));
   if (!dm.group) {
-    return <Avatar user={partner} size={size} online={status && partner && reachable ? online : undefined} className={className} />;
+    return (
+      <Avatar
+        user={partner}
+        size={size}
+        status={status && partner && reachable ? shown : undefined}
+        ringClassName={ringClassName}
+        className={className}
+      />
+    );
   }
   return (
     <div

@@ -6,8 +6,10 @@ import {
   moderation,
   moveTargets,
   openDirectMessage,
+  useCustomStatus,
   useGuild,
   useSession,
+  useStatus,
 } from '@diskort/client-core';
 import { feedback } from '../haptics';
 import { animateNextLayout } from '../motion';
@@ -40,7 +42,8 @@ export function MemberSheet({
   const userId = requested ?? last.current;
   const user = useGuild((s) => (userId ? s.users[userId] : undefined));
   const voice = useGuild((s) => (userId ? s.voiceStates[userId] : undefined));
-  const online = useGuild((s) => (userId ? Boolean(s.online[userId]) : false));
+  const status = useStatus(userId);
+  const custom = useCustomStatus(userId);
   const color = useGuild((s) => memberColorOf(s, userId));
   const roleNames = useGuild((s) =>
     (user?.roles ?? [])
@@ -96,7 +99,7 @@ export function MemberSheet({
   return (
     <BottomSheet visible={Boolean(requested && user)} onClose={close}>
       <View style={styles.header}>
-        <Avatar user={user} size={56} online={user?.removed ? undefined : online} />
+        <Avatar user={user} size={56} status={user?.removed ? undefined : status} />
         <View style={{ flex: 1 }}>
           <Text style={[styles.name, color ? { color } : null]} numberOfLines={1}>
             {name}
@@ -105,6 +108,12 @@ export function MemberSheet({
             @{user?.username}
             {voice ? ' · Sesli sohbette' : ''}
           </Text>
+          {custom ? (
+            <Text style={styles.sub} numberOfLines={2}>
+              {custom.emoji ? `${custom.emoji} ` : ''}
+              {custom.text}
+            </Text>
+          ) : null}
         </View>
       </View>
       {roles.length > 0 && !moving && (

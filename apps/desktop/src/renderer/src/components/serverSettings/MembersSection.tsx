@@ -19,7 +19,7 @@ import { confirmDialog } from '../../lib/dialog';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
 import { toast, useUi, type ContextMenuItem } from '../../stores/ui';
-import { Avatar } from '../ui/Avatar';
+import { PresenceAvatar } from '../ui/Avatar';
 import { TextInput } from '../ui/controls';
 
 /** Üyeler: roller, şifre sıfırlama kodu, atma, yasaklama, hesap silme (yetkiye göre). */
@@ -96,7 +96,6 @@ function MemberRow({ user, onResetCode }: { user: MemberUser; onResetCode: (code
   const color = useGuild((s) => memberColorOf(s, user.id));
   const roles = useGuild((s) => s.roles);
   const ownerId = useGuild((s) => s.guild?.ownerId);
-  const online = useGuild((s) => Boolean(s.online[user.id]));
   const voiceChannel = useGuild((s) => {
     const state = s.voiceStates[user.id];
     return state ? s.channels.find((c) => c.id === state.channelId)?.name : undefined;
@@ -170,7 +169,7 @@ function MemberRow({ user, onResetCode }: { user: MemberUser; onResetCode: (code
   return (
     <div className="rounded-md bg-bg-side" onContextMenu={(e) => openMenu(e, e.clientX, e.clientY)}>
       <div className="group flex items-center gap-3 px-3 py-2">
-        <Avatar user={user} size={36} online={online} />
+        <PresenceAvatar userId={user.id} user={user} size={36} ringClassName="bg-bg-side" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate font-semibold text-text-head" style={color ? { color } : undefined}>

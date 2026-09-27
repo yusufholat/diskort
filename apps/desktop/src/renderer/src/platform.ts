@@ -50,6 +50,8 @@ function showDirectMessageNotification(message: Message, dm: DmChannel): void {
   showNotification(title, message, () => useUi.getState().setView({ kind: 'dm', channelId: dm.id }));
 }
 
+const doNotDisturb = (): boolean => useGuild.getState().selfStatus?.status === 'dnd';
+
 void configureClient({
   platform: 'desktop',
   version: __APP_VERSION__,
@@ -60,12 +62,15 @@ void configureClient({
     const view = currentView();
     return (view.kind === 'text' || view.kind === 'dm') && view.channelId === channelId && document.hasFocus();
   },
+  // Rahatsız Etmeyin: bildirim, ses ve görev çubuğu uyarısı yok (okunmamış işaretleri yine güncellenir)
   onMention: (message) => {
+    if (doNotDisturb()) return;
     playSound('mention');
     bridge?.requestAttention();
     showMentionNotification(message);
   },
   onDirectMessage: (message, dm) => {
+    if (doNotDisturb()) return;
     playSound('mention');
     bridge?.requestAttention();
     showDirectMessageNotification(message, dm);

@@ -4,7 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { api, errorMessage, gateway, removeAvatar, uploadAvatar, useSession } from '@diskort/client-core';
 import { pickAvatar } from '../attachments';
-import { Avatar } from '../components/Avatar';
+import { PresenceAvatar } from '../components/Avatar';
+import { StatusChip } from '../components/StatusPicker';
 import { PressableScale } from '../components/PressableScale';
 import { Button, Card, FadeIn, Field, NavRow, SectionTitle, ui } from '../components/ui';
 import { ThemePicker } from '../components/ThemePicker';
@@ -59,7 +60,7 @@ export default function SettingsScreen() {
             accessibilityLabel="Profil fotoğrafını değiştir"
             style={styles.avatarWrap}
           >
-            <Avatar user={user} size={80} online surface={colors.side} />
+            <PresenceAvatar userId={user.id} user={user} size={80} surface={colors.side} />
             <View style={styles.cameraBadge}>
               {photo.busy ? (
                 <ActivityIndicator size="small" color="#fff" />
@@ -70,6 +71,7 @@ export default function SettingsScreen() {
           </PressableScale>
           <Text style={styles.name}>{user.displayName}</Text>
           <Text style={styles.username}>@{user.username}</Text>
+          <StatusChip />
           {user.avatarUrl ? (
             <Pressable
               onPress={() => void photo.remove()}

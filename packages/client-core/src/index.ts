@@ -68,6 +68,16 @@ export {
   type TransportView,
 } from './connectionStats';
 export { gateway } from './gateway';
+export {
+  displayStatusOf,
+  formatRemaining,
+  setCustomStatus,
+  setUserStatus,
+  useCustomStatus,
+  useSelfStatus,
+  useStatus,
+  type DisplayStatus,
+} from './presence';
 export { useSession } from './session';
 export {
   channelById,

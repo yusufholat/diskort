@@ -5,6 +5,7 @@ import {
   dmTitle,
   isUnread,
   useDmList,
+  useCustomStatus,
   useDmUnreadCount,
   useGuild,
   useSession,
@@ -16,6 +17,7 @@ import { useUi } from '../../stores/ui';
 import { UserPanel } from '../sidebar/UserPanel';
 import { VoiceConnectionPanel } from '../sidebar/VoiceConnectionPanel';
 import { formatAgo, formatFull } from '../text/format';
+import { CustomStatusLine } from '../status/CustomStatusLine';
 import { DmAvatar } from './DmAvatar';
 
 /** Direkt mesajlar bölümünün sol çubuğu: konuşmalar, son etkinliğe göre. */
@@ -69,6 +71,10 @@ export function DmSidebar() {
 const DmRow = memo(function DmRow({ dm, selected }: { dm: DmChannel; selected: boolean }) {
   const selfId = useSession((s) => s.user?.id);
   const title = useGuild((s) => dmTitle(dm, s.users, selfId));
+  // Bire bir konuşmada karşı tarafın özel durumu
+  const partnerId = dm.group ? null : (dm.participantIds.find((id) => id !== selfId) ?? null);
+  const reachable = useGuild((s) => (partnerId ? Boolean(s.reachable[partnerId]) : false));
+  const custom = useCustomStatus(reachable ? partnerId : null);
   const unread = useGuild((s) => isUnread(s, dm.id));
   const count = useDmUnreadCount(dm.id);
   const setView = useUi((s) => s.setView);
@@ -95,11 +101,13 @@ const DmRow = memo(function DmRow({ dm, selected }: { dm: DmChannel; selected: b
           openContextMenu({ x: e.clientX, y: e.clientY, items: dmMenuItems(dm) });
         }}
       >
-        <DmAvatar dm={dm} size={32} status />
+        <DmAvatar dm={dm} size={32} status ringClassName="bg-bg-side" />
         <span className="min-w-0 flex-1 leading-tight">
           <span className={cn('block truncate', highlight ? 'font-semibold' : 'font-medium')}>{title}</span>
-          {dm.group && (
+          {dm.group ? (
             <span className="block truncate text-xs text-text-muted">{dm.participantIds.length} üye</span>
+          ) : (
+            custom && <CustomStatusLine status={custom} className="block text-xs text-text-muted" />
           )}
         </span>
         {count > 0 && !selected ? (

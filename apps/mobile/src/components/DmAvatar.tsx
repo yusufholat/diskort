@@ -1,7 +1,7 @@
 import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { DmChannel } from '@diskort/shared';
-import { dmPartner, useGuild, useSession } from '@diskort/client-core';
+import { dmPartner, useGuild, useSession, useStatus } from '@diskort/client-core';
 import { Avatar } from './Avatar';
 
 /** Grup renkleri: kimlikten türetilir, konuşma her yerde aynı renkte görünür (masaüstüyle aynı) */
@@ -29,13 +29,13 @@ export function DmAvatar({
   const selfId = useSession((s) => s.user?.id);
   const partner = useGuild((s) => dmPartner(dm, s.users, selfId));
   const reachable = useGuild((s) => (partner ? Boolean(s.reachable[partner.id]) : false));
-  const online = useGuild((s) => (partner ? Boolean(s.online[partner.id]) : false));
+  const shown = useStatus(partner?.id);
   if (!dm.group) {
     return (
       <Avatar
         user={partner}
         size={size}
-        online={status && partner && reachable ? online : undefined}
+        status={status && partner && reachable ? shown : undefined}
         surface={surfaceColor}
       />
     );

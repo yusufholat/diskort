@@ -25,6 +25,7 @@ import { ChannelModal } from './modals/ChannelModal';
 import { ScreenSharePicker } from './modals/ScreenSharePicker';
 import { ServerSettingsModal } from './serverSettings/ServerSettingsModal';
 import { SettingsModal } from './settings/SettingsModal';
+import { CustomStatusModal } from './status/CustomStatusModal';
 import { FeedbackModal } from './feedback/FeedbackModal';
 import { useFeedbackToasts } from '../features/feedback/useFeedbackToasts';
 
@@ -94,6 +95,7 @@ export function MainLayout() {
         {modal?.type === 'feedback' && <FeedbackModal />}
         {modal?.type === 'addGuild' && <AddGuildModal tab={modal.tab} code={modal.code} />}
         {modal?.type === 'invite' && hasGuild && <InviteModal />}
+        {modal?.type === 'customStatus' && <CustomStatusModal />}
         {modal?.type === 'reactions' && (
           <ReactionsModal channelId={modal.channelId} messageId={modal.messageId} emoji={modal.emoji} />
         )}

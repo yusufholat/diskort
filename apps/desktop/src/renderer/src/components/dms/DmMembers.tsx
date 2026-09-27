@@ -5,7 +5,7 @@ import { useGuild, useMemberColor, useSession } from '@diskort/client-core';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
-import { Avatar } from '../ui/Avatar';
+import { Avatar, PresenceAvatar } from '../ui/Avatar';
 
 /** Konuşmanın sağındaki katılımcı listesi (metin kanalındaki üye listesinin karşılığı) */
 export function DmMembers({ dm }: { dm: DmChannel }) {
@@ -46,7 +46,11 @@ const Participant = memo(function Participant({ userId, owner }: { userId: strin
         }
       }}
     >
-      <Avatar user={user} size={32} online={reachable || isSelf ? online : undefined} />
+      {reachable || isSelf ? (
+        <PresenceAvatar userId={userId} user={user} size={32} ringClassName="bg-bg-side" />
+      ) : (
+        <Avatar user={user} size={32} />
+      )}
       <div className="min-w-0 flex-1 leading-tight">
         <div className="flex items-center gap-1">
           <span className="truncate font-medium text-text-normal" style={color ? { color } : undefined}>

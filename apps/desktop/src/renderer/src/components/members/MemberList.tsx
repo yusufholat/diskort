@@ -1,7 +1,8 @@
 import { memo, useMemo } from 'react';
 import { Crown, MessageCircle } from 'lucide-react';
 import type { User } from '@diskort/shared';
-import { memberGroups, useGuild, useMemberColor, useSession } from '@diskort/client-core';
+import { memberGroups, useCustomStatus, useGuild, useMemberColor, useSession, useStatus } from '@diskort/client-core';
+import { CustomStatusLine } from '../status/CustomStatusLine';
 import { startDm } from '../../lib/dm';
 import { currentView } from '../../lib/mainView';
 import { memberMenuItems } from '../../lib/memberMenu';
@@ -38,6 +39,8 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
   const color = useMemberColor(user.id);
   const selfId = useSession((s) => s.user?.id);
   const inVoice = useGuild((s) => Boolean(s.voiceStates[user.id]));
+  const status = useStatus(user.id);
+  const custom = useCustomStatus(user.id);
   const openContextMenu = useUi((s) => s.openContextMenu);
   const isSelf = user.id === selfId;
 
@@ -76,7 +79,7 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
         }
       }}
     >
-      <Avatar user={user} size={32} online={!offline} />
+      <Avatar user={user} size={32} status={status} ringClassName="bg-bg-side" />
       <div className="min-w-0 flex-1 leading-tight">
         <div className="flex items-center gap-1">
           <span className="truncate font-medium text-text-normal" style={color ? { color } : undefined}>
@@ -84,7 +87,11 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
           </span>
           {owner && <Crown size={13} aria-label="Sunucunun sahibi" className="shrink-0 text-warn" />}
         </div>
-        {inVoice && <div className="truncate text-xs text-text-muted">Sesli sohbette</div>}
+        {custom ? (
+          <CustomStatusLine status={custom} className="text-xs text-text-muted" />
+        ) : (
+          inVoice && <div className="truncate text-xs text-text-muted">Sesli sohbette</div>
+        )}
       </div>
       {!isSelf && (
         <button

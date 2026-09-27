@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { DM_GROUP_MAX_PARTICIPANTS, DM_NAME_MAX_LENGTH, type User } from '@diskort/shared';
 import { addDmParticipant, createDm, dmTitle, useGuild, useSession } from '@diskort/client-core';
-import { Avatar } from '../components/Avatar';
+import { Avatar, PresenceAvatar } from '../components/Avatar';
 import { EmptyState } from '../components/States';
 import { Button } from '../components/ui';
 import { animateNextLayout, useBump } from '../motion';
@@ -149,7 +149,6 @@ export default function NewDmScreen() {
             <CandidateRow
               user={item}
               on={on}
-              online={Boolean(online[item.id])}
               disabled={!on && selected.length >= capacity}
               onToggle={toggle}
             />
@@ -190,13 +189,11 @@ export default function NewDmScreen() {
 const CandidateRow = memo(function CandidateRow({
   user,
   on,
-  online,
   disabled,
   onToggle,
 }: {
   user: User;
   on: boolean;
-  online: boolean;
   disabled: boolean;
   onToggle: (id: string) => void;
 }) {
@@ -212,7 +209,7 @@ const CandidateRow = memo(function CandidateRow({
         accessibilityLabel={user.displayName}
         style={[styles.row, on && { backgroundColor: colors.hover }, disabled && { opacity: 0.4 }]}
       >
-        <Avatar user={user} size={38} online={online} surface={on ? colors.hover : colors.main} />
+        <PresenceAvatar userId={user.id} user={user} size={38} surface={on ? colors.hover : colors.main} />
         <View style={{ flex: 1 }}>
           <Text style={styles.name} numberOfLines={1}>
             {user.displayName}

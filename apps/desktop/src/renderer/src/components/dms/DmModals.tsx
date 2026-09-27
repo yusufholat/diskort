@@ -4,7 +4,7 @@ import { DM_GROUP_MAX_PARTICIPANTS, DM_NAME_MAX_LENGTH } from '@diskort/shared';
 import { addDmParticipant, createDm, dmTitle, renameDm, useGuild, useSession } from '@diskort/client-core';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
-import { Avatar } from '../ui/Avatar';
+import { PresenceAvatar } from '../ui/Avatar';
 import { Button, TextInput } from '../ui/controls';
 import { FormField } from '../ui/FormField';
 import { Modal } from '../ui/Modal';
@@ -124,7 +124,7 @@ export function NewDmModal({ addTo }: { addTo?: string }) {
                     disabled && 'opacity-40',
                   )}
                 >
-                  <Avatar user={u} size={32} online={Boolean(online[u.id])} />
+                  <PresenceAvatar userId={u.id} user={u} size={32} ringClassName="bg-bg-float" />
                   <span className="min-w-0 flex-1 leading-tight">
                     <span className="block truncate font-medium text-text-normal">{u.displayName}</span>
                     <span className="block truncate text-xs text-text-muted">@{u.username}</span>

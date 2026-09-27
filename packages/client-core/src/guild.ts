@@ -8,7 +8,9 @@ import {
   type GuildCreatePayload,
   type GuildData,
   type GuildMember,
+  type Presence,
   type ReadyPayload,
+  type SelfStatus,
   type Role,
   type User,
   type VoiceState,
@@ -66,7 +68,15 @@ export interface GuildStore {
   /** Seçili sunucunun rolleri */
   roles: Record<string, Role>;
   voiceStates: Record<string, VoiceState>;
+  /** Çevrimiçi görünenler (görünmezler hariç) */
   online: Record<string, true>;
+  /**
+   * Çevrimiçi görünenlerin durumu ve özel durumu (kişi başına nesne değişmedikçe aynı kalır). Eski sunucuda
+   * herkes 'online'dır. Kendi kaydın da buradadır (görünmezsen yok; bkz. selfStatus).
+   */
+  presences: Record<string, Presence>;
+  /** Kendi durum ayarların (eski sunucuda null) */
+  selfStatus: SelfStatus | null;
   /** Metin kanalı ya da DM → en son mesaj kimliği */
   lastMessageIds: Record<string, string>;
   /** Metin kanalı ya da DM → bu kullanıcının okuduğu son mesaj */
@@ -212,6 +222,8 @@ const initial = {
   roles: {},
   voiceStates: {},
   online: {},
+  presences: {},
+  selfStatus: null,
   lastMessageIds: {},
   readStates: {},
   attachmentMaxBytes: DEFAULT_ATTACHMENT_MAX_BYTES,
@@ -266,6 +278,8 @@ export const useGuild = create<GuildStore>()((set) => ({
         dms: byId(p.dms ?? []),
         voiceStates: Object.fromEntries(p.voiceStates.map((v) => [v.userId, v])),
         online: Object.fromEntries(p.online.map((id) => [id, true as const])),
+        presences: presencesOf(p.online, p.presences),
+        selfStatus: p.status ?? null,
         lastMessageIds: p.lastMessageIds,
         readStates: p.readStates,
         attachmentMaxBytes: p.attachmentMaxBytes ?? DEFAULT_ATTACHMENT_MAX_BYTES,
@@ -300,6 +314,45 @@ export const useGuild = create<GuildStore>()((set) => ({
   },
 }));
 
+const ONLINE: Presence = { status: 'online', customStatus: null };
+
+/** READY / GUILD_CREATE'teki durumlar; eski sunucuda çevrimiçi olan herkes 'online' */
+function presencesOf(online: string[], presences: Record<string, Presence> | undefined): Record<string, Presence> {
+  const result: Record<string, Presence> = {};
+  for (const id of online) result[id] = presences?.[id] ?? ONLINE;
+  return result;
+}
+
+const sameCustom = (a: Presence['customStatus'], b: Presence['customStatus']): boolean =>
+  a === b || (a !== null && b !== null && a.text === b.text && a.emoji === b.emoji);
+
+function applyPresence(
+  s: GuildStore,
+  d: { userId: string; online: boolean } & Partial<Presence>,
+): Partial<GuildStore> {
+  const status = d.status ?? (d.online ? 'online' : 'offline');
+  const visible = status !== 'offline';
+  const prev = s.presences[d.userId];
+  const next: Presence | undefined = visible ? { status, customStatus: d.customStatus ?? null } : undefined;
+  const presenceSame = prev && next ? prev.status === next.status && sameCustom(prev.customStatus, next.customStatus) : prev === next;
+  const onlineSame = Boolean(s.online[d.userId]) === visible;
+  if (presenceSame && onlineSame) return {};
+  const result: Partial<GuildStore> = {};
+  if (!onlineSame) {
+    const online = { ...s.online };
+    if (visible) online[d.userId] = true;
+    else delete online[d.userId];
+    result.online = online;
+  }
+  if (!presenceSame) {
+    const presences = { ...s.presences };
+    if (next) presences[d.userId] = next;
+    else delete presences[d.userId];
+    result.presences = presences;
+  }
+  return result;
+}
+
 function applyGuildCreate(s: GuildStore, d: GuildCreatePayload): Partial<GuildStore> {
   const guilds = { ...s.guilds, [d.guild.id]: toGuildState(d) };
   const guildOrder = s.guildOrder.includes(d.guild.id) ? s.guildOrder : [...s.guildOrder, d.guild.id];
@@ -317,6 +370,7 @@ function applyGuildCreate(s: GuildStore, d: GuildCreatePayload): Partial<GuildSt
     ...derive(s, { guilds, guildOrder, profiles, activeGuildId }, { members: true, channels: true, profiles: true }),
     voiceStates,
     online,
+    presences: { ...s.presences, ...presencesOf(d.online, d.presences) },
     lastMessageIds: { ...s.lastMessageIds, ...d.lastMessageIds },
     readStates: { ...s.readStates, ...d.readStates },
   };
@@ -353,6 +407,7 @@ function applyEvent(s: GuildStore, msg: GatewayServerMessage): Partial<GuildStor
       const { [id]: _user, ...profiles } = s.profiles;
       const { [id]: _voice, ...voiceStates } = s.voiceStates;
       const { [id]: _online, ...online } = s.online;
+      const { [id]: _presence, ...presences } = s.presences;
       const guilds = Object.fromEntries(
         Object.entries(s.guilds).map(([gid, g]) => {
           if (!g.members[id]) return [gid, g];
@@ -373,16 +428,14 @@ function applyEvent(s: GuildStore, msg: GatewayServerMessage): Partial<GuildStor
         ...derive(s, { guilds, guildOrder: s.guildOrder, profiles, activeGuildId: s.activeGuildId }, { members: true, profiles: true }),
         voiceStates,
         online,
+        presences,
         dms,
       };
     }
-    case 'PRESENCE_UPDATE': {
-      if (Boolean(s.online[msg.d.userId]) === msg.d.online) return {};
-      const online = { ...s.online };
-      if (msg.d.online) online[msg.d.userId] = true;
-      else delete online[msg.d.userId];
-      return { online };
-    }
+    case 'PRESENCE_UPDATE':
+      return applyPresence(s, msg.d);
+    case 'USER_STATUS_UPDATE':
+      return { selfStatus: msg.d };
     case 'CHANNEL_CREATE':
     case 'CHANNEL_UPDATE': {
       const channel = msg.d;

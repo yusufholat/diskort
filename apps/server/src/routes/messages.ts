@@ -210,9 +210,11 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
         if (reopened.length > 0) gateway.sendDm(reopened, { t: 'DM_CHANNEL_CREATE', d: store.getDm(target.id)! });
       }
       gateway.dispatchChannel(target.id, { t: 'MESSAGE_CREATE', d: message });
-      // Telefonlara bildirim yanıtı bekletmez
-      if (channel) void push.notifyMention(message, mentioned, channel.name, channel.guildId);
-      else void push.notifyDm(message, mentioned, store.getDm(target.id)!);
+      // Telefonlara bildirim yanıtı bekletmez. Rahatsız Etmeyin'dekilere ve o an masaüstünde etkin olanlara
+      // (mesajı zaten canlı görüyorlar) gitmez; okunmamış/bahsetme sayıları yine de artar.
+      const pushTo = gateway.pushRecipients(mentioned);
+      if (channel) void push.notifyMention(message, pushTo, channel.name, channel.guildId);
+      else void push.notifyDm(message, pushTo, store.getDm(target.id)!);
       return reply.code(201).send(message);
     },
   );

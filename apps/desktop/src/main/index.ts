@@ -24,6 +24,7 @@ import type {
 } from '../shared/bridge';
 import { registerFeedbackIpc } from './feedback';
 import { HotkeyManager } from './hotkeys';
+import { IdleMonitor } from './idle';
 import { Splash } from './splash';
 import { consumeLaunchMode, rememberLaunchMode, runStartupGate, type LaunchMode } from './startup';
 import { UpdateManager } from './updater';
@@ -92,6 +93,8 @@ let preferences: AppPreferences = { minimizeToTray: true, openAtLogin: false };
 let trayState: TrayState = { connected: false, muted: false, deafened: false };
 
 const hotkeys = new HotkeyManager((event) => mainWindow?.webContents.send('hotkey', event));
+// Otomatik "Boşta" durumu: girdi yok ya da ekran kilitli
+const idleMonitor = new IdleMonitor((idle) => mainWindow?.webContents.send('presence:idle', idle));
 const updates = new UpdateManager();
 updates.onState((state) => mainWindow?.webContents.send('updates:state', state));
 
@@ -270,6 +273,7 @@ const EDIT_COMMANDS = new Set<EditCommand>(['undo', 'redo', 'cut', 'copy', 'past
 
 function registerIpc(): void {
   ipcMain.handle('app:version', () => app.getVersion());
+  ipcMain.handle('presence:get-idle', () => idleMonitor.current);
   ipcMain.handle('app:open-external', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) return shell.openExternal(url);
   });
@@ -357,6 +361,7 @@ app.on('second-instance', showWindow);
 app.on('before-quit', () => {
   quitting = true;
   hotkeys.stop();
+  idleMonitor.stop();
 });
 
 app.on('window-all-closed', () => {
@@ -404,4 +409,5 @@ void app.whenReady().then(async () => {
   createTray();
   updates.startBackgroundChecks();
   startIdleInstaller();
+  idleMonitor.start();
 });

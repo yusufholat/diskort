@@ -27,6 +27,10 @@ const bridge: DiskortBridge = {
   onDownloadDone: (cb) => listen<DownloadResult>('download:done', cb),
   edit: (command) => ipcRenderer.send('app:edit', command),
   setTheme: (theme) => ipcRenderer.send('app:set-theme', theme),
+  idle: {
+    get: () => ipcRenderer.invoke('presence:get-idle'),
+    onChange: (cb) => listen<boolean>('presence:idle', cb),
+  },
 
   screen: {
     supportsAudio: process.platform === 'win32',

@@ -1,5 +1,6 @@
 import {
   CLIENT_FEATURE_DM,
+  CLIENT_FEATURE_PRESENCE,
   GATEWAY_CLOSE_UPDATE_REQUIRED,
   type GatewayClientMessage,
   type GatewayServerMessage,
@@ -22,6 +23,8 @@ class GatewayClient {
   private awaitingAck = false;
   private active = false;
   private listeners = new Set<Listener>();
+  /** Bu cihaz boşta mı (masaüstünde girdi yok / ekran kilitli, telefonda uygulama arka planda) */
+  private idle = false;
 
   /**
    * Bağlantıyı başlatır. Zaten bağlıysa ya da bağlanıyorsa bir şey yapmaz: telefonda Android ekranı
@@ -52,6 +55,16 @@ class GatewayClient {
     if (!this.active || this.ws) return;
     this.attempts = 0;
     this.open();
+  }
+
+  /**
+   * Bu cihazın boşta olup olmadığını bildirir. Tüm cihazların boştaysa (ve durumun "Çevrim içi" ise)
+   * başkaları seni "Boşta" görür; elle seçilen durum değişmez. Yeniden bağlanınca yeniden bildirilir.
+   */
+  setIdle(idle: boolean): void {
+    if (this.idle === idle) return;
+    this.idle = idle;
+    this.send({ t: 'IDLE_SET', d: { idle } });
   }
 
   send(msg: GatewayClientMessage): void {
@@ -105,7 +118,7 @@ class GatewayClient {
       case 'HELLO':
         this.send({
           t: 'IDENTIFY',
-          d: { token, version: env().version, platform: env().platform, features: [CLIENT_FEATURE_DM] },
+          d: { token, version: env().version, platform: env().platform, features: [CLIENT_FEATURE_DM, CLIENT_FEATURE_PRESENCE] },
         });
         this.startHeartbeat(msg.d.heartbeatInterval);
         break;
@@ -113,6 +126,8 @@ class GatewayClient {
         this.attempts = 0;
         useGuild.getState().setReady(msg.d);
         useSession.getState().setUser(msg.d.user);
+        // Yeni oturum etkin sayılır; boştaysak hemen bildir
+        if (this.idle) this.send({ t: 'IDLE_SET', d: { idle: true } });
         break;
       case 'HEARTBEAT_ACK':
         this.awaitingAck = false;

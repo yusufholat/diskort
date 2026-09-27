@@ -1,7 +1,15 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AtSign, Crown, MessageCircle } from 'lucide-react';
 import { create } from 'zustand';
-import { hasComposer, mentionInComposer, sortedRoles, useGuild, useSession } from '@diskort/client-core';
+import {
+  hasComposer,
+  mentionInComposer,
+  sortedRoles,
+  useCustomStatus,
+  useGuild,
+  useSession,
+  useStatus,
+} from '@diskort/client-core';
 import { startDm } from '../../lib/dm';
 import { useEscapeLayer } from '../../lib/escape';
 import { usePresence } from '../../lib/motion';
@@ -51,7 +59,8 @@ export function ProfilePopover() {
   const target = useProfilePopover((s) => s.target);
   const { value: shown, closing } = usePresence(target, 100);
   const user = useGuild((s) => (shown ? s.users[shown.userId] : undefined));
-  const online = useGuild((s) => (shown ? s.online[shown.userId] === true : false));
+  const status = useStatus(shown?.userId);
+  const custom = useCustomStatus(shown?.userId);
   const owner = useGuild((s) => (shown ? s.guild?.ownerId === shown.userId : false));
   const allRoles = useGuild((s) => s.roles);
   const selfId = useSession((s) => s.user?.id);
@@ -127,8 +136,21 @@ export function ProfilePopover() {
     >
       <div className="h-[60px]" style={{ background: user.avatarColor }} />
       <div className="px-4 pb-4">
-        <div className="-mt-10 mb-2 w-fit rounded-full border-[6px] border-bg-float">
-          <Avatar user={user} size={80} online={online} />
+        <div className="-mt-10 mb-2 flex items-start gap-2">
+          <div className="w-fit shrink-0 rounded-full border-[6px] border-bg-float">
+            <Avatar user={user} size={80} status={status} ringClassName="bg-bg-float" />
+          </div>
+          {custom && (
+            // Özel durum: avatarın yanında konuşma balonu
+            <div className="relative mt-12 min-w-0 flex-1" title={[custom.emoji, custom.text].filter(Boolean).join(' ')}>
+              <span className="absolute top-1 -left-1 h-3 w-3 rounded-full bg-bg-side" />
+              <span className="absolute top-3.5 -left-2.5 h-1.5 w-1.5 rounded-full bg-bg-side" />
+              <span className="relative line-clamp-3 rounded-2xl bg-bg-side px-3 py-2 text-sm break-words text-text-normal">
+                {custom.emoji && <span className="mr-1">{custom.emoji}</span>}
+                {custom.text}
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-1.5">
           <span className="truncate text-xl leading-tight font-bold text-text-head">{user.displayName}</span>

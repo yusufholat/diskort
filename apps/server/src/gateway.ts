@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
 import {
   CLIENT_FEATURE_DM,
+  CLIENT_FEATURE_PRESENCE,
+  OFFLINE_PRESENCE,
   DEFAULT_ATTACHMENT_MAX_BYTES,
   GATEWAY_CLOSE_UPDATE_REQUIRED,
   GATEWAY_HEARTBEAT_INTERVAL_MS,
@@ -11,6 +13,9 @@ import {
   type GatewayServerMessage,
   type GuildCreatePayload,
   type GuildData,
+  type ClientPlatform,
+  type Presence,
+  type PresenceStatus,
   type ServerFeatures,
   type User,
 } from '@diskort/shared';
@@ -18,6 +23,7 @@ import type { AuthService } from './auth.js';
 import type { ClientVersionPolicy } from './clientVersion.js';
 import type { Store } from './db.js';
 import type { PermissionService } from './permissions.js';
+import { StatusStore } from './presence.js';
 import type { VoiceStateStore } from './voiceState.js';
 
 const IDENTIFY_TIMEOUT_MS = 10_000;
@@ -33,7 +39,15 @@ interface Session {
   lastTyping: Map<string, number>;
   /** İstemci direkt mesajları tanıyor (IDENTIFY'da bildirdi); tanımayana DM verisi ve olayı gitmez */
   dm: boolean;
+  /** İstemcinin bildirdiği platform (bildirmeyen eski masaüstü sürümleri 'desktop') */
+  platform: ClientPlatform;
+  /** İstemci boşta olduğunu bildirebiliyor (CLIENT_FEATURE_PRESENCE) */
+  reportsIdle: boolean;
+  /** Oturum boşta (masaüstünde girdi yok / ekran kilitli, telefonda uygulama arka planda) */
+  idle: boolean;
 }
+
+const OFFLINE_KEY = JSON.stringify(OFFLINE_PRESENCE);
 
 /** Kullanıcı → gördüğü kanallar (yetki değişikliğinden önceki durum) */
 export type Visibility = Map<string, Set<string>>;
@@ -51,6 +65,8 @@ export class Gateway {
   private pingTimer: NodeJS.Timeout | null = null;
   /** Sunucu kapanıyor: kapanan bağlantılar için artık veritabanına bakılmaz */
   private closing = false;
+  /** Kullanıcı → en son duyurulan durum (JSON); çevrimdışı görünenler yok. Aynı durum tekrar duyurulmaz. */
+  private readonly announced = new Map<string, string>();
 
   constructor(
     private readonly store: Store,
@@ -60,6 +76,7 @@ export class Gateway {
     private readonly clientVersions?: ClientVersionPolicy,
     private readonly attachmentMaxBytes = DEFAULT_ATTACHMENT_MAX_BYTES,
     private readonly features: ServerFeatures = { gifs: false },
+    readonly statuses: StatusStore = new StatusStore(store),
   ) {
     // Kişi kendi ses durumunu her zaman alır (kanalı görme yetkisini kaybedip çıkarılırken de)
     voice.on('update', (state) =>
@@ -78,8 +95,75 @@ export class Gateway {
     });
   }
 
+  /** Gateway'e bağlı (görünmez olsa da) */
   isOnline(userId: string): boolean {
     return (this.byUser.get(userId)?.size ?? 0) > 0;
+  }
+
+  /**
+   * Kullanıcının başkalarına görünen durumu: bağlı değilse ya da görünmezse çevrimdışı. Seçtiği durum
+   * "Çevrim içi" iken tüm oturumları boştaysa "Boşta" (bir cihazda etkin olmak otomatik boştayı yener);
+   * elle seçilen Boşta / Rahatsız Etmeyin olduğu gibi kalır.
+   */
+  presenceOf(userId: string): Presence {
+    const sessions = this.byUser.get(userId);
+    if (!sessions || sessions.size === 0) return OFFLINE_PRESENCE;
+    const self = this.statuses.get(userId);
+    if (self.status === 'invisible') return OFFLINE_PRESENCE;
+    let status: PresenceStatus = self.status;
+    if (status === 'online' && [...sessions].every((s) => s.idle)) status = 'idle';
+    return { status, customStatus: self.customStatus };
+  }
+
+  /** Başkalarına çevrimiçi görünüyor (bağlı ve görünmez değil) */
+  isVisible(userId: string): boolean {
+    return this.presenceOf(userId).status !== 'offline';
+  }
+
+  /** Verilen kişilerden çevrimiçi görünenlerin durumları */
+  private presences(userIds: Iterable<string>): Record<string, Presence> {
+    const result: Record<string, Presence> = {};
+    for (const id of userIds) {
+      if (!this.byUser.has(id)) continue;
+      const p = this.presenceOf(id);
+      if (p.status !== 'offline') result[id] = p;
+    }
+    return result;
+  }
+
+  /**
+   * Kullanıcının durum ayarı değişti (kendisi değiştirdi ya da süresi doldu): tüm cihazlarına yeni ayar,
+   * görünen durumu değiştiyse onu görebilenlere PRESENCE_UPDATE.
+   */
+  statusChanged(userId: string): void {
+    this.sendToUsers([userId], { t: 'USER_STATUS_UPDATE', d: this.statuses.get(userId) });
+    this.announcePresence(userId);
+  }
+
+  /** Süresi dolan durumları ve özel durumları temizler (düzenli aralıkla çağrılır) */
+  expireStatuses(now = Date.now()): void {
+    if (this.closing) return;
+    for (const id of this.statuses.expire(now)) this.statusChanged(id);
+  }
+
+  /**
+   * Kişi şu an masaüstünde etkin mi: boşta olduğunu bildirebilen (yeni) bir masaüstü oturumu açık ve boşta
+   * değil. Öyleyse mesajı zaten canlı görüyor; telefonuna bildirim gitmez. Boşta bildirmeyen eski masaüstü
+   * sürümleri sayılmaz (tepside açık kalan uygulama bildirimleri sonsuza dek kesmesin).
+   */
+  activeOnDesktop(userId: string): boolean {
+    for (const s of this.byUser.get(userId) ?? []) {
+      if (s.platform === 'desktop' && s.reportsIdle && !s.idle) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Telefon bildirimi gidecekler: Rahatsız Etmeyin'de olanlar (hiç bildirim yok) ve o an masaüstünde etkin
+   * olanlar çıkarılır. Okunmamış sayıları ve bahsetme sayıları bundan etkilenmez.
+   */
+  pushRecipients(userIds: string[]): string[] {
+    return this.statuses.withoutDnd(userIds).filter((id) => !this.activeOnDesktop(id));
   }
 
   /** Kullanıcının tüm açık bağlantılarını kapatır (4004: istemci oturumu kapatır). */
@@ -228,8 +312,9 @@ export class Gateway {
     const user = this.store.getUser(userId);
     if (!member || !user) return;
     this.sendToGuild(guildId, { t: 'GUILD_MEMBER_ADD', d: { guildId, member, user } }, userId);
-    if (this.isOnline(userId)) {
-      this.sendToGuild(guildId, { t: 'PRESENCE_UPDATE', d: { userId, online: true } }, userId);
+    const presence = this.presenceOf(userId);
+    if (presence.status !== 'offline') {
+      this.sendToGuild(guildId, { t: 'PRESENCE_UPDATE', d: { userId, online: true, ...presence } }, userId);
     }
   }
 
@@ -243,9 +328,10 @@ export class Gateway {
     // Artık ortak sunucusu kalmayanlar birbirinin çevrimiçi durumunu görmez: son bilinen durum "çevrimdışı"
     const still = this.permissions.coMembers(userId);
     const parted = this.store.guildMemberIds(guildId).filter((id) => !still.has(id));
-    if (this.isOnline(userId)) this.sendToUsers(parted, { t: 'PRESENCE_UPDATE', d: { userId, online: false } });
+    const offline = { online: false, ...OFFLINE_PRESENCE };
+    if (this.isVisible(userId)) this.sendToUsers(parted, { t: 'PRESENCE_UPDATE', d: { userId, ...offline } });
     for (const id of parted) {
-      if (this.isOnline(id)) this.sendToUsers([userId], { t: 'PRESENCE_UPDATE', d: { userId: id, online: false } });
+      if (this.isVisible(id)) this.sendToUsers([userId], { t: 'PRESENCE_UPDATE', d: { userId: id, ...offline } });
     }
   }
 
@@ -263,11 +349,13 @@ export class Gateway {
       Object.fromEntries(Object.entries(byChannel).filter(([channelId]) => visible.has(channelId)));
     const memberIds = data.members.map((m) => m.userId);
     const current = new Set(data.members.filter((m) => !m.removed).map((m) => m.userId));
+    const presences = this.presences(current);
     return {
       ...data,
       users: this.store.usersByIds(memberIds),
       voiceStates: this.voice.list().filter((v) => visible.has(v.channelId)),
-      online: [...current].filter((id) => this.isOnline(id)),
+      online: Object.keys(presences),
+      presences,
       lastMessageIds: onlyVisible(this.store.lastMessageIds()),
       readStates: onlyVisible(this.store.readStates(userId)),
       mentionCounts: onlyVisible(this.store.mentionCounts(userId)),
@@ -279,7 +367,16 @@ export class Gateway {
   }
 
   private accept(socket: WebSocket): void {
-    const session: Session = { socket, userId: null, alive: true, lastTyping: new Map(), dm: false };
+    const session: Session = {
+      socket,
+      userId: null,
+      alive: true,
+      lastTyping: new Map(),
+      dm: false,
+      platform: 'desktop',
+      reportsIdle: false,
+      idle: false,
+    };
     this.sessions.add(session);
     this.send(session, { t: 'HELLO', d: { heartbeatInterval: GATEWAY_HEARTBEAT_INTERVAL_MS } });
 
@@ -308,19 +405,32 @@ export class Gateway {
       if (!session.userId) return;
       const set = this.byUser.get(session.userId);
       set?.delete(session);
-      if (set && set.size === 0) {
-        this.byUser.delete(session.userId);
-        this.announcePresence(session.userId, false);
-      }
+      if (set && set.size === 0) this.byUser.delete(session.userId);
+      // Son oturum kapandıysa çevrimdışı; kalan oturumların hepsi boştaysa "Boşta"
+      this.announcePresence(session.userId);
     });
   }
 
-  /** Çevrimiçi durumu yalnızca ortak sunucusu olanlara gider */
-  private announcePresence(userId: string, online: boolean): void {
+  /**
+   * Görünen durum değiştiyse ortak sunucusu olanlara (ve kişinin kendisine) duyurur. Görünmez kullanıcı
+   * hep çevrimdışı görünür: bağlanması, boşta olması ya da özel durumu hiçbir olay üretmez.
+   */
+  private announcePresence(userId: string, except?: Session): void {
     if (this.closing) return;
-    const to = this.permissions.coMembers(userId);
-    to.delete(userId);
-    this.sendToUsers(to, { t: 'PRESENCE_UPDATE', d: { userId, online } });
+    const presence = this.presenceOf(userId);
+    const key = JSON.stringify(presence);
+    if (key === (this.announced.get(userId) ?? OFFLINE_KEY)) return;
+    if (presence.status === 'offline') this.announced.delete(userId);
+    else this.announced.set(userId, key);
+    const data = JSON.stringify({
+      t: 'PRESENCE_UPDATE',
+      d: { userId, online: presence.status !== 'offline', ...presence },
+    } satisfies GatewayServerMessage);
+    for (const id of this.permissions.coMembers(userId)) {
+      for (const s of this.byUser.get(id) ?? []) {
+        if (s !== except && s.socket.readyState === s.socket.OPEN) s.socket.send(data);
+      }
+    }
   }
 
   private async handle(s: Session, msg: GatewayClientMessage): Promise<void> {
@@ -342,6 +452,9 @@ export class Gateway {
       }
       const features = Array.isArray(msg.d.features) ? msg.d.features : [];
       s.dm = features.includes(CLIENT_FEATURE_DM);
+      s.reportsIdle = features.includes(CLIENT_FEATURE_PRESENCE);
+      const platform = msg.d.platform;
+      s.platform = platform === 'android' || platform === 'ios' ? platform : 'desktop';
       this.identify(s, user);
       return;
     }
@@ -359,6 +472,13 @@ export class Gateway {
           selfDeaf: Boolean(msg.d.selfDeaf),
         });
         break;
+      case 'IDLE_SET': {
+        const idle = Boolean(msg.d?.idle);
+        if (s.idle === idle) break;
+        s.idle = idle;
+        this.announcePresence(s.userId);
+        break;
+      }
       case 'TYPING_START': {
         const channelId = String(msg.d?.channelId ?? '');
         const now = Date.now();
@@ -374,7 +494,6 @@ export class Gateway {
   }
 
   private identify(s: Session, user: User): void {
-    const wasOnline = this.isOnline(user.id);
     s.userId = user.id;
     let set = this.byUser.get(user.id);
     if (!set) this.byUser.set(user.id, (set = new Set()));
@@ -394,6 +513,7 @@ export class Gateway {
     const onlyVisible = <T>(byChannel: Record<string, T>): Record<string, T> =>
       Object.fromEntries(Object.entries(byChannel).filter(([channelId]) => visible.has(channelId)));
     const coMembers = this.permissions.coMembers(user.id);
+    const presences = this.presences([...this.byUser.keys()].filter((id) => coMembers.has(id)));
     this.send(s, {
       t: 'READY',
       d: {
@@ -401,7 +521,9 @@ export class Gateway {
         guilds,
         users: this.store.usersByIds(this.store.visibleUserIds(user.id)),
         voiceStates: this.voice.list().filter((v) => visible.has(v.channelId)),
-        online: [...this.byUser.keys()].filter((id) => coMembers.has(id)),
+        online: Object.keys(presences),
+        presences,
+        status: this.statuses.get(user.id),
         primaryGuildId: this.permissions.primaryGuildId,
         lastMessageIds: onlyVisible(this.store.lastMessageIds()),
         readStates: onlyVisible(this.store.readStates(user.id)),
@@ -411,7 +533,8 @@ export class Gateway {
         ...(dms ? { dms } : {}),
       },
     });
-    if (!wasOnline) this.announcePresence(user.id, true);
+    // Yeni oturum kendi durumunu READY'de aldı
+    this.announcePresence(user.id, s);
   }
 
   private pingAll(): void {
