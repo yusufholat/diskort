@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Pressable, Switch, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { SOUND_LABELS, SOUND_PACK_LABELS, SOUND_PACKS, type SoundPack } from '@diskort/client-core';
+import { SOUND_LABELS } from '@diskort/client-core';
 import { feedback, soundCue, useHapticsAvailable } from '../haptics';
 import { MOBILE_SOUND_NAMES, previewSound, soundsAvailable } from '../sounds';
 import { useSettings, type NoiseMode, type NoiseStrengthDb } from '../stores/settings';
@@ -115,7 +115,6 @@ function SoundSettings() {
   const sounds = useSettings((s) => s.sounds);
   const notificationSound = useSettings((s) => s.notificationSound);
   const volume = useSettings((s) => s.sfxVolume);
-  const soundPack = useSettings((s) => s.soundPack);
   const set = useSettings((s) => s.set);
   const [listOpen, setListOpen] = useState(false);
   // Eski APK'larda (expo-audio yok) ses çalınamaz; ayarlar gösterilmez
@@ -154,17 +153,6 @@ function SoundSettings() {
             previewSound('unmute');
           }}
         />
-        <Text style={[styles.label, styles.subLabel]}>Ses paketi</Text>
-        <Choices
-          options={SOUND_PACK_OPTIONS}
-          value={soundPack}
-          onChange={(v) => {
-            set({ soundPack: v });
-            // Yeni paketten bir örnek
-            previewSound('join');
-          }}
-          label="Ses paketi"
-        />
         <Pressable
           onPress={() => setListOpen((o) => !o)}
           style={({ pressed }) => [styles.listToggle, pressed && { opacity: 0.8 }]}
@@ -191,11 +179,6 @@ function SoundSettings() {
     </>
   );
 }
-
-const SOUND_PACK_OPTIONS: { value: SoundPack; label: string }[] = SOUND_PACKS.map((value) => ({
-  value,
-  label: SOUND_PACK_LABELS[value],
-}));
 
 const NOISE_MODE_OPTIONS: { value: NoiseMode; label: string }[] = [
   { value: 'dpdfnet', label: 'DPDFNet (önerilen)' },
