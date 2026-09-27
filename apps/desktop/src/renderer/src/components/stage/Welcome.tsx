@@ -11,7 +11,8 @@ export function Welcome() {
   const guild = useGuild((s) => s.guild);
   const allChannels = useGuild((s) => s.channels);
   const channels = useMemo(() => allChannels.filter((c) => c.type === 'voice'), [allChannels]);
-  const onlineCount = useGuild((s) => Object.keys(s.online).length);
+  // Bu sunucunun çevrimiçi üyeleri
+  const onlineCount = useGuild((s) => Object.keys(s.online).filter((id) => s.users[id]?.removed === false).length);
 
   return (
     <div className="flex h-full flex-1 flex-col items-center justify-center bg-bg-main p-8 text-center">

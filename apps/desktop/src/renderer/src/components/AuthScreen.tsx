@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { AudioLines } from 'lucide-react';
-import { PASSWORD_MIN_LENGTH, USERNAME_PATTERN } from '@diskort/shared';
+import { parseInviteCode, PASSWORD_MIN_LENGTH, USERNAME_PATTERN } from '@diskort/shared';
 import { api, errorMessage, normalizeServerUrl, useSession } from '@diskort/client-core';
 import { useSettings } from '../stores/settings';
 import { Button, TextInput } from './ui/controls';
@@ -67,7 +67,13 @@ export function AuthScreen() {
         mode === 'login'
           ? await api.login({ username, password })
           : mode === 'register'
-            ? await api.register({ inviteCode: code, username, password, displayName: displayName.trim() || undefined })
+            ? await api.register({
+                // Davet bağlantısı yapıştırıldıysa içindeki kod
+                inviteCode: parseInviteCode(code) ?? code,
+                username,
+                password,
+                displayName: displayName.trim() || undefined,
+              })
             : await api.resetPassword({ username, code, newPassword: password });
       setSession(res.token, res.user);
     } catch (err) {
@@ -100,7 +106,7 @@ export function AuthScreen() {
         <div key={mode} className="anim-fade-in">
           {mode !== 'login' && (
             <FormField
-              label={mode === 'register' ? 'Davet kodu' : 'Sıfırlama kodu'}
+              label={mode === 'register' ? 'Davet kodu ya da bağlantısı' : 'Sıfırlama kodu'}
               error={form.errors.code}
               shakeKey={form.attempt}
             >

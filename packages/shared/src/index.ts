@@ -295,7 +295,7 @@ export const INVITE_LINK_PATH = '/davet/';
 /** Yapıştırılan davet bağlantısından ya da koddan davet kodu (geçersizse null) */
 export function parseInviteCode(input: string): string | null {
   const text = input.trim();
-  const fromLink = /\/davet\/([A-Za-z0-9]+)/.exec(text)?.[1];
+  const fromLink = /\/davet\/([a-z0-9]+)/i.exec(text)?.[1];
   const code = (fromLink ?? text).toUpperCase();
   return /^[A-Z0-9]{4,32}$/.test(code) ? code : null;
 }

@@ -33,9 +33,15 @@ export function resolveView(
   return inVoice ? { kind: 'voice' } : { kind: 'home' };
 }
 
+/** Seçili sunucuda son açılan metin kanalı */
+function lastTextOf(lastTextByGuild: Record<string, string>, activeGuildId: string | null): string | null {
+  return activeGuildId ? (lastTextByGuild[activeGuildId] ?? null) : null;
+}
+
 export function useMainView(): ResolvedView {
   const view = useUi((s) => s.view);
-  const lastText = useUi((s) => s.lastTextChannelId);
+  const activeGuildId = useGuild((s) => s.activeGuildId);
+  const lastText = useUi((s) => lastTextOf(s.lastTextByGuild, activeGuildId) ?? s.lastTextChannelId);
   const channels = useGuild((s) => s.channels);
   const dms = useGuild((s) => s.dms);
   const inVoice = useVoice((s) => s.channelId !== null);
@@ -45,7 +51,8 @@ export function useMainView(): ResolvedView {
 export function currentView(): ResolvedView {
   const ui = useUi.getState();
   const guild = useGuild.getState();
-  return resolveView(ui.view, ui.lastTextChannelId, guild.channels, useVoice.getState().channelId !== null, guild.dms);
+  const lastText = lastTextOf(ui.lastTextByGuild, guild.activeGuildId) ?? ui.lastTextChannelId;
+  return resolveView(ui.view, lastText, guild.channels, useVoice.getState().channelId !== null, guild.dms);
 }
 
 /** Direkt mesajlar bölümüne geç: son açık konuşma hâlâ listedeyse o, yoksa konuşma listesi */
@@ -55,8 +62,14 @@ export function openDmSection(): void {
   ui.setView(last && useGuild.getState().dms[last] ? { kind: 'dm', channelId: last } : { kind: 'dms' });
 }
 
-/** Topluluğa dön: son metin kanalı (ya da ilk kanal) */
-export function openGuildSection(): void {
+/** Sunucuya geç (verilmezse seçili sunucu): o sunucuda son açılan metin kanalı (ya da ilk kanal) */
+export function openGuildSection(guildId?: string): void {
+  const guild = useGuild.getState();
+  if (guildId && guildId !== guild.activeGuildId) guild.selectGuild(guildId);
+  const target = guildId ?? useGuild.getState().activeGuildId;
   const ui = useUi.getState();
-  ui.setView(ui.lastTextChannelId ? { kind: 'text', channelId: ui.lastTextChannelId } : { kind: 'home' });
+  const last = target ? ui.lastTextByGuild[target] : undefined;
+  const channels = target ? (useGuild.getState().guilds[target]?.channels ?? []) : [];
+  const channel = channels.find((c) => c.id === last && c.type === 'text') ?? channels.find((c) => c.type === 'text');
+  ui.setView(channel ? { kind: 'text', channelId: channel.id } : { kind: 'home' });
 }

@@ -25,6 +25,7 @@ import {
   useMemberColor,
   useMessages,
   type LocalMessage,
+  type MemberUser,
 } from '@diskort/client-core';
 import { renderMarkdown, type MarkdownContext } from '../../features/messages/markdown';
 import { confirmDialog } from '../../lib/dialog';
@@ -44,7 +45,7 @@ import { ReplyPreview } from './ReplyPreview';
 
 interface Props {
   message: LocalMessage;
-  author: User | undefined;
+  author: MemberUser | undefined;
   /** Aynı yazarın art arda mesajı: avatar/başlık gösterilmez */
   compact: boolean;
   editing: boolean;
@@ -90,15 +91,19 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
   // Yazma kutusunun üstünde bu mesaja yanıt veriliyor
   const replying = useMessages((s) => s.replies[message.channelId]?.messageId === message.id);
   const isReply = Boolean(message.replyToId);
-  // Yazara mesaj gönderilebilir mi: başkası, hâlâ üye ve zaten onunla bire bir konuşmada değiliz
+  // Yazara mesaj gönderilebilir mi: başkası, ortak sunucumuz var ve zaten onunla bire bir konuşmada değiliz
   const inDirect = useGuild((s) => s.dms[message.channelId]?.group === false);
-  const canMessageAuthor = !own && !inDirect && author !== undefined && !author.removed;
+  const inDm = useGuild((s) => s.dms[message.channelId] !== undefined);
+  const reachable = useGuild((s) => (author ? Boolean(s.reachable[author.id]) : false));
+  // Yazar artık burada değil: kanalda sunucunun üyesi değil, DM'de ortak sunucu yok
+  const authorGone = !author || (inDm ? !reachable : author.removed);
+  const canMessageAuthor = !own && !inDirect && !authorGone && reachable;
   /**
    * Yazarın adına ya da resmine sağ tıklayınca: kişi menüsü (mesaj gönder, ses seviyesi, yönetim).
    * Sol tık: ad yazma kutusuna bahsetme ekler, resim profil kartını açar.
    */
   const openAuthorMenu = (e: MouseEvent): void => {
-    if (!author || author.removed) return;
+    if (!author || authorGone) return;
     const items = memberMenuItems(author.id);
     if (own && items.length === 0) return;
     e.preventDefault();
@@ -114,7 +119,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
   };
   // Ada tıklamak yazma kutusuna bahsetme ekler; kanala yazılamıyorsa profil kartı açılır
   const mentionAuthor = (el: HTMLElement): void => {
-    if (author && !author.removed && mentionInComposer(message.channelId, author.username)) return;
+    if (author && !authorGone && mentionInComposer(message.channelId, author.username)) return;
     showProfile(el);
   };
 

@@ -1,8 +1,9 @@
 import { ChevronDown, Plus } from 'lucide-react';
 import { Permission, type ChannelType } from '@diskort/shared';
 import { useMainView } from '../../lib/mainView';
-import { useCan, useFeedback, useGuild } from '@diskort/client-core';
-import { useUi, type ContextMenuItem } from '../../stores/ui';
+import { canManageFeedback, isGuildOwner, leaveGuild, useCan, useFeedback, useGuild } from '@diskort/client-core';
+import { confirmDialog } from '../../lib/dialog';
+import { toast, useUi, type ContextMenuItem } from '../../stores/ui';
 import { CountBadge, useServerSettingsSections } from '../serverSettings/ServerSettingsModal';
 import { TextChannelItem } from './TextChannelItem';
 import { UserPanel } from './UserPanel';
@@ -13,9 +14,13 @@ export function ChannelSidebar() {
   const guild = useGuild((s) => s.guild);
   const channels = useGuild((s) => s.channels);
   const canManageChannels = useCan(Permission.MANAGE_CHANNELS);
-  const canInvite = useCan(Permission.MANAGE_INVITES);
-  const canManageGuild = useCan(Permission.MANAGE_GUILD);
-  const newFeedback = useFeedback((s) => (canManageGuild ? s.newCount : 0));
+  const canCreateInvite = useCan(Permission.CREATE_INVITE);
+  const canManageInvites = useCan(Permission.MANAGE_INVITES);
+  const canInvite = canCreateInvite || canManageInvites;
+  const owner = useGuild((s) => isGuildOwner(s, s.activeGuildId));
+  // Geri bildirimler ana sunucunun yöneticilerine, ana sunucunun menüsünde
+  const feedbackHere = useGuild((s) => s.activeGuildId === s.primaryGuildId) && canManageFeedback();
+  const newFeedback = useFeedback((s) => (feedbackHere ? s.newCount : 0));
   const settingsSections = useServerSettingsSections();
   const openModal = useUi((s) => s.openModal);
   const openContextMenu = useUi((s) => s.openContextMenu);
@@ -29,16 +34,32 @@ export function ChannelSidebar() {
     ...(settingsSections.length > 0
       ? [{ label: 'Sunucu Ayarları', onClick: () => openModal({ type: 'serverSettings' }) }]
       : []),
-    ...(canInvite
-      ? [{ label: 'Davet Oluştur', onClick: () => openModal({ type: 'serverSettings', section: 'invites' }) }]
-      : []),
+    ...(canInvite ? [{ label: 'Arkadaşlarını Davet Et', onClick: () => openModal({ type: 'invite' }) }] : []),
     ...(canManageChannels ? [{ label: 'Kanal Oluştur', onClick: () => openModal({ type: 'channel' }) }] : []),
-    ...(canManageGuild
+    ...(feedbackHere
       ? [
           {
             label: 'Geri Bildirimler',
             hint: newFeedback > 0 ? `${newFeedback} yeni` : undefined,
             onClick: () => openModal({ type: 'serverSettings', section: 'feedback' }),
+          },
+        ]
+      : []),
+    // Sahip ayrılamaz (önce sahipliği devretmeli ya da sunucuyu silmeli)
+    ...(!owner && guild
+      ? [
+          {
+            label: 'Sunucudan Ayrıl',
+            danger: true,
+            onClick: async () => {
+              const ok = await confirmDialog({
+                title: `"${guild.name}" sunucusundan ayrılınsın mı?`,
+                message: 'Bu sunucunun kanallarını artık göremezsin ve rollerin alınır. Geri dönmek için yeni bir davet gerekir.',
+                confirmLabel: 'Sunucudan Ayrıl',
+                danger: true,
+              });
+              if (ok && (await leaveGuild(guild.id))) toast(`"${guild.name}" sunucusundan ayrıldın.`);
+            },
           },
         ]
       : []),

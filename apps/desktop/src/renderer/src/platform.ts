@@ -1,6 +1,6 @@
 // Masaüstünün ortak çekirdeğe (@diskort/client-core) verdiği platform ayrıntıları.
 // main.tsx'te arayüzden önce içe aktarılır.
-import { configureClient, dmTitle, useGuild, useSession } from '@diskort/client-core';
+import { channelById, configureClient, dmTitle, useGuild, useSession } from '@diskort/client-core';
 import { GIF_SNIPPET, isGifMessage, type DmChannel, type Message } from '@diskort/shared';
 import { bridge } from './lib/bridge';
 import { currentView } from './lib/mainView';
@@ -32,7 +32,10 @@ function showNotification(title: string, message: Message, open: () => void): vo
 function showMentionNotification(message: Message): void {
   const guild = useGuild.getState();
   const author = message.authorId ? guild.users[message.authorId]?.displayName : undefined;
-  const channel = guild.channels.find((c) => c.id === message.channelId)?.name;
+  const found = channelById(guild, message.channelId);
+  // Birden çok sunucu varsa hangi sunucudan geldiği de yazılır
+  const guildName = found && guild.guildOrder.length > 1 ? ` (${guild.guilds[found.guildId]?.guild.name ?? ''})` : '';
+  const channel = found ? `${found.name}${guildName}` : undefined;
   const replied = message.replyMentionUserId != null && message.replyMentionUserId === useSession.getState().user?.id;
   const action = replied ? 'sana yanıt verdi' : 'senden bahsetti';
   showNotification(`${author ?? 'Biri'} ${action} · #${channel ?? ''}`, message, () =>

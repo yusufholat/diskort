@@ -2,7 +2,7 @@ import { useRef, useState, type FormEvent } from 'react';
 import { Hash, Volume2 } from 'lucide-react';
 import { Permission, type Channel, type ChannelType } from '@diskort/shared';
 import { CHANNEL_NAME_MAX_LENGTH } from '@diskort/shared';
-import { api, errorMessage, useCan } from '@diskort/client-core';
+import { api, errorMessage, useCan, useGuild } from '@diskort/client-core';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
 import { Modal } from '../ui/Modal';
@@ -99,7 +99,7 @@ function ChannelForm({
       if (channel) {
         await api.updateChannel(channel.id, { name: finalName });
       } else {
-        const created = await api.createChannel({ name: finalName, type });
+        const created = await api.createChannel(useGuild.getState().activeGuildId ?? '', { name: finalName, type });
         if (created.type === 'text') setView({ kind: 'text', channelId: created.id });
       }
       onDone();

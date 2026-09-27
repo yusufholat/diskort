@@ -5,7 +5,7 @@ import { voice } from '../../features/voice/voiceClient';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { useMountedRef, usePresenceList, type PresenceEntry, type PresencePhase } from '../../lib/motion';
 import { cn } from '../../lib/utils';
-import { membersOf, useCan, useGuild, useMemberColor, useSession } from '@diskort/client-core';
+import { channelById, membersOf, useCan, useGuild, useMemberColor, useSession } from '@diskort/client-core';
 import { useSettings } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
@@ -19,7 +19,7 @@ type Tile = { kind: 'user'; state: VoiceState } | { kind: 'stream'; userId: stri
 export function VoiceStage() {
   const channelId = useVoice((s) => s.channelId)!;
   const status = useVoice((s) => s.status);
-  const channel = useGuild((s) => s.channels.find((c) => c.id === channelId));
+  const channel = useGuild((s) => channelById(s, channelId));
   const voiceStates = useGuild((s) => s.voiceStates);
   const streams = useVoice((s) => s.streams);
   const watching = useVoice((s) => s.watching);

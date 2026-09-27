@@ -39,7 +39,7 @@ export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' |
   const canAttach = useCan(Permission.SEND_MESSAGES | Permission.ATTACH_FILES, channel.id);
   const memberListOpen = useUi((s) => s.memberListOpen);
   // Bire bir konuşmada karşı taraf ayrıldıysa yazma kutusu yerine neden gösterilir
-  const blocked = useGuild((s) => (dm ? dmBlockedReason(dm, s.users, self.id) : null));
+  const blocked = useGuild((s) => (dm ? dmBlockedReason(dm, s.users, self.id, s.reachable) : null));
   const partner = useGuild((s) => (dm ? dmPartner(dm, s.users, self.id) : undefined));
   // Adı kanal gibi "#ad", bire bir konuşmada "@ad" olarak geçer
   const label = dm ? (dm.group ? channel.name : `@${channel.name}`) : `#${channel.name}`;
