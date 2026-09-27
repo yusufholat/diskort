@@ -16,6 +16,7 @@ import { usePresence } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { useConnectionStats, type ConnectionDetail, type VoiceServerInfo } from '../../stores/connectionStats';
 import { toast } from '../../stores/ui';
+import { useVoice } from '../../stores/voice';
 import { PingChart } from './PingChart';
 
 const MARGIN = 8;
@@ -48,6 +49,8 @@ function diagnostics(): string {
       subscriber: detail?.subscriber ?? null,
       streamLabels: detail?.labels ?? {},
       micProcessing: voice.micProcessingStats(),
+      screenAuto: useVoice.getState().screenAuto,
+      screenHardwareEncoder: voice.screenHardwareEncoder,
     },
     null,
     2,
@@ -342,6 +345,7 @@ function DebugView({ onBack }: { onBack: () => void }) {
           {server?.version && <Row label="LiveKit sürümü" value={server.version} />}
         </Section>
         <MicProcessingSection />
+        <ScreenAutoSection />
         {!detail ? (
           <div className="py-6 text-center text-sm text-text-muted">Ölçülüyor…</div>
         ) : (
@@ -410,6 +414,20 @@ function MicProcessingSection() {
           <Row label="Ek gecikme" value={`${Math.round(stats.latencyMs)} ms`} tip="Modelin algoritmik gecikmesi + tamponlama" />
         </>
       )}
+    </Section>
+  );
+}
+
+/** Otomatik yayın kalitesinin kararı (yalnızca Otomatik kalitede yayın yaparken) */
+function ScreenAutoSection() {
+  const status = useVoice((v) => v.screenAuto);
+  if (!status) return null;
+  const hardware = voice.screenHardwareEncoder;
+  return (
+    <Section title="Yayın">
+      <dt className="col-span-2 font-semibold text-text-head">{status.label.replace('Otomatik — ', 'Yayın: Otomatik — ')}</dt>
+      <Row label="Kodlayıcı yolu" value={hardware === 'h264-high' ? 'Ekran kartı · H.264 High' : hardware === 'av1-l1t1' ? 'Ekran kartı · AV1' : 'Varsayılan'} />
+      {status.lastChange && <Row label="Son karar" value={status.lastChange} tip={status.lastChange} />}
     </Section>
   );
 }

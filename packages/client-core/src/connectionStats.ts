@@ -53,6 +53,12 @@ export interface RtpStream {
   implementation: string | null;
   /** Yalnızca giden görüntü: çözünürlük/kare hızı neden düşürüldü (cpu, bandwidth, none) */
   qualityLimitationReason: string | null;
+  /** Yalnızca giden görüntü: simulcast katmanının kimliği (q/h/f); tek katmanda null */
+  rid: string | null;
+  /** Yalnızca giden görüntü: kodlanan kare sayısı, toplam */
+  framesEncoded: number | null;
+  /** Yalnızca giden görüntü: kodlayıcının o anki hedef bit hızı (bit/sn; tıkanıklık denetiminin payı) */
+  targetBitrate: number | null;
   /** Ses: gizlenen (kayıp yüzünden sentezlenen) örnek sayısı, toplam */
   concealedSamples: number | null;
   totalSamplesReceived: number | null;
@@ -191,6 +197,9 @@ export function parseTransportStats(report: StatsSource, at: number = Date.now()
         framesPerSecond: num(s.framesPerSecond),
         implementation: str(s.encoderImplementation),
         qualityLimitationReason: str(s.qualityLimitationReason),
+        rid: str(s.rid),
+        framesEncoded: num(s.framesEncoded),
+        targetBitrate: num(s.targetBitrate),
         concealedSamples: null,
         totalSamplesReceived: null,
       });
@@ -211,6 +220,9 @@ export function parseTransportStats(report: StatsSource, at: number = Date.now()
         framesPerSecond: num(s.framesPerSecond),
         implementation: str(s.decoderImplementation),
         qualityLimitationReason: null,
+        rid: null,
+        framesEncoded: null,
+        targetBitrate: null,
         concealedSamples: num(s.concealedSamples),
         totalSamplesReceived: num(s.totalSamplesReceived),
       });
