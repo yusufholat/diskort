@@ -37,6 +37,7 @@ export const clientReady = configureClient({
     toast(`${author ?? 'Biri'} senden bahsetti · #${channel ?? ''}`);
   },
   onUpdateRequired: (version) => useUi.setState({ updateRequired: version }),
-  // Yeni sürüm yayınlandı: hemen denetle (sesteyse sesten çıkınca güncelleme ekranı gösterilir)
+  // Yeni sürüm yayınlandı: hemen denetle. Arayüz güncellemesi arka planda iner, uygulamaya dönünce
+  // uygulanır; yeni APK gerekiyorsa güncelleme ekranı çıkar (sesteyse sesten çıkınca)
   onUpdateAvailable: () => void checkForUpdate(true),
 });

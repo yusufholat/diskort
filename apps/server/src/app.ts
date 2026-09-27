@@ -9,6 +9,7 @@ import type { AppContext } from './context.js';
 import { Store } from './db.js';
 import { Gateway } from './gateway.js';
 import { LiveKitService } from './livekit.js';
+import { OtaService } from './ota.js';
 import { PushService } from './push.js';
 import { ReleaseService } from './releases.js';
 import { VoiceStateStore } from './voiceState.js';
@@ -26,6 +27,8 @@ export interface BuildOptions {
   livekit?: LiveKitService;
   releases?: ReleaseService;
   push?: PushService;
+  /** Testler için sahte GitHub indirmesi */
+  otaFetch?: typeof fetch;
 }
 
 export async function buildApp(
@@ -47,7 +50,8 @@ export async function buildApp(
   const clientVersions = new ClientVersionPolicy(releases, config.enforceClientVersion, config.minMobileVersions);
   const gateway = new Gateway(store, auth, voice, guild, clientVersions);
   const push = opts.push ?? new PushService(store, config.fcmServiceAccountFile, app.log);
-  const ctx: AppContext = { config, store, auth, voice, livekit, gateway, releases, clientVersions, push, guild };
+  const ota = new OtaService(releases, app.log, opts.otaFetch);
+  const ctx: AppContext = { config, store, auth, voice, livekit, gateway, releases, clientVersions, ota, push, guild };
 
   // Yeni sürüm yayınlanınca bağlı istemciler arka planda indirmeye başlasın
   releases.onNewRelease((release) => gateway.broadcast({ t: 'UPDATE_AVAILABLE', d: { version: release.version } }));

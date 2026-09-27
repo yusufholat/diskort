@@ -7,6 +7,7 @@ import type { Config } from './config.js';
 import type { Store } from './db.js';
 import type { Gateway } from './gateway.js';
 import type { LiveKitService } from './livekit.js';
+import type { OtaService } from './ota.js';
 import type { PushService } from './push.js';
 import type { ReleaseService } from './releases.js';
 import type { VoiceStateStore } from './voiceState.js';
@@ -20,6 +21,7 @@ export interface AppContext {
   gateway: Gateway;
   releases: ReleaseService;
   clientVersions: ClientVersionPolicy;
+  ota: OtaService;
   push: PushService;
   guild: Guild;
 }

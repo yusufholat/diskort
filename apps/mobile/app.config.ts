@@ -49,6 +49,19 @@ const config: ExpoConfig = {
     ],
     predictiveBackGestureEnabled: false,
   },
+  // Kablosuz (OTA) güncellemeler: JavaScript paketi kendi sunucumuzdan gelir ve imzası doğrulanır.
+  // runtimeVersion = yerel kısmın parmak izi (scripts/runtime-version.mjs); CI derlemede verir.
+  // Parmak izi aynı olan uygulamalar OTA alır; yerel kısım değişince yeni APK gerekir.
+  runtimeVersion: process.env.DISKORT_RUNTIME_VERSION ?? 'gelistirme',
+  updates: {
+    url: 'https://diskort.ziroo.net/updates/expo/android',
+    enabled: true,
+    // Denetimi uygulama kendisi yapar (açılışta, "yeni sürüm" bildiriminde); bkz. src/update
+    checkAutomatically: 'NEVER',
+    fallbackToCacheTimeout: 0,
+    codeSigningCertificate: './certs/certificate.pem',
+    codeSigningMetadata: { keyid: 'main', alg: 'rsa-v1_5-sha256' },
+  },
   plugins: [
     'expo-router',
     'expo-secure-store',

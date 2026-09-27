@@ -1,70 +1,86 @@
 import { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { checkForUpdate, installUpdate, useAppUpdate } from '../update/updater';
+import { Linking, StyleSheet, Text, View } from 'react-native';
+import { useUpdates } from 'expo-updates';
+import { applyOta, installUpdate, resolveRequiredUpdate, useAppUpdate } from '../update/updater';
+import { DEFAULT_SERVER_URL } from '../stores/settings';
 import { colors } from '../theme';
 import { Button } from './ui';
 
 const mb = (bytes: number): string => (bytes / 1048576).toFixed(1).replace('.', ',');
 
 /**
- * Zorunlu güncelleme ekranı: yeni sürüm indirilir ve Android'in kurulum ekranı açılır.
+ * Güncelleme ekranı. Önce kablosuz (OTA) güncelleme denenir: arayüz iner, uygulama kendini yeniden
+ * başlatır. Yerel kısım değiştiyse yeni APK iner ve Android'in kurulum ekranı açılır.
  * `requiredVersion`: sunucu bu sürümü artık kabul etmiyor (güncelleme bilgisi henüz yoksa da gösterilir).
  */
 export function UpdateScreen({ requiredVersion }: { requiredVersion?: string | null }) {
-  const status = useAppUpdate((s) => s.status);
-  const version = status.kind !== 'idle' ? status.version : (requiredVersion ?? '');
+  const { status, ota, notFound } = useAppUpdate();
+  const { downloadProgress } = useUpdates();
+  const version =
+    ota.kind !== 'idle' ? ota.version : status.kind !== 'idle' ? status.version : (requiredVersion ?? '');
 
-  // Ekran açılınca indirmeyi kendiliğinden başlat (masaüstündeki açılış güncelleyicisi gibi);
-  // sunucu reddettiyse ama sürüm bilgisi henüz yoksa önce denetle
+  // Ekran açılınca güncellemeyi kendiliğinden başlat (masaüstündeki açılış güncelleyicisi gibi)
   useEffect(() => {
-    if (status.kind === 'available') void installUpdate();
-    else if (status.kind === 'idle') void checkForUpdate(true);
-  }, [status.kind]);
+    if (ota.kind === 'downloaded') void applyOta();
+    else if (ota.kind === 'downloading') return;
+    else if (status.kind === 'available') void installUpdate();
+    else if (status.kind === 'idle' && ota.kind === 'idle') void resolveRequiredUpdate();
+  }, [ota.kind, status.kind]);
 
   let detail: string;
-  let percent = 0;
-  switch (status.kind) {
-    case 'downloading':
-      percent = status.total ? (status.received / status.total) * 100 : 0;
-      detail = status.total ? `İndiriliyor… ${mb(status.received)} / ${mb(status.total)} MB` : 'İndiriliyor…';
-      break;
-    case 'ready':
-      percent = 100;
-      detail = 'İndirildi. Açılan ekranda "Güncelle"ye bas; kurulumdan sonra Diskort\'u yeniden aç.';
-      break;
-    case 'error':
-      detail = status.message;
-      break;
-    default:
-      detail = 'Güncelleme hazırlanıyor…';
+  let percent: number | null = null;
+  let action: { title: string; run: () => void } | null = null;
+
+  if (ota.kind === 'downloading') {
+    percent = (downloadProgress ?? 0) * 100;
+    detail = 'Yeni sürüm indiriliyor…';
+  } else if (ota.kind === 'downloaded') {
+    percent = 100;
+    detail = 'Yeniden başlatılıyor…';
+  } else if (status.kind === 'downloading') {
+    percent = status.total ? (status.received / status.total) * 100 : 0;
+    detail = status.total ? `İndiriliyor… ${mb(status.received)} / ${mb(status.total)} MB` : 'İndiriliyor…';
+  } else if (status.kind === 'ready') {
+    percent = 100;
+    detail = 'İndirildi. Açılan ekranda "Güncelle"ye bas; kurulumdan sonra Diskort\'u yeniden aç.';
+    action = { title: 'Kurulumu aç', run: () => void installUpdate() };
+  } else if (status.kind === 'error') {
+    detail = status.message;
+    action = { title: 'Tekrar dene', run: () => void installUpdate() };
+  } else if (ota.kind === 'error') {
+    detail = `Güncelleme indirilemedi: ${ota.message}`;
+    action = { title: 'Tekrar dene', run: () => void resolveRequiredUpdate() };
+  } else if (notFound) {
+    detail = 'Bu telefon için güncelleme bulunamadı. Diskort\'u indirme sayfasından yeniden kurabilirsin; hesabın korunur.';
+    action = { title: 'İndirme sayfasını aç', run: () => void Linking.openURL(`${DEFAULT_SERVER_URL}/download`) };
+  } else {
+    detail = 'Güncelleme denetleniyor…';
   }
 
+  const apk = status.kind !== 'idle' && ota.kind === 'idle';
   return (
     <View style={styles.page}>
       <View style={styles.badge}>
         <Text style={styles.badgeText}>↓</Text>
       </View>
-      <Text style={styles.title}>{version ? `Diskort ${version}` : 'Yeni sürüm'} gerekli</Text>
+      <Text style={styles.title}>{version ? `Diskort ${version}` : 'Yeni sürüm'}</Text>
       <Text style={styles.text}>{detail}</Text>
-      {(status.kind === 'downloading' || status.kind === 'ready') && (
+      {percent !== null && (
         <View style={styles.bar}>
           <View style={[styles.fill, { width: `${Math.max(3, percent)}%` }]} />
         </View>
       )}
-      {status.kind === 'ready' && (
+      {action && (
         <View style={styles.action}>
-          <Button title="Kurulumu aç" onPress={() => void installUpdate()} />
+          <Button title={action.title} onPress={action.run} />
         </View>
       )}
-      {status.kind === 'error' && (
-        <View style={styles.action}>
-          <Button title="Tekrar dene" onPress={() => void installUpdate()} />
-        </View>
+      {apk && (
+        <Text style={styles.note}>
+          İlk güncellemede Android, Diskort'un uygulama yüklemesine izin vermeni isteyebilir. Hesabın ve ayarların
+          korunur.
+        </Text>
       )}
-      <Text style={styles.note}>
-        İlk güncellemede Android, Diskort'un uygulama yüklemesine izin vermeni isteyebilir. Hesabın ve ayarların
-        korunur.
-      </Text>
     </View>
   );
 }

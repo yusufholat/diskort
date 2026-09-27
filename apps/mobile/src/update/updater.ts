@@ -2,14 +2,18 @@ import { compareVersions } from '@diskort/shared';
 import * as Device from 'expo-device';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
+import * as Updates from 'expo-updates';
 import { create } from 'zustand';
-import { APP_VERSION } from '../version';
+import { APP_VERSION, NATIVE_VERSION } from '../version';
 import { DEFAULT_SERVER_URL } from '../stores/settings';
+import { colors } from '../theme';
 
 /**
- * Android'de uygulama içi güncelleme (masaüstündeki açılış güncelleyicisinin karşılığı):
- * yeni sürüm varsa telefona uygun APK (arm64 / armv7) indirilir ve Android'in kurulum ekranı açılır.
- * Android, uygulamaların kendilerini sessizce güncellemesine izin vermez; son onay kullanıcıdadır.
+ * Android güncellemeleri, masaüstündeki gibi zorunlu ve iki katmanlı:
+ * 1. Kablosuz (OTA): yalnızca arayüz (JavaScript) değiştiyse birkaç MB'lık imzalı paket kendi
+ *    sunucumuzdan iner ve uygulama kendini yeniden başlatır. Kullanıcı bir şey yapmaz.
+ * 2. APK: yerel kısım (Android kodu, kütüphaneler) değiştiyse telefona uygun APK (arm64 / armv7) iner
+ *    ve Android'in kurulum ekranı açılır. Android sessiz kuruluma izin vermez; son onay kullanıcıdadır.
  */
 export type UpdateStatus =
   | { kind: 'idle' }
@@ -18,15 +22,128 @@ export type UpdateStatus =
   | { kind: 'ready'; version: string; uri: string }
   | { kind: 'error'; version: string; message: string };
 
+export type OtaStatus =
+  | { kind: 'idle' }
+  | { kind: 'downloading'; version: string }
+  /** İndirildi; uygulama yeniden başlayınca devreye girer */
+  | { kind: 'downloaded'; version: string }
+  | { kind: 'error'; version: string; message: string };
+
 interface UpdateStore {
+  /** APK güncellemesi */
   status: UpdateStatus;
+  ota: OtaStatus;
+  /** Zorunlu güncelleme arandı ama bu telefon için bulunamadı */
+  notFound: boolean;
 }
 
-export const useAppUpdate = create<UpdateStore>()(() => ({ status: { kind: 'idle' } }));
+export const useAppUpdate = create<UpdateStore>()(() => ({
+  status: { kind: 'idle' },
+  ota: { kind: 'idle' },
+  notFound: false,
+}));
 
 const CHECK_THROTTLE_MS = 10 * 60_000;
+/** Açılışta sunucu bu kadar sürede yanıt vermezse beklemeden açılır (ör. internet yok) */
+const LAUNCH_CHECK_TIMEOUT_MS = 4000;
 let lastCheck = 0;
-let checking: Promise<void> | null = null;
+let checking: Promise<boolean> | null = null;
+
+const otaEnabled = (): boolean => !__DEV__ && Updates.isEnabled;
+
+// ——— Kablosuz (OTA) güncelleme ———
+
+/** Sunucuda bu telefona uygun, çalışandan yeni bir arayüz varsa sürümünü döner. */
+async function findOta(): Promise<string | null> {
+  if (!otaEnabled()) return null;
+  try {
+    const result = await Updates.checkForUpdateAsync();
+    if (!result.isAvailable || !result.manifest) return null;
+    const version = (result.manifest as { extra?: { expoClient?: { version?: string } } }).extra?.expoClient?.version;
+    // Test APK'ları kendi içindeki daha yeni arayüzü eski bir sürümle değiştirmesin
+    return version && compareVersions(version, APP_VERSION) > 0 ? version : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Arayüz paketini indirir. `apply`: indirince hemen yeniden başlat. */
+async function downloadOta(version: string, apply: boolean): Promise<boolean> {
+  useAppUpdate.setState({ ota: { kind: 'downloading', version } });
+  try {
+    const result = await Updates.fetchUpdateAsync();
+    if (!result.isNew) throw new Error('Güncelleme paketi alınamadı.');
+    useAppUpdate.setState({ ota: { kind: 'downloaded', version } });
+    if (apply) await applyOta();
+    return true;
+  } catch (err) {
+    useAppUpdate.setState({
+      ota: { kind: 'error', version, message: err instanceof Error ? err.message : String(err) },
+    });
+    return false;
+  }
+}
+
+/** İndirilmiş arayüzle uygulamayı yeniden başlatır (bir iki saniye sürer). */
+export async function applyOta(): Promise<void> {
+  if (useAppUpdate.getState().ota.kind !== 'downloaded') return;
+  await Updates.reloadAsync({
+    reloadScreenOptions: { backgroundColor: colors.rail, spinner: { color: '#ffffff' }, fade: true },
+  });
+}
+
+/**
+ * Açılış güncelleyicisi (masaüstündeki gibi): yeni arayüz varsa uygulama açılmadan indirip yeniden
+ * başlatır; yoksa ya da sunucuya ulaşılamazsa beklemeden devam eder.
+ */
+export async function updateOnLaunch(): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), LAUNCH_CHECK_TIMEOUT_MS);
+  });
+  const version = await Promise.race([findOta(), timedOut]);
+  clearTimeout(timer);
+  // Sunucu yavaşsa uygulama açılsın; uygulama öne geldiğinde yeniden denenir
+  if (version === 'timeout') return;
+  lastCheck = Date.now();
+  if (version) await downloadOta(version, true);
+  else void checkApk();
+}
+
+// ——— Denetim ———
+
+/**
+ * Yeni sürüm var mı? Önce kablosuz güncelleme (arka planda indirilir, uygulama öne gelince
+ * uygulanır), yoksa yeni APK. Bir şey bulunursa true döner.
+ */
+export function checkForUpdate(force = false): Promise<boolean> {
+  if (!force && Date.now() - lastCheck < CHECK_THROTTLE_MS) return Promise.resolve(false);
+  const { status, ota } = useAppUpdate.getState();
+  if (ota.kind === 'downloading' || ota.kind === 'downloaded') return Promise.resolve(true);
+  if (status.kind === 'downloading' || status.kind === 'ready') return Promise.resolve(true);
+  checking ??= (async () => {
+    try {
+      const otaVersion = await findOta();
+      if (otaVersion) return await downloadOta(otaVersion, false);
+      return await checkApk();
+    } finally {
+      lastCheck = Date.now();
+      checking = null;
+    }
+  })();
+  return checking;
+}
+
+/** Zorunlu güncelleme ekranı: ne bulunursa hemen uygular; bulunamazsa ekranda nedenini gösterir. */
+export async function resolveRequiredUpdate(): Promise<void> {
+  useAppUpdate.setState({ notFound: false });
+  const found = await checkForUpdate(true);
+  const { ota } = useAppUpdate.getState();
+  if (ota.kind === 'downloaded') await applyOta();
+  else if (!found) useAppUpdate.setState({ notFound: true });
+}
+
+// ——— APK güncellemesi ———
 
 /** Telefona uygun APK: günümüz telefonları arm64, eskiler armv7; bilinmiyorsa hepsini içeren APK. */
 function apkName(version: string): string {
@@ -35,29 +152,22 @@ function apkName(version: string): string {
   return abi ? `Diskort-${version}-android-${abi}.apk` : `Diskort-${version}-android.apk`;
 }
 
-/** Sunucuya en son Android sürümünü sorar; yeni sürüm varsa durumu "available" yapar. */
-export function checkForUpdate(force = false): Promise<void> {
-  if (!force && Date.now() - lastCheck < CHECK_THROTTLE_MS) return Promise.resolve();
-  const current = useAppUpdate.getState().status;
-  if (current.kind === 'downloading' || current.kind === 'ready') return Promise.resolve();
-  checking ??= (async () => {
-    try {
-      const res = await fetch(`${DEFAULT_SERVER_URL}/api/client/version?platform=android`, {
-        headers: { 'Cache-Control': 'no-store' },
-      });
-      if (!res.ok) return;
-      const { latest } = (await res.json()) as { latest: string | null };
-      lastCheck = Date.now();
-      if (latest && compareVersions(latest, APP_VERSION) > 0) {
-        useAppUpdate.setState({ status: { kind: 'available', version: latest } });
-      }
-    } catch {
-      // internet yoksa sessizce geç; bir sonraki açılışta tekrar denenir
-    } finally {
-      checking = null;
+/** Sunucuya en son APK sürümünü sorar; yüklü APK'dan yeniyse durumu "available" yapar. */
+async function checkApk(): Promise<boolean> {
+  try {
+    const res = await fetch(`${DEFAULT_SERVER_URL}/api/client/version?platform=android`, {
+      headers: { 'Cache-Control': 'no-store' },
+    });
+    if (!res.ok) return false;
+    const { latest } = (await res.json()) as { latest: string | null };
+    if (latest && compareVersions(latest, NATIVE_VERSION) > 0) {
+      useAppUpdate.setState({ status: { kind: 'available', version: latest } });
+      return true;
     }
-  })();
-  return checking;
+  } catch {
+    // internet yoksa sessizce geç; bir sonraki açılışta tekrar denenir
+  }
+  return false;
 }
 
 let download: FileSystem.DownloadResumable | null = null;
@@ -69,7 +179,7 @@ export async function cleanupDownloads(): Promise<void> {
     if (!dir) return;
     for (const name of await FileSystem.readDirectoryAsync(dir)) {
       const version = /^Diskort-(\d+\.\d+\.\d+)-android.*\.apk$/.exec(name)?.[1];
-      if (version && compareVersions(version, APP_VERSION) <= 0) {
+      if (version && compareVersions(version, NATIVE_VERSION) <= 0) {
         await FileSystem.deleteAsync(dir + name, { idempotent: true });
       }
     }

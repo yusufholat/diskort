@@ -14,7 +14,11 @@ export interface LatestRelease {
   version: string;
   publishedAt: string;
   assets: Partial<Record<Platform, PlatformAsset>>;
+  /** Kablosuz (OTA) güncelleme bildirimleri: Diskort-<sürüm>-ota-<platform>.json */
+  ota: Partial<Record<OtaPlatform, PlatformAsset>>;
 }
+
+export type OtaPlatform = 'android';
 
 interface GithubAsset {
   name: string;
@@ -34,11 +38,33 @@ const MATCHERS: Record<Platform, RegExp> = {
 
 export const PLATFORMS = Object.keys(MATCHERS) as Platform[];
 
+const OTA_MATCHERS: Record<OtaPlatform, RegExp> = {
+  android: /-ota-android\.json$/i,
+};
+
+/** Dosya adındaki sürüm: Diskort-0.2.1-android.apk → 0.2.1 */
+export function versionInName(name: string): string | null {
+  return /(?:^|[-_])v?(\d+\.\d+\.\d+)(?=[-_.])/.exec(name)?.[1] ?? null;
+}
+
+function toAsset(asset: GithubAsset): PlatformAsset {
+  return { name: asset.name, size: asset.size, url: asset.browser_download_url };
+}
+
 export function pickAssets(assets: GithubAsset[]): Partial<Record<Platform, PlatformAsset>> {
   const result: Partial<Record<Platform, PlatformAsset>> = {};
   for (const platform of PLATFORMS) {
     const asset = assets.find((a) => MATCHERS[platform].test(a.name));
-    if (asset) result[platform] = { name: asset.name, size: asset.size, url: asset.browser_download_url };
+    if (asset) result[platform] = toAsset(asset);
+  }
+  return result;
+}
+
+export function pickOtaAssets(assets: GithubAsset[]): Partial<Record<OtaPlatform, PlatformAsset>> {
+  const result: Partial<Record<OtaPlatform, PlatformAsset>> = {};
+  for (const [platform, matcher] of Object.entries(OTA_MATCHERS) as [OtaPlatform, RegExp][]) {
+    const asset = assets.find((a) => matcher.test(a.name));
+    if (asset) result[platform] = toAsset(asset);
   }
   return result;
 }
@@ -102,6 +128,7 @@ export class ReleaseService {
         version: body.tag_name.replace(/^v/, ''),
         publishedAt: body.published_at,
         assets: pickAssets(body.assets),
+        ota: pickOtaAssets(body.assets),
       };
       const previous = this.cache?.value.version;
       this.cache = { at: Date.now(), value };

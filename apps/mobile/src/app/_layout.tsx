@@ -9,7 +9,7 @@ import { gateway, useSession } from '@diskort/client-core';
 import { UpdateScreen } from '../components/UpdateScreen';
 import { channelFromResponse, registerForPush } from '../notifications';
 import { clientReady } from '../setup';
-import { checkForUpdate, cleanupDownloads, useAppUpdate } from '../update/updater';
+import { applyOta, checkForUpdate, cleanupDownloads, updateOnLaunch, useAppUpdate } from '../update/updater';
 import { useUi } from '../stores/ui';
 import { colors } from '../theme';
 import { useVoice, voice } from '../voice/voice';
@@ -20,24 +20,31 @@ export default function RootLayout() {
   const [ready, setReady] = useState(false);
   const token = useSession((s) => s.token);
   const updateRequired = useUi((s) => s.updateRequired);
-  const updatePending = useAppUpdate((s) => s.status.kind !== 'idle');
+  const apkPending = useAppUpdate((s) => s.status.kind !== 'idle');
+  const launchUpdating = useAppUpdate((s) => s.ota.kind === 'downloading' || s.ota.kind === 'downloaded');
   const inVoice = useVoice((s) => s.status !== 'idle');
   // Yeni sürüm zorunludur; ama süren sesli sohbet bölünmez, sesten çıkınca gösterilir
-  const showUpdate = Boolean(updateRequired) || (updatePending && !inVoice);
+  const showUpdate = Boolean(updateRequired) || (apkPending && !inVoice);
 
   useEffect(() => {
-    void clientReady.finally(() => setReady(true));
+    // Açılış güncelleyicisi: yeni arayüz varsa uygulama açılmadan iner ve uygulama yeniden başlar
+    void clientReady
+      .catch(() => undefined)
+      .then(updateOnLaunch)
+      .finally(() => setReady(true));
     void cleanupDownloads();
-    void checkForUpdate(true);
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void checkForUpdate();
+      if (state !== 'active') return;
+      // Arka planda inen arayüz güncellemesi uygulamaya dönünce uygulanır (sesli sohbet bölünmez)
+      if (useAppUpdate.getState().ota.kind === 'downloaded' && useVoice.getState().status === 'idle') void applyOta();
+      else void checkForUpdate();
     });
     return () => sub.remove();
   }, []);
 
   useEffect(() => {
-    if (ready) void SplashScreen.hideAsync();
-  }, [ready]);
+    if (ready || launchUpdating) void SplashScreen.hideAsync();
+  }, [ready, launchUpdating]);
 
   // Oturum açılınca bu telefonu bildirimler için kaydet
   useEffect(() => {
@@ -71,7 +78,14 @@ export default function RootLayout() {
     };
   }, [ready, token, updateRequired]);
 
-  if (!ready) return null;
+  if (!ready) {
+    return launchUpdating ? (
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        <UpdateScreen />
+      </SafeAreaProvider>
+    ) : null;
+  }
 
   return (
     <SafeAreaProvider>

@@ -4,7 +4,7 @@ import { api, errorMessage, gateway, useSession } from '@diskort/client-core';
 import { Avatar } from '../components/Avatar';
 import { Button, Field, SectionTitle, ui } from '../components/ui';
 import { registerForPush, unregisterPush, usePushState } from '../notifications';
-import { APP_VERSION } from '../version';
+import { APP_VERSION, NATIVE_VERSION } from '../version';
 import { DEFAULT_SERVER_URL, useSettings } from '../stores/settings';
 import { toast } from '../stores/ui';
 import { colors } from '../theme';
@@ -60,7 +60,7 @@ export default function SettingsScreen() {
       <NotificationSettings />
 
       <SectionTitle>Uygulama</SectionTitle>
-      <Info label="Sürüm" value={APP_VERSION} />
+      <Info label="Sürüm" value={APP_VERSION === NATIVE_VERSION ? APP_VERSION : `${APP_VERSION} (APK ${NATIVE_VERSION})`} />
       {serverUrl !== DEFAULT_SERVER_URL && <Info label="Sunucu" value={serverUrl} />}
       <Pressable onPress={() => void Linking.openURL(`${DEFAULT_SERVER_URL}/privacy`)} style={styles.link}>
         <Text style={styles.linkText}>Gizlilik</Text>

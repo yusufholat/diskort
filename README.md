@@ -34,7 +34,7 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
 | Yayına sistem sesi | ✅ | ❌ (planlı) | ❌ (planlı) | — |
 | Global kısayollar / bas-konuş | ✅ | ✅ X11 · ⚠️ Wayland | ✅ (Erişilebilirlik izni) | — |
 | Paket | NSIS kurulum (x64) | AppImage, .deb (x64) | .dmg (Apple Silicon, Intel) | APK (Android 7+) |
-| Otomatik güncelleme | ✅ | ✅ | ❌ (Apple imzası gerekir; indirme sayfasından) | ❌ (uygulama yeni sürümü indirme sayfasına yönlendirir) |
+| Otomatik güncelleme | ✅ | ✅ | ❌ (Apple imzası gerekir; indirme sayfasından) | ✅ arayüz kablosuz (OTA), yerel kısım APK ile |
 | Kod imzası | ❌ (SmartScreen uyarısı, yalnızca ilk kurulumda) | — | ad-hoc (ilk açılışta “Yine de Aç”) | kendi anahtarımız |
 
 ## Mimari
@@ -206,14 +206,33 @@ APK, GitHub Actions'ta derlenir (`.github/workflows/android.yml`) ve depoda **ol
 imzalanır (gizli değişkenler `ANDROID_KEYSTORE_*`; yedeği sahibinin bilgisayarında). Anahtar kaybolursa kurulu
 uygulamalar güncellenemez, herkes kaldırıp yeniden kurmak zorunda kalır.
 
-- Test APK'sı: GitHub → Actions → **Android APK** → *Run workflow* (çıktı "artifact" olarak iner).
-- Sürümde: etiket gönderilince APK da derlenip sürüme `Diskort-<sürüm>-android.apk` olarak eklenir;
-  indirme sayfası `/download/android` ile sunar.
-- Mobil uygulamanın bağlanabilmesi için gereken en düşük sürüm sunucuda `MIN_ANDROID_VERSION`
-  (yalnızca uyumsuz bir değişiklikte artırılır; her sürümde değil).
-- **Güncelleme:** uygulama açılırken (seste değilse) yeni sürüm varsa telefona uygun APK'yı indirir
-  (`Diskort-<sürüm>-android-arm64-v8a.apk` / `-armeabi-v7a.apk`, ~50–60 MB) ve Android'in kurulum ekranını
-  açar; son onay kullanıcıdadır (Android sessiz kuruluma izin vermez). İndirme sayfası hepsini içeren APK'yı sunar.
+- Test APK'sı: GitHub → Actions → **Android APK** → *Run workflow* (çıktı "artifact" olarak iner). Varsayılan
+  yalnızca arm64 derlenir (daha hızlı); *Tüm işlemciler* seçilirse armv7 ve evrensel APK da.
+- Sürümde: etiket gönderilince sürüme OTA paketi (`Diskort-<sürüm>-ota-*`) ve APK'lar eklenir; indirme sayfası
+  `/download/android` ile hepsini içeren APK'yı sunar.
+
+**Güncellemeler iki katmanlıdır** (masaüstündeki gibi zorunlu):
+
+1. **Kablosuz (OTA), yalnızca arayüz değiştiyse:** uygulama açılırken `https://diskort.ziroo.net/updates/expo/android`
+   adresine sorar ([Expo Updates protokolü](https://docs.expo.dev/technical-specs/expo-updates-1/)). Yeni arayüz
+   varsa birkaç MB'lık paketi indirip kendini yeniden başlatır; kullanıcı bir şey yapmaz. Uygulama açıkken yeni
+   sürüm yayınlanırsa paket arka planda iner, uygulamaya dönünce (seste değilse) uygulanır.
+2. **APK, yerel kısım değiştiyse** (Android kodu, yerel kütüphaneler, izinler, Expo/React Native sürümü):
+   telefona uygun APK iner (`Diskort-<sürüm>-android-arm64-v8a.apk` / `-armeabi-v7a.apk`, ~50–60 MB) ve
+   Android'in kurulum ekranı açılır; son onay kullanıcıdadır (Android sessiz kuruluma izin vermez).
+
+Hangisinin gerektiğine **yerel kısmın parmak izi** karar verir (`apps/mobile/scripts/runtime-version.mjs`,
+`@expo/fingerprint`; APK'ya `runtimeVersion` olarak yazılır). OTA paketi yalnızca aynı parmak izli APK'lara
+gider. Sürüm derlenirken parmak izi önceki sürümünkiyle aynıysa APK hiç derlenmez, önceki sürümün APK'ları
+taşınır (adlarında eski sürüm numarası kalır); böylece yalnızca arayüz değişen bir sürüm ~3 dakikada çıkar.
+
+- OTA paketi ayrı bir anahtarla **imzalanır** (GitHub gizli değişkeni `OTA_SIGNING_KEY`; yedeği sahibinin
+  bilgisayarında). Telefon, imzayı uygulamanın içindeki sertifikayla (`apps/mobile/certs/certificate.pem`)
+  doğrular; sunucu ele geçirilse bile telefonlara kod gönderilemez. Anahtar kaybolursa OTA durur (APK'lar çalışır);
+  yeni anahtar/sertifika yeni bir APK ile dağıtılır.
+- Zorunluluk: sürümde OTA varsa sürümün kendisi, yoksa APK'nın sürümü gerekir. Sunucudaki `MIN_ANDROID_VERSION`
+  yalnızca bunun altına inilmemesi içindir (normalde boş).
+- Yerel derlemeler (`expo run:android`) `runtimeVersion` = `gelistirme` alır ve OTA almaz.
 - **Bildirimler (bahsetmeler):** sunucu, Google'ın FCM HTTP v1 arayüzüne doğrudan gönderir; Firebase yalnızca
   teslimat yapar. Sunucuda `infra/secrets/fcm.json` (Firebase → Proje ayarları → Service accounts →
   Generate new private key, `chmod 600`) ve `.env`'de `FCM_SERVICE_ACCOUNT_FILE=/run/secrets/fcm.json`.
@@ -231,8 +250,8 @@ değeridir (şu an `https://diskort.ziroo.net`; kullanıcılar giriş ekranında
    ```bash
    git tag v0.1.3 && git push origin v0.1.3
    ```
-4. GitHub Actions (`.github/workflows/release.yml`) Windows, Linux ve macOS paketlerini derleyip taslak
-   (draft) sürüme yükler; Linux paketi sanal ekranda açılış testinden geçer.
+4. GitHub Actions (`.github/workflows/release.yml`) Windows, Linux, macOS ve Android paketlerini derleyip
+   taslak (draft) sürüme yükler; Linux paketi sanal ekranda açılış testinden geçer.
 5. Taslağı yayınla (`gh release edit v0.1.3 --draft=false --latest`). **Yayınladığın anda bu sürüm
    zorunlu olur:** açılan her uygulama güncellenir, sunucu birkaç dakika içinde eski sürümleri reddeder.
 

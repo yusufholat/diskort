@@ -1,28 +1,46 @@
-# Android APK derlemesi (apps/mobile). İki kullanım:
+# Android derlemesi (apps/mobile). İki kullanım:
 # - Elle (Actions → "Android APK" → Run workflow): test APK'sı derlenir, "artifact" olarak saklanır.
-# - Sürüm iş akışından (release.yml): APK taslak sürüme Diskort-<sürüm>-android.apk olarak yüklenir.
+#   Varsayılan yalnızca arm64 (günümüz telefonları; daha hızlı), "Tüm işlemciler" seçilirse hepsi.
+# - Sürüm iş akışından (release.yml): taslak sürüme yüklenir:
+#   * Kablosuz (OTA) güncelleme: imzalı arayüz paketi (Diskort-<sürüm>-ota-*). Telefonlar açılışta indirir.
+#   * APK'lar: yalnızca yerel kısım (Android kodu, kütüphaneler) değiştiyse yeniden derlenir; değişmediyse
+#     önceki sürümün APK'ları olduğu gibi taşınır (derleme ~10 dk yerine ~3 dk sürer).
+#   Yerel kısmın değişip değişmediğini parmak izi söyler (apps/mobile/scripts/runtime-version.mjs).
 #
 # APK, depoda olmayan kalıcı anahtarla imzalanır (gizli değişkenler: ANDROID_KEYSTORE_BASE64,
 # ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS). Anahtar kaybedilirse kurulu uygulamalar güncellenemez.
+# OTA paketi ayrı bir anahtarla imzalanır (OTA_SIGNING_KEY); telefon imzayı uygulamadaki
+# sertifikayla (apps/mobile/certs/certificate.pem) doğrular.
 name: Android APK
 
 on:
   workflow_dispatch:
+    inputs:
+      all-abis:
+        description: Tüm işlemciler (armv7 ve evrensel APK da); kapalıysa yalnızca arm64
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       release-tag:
-        description: APK'nın yükleneceği sürüm etiketi (boşsa yalnızca artifact)
+        description: Paketlerin yükleneceği sürüm etiketi (boşsa yalnızca artifact)
         type: string
         default: ''
 
 permissions:
   contents: write
 
+env:
+  UPDATES_BASE_URL: https://diskort.ziroo.net/updates
+
 jobs:
   apk:
     name: Android
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      RELEASE_TAG: ${{ inputs.release-tag }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
 
@@ -33,21 +51,15 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - uses: gradle/actions/setup-gradle@v4
-
       - run: pnpm install --frozen-lockfile
 
       - name: Sürüm etiketiyle uyumlu mu?
-        if: inputs.release-tag != ''
+        id: version
         run: |
           version=$(node -p "require('./apps/mobile/package.json').version")
-          if [ "v$version" != "${{ inputs.release-tag }}" ]; then
-            echo "::error::Etiket (${{ inputs.release-tag }}) ile apps/mobile/package.json sürümü (v$version) uyuşmuyor"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ -n "$RELEASE_TAG" ] && [ "v$version" != "$RELEASE_TAG" ]; then
+            echo "::error::Etiket ($RELEASE_TAG) ile apps/mobile/package.json sürümü (v$version) uyuşmuyor"
             exit 1
           fi
 
@@ -65,11 +77,64 @@ jobs:
             echo "$GOOGLE_SERVICES_JSON" | base64 -d > apps/mobile/google-services.json
           fi
 
-      - name: Android projesini oluştur (expo prebuild)
+      # Yerel kısmın parmak izi: APK'nın "runtimeVersion"ı. OTA paketi yalnızca aynı parmak izli
+      # APK'lara gider. Android projesi oluşturulmadan önce hesaplanmalı.
+      - name: Yerel kısmın parmak izi
+        id: runtime
         working-directory: apps/mobile
+        run: |
+          runtime=$(node scripts/runtime-version.mjs)
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
+          echo "Parmak izi: $runtime"
+
+      - name: Önceki sürümün APK'sı kullanılabilir mi?
+        id: reuse
+        if: env.RELEASE_TAG != ''
+        env:
+          RUNTIME: ${{ steps.runtime.outputs.runtime }}
+        run: |
+          prev=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)
+          prev_runtime=""
+          if [ -n "$prev" ] && [ "$prev" != "$RELEASE_TAG" ]; then
+            mkdir -p "$RUNNER_TEMP/prev"
+            if gh release download "$prev" -R "$GITHUB_REPOSITORY" -p '*-ota-android.json' -D "$RUNNER_TEMP/prev"; then
+              prev_runtime=$(node -p "const d=process.argv[1];require(d+'/'+require('fs').readdirSync(d)[0]).runtimeVersion" "$RUNNER_TEMP/prev")
+            fi
+          fi
+          echo "Önceki sürüm: ${prev:-yok} (parmak izi: ${prev_runtime:-yok})"
+          if [ -n "$prev_runtime" ] && [ "$prev_runtime" = "$RUNTIME" ]; then
+            echo "Yerel kısım değişmedi: $prev APK'ları taşınacak, APK derlenmeyecek."
+            echo "from=$prev" >> "$GITHUB_OUTPUT"
+          else
+            echo "Yerel kısım değişti (ya da önceki OTA yok): APK derlenecek."
+          fi
+
+      - name: Önceki sürümün APK'larını taşı
+        if: steps.reuse.outputs.from != ''
+        run: |
+          mkdir -p dist
+          gh release download "${{ steps.reuse.outputs.from }}" -R "$GITHUB_REPOSITORY" -p '*-android*.apk' -D dist
+          ls -la dist
+
+      - uses: actions/setup-java@v4
+        if: steps.reuse.outputs.from == ''
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # Gradle bağımlılıkları ve derleme önbelleği (ana daldaki derlemeler doldurur, diğerleri okur)
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.reuse.outputs.from == ''
+
+      - name: Android projesini oluştur (expo prebuild)
+        if: steps.reuse.outputs.from == ''
+        working-directory: apps/mobile
+        env:
+          DISKORT_RUNTIME_VERSION: ${{ steps.runtime.outputs.runtime }}
         run: pnpm exec expo prebuild --platform android --no-install
 
       - name: İmza anahtarını hazırla
+        if: steps.reuse.outputs.from == ''
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
@@ -80,28 +145,44 @@ jobs:
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/diskort-release.p12"
 
       - name: APK derle
+        if: steps.reuse.outputs.from == ''
         working-directory: apps/mobile/android
         env:
           ORG_GRADLE_PROJECT_DISKORT_UPLOAD_STORE_FILE: ${{ runner.temp }}/diskort-release.p12
           ORG_GRADLE_PROJECT_DISKORT_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ORG_GRADLE_PROJECT_DISKORT_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ORG_GRADLE_PROJECT_DISKORT_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-        run: ./gradlew assembleRelease --no-daemon
+          # Sürümde hepsi; elle derlemede istenmediyse yalnızca arm64 (C++ kısımları bir kez derlenir)
+          ALL_ABIS: ${{ env.RELEASE_TAG != '' || inputs.all-abis }}
+        run: |
+          abis=arm64-v8a,armeabi-v7a
+          if [ "$ALL_ABIS" != "true" ]; then abis=arm64-v8a; fi
+          echo "İşlemciler: $abis"
+          ./gradlew assembleRelease --no-daemon --build-cache \
+            -PreactNativeArchitectures="$abis" \
+            -Dorg.gradle.jvmargs="-Xmx6g -XX:MaxMetaspaceSize=1g"
 
       - name: İmzaları doğrula ve adlandır
+        if: steps.reuse.outputs.from == ''
         env:
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          version=$(node -p "require('./apps/mobile/package.json').version")
           out=apps/mobile/android/app/build/outputs/apk/release
           mkdir -p dist
           # universal: indirme sayfası (ilk kurulum); diğerleri: uygulama içi güncelleme (daha küçük)
-          cp "$out/app-universal-release.apk" "dist/Diskort-$version-android.apk"
-          cp "$out/app-arm64-v8a-release.apk" "dist/Diskort-$version-android-arm64-v8a.apk"
-          cp "$out/app-armeabi-v7a-release.apk" "dist/Diskort-$version-android-armeabi-v7a.apk"
+          copy() { if [ -f "$out/$1" ]; then cp "$out/$1" "dist/$2"; fi; }
+          copy app-universal-release.apk "Diskort-$VERSION-android.apk"
+          copy app-arm64-v8a-release.apk "Diskort-$VERSION-android-arm64-v8a.apk"
+          copy app-armeabi-v7a-release.apk "Diskort-$VERSION-android-armeabi-v7a.apk"
+          if [ -n "$RELEASE_TAG" ] && [ "$(ls dist/*.apk | wc -l)" -ne 3 ]; then
+            echo "::error::Sürüm için üç APK (evrensel, arm64, armv7) bekleniyordu"
+            exit 1
+          fi
           apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
-          keytool -exportcert -keystore "$RUNNER_TEMP/diskort-release.p12" -storetype PKCS12             -alias "$KEY_ALIAS" -storepass "$STORE_PASSWORD" -file "$RUNNER_TEMP/diskort.der" >/dev/null
+          keytool -exportcert -keystore "$RUNNER_TEMP/diskort-release.p12" -storetype PKCS12 \
+            -alias "$KEY_ALIAS" -storepass "$STORE_PASSWORD" -file "$RUNNER_TEMP/diskort.der" >/dev/null
           for apk in dist/*.apk; do
             if ! result=$("$apksigner" verify "$apk" 2>&1); then
               echo "$result"
@@ -114,13 +195,29 @@ jobs:
           ls -la dist
 
       - uses: actions/upload-artifact@v4
+        if: env.RELEASE_TAG == ''
         with:
           name: diskort-android-apk
           path: dist/*.apk
           retention-days: 14
 
-      - name: Taslak sürüme yükle
-        if: inputs.release-tag != ''
+      # Kablosuz güncelleme paketi: JavaScript ve resimler + imzalı bildirim
+      - name: OTA paketini hazırla
+        if: env.RELEASE_TAG != ''
+        working-directory: apps/mobile
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ inputs.release-tag }}" dist/*.apk --clobber -R "$GITHUB_REPOSITORY"
+          DISKORT_RUNTIME_VERSION: ${{ steps.runtime.outputs.runtime }}
+          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          pnpm exec expo export --platform android --output-dir "$RUNNER_TEMP/ota-export"
+          pnpm exec expo config --json --type public > "$RUNNER_TEMP/expo-config.json"
+          node scripts/ota-manifest.mjs --dist "$RUNNER_TEMP/ota-export" --out ../../dist-ota \
+            --version "$VERSION" --runtime "$DISKORT_RUNTIME_VERSION" \
+            --config "$RUNNER_TEMP/expo-config.json" --base-url "$UPDATES_BASE_URL"
+          ls -la ../../dist-ota | head -5
+          du -sh ../../dist-ota
+
+      - name: Taslak sürüme yükle
+        if: env.RELEASE_TAG != ''
+        run: gh release upload "$RELEASE_TAG" dist/*.apk dist-ota/* --clobber -R "$GITHUB_REPOSITORY"
