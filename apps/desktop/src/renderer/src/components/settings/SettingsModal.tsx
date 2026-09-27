@@ -14,6 +14,7 @@ import { ChangePassword } from './ChangePassword';
 import { DeleteAccount } from './DeleteAccount';
 import { KeybindInput } from './KeybindInput';
 import { MembersSection } from './MembersSection';
+import { ProfilePhoto } from './ProfilePhoto';
 import { VoiceSettings } from './VoiceSettings';
 
 const SECTIONS: { id: SettingsSection; label: string; admin?: boolean }[] = [
@@ -156,6 +157,7 @@ function AccountSection() {
           </Button>
         </div>
       </Field>
+      <ProfilePhoto user={user} />
       <SectionTitle>Profil Rengi</SectionTitle>
       <div className="flex flex-wrap gap-2">
         {AVATAR_COLORS.map((color) => (
