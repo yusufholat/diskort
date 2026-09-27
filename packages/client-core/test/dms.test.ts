@@ -157,6 +157,14 @@ describe('direkt mesajlar', () => {
     expect(useGuild.getState().dms.d2?.participantIds).toEqual(['ben', 'ali']);
   });
 
+  it('yeniden bağlanınca listeden kalkmış konuşmanın önbelleği atılır (yüklenmeye çalışılmaz)', () => {
+    useMessages.setState({
+      channels: { eski: { messages: [], hasMore: false, loading: false, loaded: true } },
+    });
+    receive({ t: 'READY', d: ready() });
+    expect(useMessages.getState().channels.eski).toBeUndefined();
+  });
+
   it('yetkiler: yalnızca katılımcılar; yönetici ayrıcalığı yok; karşı taraf ayrıldıysa yalnızca okuma', () => {
     const s = useGuild.getState();
     expect(permissionsOf(s, 'ben', 'd1')).toBe(DM_PERMISSIONS);

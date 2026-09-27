@@ -490,14 +490,24 @@ gateway.on((msg: GatewayServerMessage) => {
       }, TYPING_TIMEOUT_MS + 50);
       break;
     }
-    case 'READY':
+    case 'READY': {
       useMessages.setState({ mentionCounts: msg.d.mentionCounts });
-      // Yeniden bağlanınca yüklü kanalları tazele (kopukken gelen mesajlar kaçmasın)
+      // Yeniden bağlanınca yüklü kanalları tazele (kopukken gelen mesajlar kaçmasın). Kopukken görülemez olan
+      // kanal ya da listeden kalkan konuşma (ör. başka cihazdan gruptan ayrılındı) yüklenmez, önbellekten çıkar.
+      const known = new Set([...msg.d.channels.map((c) => c.id), ...(msg.d.dms ?? []).map((d) => d.id)]);
       for (const channelId of Object.keys(useMessages.getState().channels)) {
+        if (!known.has(channelId)) {
+          useMessages.setState((s) => {
+            const { [channelId]: _gone, ...channels } = s.channels;
+            return { channels };
+          });
+          continue;
+        }
         patch(channelId, () => ({ loaded: false }));
         void loadInitial(channelId);
       }
       break;
+    }
     case 'CHANNEL_DELETE':
     // Konuşma listeden kalktı (kapatıldı ya da gruptan ayrılındı): yeniden açılınca baştan yüklenir
     case 'DM_CHANNEL_DELETE':
