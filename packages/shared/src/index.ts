@@ -34,6 +34,26 @@ export interface VoiceState {
   joinedAt: number;
 }
 
+/** Mesaja eklenmiş dosya */
+export interface Attachment {
+  /** 128 bit rastgele kimlik (32 onaltılık karakter); adresin tahmin edilemeyen kısmı */
+  id: string;
+  /** Temizlenmiş dosya adı */
+  name: string;
+  /** Bayt */
+  size: number;
+  /** Resimlerde sunucunun dosya içeriğinden belirlediği tür; diğerlerinde yükleyenin bildirdiği */
+  contentType: string;
+  /** Yalnızca resimlerde (okunabildiyse), EXIF yönü uygulanmış hâliyle */
+  width: number | null;
+  height: number | null;
+  /**
+   * Sunucu köküne göre adres: /api/attachments/<id>/<ad>. Kimlik doğrulaması istemez (resimler
+   * <img> ile yüklenebilsin diye); adresi bilen herkes dosyayı alabilir, Discord'daki gibi.
+   */
+  url: string;
+}
+
 /** Bir mesajdaki tek bir emoji tepkisinin özeti */
 export interface Reaction {
   /** Tek bir Unicode emoji (özel emoji yok) */
@@ -52,6 +72,8 @@ export interface Message {
   content: string;
   createdAt: number;
   editedAt: number | null;
+  /** Dosya ekleri, eklendiği sırayla (mesajda dosya varsa metin boş olabilir) */
+  attachments: Attachment[];
   /** Tepkiler, ilk verilme sırasına göre */
   reactions: Reaction[];
 }
@@ -146,7 +168,10 @@ export interface UpdateChannelRequest {
 }
 
 export interface CreateMessageRequest {
+  /** Dosya eklendiyse boş olabilir */
   content: string;
+  /** Önce POST /api/channels/:id/attachments ile yüklenen dosyalar */
+  attachmentIds?: string[];
 }
 
 export interface UpdateMessageRequest {
@@ -184,6 +209,8 @@ export interface ReadyPayload {
   readStates: Record<string, string>;
   /** Bu kullanıcının kanal başına okunmamış bahsetme sayısı */
   mentionCounts: Record<string, number>;
+  /** Tek dosyanın en büyük boyutu (bayt); istemci yüklemeden önce denetler */
+  attachmentMaxBytes: number;
 }
 
 export type GatewayServerMessage =
@@ -241,6 +268,15 @@ export const MESSAGE_MAX_LENGTH = 2000;
 export const MESSAGE_PAGE_SIZE = 50;
 /** Bir mesajdaki en fazla farklı emoji tepkisi sayısı */
 export const MESSAGE_MAX_REACTIONS = 20;
+/** Bir mesajdaki en fazla dosya sayısı */
+export const MESSAGE_MAX_ATTACHMENTS = 10;
+/** Sunucu ayarı yoksa tek dosyanın en büyük boyutu */
+export const DEFAULT_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+/** Mesajın içinde resim olarak gösterilen türler (sunucu bunları dosyanın içeriğinden belirler) */
+export const INLINE_IMAGE_TYPES: readonly string[] = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+export const isImageAttachment = (a: Pick<Attachment, 'contentType'>): boolean =>
+  INLINE_IMAGE_TYPES.includes(a.contentType);
 /** "Yazıyor…" göstergesinin geçerlilik süresi; istemci bu aralıkta en fazla bir kez bildirir */
 export const TYPING_TIMEOUT_MS = 8000;
 

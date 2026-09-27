@@ -20,6 +20,8 @@ export interface Config {
   minMobileVersions: { android: string | null; ios: string | null };
   /** Telefon bildirimleri: Firebase hizmet hesabı anahtarının (JSON) yolu; yoksa bildirim gönderilmez */
   fcmServiceAccountFile: string | null;
+  /** Tek bir dosya ekinin en büyük boyutu (bayt; ATTACHMENT_MAX_MB, varsayılan 25) */
+  attachmentMaxBytes: number;
   isDev: boolean;
 }
 
@@ -40,6 +42,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
   const livekitPublicUrl = required('LIVEKIT_URL', 'ws://localhost:7880');
 
+  const attachmentMaxMb = Number(env.ATTACHMENT_MAX_MB || 25);
+  if (!Number.isFinite(attachmentMaxMb) || attachmentMaxMb <= 0) {
+    throw new Error(`Geçersiz ATTACHMENT_MAX_MB: ${env.ATTACHMENT_MAX_MB}`);
+  }
+
   return {
     host: env.HOST ?? '0.0.0.0',
     port: Number(env.PORT ?? 3000),
@@ -54,6 +61,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     enforceClientVersion: env.CLIENT_UPDATE_ENFORCE ? env.CLIENT_UPDATE_ENFORCE !== '0' : !isDev,
     minMobileVersions: { android: env.MIN_ANDROID_VERSION || null, ios: env.MIN_IOS_VERSION || null },
     fcmServiceAccountFile: env.FCM_SERVICE_ACCOUNT_FILE || null,
+    attachmentMaxBytes: Math.floor(attachmentMaxMb * 1024 * 1024),
     isDev,
   };
 }

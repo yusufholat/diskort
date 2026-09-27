@@ -119,6 +119,7 @@ export function sendMessage(channelId: string, content: string): void {
     content,
     createdAt: Date.now(),
     editedAt: null,
+    attachments: [],
     reactions: [],
     status: 'pending',
     nonce,

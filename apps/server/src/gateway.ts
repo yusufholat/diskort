@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
 import {
+  DEFAULT_ATTACHMENT_MAX_BYTES,
   GATEWAY_CLOSE_UPDATE_REQUIRED,
   GATEWAY_HEARTBEAT_INTERVAL_MS,
   type GatewayClientMessage,
@@ -41,6 +42,7 @@ export class Gateway {
     private readonly voice: VoiceStateStore,
     private readonly guild: Guild,
     private readonly clientVersions?: ClientVersionPolicy,
+    private readonly attachmentMaxBytes = DEFAULT_ATTACHMENT_MAX_BYTES,
   ) {
     voice.on('update', (state) => this.broadcast({ t: 'VOICE_STATE_UPDATE', d: state }));
     voice.on('delete', (d) => this.broadcast({ t: 'VOICE_STATE_DELETE', d }));
@@ -182,6 +184,7 @@ export class Gateway {
         lastMessageIds: this.store.lastMessageIds(),
         readStates: this.store.readStates(user.id),
         mentionCounts: this.store.mentionCounts(user.id),
+        attachmentMaxBytes: this.attachmentMaxBytes,
       },
     });
     if (!wasOnline) this.broadcast({ t: 'PRESENCE_UPDATE', d: { userId: user.id, online: true } });

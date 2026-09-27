@@ -32,6 +32,7 @@ const message = (id: string, content: string, authorId = 'u2'): Message => ({
   content,
   createdAt: Date.now(),
   editedAt: null,
+  attachments: [],
   reactions: [],
 });
 
