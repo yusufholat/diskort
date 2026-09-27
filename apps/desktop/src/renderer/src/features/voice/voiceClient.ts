@@ -19,19 +19,27 @@ import type { VoiceJoinResponse } from '@diskort/shared';
 import {
   api,
   ChannelSoundGate,
+  createScreenAuto,
+  describeScreenAuto,
   describeTransport,
   errorMessage,
   gateway,
   linkQuality,
+  measureScreen,
   outboundDelta,
   parseTransportStats,
+  planScreenEncoding,
   pushSample,
   reportClientError,
   reportVoiceLog,
+  SCREEN_AUTO,
   SpuriousDuplicateGuard,
+  stepScreenAuto,
   summarizePings,
   useGuild,
   useSession,
+  type ScreenAutoState,
+  type ScreenEncodingPlan,
   type TransportStats,
 } from '@diskort/client-core';
 import { bridge } from '../../lib/bridge';
@@ -54,15 +62,16 @@ import {
   type MicProcessingStats,
 } from './micProcessor';
 import { prepareHardwareEncoder, releaseHardwareEncoder, type HwEncoderChoice } from './hardwareEncoder';
-import { SCREEN_PRESETS } from './screenPresets';
+import { AUTO_HW_PROBE, SCREEN_PRESETS } from './screenPresets';
 import { MicTest } from './micTest';
 import { StreamPreviewUploader } from './streamPreviewUploader';
-import type { ScreenCodec, ScreenContent, ScreenPresetId } from '../../stores/settings';
+import type { ScreenCodec, ScreenContent, ScreenQuality } from '../../stores/settings';
 
 export interface ScreenShareOptions {
   /** Electron kaynak kimliği; tarayıcıda/macOS'ta sistem seçicisi kullanılır */
   sourceId?: string;
-  preset: ScreenPresetId;
+  /** 'auto': içeriğe ve ağa göre ayarlanır (içerik türü seçimi yok sayılır) */
+  preset: ScreenQuality;
   codec: ScreenCodec;
   content: ScreenContent;
   audio: boolean;
@@ -91,6 +100,7 @@ const RESET_ROOM_STATE = {
   quality: 'unknown' as const,
   sharing: false,
   shareHasAudio: false,
+  screenAuto: null,
   pttActive: false,
 };
 
@@ -107,6 +117,16 @@ function sourceOf(opts: ScreenShareOptions, track: MediaStreamTrack): { name: st
  * uygulandıktan sonra zincirde (gürültü engelleyici gecikmesi + tamponlar) kalan test sesi odaya sızmasın.
  */
 const MIC_TEST_RESUME_SEND_MS = 300;
+
+/** Otomatik kalitede yayının denetleyici durumu (bkz. client-core screenAuto.ts) */
+interface ScreenAutoRun {
+  state: ScreenAutoState;
+  plan: ScreenEncodingPlan;
+  /** Son uygulanan bozulma tercihi ve gönderici (yeniden bağlanınca LiveKit yeni gönderici oluşturur) */
+  degradation: RTCDegradationPreference | null;
+  sender: RTCRtpSender | null;
+  applying: boolean;
+}
 
 function disconnectMessage(reason?: DisconnectReason): string {
   switch (reason) {
@@ -132,6 +152,8 @@ class VoiceClient {
   private screen: { video: LocalVideoTrack; audio: LocalAudioTrack | null; preview: StreamPreviewUploader } | null = null;
   /** Yayında istenen donanım kodlama yolu (null: ekran kartı kodlayıcısı yok, Chromium'un varsayılanı) */
   screenHardwareEncoder: HwEncoderChoice | null = null;
+  /** Otomatik kalitede yayın yapılıyorsa denetleyicisi */
+  private screenAuto: ScreenAutoRun | null = null;
   private statsTimer: number | null = null;
   /** Bir önceki istatistik ölçümü (bit hızı ve kayıp farkları için) */
   private statsPrev: { publisher: TransportStats | null; subscriber: TransportStats | null } = {
@@ -808,17 +830,23 @@ class VoiceClient {
     if (!room || useVoice.getState().status !== 'connected') return null;
     await this.stopScreenShareInternal(room, false);
 
-    const preset = SCREEN_PRESETS[opts.preset];
+    const auto = opts.preset === 'auto';
+    const preset = opts.preset === 'auto' ? AUTO_HW_PROBE : SCREEN_PRESETS[opts.preset];
     if (bridge && opts.sourceId) await bridge.screen.select({ sourceId: opts.sourceId, audio: opts.audio });
 
+    const cap = SCREEN_AUTO.capture;
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          width: { ideal: preset.width },
-          height: { ideal: preset.height },
-          frameRate: { ideal: preset.fps, max: preset.fps },
-        },
+        // Otomatik: kaynak kendi çözünürlüğünde (en çok 1440p) yakalanır; kodlanan çözünürlük ve kare hızı
+        // yayın sırasında gönderici ayarlarıyla değiştirilir (yakalama yeniden başlatılmaz).
+        video: auto
+          ? { width: { max: cap.width }, height: { max: cap.height }, frameRate: { ideal: cap.fps, max: cap.fps } }
+          : {
+              width: { ideal: preset.width },
+              height: { ideal: preset.height },
+              frameRate: { ideal: preset.fps, max: preset.fps },
+            },
         audio: opts.audio
           ? ({
               // Uygulamanın kendi sesini (diğer konuşmacılar) hariç tut → yankı olmaz.
@@ -842,7 +870,16 @@ class VoiceClient {
     }
 
     const videoTrack = stream.getVideoTracks()[0]!;
-    videoTrack.contentHint = opts.content;
+    // Otomatik kalite hareketli içerikle başlar; durağan ekran ~10 sn içinde algılanır
+    const autoState = auto ? createScreenAuto(Date.now()) : null;
+    const sourceSize = videoTrack.getSettings();
+    const autoPlan = autoState
+      ? planScreenEncoding(autoState, {
+          width: sourceSize.width ?? preset.width,
+          height: sourceSize.height ?? preset.height,
+        })
+      : null;
+    videoTrack.contentHint = autoPlan ? autoPlan.contentHint : opts.content;
     let audioTrack = stream.getAudioTracks()[0];
     let warning: string | null = null;
     if (audioTrack) {
@@ -871,12 +908,22 @@ class VoiceClient {
       // değişince yayını izleyicilere iletmeyi keser. Yedek VP8 tanımlıyken sunucu izleyicileri kesintisiz ona
       // aktarır (yedek yalnızca gerektiğinde kodlanır, normalde ek yük yok).
       backupCodec: hardware ? { codec: 'vp8' } : false,
-      // Simulcast kapalı: ekran kartı kodlayıcısı olmayan sistemlerde H.264 yazılımla (OpenH264) kodlanıyor;
-      // 720p alt katman toplam kodlama süresini ~2 katına çıkarıp çözünürlüğü CPU yüzünden düşürtüyor.
-      // 10–20 kişide sunucu trafiği kazancı bu bedele değmiyor.
+      // Simulcast kapalı (tek katman). Yazılım kodlamada alt katman işlemci yükünü ~2 katına çıkarıp çözünürlüğü /
+      // kare hızını düşürtüyor (ölçülen: OpenH264 1080p 42 ms/kare, VP8 1080p60 → 6 FPS). Ekran kartıyla
+      // (Electron 44, NVIDIA) Chromium her katmana ayrı donanım kodlayıcısı açıyor ve normal boyutlarda çalışıyor;
+      // ancak kaynak tek sayılı boyuttaysa (pencere paylaşımı, ör. 1917×1033) ya da bazı yeniden
+      // yapılandırmalarda iki katman birden işlemciye düşüyor (H.264 → OpenH264, AV1 → libaom). Tek katmanda
+      // donanım kodlaması aynı durumların hepsinde sürdü. Zayıf bağlantılı izleyiciyi LiveKit o izleyici için
+      // duraklatır; yayıncının kalitesini ve diğer izleyicileri düşürmez.
       simulcast: false,
-      screenShareEncoding: { maxBitrate: preset.bitrate, maxFramerate: preset.fps, priority: 'high' },
-      degradationPreference: opts.content === 'motion' ? 'maintain-framerate' : 'maintain-resolution',
+      screenShareEncoding: autoPlan
+        ? { maxBitrate: autoPlan.maxBitrate, maxFramerate: autoPlan.maxFramerate, priority: 'high' }
+        : { maxBitrate: preset.bitrate, maxFramerate: preset.fps, priority: 'high' },
+      degradationPreference: autoPlan
+        ? autoPlan.degradationPreference
+        : opts.content === 'motion'
+          ? 'maintain-framerate'
+          : 'maintain-resolution',
     });
 
     let audio: LocalAudioTrack | null = null;
@@ -893,12 +940,104 @@ class VoiceClient {
 
     this.screen = { video, audio, preview: new StreamPreviewUploader(videoTrack, sourceOf(opts, videoTrack)) };
     this.screenHardwareEncoder = hardware;
+    if (autoState && autoPlan) {
+      this.screenAuto = {
+        state: autoState,
+        plan: autoPlan,
+        degradation: autoPlan.degradationPreference,
+        sender: null,
+        applying: false,
+      };
+      // Kaynak 1080p'den büyükse görüntü hemen küçültülür (LiveKit yayını kaynak çözünürlüğüyle açar)
+      void this.applyScreenAuto();
+    }
     // Paylaşılan pencere kapanırsa veya sistemden durdurulursa yayını bitir.
     videoTrack.addEventListener('ended', () => void this.stopScreenShare());
     setVoice({ sharing: true, shareHasAudio: audio !== null });
     this.bumpTracks();
     playSound('streamStart');
     return warning;
+  }
+
+  /** Otomatik kalite: her istatistik ölçümünde (2 sn) denetleyiciyi ilerletir ve göndericiye uygular. */
+  private tickScreenAuto(curr: TransportStats, prev: TransportStats | null): void {
+    const run = this.screenAuto;
+    const video = this.screen?.video;
+    if (!run || !video) return;
+    const ids = [video.mediaStreamTrack.id, video.sender?.track?.id].filter((id): id is string => Boolean(id));
+    const m = measureScreen(curr, prev, ids, run.plan.maxBitrate);
+    run.state = stepScreenAuto(run.state, m, Date.now());
+    void this.applyScreenAuto();
+  }
+
+  /**
+   * Denetleyicinin kararını yeniden anlaşma olmadan uygular: parçanın içerik ipucu, göndericinin bozulma tercihi
+   * ve kodlamanın çözünürlük ölçeği / kare hızı / bit hızı tavanı (RTCRtpSender.setParameters). Kodlamanın
+   * `active` alanına dokunulmaz (dynacast, kimse izlemezken kodlamayı durdurur). Yalnızca değişen ayar yazılır.
+   */
+  private async applyScreenAuto(): Promise<void> {
+    const run = this.screenAuto;
+    const video = this.screen?.video;
+    if (!run || !video || run.applying) return;
+    run.applying = true;
+    try {
+      const track = video.mediaStreamTrack;
+      const size = track.getSettings();
+      const plan = planScreenEncoding(run.state, {
+        width: size.width ?? run.plan.width,
+        height: size.height ?? run.plan.height,
+      });
+      run.plan = plan;
+      if (track.contentHint !== plan.contentHint) track.contentHint = plan.contentHint;
+      const sender = video.sender;
+      if (sender) {
+        if (run.degradation !== plan.degradationPreference || run.sender !== sender) {
+          run.degradation = plan.degradationPreference;
+          await video.setDegradationPreference(plan.degradationPreference);
+        }
+        run.sender = sender;
+        if (run !== this.screenAuto) return;
+        const params = sender.getParameters();
+        // Tek katman; yedek kodek (VP8) ayrı göndericidedir ve LiveKit'in ayarıyla kalır
+        const enc = params.encodings?.[0];
+        let changed = false;
+        if (enc) {
+          if (Math.abs((enc.scaleResolutionDownBy ?? 1) - plan.scaleResolutionDownBy) > 0.001) {
+            enc.scaleResolutionDownBy = plan.scaleResolutionDownBy;
+            changed = true;
+          }
+          if (enc.maxFramerate !== plan.maxFramerate) {
+            enc.maxFramerate = plan.maxFramerate;
+            changed = true;
+          }
+          if (enc.maxBitrate === undefined || Math.abs(enc.maxBitrate - plan.maxBitrate) > 10_000) {
+            enc.maxBitrate = plan.maxBitrate;
+            changed = true;
+          }
+        }
+        if (changed) {
+          await sender.setParameters(params).catch((err: unknown) => {
+            console.warn('[yayın] otomatik kalite uygulanamadı', err);
+          });
+        }
+      }
+      const label = describeScreenAuto(run.state, plan);
+      const prev = useVoice.getState().screenAuto;
+      if (run === this.screenAuto && (prev?.label !== label || prev.lastChange !== run.state.lastChange)) {
+        setVoice({
+          screenAuto: {
+            label,
+            content: run.state.content,
+            height: plan.height,
+            fps: plan.fps,
+            ceiling: plan.ceiling,
+            lastChange: run.state.lastChange,
+          },
+        });
+      }
+    } finally {
+      run.applying = false;
+    }
   }
 
   async stopScreenShare(): Promise<void> {
@@ -911,6 +1050,8 @@ class VoiceClient {
     this.screen = null;
     screen.preview.stop();
     this.screenHardwareEncoder = null;
+    this.screenAuto = null;
+    setVoice({ screenAuto: null });
     releaseHardwareEncoder(screen.video.mediaStreamTrack);
     for (const track of [screen.video, screen.audio]) {
       if (!track) continue;
@@ -957,6 +1098,7 @@ class VoiceClient {
 
       const prev = this.statsPrev;
       this.statsPrev = { publisher, subscriber };
+      if (publisher) this.tickScreenAuto(publisher, prev.publisher);
       const rttMs = publisher?.rttMs ?? subscriber?.rttMs ?? null;
       const { sent, lost } = outboundDelta(publisher, prev.publisher);
       const samples = pushSample(useConnectionStats.getState().samples, { at, rttMs, sent, lost });

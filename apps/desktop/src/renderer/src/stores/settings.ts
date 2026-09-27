@@ -14,6 +14,9 @@ export const NOISE_STRENGTHS_DB = [12, 24, 40, 100] as const;
 export type NoiseStrengthDb = (typeof NOISE_STRENGTHS_DB)[number];
 const SCREEN_PRESET_IDS = ['720p30', '1080p30', '1080p60', '1440p60'] as const;
 export type ScreenPresetId = (typeof SCREEN_PRESET_IDS)[number];
+/** Yayın kalitesi: 'auto' içeriğe ve ağa göre kendisi ayarlar (bkz. client-core screenAuto.ts), diğerleri sabit */
+export type ScreenQuality = 'auto' | ScreenPresetId;
+const SCREEN_QUALITY_IDS: readonly ScreenQuality[] = ['auto', ...SCREEN_PRESET_IDS];
 const SCREEN_CODEC_IDS = ['h264', 'vp9', 'vp8', 'av1'] as const;
 export type ScreenCodec = (typeof SCREEN_CODEC_IDS)[number];
 export type ScreenContent = 'motion' | 'detail';
@@ -44,7 +47,7 @@ export interface Settings {
   localMutes: Record<string, boolean>;
   streamVolumes: Record<string, number>;
 
-  screenPreset: ScreenPresetId;
+  screenPreset: ScreenQuality;
   screenCodec: ScreenCodec;
   screenContent: ScreenContent;
   shareAudio: boolean;
@@ -93,7 +96,7 @@ const defaults: Settings = {
   userVolumes: {},
   localMutes: {},
   streamVolumes: {},
-  screenPreset: '1080p30',
+  screenPreset: 'auto',
   screenCodec: 'h264',
   screenContent: 'motion',
   shareAudio: true,
@@ -138,7 +141,7 @@ function sanitize(saved: Partial<Settings>): Partial<Settings> {
     const v = s[key];
     if (v !== undefined) s[key] = clampVolume(v);
   }
-  if (s.screenPreset !== undefined && !SCREEN_PRESET_IDS.includes(s.screenPreset)) s.screenPreset = defaults.screenPreset;
+  if (s.screenPreset !== undefined && !SCREEN_QUALITY_IDS.includes(s.screenPreset)) s.screenPreset = defaults.screenPreset;
   if (s.theme !== undefined && !isThemeId(s.theme)) s.theme = defaults.theme;
   if (s.sfxVolume !== undefined) s.sfxVolume = Number.isFinite(s.sfxVolume) ? Math.min(1, Math.max(0, s.sfxVolume)) : defaults.sfxVolume;
   if (s.screenCodec !== undefined && !SCREEN_CODEC_IDS.includes(s.screenCodec)) s.screenCodec = defaults.screenCodec;
@@ -153,7 +156,7 @@ export const useSettings = create<SettingsStore>()(
     }),
     {
       name: 'diskort-settings',
-      version: 6,
+      version: 7,
       storage: createJSONStorage(() => localStorage),
       partialize: ({ set: _set, ...rest }) => rest,
       // Sürüm 1 → 2: gürültü engelleme RNNoise → DeepFilterNet 3 (sanitize içinde)
@@ -163,12 +166,15 @@ export const useSettings = create<SettingsStore>()(
       // Sürüm 4 → 5: DPDFNet varsayılan oldu (kullanıcılar Krisp'e yakın buldu); kapalı olanlar hariç herkes DPDFNet'e geçer.
       // Sürüm 5 → 6: Siyah (OLED) varsayılan tema oldu; eski varsayılandaki (koyu) herkes siyaha geçer
       // (şimdiye dek yalnızca koyu ve siyah vardı), isteyen Görünüm'den geri seçebilir.
+      // Sürüm 6 → 7: Otomatik yayın kalitesi varsayılan oldu; eski varsayılandaki (1080p30) herkes Otomatik'e geçer,
+      // başka bir kaliteyi bilerek seçmiş olanlar olduğu gibi kalır.
       migrate: (saved, version) => {
         const s = { ...(saved as Partial<Settings>) };
         if (version < 3) s.noiseStrengthDb = defaults.noiseStrengthDb;
         if (version < 4 && s.noise === 'deepfilter') s.noise = 'standard';
         if (version < 5 && (s.noise === undefined || s.noise === 'standard' || s.noise === 'deepfilter')) s.noise = 'dpdfnet';
         if (version < 6 && (s.theme === undefined || s.theme === 'dark')) s.theme = 'black';
+        if (version < 7 && (s.screenPreset === undefined || s.screenPreset === '1080p30')) s.screenPreset = 'auto';
         return s as Settings;
       },
       merge: (saved, current) => ({ ...current, ...sanitize((saved ?? {}) as Partial<Settings>) }),
