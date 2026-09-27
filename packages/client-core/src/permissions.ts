@@ -3,6 +3,7 @@ import {
   basePermissions,
   channelPermissions,
   DEFAULT_EVERYONE_PERMISSIONS,
+  dmPermissions,
   hasPermission,
   hoistedRole,
   memberColor,
@@ -21,7 +22,7 @@ import { useSession } from './session';
 // Yetkiler sunucudakiyle aynı kodla hesaplanır (@diskort/shared). İstemci bunları yalnızca yapılamayacak
 // işleri gizlemek/kapatmak için kullanır; asıl denetim sunucudadır.
 
-type PermissionState = Pick<GuildStore, 'guild' | 'roles' | 'users' | 'channels'>;
+type PermissionState = Pick<GuildStore, 'guild' | 'roles' | 'users' | 'channels'> & Partial<Pick<GuildStore, 'dms'>>;
 
 let cached: { guild: GuildStore['guild']; roles: GuildStore['roles']; ctx: PermissionContext } | null = null;
 
@@ -40,9 +41,14 @@ function legacyPermissions(s: PermissionState, userId: string): number {
   return s.users[userId]?.isAdmin ? ALL_PERMISSIONS : DEFAULT_EVERYONE_PERMISSIONS;
 }
 
-/** Kullanıcının yetkileri: kanal verilirse o kanalda (kanal görünmüyorsa 0), verilmezse sunucu genelinde */
+/**
+ * Kullanıcının yetkileri: kanal verilirse o kanalda (kanal görünmüyorsa 0), verilmezse sunucu genelinde.
+ * Direkt mesaj konuşmasında roller uygulanmaz: katılımcıların sabit yetkileri (bkz. dmPermissions).
+ */
 export function permissionsOf(s: PermissionState, userId: string | undefined, channelId?: string): number {
   if (!userId || !s.guild) return 0;
+  const dm = channelId === undefined ? undefined : s.dms?.[channelId];
+  if (dm) return dmPermissions(dm, userId, (id) => s.users[id]?.removed === false);
   const user = s.users[userId];
   if (user?.removed) return 0;
   const channel = channelId === undefined ? undefined : s.channels.find((c) => c.id === channelId);

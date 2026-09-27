@@ -6,6 +6,7 @@ import type {
   ChangePasswordRequest,
   CreateRoleRequest,
   DeleteAccountRequest,
+  DmChannel,
   Guild,
   PushTokenRequest,
   Message,
@@ -133,6 +134,17 @@ export const api = {
     request<void>('DELETE', `/api/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`),
   ack: (channelId: string, messageId: string) =>
     request<void>('POST', `/api/channels/${channelId}/ack`, { messageId }),
+
+  // Direkt mesajlar: mesajları kanallarla aynı uçlardan (listMessages, sendMessage…) gider
+  listDms: () => request<DmChannel[]>('GET', '/api/dms'),
+  /** Tek kişi: bire bir konuşma (varsa aynısı); birden çok kişi: yeni grup */
+  createDm: (userIds: string[], name?: string | null) =>
+    request<DmChannel>('POST', '/api/dms', name ? { userIds, name } : { userIds }),
+  renameDm: (id: string, name: string | null) => request<DmChannel>('PATCH', `/api/dms/${id}`, { name }),
+  /** Bire bir konuşmayı listeden kaldırır; gruptan ayrılır */
+  closeDm: (id: string) => request<void>('DELETE', `/api/dms/${id}`),
+  addDmParticipant: (id: string, userId: string) =>
+    request<DmChannel>('PUT', `/api/dms/${id}/participants/${userId}`),
 };
 
 export function errorMessage(err: unknown): string {
