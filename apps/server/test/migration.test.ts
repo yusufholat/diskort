@@ -13,14 +13,14 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** 0.3 sürümündeki (şema 6) gibi bir veritabanı: iki yönetici, bir üye */
+/** 0.3.2 sürümündeki (şema 7, üretimdeki) gibi bir veritabanı: iki yönetici, bir üye */
 function legacyDatabase(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diskort-goc-'));
   dirs.push(dir);
   const file = path.join(dir, 'diskort.db');
   const db = new DatabaseSync(file);
-  for (const sql of MIGRATIONS.slice(0, 6)) db.exec(sql);
-  db.exec('PRAGMA user_version = 6');
+  for (const sql of MIGRATIONS.slice(0, 7)) db.exec(sql);
+  db.exec('PRAGMA user_version = 7');
   db.exec(`INSERT INTO guilds (id, name, created_at) VALUES ('g1', 'Eski', 1)`);
   const user = db.prepare(
     `INSERT INTO users (id, username, display_name, password_hash, avatar_color, is_admin, created_at)
@@ -29,12 +29,13 @@ function legacyDatabase(): string {
   user.run('uye', 'uye', 'Üye', 0, 100);
   user.run('ikinci', 'ikinci', 'İkinci Yönetici', 1, 300);
   user.run('kurucu', 'kurucu', 'Kurucu', 1, 200);
+  db.exec(`UPDATE users SET avatar_hash = 'abc123' WHERE id = 'kurucu'`);
   db.exec(`INSERT INTO channels (id, guild_id, name, type, position, created_at) VALUES ('t1', 'g1', 'genel', 'text', 0, 1)`);
   db.close();
   return file;
 }
 
-describe('göç 7: roller', () => {
+describe('göç 8: roller', () => {
   it('yöneticiler Yönetici rolüne geçer, en eski yönetici sahip olur, herkes bugünkü yetkilerini korur', () => {
     const store = new Store(legacyDatabase());
     try {
@@ -52,7 +53,12 @@ describe('göç 7: roller', () => {
       expect(admin!.permissions).toBe(P.ADMINISTRATOR);
       expect(admin!.hoist).toBe(true);
 
-      expect(store.getUser('kurucu')).toMatchObject({ isAdmin: true, roles: [admin!.id], removed: false });
+      expect(store.getUser('kurucu')).toMatchObject({
+        isAdmin: true,
+        roles: [admin!.id],
+        removed: false,
+        avatarUrl: '/api/avatars/kurucu/abc123.webp',
+      });
       expect(store.getUser('ikinci')).toMatchObject({ isAdmin: true, roles: [admin!.id] });
       expect(store.getUser('uye')).toMatchObject({ isAdmin: false, roles: [] });
 

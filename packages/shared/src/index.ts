@@ -11,6 +11,12 @@ export interface User {
   username: string;
   displayName: string;
   avatarColor: string;
+  /**
+   * Profil fotoğrafı: sunucu köküne göre adres (/api/avatars/<kullanıcı>/<özet>.webp; 256×256 WebP).
+   * Kimlik doğrulaması istemez ve içerik değişince adres de değişir (süresiz önbelleklenebilir).
+   * Fotoğraf yoksa null; bu alanı bilmeyen eski sunucularda hiç gelmez. Yoksa baş harfler gösterilir.
+   */
+  avatarUrl?: string | null;
   /** Sahip ya da ADMINISTRATOR yetkili bir rolü var (rollerden önceki istemciler bununla çalışır) */
   isAdmin: boolean;
   /** Rollerinin kimlikleri (@everyone hariç) */
@@ -351,6 +357,8 @@ export const INLINE_IMAGE_TYPES: readonly string[] = ['image/png', 'image/jpeg',
 
 export const isImageAttachment = (a: Pick<Attachment, 'contentType'>): boolean =>
   INLINE_IMAGE_TYPES.includes(a.contentType);
+/** Yüklenen profil fotoğrafının en büyük boyutu (PNG, JPEG, WebP ya da GIF; sunucu küçültür) */
+export const AVATAR_MAX_BYTES = 8 * 1024 * 1024;
 /** "Yazıyor…" göstergesinin geçerlilik süresi; istemci bu aralıkta en fazla bir kez bildirir */
 export const TYPING_TIMEOUT_MS = 8000;
 

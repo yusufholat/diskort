@@ -77,6 +77,7 @@ export const api = {
   resetPassword: (body: ResetPasswordRequest) => request<AuthResponse>('POST', '/api/auth/reset', body),
   me: () => request<User>('GET', '/api/me'),
   updateMe: (body: UpdateMeRequest) => request<User>('PATCH', '/api/me', body),
+  removeAvatar: () => request<User>('DELETE', '/api/me/avatar'),
   changePassword: (body: ChangePasswordRequest) => request<AuthResponse>('POST', '/api/me/password', body),
   deleteAccount: (body: DeleteAccountRequest) => request<void>('DELETE', '/api/me', body),
   registerPushToken: (body: PushTokenRequest) => request<void>('POST', '/api/me/push-tokens', body),

@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { AttachmentService } from './attachments.js';
+import { AvatarService } from './avatars.js';
 import { AuthService } from './auth.js';
 import { ClientVersionPolicy } from './clientVersion.js';
 import type { Config } from './config.js';
@@ -19,6 +20,7 @@ import { VoiceStateStore } from './voiceState.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerAttachmentRoutes } from './routes/attachments.js';
 import { registerAuthRoutes } from './routes/auth.js';
+import { registerAvatarRoutes } from './routes/avatars.js';
 import { registerDownloadRoutes } from './routes/download.js';
 import { registerMessageRoutes } from './routes/messages.js';
 import { registerRoleRoutes } from './routes/roles.js';
@@ -36,6 +38,8 @@ export interface BuildOptions {
   otaFetch?: typeof fetch;
   /** Dosya eklerinin klasörü (varsayılan: <DATA_DIR>/attachments) */
   attachmentsDir?: string;
+  /** Profil fotoğraflarının klasörü (varsayılan: <DATA_DIR>/avatars) */
+  avatarsDir?: string;
 }
 
 /** Süresi geçmiş yüklemelerin ve artık dosyaların temizlenme aralığı */
@@ -69,6 +73,7 @@ export async function buildApp(
     config.attachmentMaxBytes,
     app.log,
   );
+  const avatars = new AvatarService(store, opts.avatarsDir ?? path.join(config.dataDir, 'avatars'), app.log);
   const ctx: AppContext = {
     config,
     store,
@@ -81,6 +86,7 @@ export async function buildApp(
     ota,
     push,
     attachments,
+    avatars,
     permissions,
     moderation,
     guild,
@@ -88,6 +94,7 @@ export async function buildApp(
 
   const sweep = (): void => {
     attachments.sweep().catch((err: unknown) => app.log.warn({ err: String(err) }, 'dosya eki temizliği başarısız'));
+    avatars.sweep().catch((err: unknown) => app.log.warn({ err: String(err) }, 'profil fotoğrafı temizliği başarısız'));
   };
   const sweepTimers = [setTimeout(sweep, 60_000), setInterval(sweep, ATTACHMENT_SWEEP_INTERVAL_MS)];
   for (const timer of sweepTimers) timer.unref();
@@ -114,6 +121,7 @@ export async function buildApp(
   registerMessageRoutes(app, ctx);
   registerRoleRoutes(app, ctx);
   registerAttachmentRoutes(app, ctx);
+  registerAvatarRoutes(app, ctx);
   registerUpdateRoutes(app, ctx);
 
   return { app, ctx };

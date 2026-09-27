@@ -1,5 +1,5 @@
 ﻿# Sunucudaki Diskort yedeklerini bu bilgisayara (varsayılan: OneDrive klasörü) indirir: en son veritabanı
-# yedeğini ve dosya eklerinin (mesajlardaki resim/dosyalar) aynasını. Böylece sunucu tamamen kaybolsa bile
+# yedeğini, dosya eklerinin (mesajlardaki resim/dosyalar) ve profil fotoğraflarının aynasını. Böylece sunucu tamamen kaybolsa bile
 # yedek bulutta kalır. Windows Görev Zamanlayıcı her gün çalıştırır.
 # Elle çalıştırmak için: powershell -ExecutionPolicy Bypass -File scripts\pull-db-backups.ps1
 param(
@@ -15,12 +15,53 @@ $ErrorActionPreference = 'Stop'
 New-Item -ItemType Directory -Force $Destination | Out-Null
 $log = Join-Path $Destination 'yedek-gunlugu.txt'
 $sshArgs = @('-i', $Key, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20')
-$remoteAttachments = '/var/backups/diskort/attachments'
+$remoteRoot = '/var/backups/diskort'
 
 function Invoke-Remote([string]$Command) {
   $output = & ssh @sshArgs $Server $Command
   if ($LASTEXITCODE -ne 0) { throw "Sunucu komutu başarısız (ssh kodu $LASTEXITCODE): $Command" }
   return $output
+}
+
+# Sunucudaki bir klasörü buraya aynalar. Dosyalar hiç değişmediği için yalnızca eksik olanlar indirilir;
+# sunucuda süresi dolup silinenler (silinen mesajların dosyaları, 30 gün sonra) buradan da silinir.
+function Sync-Mirror([string]$RemoteDir, [string]$LocalDir, [string]$Pattern, [string]$Label) {
+  New-Item -ItemType Directory -Force $LocalDir | Out-Null
+  $listing = Invoke-Remote "if test -d $RemoteDir; then ls -1 $RemoteDir; fi"
+  $remote = [System.Collections.Generic.HashSet[string]]::new()
+  foreach ($line in @($listing)) { if ("$line" -match $Pattern) { [void]$remote.Add("$line") } }
+  $local = @(Get-ChildItem $LocalDir -File | Where-Object Name -Match $Pattern | Select-Object -ExpandProperty Name)
+  $localSet = [System.Collections.Generic.HashSet[string]]::new([string[]]$local)
+  $missing = @($remote | Where-Object { -not $localSet.Contains($_) })
+
+  # Toplu indirme: sunucuda tar paketi yapılır, tek seferde indirilip açılır (komut satırı sınırı için 400'erli)
+  $tempTar = Join-Path $env:TEMP 'diskort-yedek.tar'
+  for ($i = 0; $i -lt $missing.Count; $i += 400) {
+    $batch = $missing[$i..([math]::Min($i + 399, $missing.Count - 1))]
+    $remoteTar = "/tmp/diskort-yedek-$PID.tar"
+    Invoke-Remote "cd $RemoteDir && tar -cf $remoteTar $($batch -join ' ')" | Out-Null
+    try {
+      & scp @sshArgs -q "${Server}:$remoteTar" $tempTar
+      if ($LASTEXITCODE -ne 0) { throw "$Label indirilemedi (scp kodu $LASTEXITCODE)" }
+    } finally {
+      & ssh @sshArgs $Server "rm -f $remoteTar" | Out-Null
+    }
+    & tar -xf $tempTar -C $LocalDir
+    if ($LASTEXITCODE -ne 0) { throw "$Label paketi açılamadı (tar kodu $LASTEXITCODE)" }
+    Remove-Item $tempTar -Force
+  }
+
+  # Sunucu hiç dosya bildirmediyse (beklenmedik durum) hiçbir şey silinmez
+  $removed = 0
+  if ($remote.Count -gt 0) {
+    foreach ($file in $local) {
+      if (-not $remote.Contains($file)) {
+        Remove-Item (Join-Path $LocalDir $file) -Force
+        $removed++
+      }
+    }
+  }
+  return "${Label}: $($remote.Count) dosya, yeni $($missing.Count), silinen $removed"
 }
 
 try {
@@ -42,46 +83,12 @@ try {
     Where-Object LastWriteTime -lt (Get-Date).AddDays(-$KeepDays) |
     Remove-Item -Force
 
-  # 2) Dosya ekleri: sunucudaki günlük kopyanın aynası (infra/backup-attachments.sh). Dosyalar hiç
-  # değişmediği için yalnızca eksik olanlar indirilir.
+  # 2) Dosya ekleri ve profil fotoğrafları: sunucudaki günlük kopyanın aynası (infra/backup-attachments.sh)
   $attachments = if ($AttachmentsDestination) { $AttachmentsDestination } else { Join-Path $Destination 'ekler' }
-  New-Item -ItemType Directory -Force $attachments | Out-Null
-  $listing = Invoke-Remote "test -d $remoteAttachments && ls -1 $remoteAttachments"
-  $remote = [System.Collections.Generic.HashSet[string]]::new()
-  foreach ($line in @($listing)) { if ("$line" -match '^[0-9a-f]{32}$') { [void]$remote.Add("$line") } }
-  $local = @(Get-ChildItem $attachments -File | Where-Object Name -Match '^[0-9a-f]{32}$' | Select-Object -ExpandProperty Name)
-  $localSet = [System.Collections.Generic.HashSet[string]]::new([string[]]$local)
-  $missing = @($remote | Where-Object { -not $localSet.Contains($_) })
-
-  # Toplu indirme: sunucuda tar paketi yapılır, tek seferde indirilip açılır (komut satırı sınırı için 400'erli)
-  $tempTar = Join-Path $env:TEMP 'diskort-ekler.tar'
-  for ($i = 0; $i -lt $missing.Count; $i += 400) {
-    $batch = $missing[$i..([math]::Min($i + 399, $missing.Count - 1))]
-    $remoteTar = "/tmp/diskort-ekler-$PID.tar"
-    Invoke-Remote "cd $remoteAttachments && tar -cf $remoteTar $($batch -join ' ')" | Out-Null
-    try {
-      & scp @sshArgs -q "${Server}:$remoteTar" $tempTar
-      if ($LASTEXITCODE -ne 0) { throw "Ek indirme başarısız (scp kodu $LASTEXITCODE)" }
-    } finally {
-      & ssh @sshArgs $Server "rm -f $remoteTar" | Out-Null
-    }
-    & tar -xf $tempTar -C $attachments
-    if ($LASTEXITCODE -ne 0) { throw "Ek paketi açılamadı (tar kodu $LASTEXITCODE)" }
-    Remove-Item $tempTar -Force
-  }
-
-  # Sunucudaki kopyada süresi dolup silinenler (silinen mesajların dosyaları, 30 gün sonra) buradan da silinir.
-  # Sunucu hiç dosya bildirmediyse (beklenmedik durum) hiçbir şey silinmez.
-  $removed = 0
-  if ($remote.Count -gt 0) {
-    foreach ($file in $local) {
-      if (-not $remote.Contains($file)) {
-        Remove-Item (Join-Path $attachments $file) -Force
-        $removed++
-      }
-    }
-  }
-  $attachmentStatus = "ekler: $($remote.Count) dosya, yeni $($missing.Count), silinen $removed"
+  $attachmentStatus = @(
+    (Sync-Mirror "$remoteRoot/attachments" $attachments '^[0-9a-f]{32}$' 'ekler'),
+    (Sync-Mirror "$remoteRoot/avatars" (Join-Path $Destination 'profil-fotograflari') '^[0-9a-f]{32}\.webp$' 'profil fotoğrafları')
+  ) -join '; '
 
   "$(Get-Date -Format 'yyyy-MM-dd HH:mm') TAMAM  $name $status; $attachmentStatus" | Add-Content -Encoding UTF8 $log
 } catch {

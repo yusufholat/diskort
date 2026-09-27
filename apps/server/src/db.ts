@@ -25,10 +25,10 @@ import {
 import { AVATAR_COLORS } from '@diskort/shared';
 
 /**
- * Göç 7'de @everyone'a verilen yetkiler: rollerden önce herkesin yapabildikleri (+ yeni @everyone
+ * Göç 8'de @everyone'a verilen yetkiler: rollerden önce herkesin yapabildikleri (+ yeni @everyone
  * bahsetmesi). Bit değerleri kalıcı olduğundan göç her zaman aynı sonucu verir.
  */
-const V7_EVERYONE =
+const V8_EVERYONE =
   Permission.VIEW_CHANNEL |
   Permission.SEND_MESSAGES |
   Permission.ATTACH_FILES |
@@ -152,7 +152,11 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX attachments_by_channel ON attachments(channel_id);
   CREATE INDEX attachments_by_uploader ON attachments(uploader_id);
   `,
-  // 7: roller ve yetkiler. @everyone rolünün kimliği topluluğun kimliğidir. Yöneticiler "Yönetici" rolüne
+  // 7: profil fotoğrafı. Dosyanın kendisi <DATA_DIR>/avatars/<özet>.webp; boşsa baş harfler gösterilir.
+  `
+  ALTER TABLE users ADD COLUMN avatar_hash TEXT;
+  `,
+  // 8: roller ve yetkiler. @everyone rolünün kimliği topluluğun kimliğidir. Yöneticiler "Yönetici" rolüne
   // (ADMINISTRATOR) geçer, en eski yönetici topluluğun sahibi olur; diğer herkesin bugünkü yetkileri
   // @everyone'da kalır. users.is_admin artık rollerden hesaplanıp güncel tutulur (eski sürüme dönülürse
   // diye). Atılan/yasaklanan hesap silinmez (mesajları adıyla kalsın): removed_at doluysa üye değildir.
@@ -188,7 +192,7 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE users ADD COLUMN server_deaf INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE messages ADD COLUMN mention_everyone INTEGER NOT NULL DEFAULT 0;
   INSERT INTO roles (id, guild_id, name, color, position, hoist, permissions, created_at)
-    SELECT g.id, g.id, '@everyone', NULL, 0, 0, ${V7_EVERYONE}, CAST(strftime('%s', 'now') AS INTEGER) * 1000
+    SELECT g.id, g.id, '@everyone', NULL, 0, 0, ${V8_EVERYONE}, CAST(strftime('%s', 'now') AS INTEGER) * 1000
     FROM guilds g;
   INSERT INTO roles (id, guild_id, name, color, position, hoist, permissions, created_at)
     SELECT lower(hex(randomblob(6))), g.id, '${ADMIN_ROLE_NAME}', '${ADMIN_ROLE_COLOR}', 1, 1, ${Permission.ADMINISTRATOR},
@@ -211,6 +215,7 @@ interface UserRow {
   avatar_color: string;
   is_admin: number;
   sessions_valid_after: number;
+  avatar_hash: string | null;
   removed_at: number | null;
   banned_at: number | null;
   ban_reason: string | null;
@@ -409,6 +414,7 @@ export class Store {
       username: r.username,
       displayName: r.display_name,
       avatarColor: r.avatar_color,
+      avatarUrl: r.avatar_hash ? `/api/avatars/${r.id}/${r.avatar_hash}.webp` : null,
       isAdmin: !removed && hasPermission(basePermissions(data, r.id, roles), Permission.ADMINISTRATOR),
       roles,
       removed,
@@ -500,6 +506,31 @@ export class Store {
     if (patch.displayName !== undefined) this.run('UPDATE users SET display_name = ? WHERE id = ?', patch.displayName, id);
     if (patch.avatarColor !== undefined) this.run('UPDATE users SET avatar_color = ? WHERE id = ?', patch.avatarColor, id);
     return this.getUser(id);
+  }
+
+  /** Kullanıcının şu anki profil fotoğrafının özeti (yoksa ya da kullanıcı yoksa null). */
+  getAvatarHash(userId: string): string | null {
+    return this.one<{ h: string | null }>('SELECT avatar_hash AS h FROM users WHERE id = ?', userId)?.h ?? null;
+  }
+
+  /**
+   * Profil fotoğrafını değiştirir ya da kaldırır (null); önceki özet diskten silinmek üzere döner.
+   * Kullanıcı yoksa (bu arada silinmişse) null.
+   */
+  setAvatar(userId: string, hash: string | null): { user: User; previous: string | null } | null {
+    return this.tx(() => {
+      const row = this.one<{ h: string | null }>('SELECT avatar_hash AS h FROM users WHERE id = ?', userId);
+      if (!row) return null;
+      this.run('UPDATE users SET avatar_hash = ? WHERE id = ?', hash, userId);
+      return { user: this.getUser(userId)!, previous: row.h };
+    });
+  }
+
+  /** Kullanılan tüm profil fotoğrafı özetleri (artık dosyaların temizliği için) */
+  avatarHashes(): Set<string> {
+    return new Set(
+      this.all<{ h: string }>('SELECT avatar_hash AS h FROM users WHERE avatar_hash IS NOT NULL').map((r) => r.h),
+    );
   }
 
   /**

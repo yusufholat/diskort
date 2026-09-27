@@ -13,6 +13,7 @@ import { Button, Divider, Field, SectionTitle, Select, TextInput, Toggle } from 
 import { ChangePassword } from './ChangePassword';
 import { DeleteAccount } from './DeleteAccount';
 import { KeybindInput } from './KeybindInput';
+import { ProfilePhoto } from './ProfilePhoto';
 import { VoiceSettings } from './VoiceSettings';
 
 // Üyeler ve davetler Sunucu Ayarları'na taşındı (sunucu adının yanındaki menü)
@@ -163,6 +164,7 @@ function AccountSection() {
           </Button>
         </div>
       </Field>
+      <ProfilePhoto user={user} />
       <SectionTitle>Profil Rengi</SectionTitle>
       <div className="flex flex-wrap gap-2">
         {AVATAR_COLORS.map((color) => (
