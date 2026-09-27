@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import type { User } from '@diskort/shared';
-import { avatarUrl } from '@diskort/client-core';
+import { avatarUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
 import { colors } from '../theme';
+import { StatusDot } from './StatusDot';
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -15,12 +16,18 @@ interface Props {
   user: Pick<User, 'displayName' | 'avatarColor' | 'avatarUrl'> | undefined;
   size?: number;
   speaking?: boolean;
+  /** Eski biçim: çevrimiçi / çevrimdışı. `status` verilirse o kullanılır */
   online?: boolean;
+  /** Durum noktası (Discord biçimli: ay, eksi, halka) */
+  status?: DisplayStatus;
   /** Çevrimiçi noktasının çevresindeki halka: avatarın durduğu yüzeyin rengi */
   surface?: string;
 }
 
-export function Avatar({ user, size = 40, speaking, online, surface = colors.side }: Props) {
+export function Avatar({ user, size = 40, speaking, online, status, surface = colors.side }: Props) {
+  const shown: DisplayStatus | undefined = status ?? (online === undefined ? undefined : online ? 'online' : 'offline');
+  const border = size >= 32 ? 3 : 2;
+  const dot = Math.round(size * 0.36) - 2 * border;
   const ring = speaking ? 3 : 0;
   const src = avatarUrl(user);
   // Yüklenemeyen fotoğrafın yerine baş harfler (adres değişince yeniden denenir)
@@ -51,20 +58,10 @@ export function Avatar({ user, size = 40, speaking, online, surface = colors.sid
           <Text style={[styles.text, { fontSize: Math.max(10, size * 0.38) }]}>{initials(user?.displayName ?? '?')}</Text>
         )}
       </View>
-      {online !== undefined && (
-        <View
-          style={[
-            styles.dot,
-            {
-              width: size * 0.36,
-              height: size * 0.36,
-              borderRadius: size,
-              backgroundColor: online ? colors.ok : colors.faint,
-              borderColor: surface,
-              borderWidth: size >= 32 ? 3 : 2,
-            },
-          ]}
-        />
+      {shown !== undefined && (
+        <View style={[styles.dot, { padding: border, borderRadius: size, backgroundColor: surface }]}>
+          <StatusDot status={shown} size={dot} surface={surface} />
+        </View>
       )}
     </View>
   );
@@ -76,3 +73,9 @@ const styles = StyleSheet.create({
   text: { color: '#fff', fontWeight: '600' },
   dot: { position: 'absolute', right: -1, bottom: -1 },
 });
+
+/** Kişinin güncel durum noktasıyla avatar (kendin için görünmezlik de görünür) */
+export function PresenceAvatar({ userId, ...props }: Omit<Props, 'status' | 'online'> & { userId: string }) {
+  const status = useStatus(userId);
+  return <Avatar {...props} status={status} />;
+}
