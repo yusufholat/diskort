@@ -1523,6 +1523,15 @@ export class Store {
     return this.getChannel(id);
   }
 
+  /** Sunucunun kanallarını verilen sıraya göre 0'dan başlayarak yeniden numaralar. */
+  setChannelOrder(guildId: string, channelIds: readonly string[]): void {
+    this.tx(() => {
+      channelIds.forEach((id, i) =>
+        this.run("UPDATE channels SET position = ? WHERE id = ? AND guild_id = ? AND type != 'dm'", i, id, guildId),
+      );
+    });
+  }
+
   deleteChannel(id: string): boolean {
     return this.run("DELETE FROM channels WHERE id = ? AND type != 'dm'", id) > 0;
   }
