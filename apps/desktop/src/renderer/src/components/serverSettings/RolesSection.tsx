@@ -297,7 +297,7 @@ function RoleEditor({
               disabled={!manageable}
               className={cn(
                 'flex h-8 w-8 items-center justify-center rounded border-2 border-[#99aab5] text-[#99aab5] disabled:cursor-not-allowed disabled:opacity-50',
-                draft.color === null && 'ring-2 ring-white ring-offset-2 ring-offset-bg-main',
+                draft.color === null && 'ring-2 ring-text-head ring-offset-2 ring-offset-bg-main',
               )}
               onClick={() => {
                 set({ color: null });
@@ -313,7 +313,7 @@ function RoleEditor({
                 disabled={!manageable}
                 className={cn(
                   'h-8 w-8 rounded transition-transform hover:scale-110 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100',
-                  draft.color === color && 'ring-2 ring-white ring-offset-2 ring-offset-bg-main',
+                  draft.color === color && 'ring-2 ring-text-head ring-offset-2 ring-offset-bg-main',
                 )}
                 style={{ background: color }}
                 onClick={() => {
@@ -412,7 +412,7 @@ function RoleEditor({
                         <span>
                           Bu izin @everyone rolünde açık; herkeste zaten var. Kısıtlamak için @everyone rolünde kapat.
                         </span>
-                        <button className="font-medium text-[#00a8fc] hover:underline" onClick={onShowEveryone}>
+                        <button className="font-medium text-link hover:underline" onClick={onShowEveryone}>
                           @everyone rolüne git
                         </button>
                         {own && (
@@ -420,7 +420,7 @@ function RoleEditor({
                             Bu rolde de ayrıca açık: @everyone rolünde kapatsan da bu roldekilerde kalır.
                             {manageable && !lacking && (
                               <button
-                                className="font-medium text-[#00a8fc] hover:underline"
+                                className="font-medium text-link hover:underline"
                                 onClick={() => set({ permissions: draft.permissions & ~p.flag })}
                               >
                                 Bu rolden kaldır

@@ -147,7 +147,7 @@ export function AvatarCropper({ file, onCancel, onSave, title = 'Profil fotoğra
         }
       >
         {failed ? (
-          <p className="py-10 text-center text-sm text-[#fa777c]">Bu resim açılamadı. Başka bir dosya dene.</p>
+          <p className="py-10 text-center text-sm text-danger-text">Bu resim açılamadı. Başka bir dosya dene.</p>
         ) : (
           <div className="flex items-center justify-center gap-6">
             <div

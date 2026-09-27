@@ -215,7 +215,7 @@ export function AuthScreen() {
 
 function LinkButton({ onClick, children }: { onClick: () => void; children: string }) {
   return (
-    <button type="button" className="text-[#00a8fc] hover:underline" onClick={onClick}>
+    <button type="button" className="text-link hover:underline" onClick={onClick}>
       {children}
     </button>
   );

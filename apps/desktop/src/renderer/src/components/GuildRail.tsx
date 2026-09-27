@@ -42,8 +42,10 @@ export function GuildRail() {
       >
         <div
           className={cn(
-            'flex h-12 w-12 items-center justify-center text-white transition-[border-radius,background-color] duration-150',
-            inDms ? 'rounded-2xl bg-brand' : 'rounded-3xl bg-bg-raised group-hover/rail:rounded-2xl group-hover/rail:bg-brand',
+            'flex h-12 w-12 items-center justify-center transition-[border-radius,background-color,color] duration-150',
+            inDms
+              ? 'rounded-2xl bg-brand text-white'
+              : 'rounded-3xl bg-bg-raised text-text-normal group-hover/rail:rounded-2xl group-hover/rail:bg-brand group-hover/rail:text-white',
           )}
         >
           <MessagesSquare size={24} />
@@ -145,7 +147,7 @@ function RailItem({
     <div className="group/rail relative flex shrink-0 items-center">
       <span
         className={cn(
-          'absolute -left-3 w-1 origin-left rounded-r bg-white transition-[height,opacity] duration-150',
+          'absolute -left-3 w-1 origin-left rounded-r bg-text-head transition-[height,opacity] duration-150',
           selected ? 'h-10 opacity-100' : unread ? 'h-2 opacity-100 group-hover/rail:h-5' : 'h-5 opacity-0 group-hover/rail:opacity-100',
         )}
       />

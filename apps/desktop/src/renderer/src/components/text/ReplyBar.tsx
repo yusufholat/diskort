@@ -50,7 +50,7 @@ export function ReplyBar({ channelId }: { channelId: string }) {
           }
           className={cn(
             'press flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-bold transition-colors hover:bg-bg-hover',
-            shown.mention ? 'text-[#00a8fc]' : 'text-text-muted',
+            shown.mention ? 'text-link' : 'text-text-muted',
           )}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => setReplyMention(channelId, !shown.mention)}
