@@ -13,9 +13,6 @@
 name: iOS
 
 on:
-  # GEÇİCİ: dal üzerinde deneme (workflow_dispatch yalnızca ana daldaki iş akışlarını bulur)
-  push:
-    branches: [ios-hazirlik]
   workflow_dispatch:
     inputs:
       simulator:
@@ -43,7 +40,7 @@ env:
 jobs:
   simulator:
     name: iOS Simülatör (imzasız)
-    if: inputs.release-tag == '' && (inputs.simulator || github.ref_name == 'ios-hazirlik')
+    if: inputs.release-tag == '' && inputs.simulator
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
