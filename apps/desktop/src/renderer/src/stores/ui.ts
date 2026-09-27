@@ -13,6 +13,9 @@ export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app
 export interface ContextMenuItem {
   label: string;
   danger?: boolean;
+  /** Sağda soluk gösterilen kısayol (ör. "Ctrl+C") */
+  hint?: string;
+  disabled?: boolean;
   onClick: () => void;
 }
 

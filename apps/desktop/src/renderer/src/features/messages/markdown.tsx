@@ -21,7 +21,7 @@ function Spoiler({ children }: { children: ReactNode }) {
         shown ? 'bg-white/10' : 'cursor-pointer bg-[#1e1f22] text-transparent select-none hover:bg-[#232428]',
       )}
       onClick={() => setShown(true)}
-      title={shown ? undefined : 'Göstermek için tıkla'}
+      data-tooltip={shown ? undefined : 'Göstermek için tıkla'}
     >
       <span className={shown ? undefined : 'invisible'}>{children}</span>
     </span>
@@ -58,7 +58,7 @@ function renderInline(nodes: MdInline[], ctx: MarkdownContext, key: string): Rea
                 ? 'bg-brand/40 text-white'
                 : 'bg-brand/20 text-[#c9cdfb] hover:bg-brand hover:text-white',
             )}
-            title={`@${user.username}`}
+            data-tooltip={`@${user.username}`}
           >
             @{user.displayName}
           </span>

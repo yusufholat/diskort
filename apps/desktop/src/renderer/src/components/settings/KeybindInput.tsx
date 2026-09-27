@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import type { Keybind } from '../../../../shared/bridge';
 import { bridge } from '../../lib/bridge';
+import { useEscapeLayer } from '../../lib/escape';
 import { cn } from '../../lib/utils';
 
 /** Global kısayol atama kutusu: tıklayıp bir tuşa/fare tuşuna bas. */
@@ -15,6 +16,8 @@ export function KeybindInput({
   disabled?: boolean;
 }) {
   const [recording, setRecording] = useState(false);
+  // Kayıt sırasında Esc yalnızca kaydı iptal eder (ana süreç yakalar), ayarları kapatmaz
+  useEscapeLayer(() => undefined, recording);
 
   useEffect(() => {
     return () => {
@@ -47,7 +50,8 @@ export function KeybindInput({
       {value && !recording && (
         <button
           className="rounded p-2 text-text-muted hover:bg-bg-hover hover:text-danger"
-          title="Kısayolu kaldır"
+          data-tooltip="Kısayolu kaldır"
+          aria-label="Kısayolu kaldır"
           onClick={() => onChange(null)}
         >
           <X size={16} />

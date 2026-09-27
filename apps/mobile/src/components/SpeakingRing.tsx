@@ -1,0 +1,67 @@
+import { useEffect, useRef, type ReactNode } from 'react';
+import { Animated, Easing, View } from 'react-native';
+import { prefersReducedMotion, timing } from '../motion';
+import { colors } from '../theme';
+
+/**
+ * Konuşan kişinin avatarını saran yeşil halka: yumuşakça belirir, konuşma sürdükçe dışa doğru
+ * nabız atar, susunca yavaşça söner. Avatar bileşenine dokunmadan dışarıdan sarar.
+ */
+export function SpeakingRing({
+  speaking,
+  size,
+  children,
+}: {
+  speaking: boolean;
+  size: number;
+  children: ReactNode;
+}) {
+  const shown = useRef(new Animated.Value(speaking ? 1 : 0)).current;
+  const pulse = useRef(new Animated.Value(0)).current;
+  const width = size >= 48 ? 3 : 2;
+  const gap = size >= 48 ? 3 : 2;
+
+  useEffect(() => {
+    // Açılış hızlı, sönüş biraz daha yavaş: konuşma arasındaki kısa sessizliklerde titremez
+    timing(shown, speaking ? 1 : 0, speaking ? 90 : 280).start();
+    if (!speaking || prefersReducedMotion()) {
+      pulse.stopAnimation();
+      pulse.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.timing(pulse, { toValue: 1, duration: 1100, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [speaking, shown, pulse]);
+
+  const ring = {
+    position: 'absolute' as const,
+    top: -(width + gap),
+    left: -(width + gap),
+    right: -(width + gap),
+    bottom: -(width + gap),
+    borderRadius: size,
+    borderWidth: width,
+    borderColor: colors.ok,
+  };
+
+  return (
+    <View style={{ width: size, height: size }}>
+      {/* Dışa yayılıp kaybolan dalga */}
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          ring,
+          {
+            opacity: Animated.multiply(shown, pulse.interpolate({ inputRange: [0, 1], outputRange: [0.55, 0] })),
+            transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.22] }) }],
+          },
+        ]}
+      />
+      <Animated.View pointerEvents="none" style={[ring, { opacity: shown }]} />
+      {children}
+    </View>
+  );
+}

@@ -19,7 +19,7 @@ export function Button({
   return (
     <button
       className={cn(
-        'h-[38px] rounded-[3px] px-4 text-sm font-medium transition-colors disabled:opacity-50',
+        'press h-[38px] rounded-[3px] px-4 text-sm font-medium disabled:opacity-50',
         variants[variant],
         className,
       )}
@@ -28,28 +28,14 @@ export function Button({
   );
 }
 
-export function Field({ label, error, children }: { label: string; error?: string; children: ReactNode }) {
-  return (
-    <label className="mb-4 block">
-      <span
-        className={cn(
-          'mb-2 block text-xs font-bold tracking-wide uppercase',
-          error ? 'text-danger' : 'text-text-muted',
-        )}
-      >
-        {label}
-        {error && <span className="font-normal normal-case italic"> — {error}</span>}
-      </span>
-      {children}
-    </label>
-  );
-}
+/** Etiketli alan; hata mesajı alanın altında gösterilir (bkz. FormField). */
+export { FormField as Field } from './FormField';
 
 export function TextInput({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       className={cn(
-        'h-10 w-full rounded-[3px] bg-bg-input px-2.5 text-[15px] text-text-normal outline-none placeholder:text-text-faint',
+        'h-10 w-full rounded-[3px] border border-transparent bg-bg-input px-2.5 text-[15px] text-text-normal outline-none transition-colors placeholder:text-text-faint hover:border-black/60 focus:border-brand/70',
         className,
       )}
       {...rest}
@@ -57,34 +43,8 @@ export function TextInput({ className, ...rest }: InputHTMLAttributes<HTMLInputE
   );
 }
 
-export function Select<T extends string | number>({
-  value,
-  options,
-  onChange,
-  className,
-}: {
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (value: T) => void;
-  className?: string;
-}) {
-  return (
-    <select
-      className={cn('h-10 w-full rounded-[3px] bg-bg-input px-2 text-[15px] text-text-normal outline-none', className)}
-      value={String(value)}
-      onChange={(e) => {
-        const opt = options.find((o) => String(o.value) === e.target.value);
-        if (opt) onChange(opt.value);
-      }}
-    >
-      {options.map((o) => (
-        <option key={String(o.value)} value={String(o.value)}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  );
-}
+/** Temalı açılır liste (bkz. Select.tsx) */
+export { Select } from './Select';
 
 export function Toggle({
   checked,
@@ -153,7 +113,7 @@ export function RadioCards<T extends string>({
               value === o.value ? 'border-brand' : 'border-text-muted',
             )}
           >
-            {value === o.value && <span className="h-2.5 w-2.5 rounded-full bg-brand" />}
+            {value === o.value && <span className="anim-pill-in h-2.5 w-2.5 rounded-full bg-brand" />}
           </span>
           <span>
             <span className="block font-medium">{o.label}</span>

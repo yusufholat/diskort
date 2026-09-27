@@ -6,9 +6,11 @@ import { MainLayout } from './components/MainLayout';
 import { TitleBar } from './components/TitleBar';
 import { Toasts } from './components/Toasts';
 import { ConfirmDialogHost } from './components/ui/ConfirmDialog';
+import { TooltipHost } from './components/ui/Tooltip';
 import { UpdateRequired } from './components/UpdateRequired';
 import { useDesktopIntegration } from './features/desktop/useDesktopIntegration';
 import { bridge, isMac, isWindows } from './lib/bridge';
+import { editableField, openEditMenu } from './lib/editMenu';
 import { useSession } from '@diskort/client-core';
 import { useUpdate } from './stores/update';
 
@@ -21,10 +23,11 @@ export function App() {
 
   useEffect(() => {
     document.documentElement.style.setProperty('--titlebar-h', hasTitleBar ? '30px' : '0px');
-    // Uygulama içinde varsayılan sağ tık menüsünü kapat (metin alanları hariç).
+    // Tarayıcının sağ tık menüsü hiç açılmaz; metin kutularında temalı Kes/Kopyala/Yapıştır menüsü açılır.
     const onContextMenu = (e: MouseEvent): void => {
-      const target = e.target as HTMLElement;
-      if (!target.closest('input, textarea')) e.preventDefault();
+      e.preventDefault();
+      const field = editableField(e.target);
+      if (field) openEditMenu(e, field);
     };
     window.addEventListener('contextmenu', onContextMenu);
     // Metin kanalı dışına bırakılan dosya pencerede açılmaya çalışılmasın
@@ -56,6 +59,7 @@ export function App() {
       <EmojiPicker />
       <ConfirmDialogHost />
       <Toasts />
+      <TooltipHost />
     </div>
   );
 }

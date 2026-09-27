@@ -5,6 +5,9 @@ import { gateway, api, errorMessage, useSession } from '@diskort/client-core';
 import { SCREEN_CODECS, SCREEN_PRESETS } from '../../features/voice/screenPresets';
 import { voice } from '../../features/voice/voiceClient';
 import { bridge, isWindows } from '../../lib/bridge';
+import { confirmDialog } from '../../lib/dialog';
+import { useEscapeLayer } from '../../lib/escape';
+import { usePresenceClosing } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { useSettings, type ScreenCodec, type ScreenPresetId } from '../../stores/settings';
 import { toast, useUi, type SettingsSection } from '../../stores/ui';
@@ -31,14 +34,8 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
   const close = useUi((s) => s.closeModal);
   const isAdmin = useSession((s) => s.user?.isAdmin ?? false);
   const [section, setSection] = useState<SettingsSection>(initial ?? 'account');
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') close();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [close]);
+  const closing = usePresenceClosing();
+  useEscapeLayer(close, !closing);
 
   const logout = async (): Promise<void> => {
     close();
@@ -48,7 +45,12 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
   };
 
   return (
-    <div className="animate-pop fixed inset-x-0 bottom-0 top-[var(--titlebar-h,0px)] z-40 flex bg-bg-main">
+    <div
+      className={cn(
+        'fixed inset-x-0 bottom-0 top-[var(--titlebar-h,0px)] z-40 flex bg-bg-main',
+        closing ? 'anim-settings-out pointer-events-none' : 'anim-settings-in',
+      )}
+    >
       <nav className="flex w-[35%] min-w-[220px] justify-end overflow-y-auto bg-bg-side py-14 pr-2">
         <div className="w-[190px]">
           <div className="px-2.5 pb-1.5 text-xs font-bold text-text-muted uppercase">Kullanıcı Ayarları</div>
@@ -64,7 +66,8 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
         </div>
       </nav>
       <main className="relative flex-1 overflow-y-auto py-14 pr-10 pl-10">
-        <div className="max-w-[660px]">
+        {/* Bölüm değişince içerik hafifçe yükselerek belirir */}
+        <div key={section} className="anim-rise-in max-w-[660px]">
           {section === 'account' && <AccountSection />}
           {section === 'voice' && <VoiceSettings />}
           {section === 'stream' && <StreamSection />}
@@ -75,10 +78,10 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
         </div>
         <button
           onClick={close}
-          className="fixed top-14 right-10 flex flex-col items-center gap-1 text-text-muted hover:text-text-head"
+          className="group fixed top-14 right-10 flex flex-col items-center gap-1 text-text-muted transition-colors hover:text-text-head"
           aria-label="Kapat"
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-current">
+          <span className="press-icon flex h-9 w-9 items-center justify-center rounded-full border-2 border-current transition-transform group-hover:rotate-90 group-active:scale-90">
             <X size={20} />
           </span>
           <span className="text-xs font-semibold">ESC</span>
@@ -382,7 +385,7 @@ function InvitesSection() {
           const expired = inv.expiresAt !== null && inv.expiresAt < Date.now();
           const used = inv.maxUses !== null && inv.uses >= inv.maxUses;
           return (
-            <div key={inv.code} className="flex items-center gap-3 rounded bg-bg-side px-3 py-2">
+            <div key={inv.code} className="anim-rise-in flex items-center gap-3 rounded bg-bg-side px-3 py-2">
               <code className={cn('font-mono text-base text-text-head', (expired || used) && 'line-through opacity-50')}>
                 {inv.code}
               </code>
@@ -391,8 +394,9 @@ function InvitesSection() {
                 {inv.expiresAt ? `${new Date(inv.expiresAt).toLocaleString('tr-TR')} tarihine kadar` : 'süresiz'}
               </span>
               <button
-                title="Kopyala"
-                className="rounded p-1.5 text-text-muted hover:bg-bg-hover hover:text-text-head"
+                data-tooltip="Kopyala"
+                aria-label="Kopyala"
+                className="press-icon rounded p-1.5 text-text-muted hover:bg-bg-hover hover:text-text-head"
                 onClick={() => {
                   void navigator.clipboard.writeText(inv.code);
                   toast('Kopyalandı.');
@@ -401,9 +405,18 @@ function InvitesSection() {
                 <Copy size={16} />
               </button>
               <button
-                title="Sil"
-                className="rounded p-1.5 text-text-muted hover:bg-bg-hover hover:text-danger"
-                onClick={() => api.deleteInvite(inv.code).then(load).catch((err) => toast(errorMessage(err), 'error'))}
+                data-tooltip="Daveti sil"
+                aria-label="Daveti sil"
+                className="press-icon rounded p-1.5 text-text-muted hover:bg-bg-hover hover:text-danger"
+                onClick={async () => {
+                  const ok = await confirmDialog({
+                    title: 'Daveti sil',
+                    message: `${inv.code} davet kodu silinsin mi? Bu kodla artık kayıt olunamaz.`,
+                    confirmLabel: 'Sil',
+                    danger: true,
+                  });
+                  if (ok) api.deleteInvite(inv.code).then(load).catch((err) => toast(errorMessage(err), 'error'));
+                }}
               >
                 <Trash2 size={16} />
               </button>

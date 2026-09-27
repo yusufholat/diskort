@@ -44,15 +44,16 @@ function FileTray({ channelId, files }: { channelId: string; files: LocalFile[] 
   return (
     <div className="flex gap-2 overflow-x-auto border-b border-black/20 px-3 pt-3 pb-2">
       {files.map((file, i) => (
-        <div key={`${file.name}-${i}`} className="group/file relative w-[132px] shrink-0 rounded-md bg-bg-side p-2">
+        <div key={`${file.name}-${i}`} className="anim-pop-in group/file relative w-[132px] shrink-0 rounded-md bg-bg-side p-2">
           <FilePreview file={file} />
-          <div className="mt-1.5 truncate text-xs text-text-normal" title={file.name}>
+          <div className="mt-1.5 truncate text-xs text-text-normal" data-tooltip={file.name}>
             {file.name}
           </div>
           <div className="text-[11px] text-text-muted">{formatBytes(file.size)}</div>
           <button
-            className="absolute -top-1.5 -right-1.5 rounded-full bg-bg-float p-1 text-text-muted shadow hover:text-danger"
-            title="Kaldır"
+            className="press-icon absolute -top-1.5 -right-1.5 rounded-full bg-bg-float p-1 text-text-muted shadow hover:text-danger"
+            data-tooltip="Kaldır"
+            aria-label="Kaldır"
             onClick={() => removeFile(channelId, i)}
           >
             <X size={14} />
@@ -194,13 +195,16 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
   return (
     <div className="relative px-4">
       {suggestions.length > 0 && (
-        <div className="absolute right-4 bottom-full left-4 mb-2 overflow-hidden rounded-lg bg-bg-side py-2 shadow-xl">
+        <div
+          className="anim-drop-in absolute right-4 bottom-full left-4 mb-2 origin-bottom overflow-hidden rounded-lg border border-black/30 bg-bg-side py-2 shadow-xl"
+          style={{ ['--drop-from' as string]: '6px' }}
+        >
           <div className="px-3 pb-1 text-xs font-bold text-text-muted uppercase">Üyeler</div>
           {suggestions.map((u, i) => (
             <button
               key={u.id}
               className={cn(
-                'flex w-full items-center gap-2 px-3 py-1.5 text-left',
+                'flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors duration-75',
                 i === active ? 'bg-bg-active text-text-head' : 'text-text-normal',
               )}
               onMouseEnter={() => setSelected(i)}
@@ -220,8 +224,9 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
         {files.length > 0 && <FileTray channelId={channel.id} files={files} />}
         <div className="flex items-end">
           <button
-            className="shrink-0 py-[11px] pr-1 pl-3.5 text-text-muted hover:text-text-head"
-            title="Dosya ekle"
+            className="press-icon shrink-0 py-[11px] pr-1 pl-3.5 text-text-muted hover:text-text-head"
+            data-tooltip="Dosya ekle"
+            aria-label="Dosya ekle"
             onClick={() => fileInput.current?.click()}
           >
             <CirclePlus size={22} />

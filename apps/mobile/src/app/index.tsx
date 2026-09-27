@@ -1,12 +1,15 @@
 import { useMemo } from 'react';
-import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
+import { SectionList, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { Channel, VoiceState } from '@diskort/shared';
 import { isUnread, membersOf, useGuild, useMessages, useSession } from '@diskort/client-core';
 import { Avatar } from '../components/Avatar';
+import { PressableScale } from '../components/PressableScale';
+import { SpeakingRing } from '../components/SpeakingRing';
 import { VoiceBar } from '../components/VoiceBar';
+import { useLayoutAnimationOn } from '../motion';
 import { toast } from '../stores/ui';
 import { colors } from '../theme';
 import { useVoice, voice } from '../voice/voice';
@@ -33,9 +36,9 @@ export default function HomeScreen() {
         <Text style={styles.guild} numberOfLines={1}>
           {guild?.name ?? 'Diskort'}
         </Text>
-        <Pressable hitSlop={10} onPress={() => router.push('/settings')}>
+        <PressableScale scaleTo={0.8} hitSlop={10} onPress={() => router.push('/settings')} accessibilityLabel="Ayarlar">
           <Ionicons name="settings-sharp" size={22} color={colors.muted} />
-        </Pressable>
+        </PressableScale>
       </View>
       {status !== 'ready' && (
         <View style={styles.banner}>
@@ -75,7 +78,7 @@ function TextChannelRow({ channel, onPress }: { channel: Channel; onPress: () =>
   const unread = useGuild((s) => isUnread(s, channel.id));
   const mentionCount = useMessages((s) => s.mentionCounts[channel.id] ?? 0);
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
+    <PressableScale scaleTo={0.98} onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
       {unread && <View style={styles.unreadPill} />}
       <Ionicons name="chatbubble-outline" size={20} color={unread ? colors.head : colors.muted} />
       <Text style={[styles.name, unread && styles.nameUnread]} numberOfLines={1}>
@@ -86,7 +89,7 @@ function TextChannelRow({ channel, onPress }: { channel: Channel; onPress: () =>
           <Text style={styles.badgeText}>{mentionCount > 99 ? '99+' : mentionCount}</Text>
         </View>
       )}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -94,14 +97,20 @@ function VoiceChannelRow({ channel, onPress }: { channel: Channel; onPress: () =
   const voiceStates = useGuild((s) => s.voiceStates);
   const members = useMemo(() => membersOf(voiceStates, channel.id), [voiceStates, channel.id]);
   const active = useVoice((s) => s.channelId === channel.id);
+  // Katılan üye satırı belirir, ayrılanın yeri yumuşakça kapanır
+  useLayoutAnimationOn(members.map((m) => m.userId).join(','));
   return (
     <View>
-      <Pressable onPress={onPress} style={({ pressed }) => [styles.row, active && styles.rowActive, pressed && styles.pressed]}>
+      <PressableScale
+        scaleTo={0.98}
+        onPress={onPress}
+        style={({ pressed }) => [styles.row, active && styles.rowActive, pressed && styles.pressed]}
+      >
         <Ionicons name="volume-medium" size={21} color={active ? colors.head : colors.muted} />
         <Text style={[styles.name, active && styles.nameUnread]} numberOfLines={1}>
           {channel.name}
         </Text>
-      </Pressable>
+      </PressableScale>
       {members.map((m) => (
         <VoiceMember key={m.userId} state={m} />
       ))}
@@ -116,7 +125,9 @@ function VoiceMember({ state }: { state: VoiceState }) {
   const inMyChannel = useVoice((s) => s.channelId === state.channelId);
   return (
     <View style={styles.member}>
-      <Avatar user={user} size={26} speaking={inMyChannel && speaking} />
+      <SpeakingRing speaking={inMyChannel && speaking} size={26}>
+        <Avatar user={user} size={26} />
+      </SpeakingRing>
       <Text style={[styles.memberName, state.userId === selfId && { color: colors.head }]} numberOfLines={1}>
         {user?.displayName ?? '…'}
       </Text>

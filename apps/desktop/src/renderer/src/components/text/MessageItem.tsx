@@ -14,12 +14,14 @@ import {
 } from '@diskort/client-core';
 import { renderMarkdown, type MarkdownContext } from '../../features/messages/markdown';
 import { confirmDialog } from '../../lib/dialog';
+import { useMountedRef } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { toast, useUi, type EmojiPickerAnchor } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 import { downloadAttachment } from '../../features/messages/files';
 import { AttachmentList, UploadList } from './Attachments';
 import { formatFull, formatStamp, formatTime } from './format';
+import { ReactionPill } from './ReactionPill';
 
 interface Props {
   message: LocalMessage;
@@ -52,6 +54,8 @@ const HOVER_REACTIONS = QUICK_REACTIONS.slice(0, 3);
 export const MessageItem = memo(function MessageItem({ message, author, compact, editing, self, md }: Props) {
   const openContextMenu = useUi((s) => s.openContextMenu);
   const openEmojiPicker = useUi((s) => s.openEmojiPicker);
+  // Mesaj ekrandayken eklenen tepkiler animasyonla belirir
+  const mounted = useMountedRef();
   const own = message.authorId === self.id;
   const canDelete = own || self.isAdmin;
   const confirmed = !message.status;
@@ -99,7 +103,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
   return (
     <div
       className={cn(
-        'group relative flex pr-12 pl-4 hover:bg-black/[0.06]',
+        'group relative flex pr-12 pl-4 transition-colors duration-75 hover:bg-black/[0.06]',
         compact ? 'py-0.5' : 'mt-[17px] py-0.5',
         mentioned && 'border-l-2 border-warn bg-warn/[0.08] pl-[14px] hover:bg-warn/[0.12]',
         editing && 'bg-black/[0.06]',
@@ -110,8 +114,8 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
       <div className="w-14 shrink-0">
         {compact ? (
           <span
-            className="invisible block pt-[3px] pr-2 text-right text-[11px] text-text-faint group-hover:visible"
-            title={formatFull(message.createdAt)}
+            className="block pt-[3px] pr-2 text-right text-[11px] text-text-faint opacity-0 transition-opacity duration-100 group-hover:opacity-100"
+            data-tooltip={formatFull(message.createdAt)}
           >
             {formatTime(message.createdAt)}
           </span>
@@ -126,7 +130,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
             <span className={cn('font-medium', author ? 'text-text-head' : 'text-text-muted italic')}>
               {author?.displayName ?? 'Silinmiş Kullanıcı'}
             </span>
-            <span className="text-xs text-text-faint" title={formatFull(message.createdAt)}>
+            <span className="text-xs text-text-faint" data-tooltip={formatFull(message.createdAt)}>
               {formatStamp(message.createdAt)}
             </span>
           </div>
@@ -145,7 +149,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
             >
               {renderMarkdown(message.content, md)}
               {message.editedAt && (
-                <span className="ml-1 text-[10px] text-text-faint select-none" title={formatFull(message.editedAt)}>
+                <span className="ml-1 text-[10px] text-text-faint select-none" data-tooltip={formatFull(message.editedAt)}>
                   (düzenlendi)
                 </span>
               )}
@@ -175,25 +179,20 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
         {message.reactions.length > 0 && (
           <div className="mt-1 flex flex-wrap items-center gap-1">
             {message.reactions.map((r) => (
-              <button
+              <ReactionPill
                 key={r.emoji}
-                title={r.me ? 'Tepkini geri al' : 'Sen de tepki ver'}
-                className={cn(
-                  'flex h-6 items-center gap-1.5 rounded-lg border px-1.5 transition-colors',
-                  r.me
-                    ? 'border-brand bg-brand/20 text-text-head'
-                    : 'border-transparent bg-bg-side text-text-muted hover:border-line hover:text-text-normal',
-                )}
-                onClick={() => react(r.emoji)}
-              >
-                <span className="emoji text-base leading-none">{r.emoji}</span>
-                <span className="min-w-2 text-xs font-semibold">{r.count}</span>
-              </button>
+                emoji={r.emoji}
+                count={r.count}
+                me={r.me}
+                animateIn={mounted.current}
+                onToggle={() => react(r.emoji)}
+              />
             ))}
             {message.reactions.length < MESSAGE_MAX_REACTIONS && (
               <button
-                title="Tepki ekle"
-                className="invisible flex h-6 items-center rounded-lg bg-bg-side px-1.5 text-text-muted group-hover:visible hover:text-text-head"
+                data-tooltip="Tepki ekle"
+                aria-label="Tepki ekle"
+                className="press-icon flex h-6 items-center rounded-lg bg-bg-side px-1.5 text-text-muted opacity-0 group-hover:opacity-100 hover:text-text-head focus-visible:opacity-100"
                 onClick={(e) => pickReaction(e.currentTarget.getBoundingClientRect())}
               >
                 <SmilePlus size={16} />
@@ -204,28 +203,32 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
       </div>
 
       {confirmed && !editing && (
-        <div className="absolute -top-4 right-4 hidden overflow-hidden rounded-md border border-black/30 bg-bg-main shadow group-hover:flex">
+        // Üstüne gelince hafifçe belirip yükselen düğme şeridi
+        <div className="pointer-events-none absolute -top-4 right-4 flex translate-y-1 overflow-hidden rounded-md border border-black/30 bg-bg-main opacity-0 shadow transition-[opacity,translate] duration-100 ease-out group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
           {HOVER_REACTIONS.map((emoji) => (
             <button
               key={emoji}
               className="emoji flex w-8 items-center justify-center text-lg hover:bg-bg-hover"
-              title={`${emoji} tepkisi ver`}
+              data-tooltip={`${emoji} tepkisi ver`}
+              aria-label={`${emoji} tepkisi ver`}
               onClick={() => react(emoji)}
             >
-              {emoji}
+              <span className="transition-transform duration-150 ease-out hover:scale-125">{emoji}</span>
             </button>
           ))}
           <button
-            className="p-1.5 text-text-muted hover:bg-bg-hover hover:text-text-head"
-            title="Tepki ekle"
+            className="p-1.5 text-text-muted transition-colors hover:bg-bg-hover hover:text-text-head"
+            data-tooltip="Tepki ekle"
+            aria-label="Tepki ekle"
             onClick={(e) => pickReaction(e.currentTarget.getBoundingClientRect())}
           >
             <SmilePlus size={18} />
           </button>
           {own && (
             <button
-              className="p-1.5 text-text-muted hover:bg-bg-hover hover:text-text-head"
-              title="Düzenle"
+              className="p-1.5 text-text-muted transition-colors hover:bg-bg-hover hover:text-text-head"
+              data-tooltip="Düzenle"
+              aria-label="Düzenle"
               onClick={() => setEditing(message.id)}
             >
               <Pencil size={18} />
@@ -233,8 +236,9 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
           )}
           {canDelete && (
             <button
-              className="p-1.5 text-danger hover:bg-bg-hover"
-              title="Sil (Shift ile onaysız)"
+              className="p-1.5 text-danger transition-colors hover:bg-bg-hover"
+              data-tooltip="Sil (Shift ile onaysız)"
+              aria-label="Sil"
               onClick={(e) => void confirmDelete(message, e.shiftKey)}
             >
               <Trash2 size={18} />
@@ -293,14 +297,14 @@ function EditBox({ message }: { message: LocalMessage }) {
   };
 
   return (
-    <div className="py-1">
+    <div className="anim-fade-in py-1">
       <textarea
         ref={ref}
         value={value}
         rows={1}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={onKeyDown}
-        className="block w-full resize-none rounded-lg bg-bg-hover px-4 py-2.5 leading-[1.375rem] text-text-normal outline-none"
+        className="block w-full resize-none rounded-lg border border-transparent bg-bg-hover px-4 py-2.5 leading-[1.375rem] text-text-normal outline-none transition-colors focus:border-brand/50"
       />
       <div className="mt-1 text-xs text-text-muted">
         iptal için <span className="text-[#00a8fc]">esc</span> • kaydetmek için{' '}

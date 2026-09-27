@@ -44,6 +44,9 @@ export interface TrayState {
 
 export type TrayAction = 'toggleMute' | 'toggleDeafen' | 'disconnect';
 
+/** Metin kutusu sağ tık menüsünün komutları (Chromium'un düzenleme komutları) */
+export type EditCommand = 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll';
+
 /** Biten indirme: kaydedilen dosyanın adı; ok: false ise yarıda kesildi */
 export interface DownloadResult {
   name: string;
@@ -81,6 +84,8 @@ export interface DiskortBridge {
   download(url: string): Promise<void>;
   /** İndirme bitti (kaydetme penceresinde vazgeçilirse çağrılmaz). */
   onDownloadDone(cb: (result: DownloadResult) => void): () => void;
+  /** Odaktaki metin kutusunda düzenleme komutu (yapıştırma sayfadan izinsiz yapılamaz). */
+  edit(command: EditCommand): void;
 
   screen: {
     /** Sistem sesi paylaşımı destekleniyor mu (şu an yalnızca Windows) */
