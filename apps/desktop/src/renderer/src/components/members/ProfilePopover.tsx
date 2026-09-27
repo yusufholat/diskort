@@ -1,9 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AtSign, Crown, Eye, MessageCircle } from 'lucide-react';
+import { Crown, Eye, MessageCircle } from 'lucide-react';
 import { create } from 'zustand';
 import {
-  hasComposer,
-  mentionInComposer,
   sortedRoles,
   useCustomStatus,
   useGuild,
@@ -29,7 +27,7 @@ export interface ProfileAnchor {
 
 interface ProfileTarget {
   userId: string;
-  /** "Bahset" bu kanalın yazma kutusuna ekler */
+  /** Kartın açıldığı kanal (yoksa null) */
   channelId: string | null;
   anchor: ProfileAnchor;
   /** Tercih edilen taraf: sohbetteki avatardan sağa, sağdaki üye listesinden sola açılır */
@@ -55,7 +53,7 @@ export function closeProfile(): void {
   useProfilePopover.setState({ target: null });
 }
 
-/** Profil kartı: renkli şerit, büyük avatar, ad, roller ve "Bahset". App'te bir kez çizilir. */
+/** Profil kartı: renkli şerit, büyük avatar, ad, roller ve "Mesaj gönder". App'te bir kez çizilir. */
 export function ProfilePopover() {
   const target = useProfilePopover((s) => s.target);
   const { value: shown, closing } = usePresence(target, 100);
@@ -116,11 +114,6 @@ export function ProfilePopover() {
 
   if (!shown || !user) return null;
 
-  const canMention = shown.channelId !== null && !user.removed && hasComposer(shown.channelId);
-  const mention = (): void => {
-    if (shown.channelId) mentionInComposer(shown.channelId, user.username);
-    closeProfile();
-  };
   // Kendisi dışındaki üyeyle bire bir konuşmayı açar (yoksa oluşturur)
   const canMessage = user.id !== selfId;
   const message = (): void => {
@@ -198,33 +191,16 @@ export function ProfilePopover() {
         {user.removed ? (
           <div className="mt-3 text-sm text-text-muted italic">Artık sunucuda değil.</div>
         ) : (
-          (canMessage || canMention) && (
+          canMessage && (
             <div className="mt-4 flex gap-2">
-              {canMessage && (
-                <button
-                  type="button"
-                  className="press flex flex-1 items-center justify-center gap-1.5 rounded bg-brand px-3 py-2 text-sm font-medium whitespace-nowrap text-white transition-colors hover:bg-brand-hover"
-                  onClick={message}
-                >
-                  <MessageCircle size={16} />
-                  Mesaj gönder
-                </button>
-              )}
-              {canMention && (
-                <button
-                  type="button"
-                  className={cn(
-                    'press flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors',
-                    canMessage
-                      ? 'bg-bg-active text-text-head hover:bg-bg-hover'
-                      : 'bg-brand text-white hover:bg-brand-hover',
-                  )}
-                  onClick={mention}
-                >
-                  <AtSign size={16} />
-                  Bahset
-                </button>
-              )}
+              <button
+                type="button"
+                className="press flex flex-1 items-center justify-center gap-1.5 rounded bg-brand px-3 py-2 text-sm font-medium whitespace-nowrap text-white transition-colors hover:bg-brand-hover"
+                onClick={message}
+              >
+                <MessageCircle size={16} />
+                Mesaj gönder
+              </button>
             </div>
           )
         )}

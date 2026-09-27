@@ -42,7 +42,7 @@ export function WatchLiveBadge({ userId, channelId }: { userId: string; channelI
   );
 }
 
-/** Ses kanalındaki üyenin profil kartını açar ("Bahset" açık metin kanalına/konuşmaya ekler) */
+/** Ses kanalındaki üyenin profil kartını açar */
 export function openVoiceProfile(userId: string, anchor: ProfileAnchor, side: 'right' | 'left' = 'right'): void {
   const view = currentView();
   openProfile({ userId, channelId: view.kind === 'text' || view.kind === 'dm' ? view.channelId : null, anchor, side });

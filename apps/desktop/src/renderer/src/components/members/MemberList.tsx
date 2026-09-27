@@ -44,7 +44,7 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
   const openContextMenu = useUi((s) => s.openContextMenu);
   const isSelf = user.id === selfId;
 
-  // Tıklayınca profil kartı listenin soluna açılır ("Bahset" ile açık kanalın yazma kutusuna eklenir)
+  // Tıklayınca profil kartı listenin soluna açılır
   const showProfile = (el: HTMLElement): void => {
     const view = currentView();
     openProfile({
