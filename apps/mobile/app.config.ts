@@ -39,6 +39,9 @@ const config: ExpoConfig = {
       'android.permission.REQUEST_INSTALL_PACKAGES',
       // Telefondan ekran paylaşımı (WebRTC'nin MediaProjection servisi)
       'android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION',
+      // Ses düğmelerinde dokunma titreşimi (src/haptics.ts). Bazı kütüphaneler de ekliyor ama açıkça
+      // istenmezse hangi APK'da olduğu belirsiz kalıyor; yoksa titreşim sessizce atlanıyordu.
+      'android.permission.VIBRATE',
     ],
     // Kamera henüz kullanılmıyor (WebRTC eklentisi ve resim seçici varsayılan olarak ister).
     // Dosya ve resim seçimi Android'in kendi seçicileriyle yapılır; depolama/medya izni gerekmez.
