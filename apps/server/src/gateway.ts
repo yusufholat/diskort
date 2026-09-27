@@ -240,6 +240,13 @@ export class Gateway {
   announceLeave(guildId: string, userId: string, reason?: string): void {
     this.sendToUsers([userId], { t: 'GUILD_DELETE', d: { id: guildId, ...(reason ? { reason } : {}) } });
     this.sendToGuild(guildId, { t: 'GUILD_MEMBER_REMOVE', d: { guildId, userId } }, userId);
+    // Artık ortak sunucusu kalmayanlar birbirinin çevrimiçi durumunu görmez: son bilinen durum "çevrimdışı"
+    const still = this.permissions.coMembers(userId);
+    const parted = this.store.guildMemberIds(guildId).filter((id) => !still.has(id));
+    if (this.isOnline(userId)) this.sendToUsers(parted, { t: 'PRESENCE_UPDATE', d: { userId, online: false } });
+    for (const id of parted) {
+      if (this.isOnline(id)) this.sendToUsers([userId], { t: 'PRESENCE_UPDATE', d: { userId: id, online: false } });
+    }
   }
 
   /** Üyenin rolleri değişti */

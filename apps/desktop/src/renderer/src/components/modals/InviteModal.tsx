@@ -6,7 +6,7 @@ import { useUi } from '../../stores/ui';
 import { Modal } from '../ui/Modal';
 import { Button, TextInput } from '../ui/controls';
 
-/** Arkadaşlarını davet et: 7 gün geçerli bir davet bağlantısı oluşturur ve kopyalamayı kolaylaştırır. */
+/** Arkadaşlarını davet et: kendi geçerli davetini (yoksa 7 günlük yenisini) bağlantı olarak gösterir. */
 export function InviteModal() {
   const close = useUi((s) => s.closeModal);
   const openModal = useUi((s) => s.openModal);
@@ -45,7 +45,7 @@ export function InviteModal() {
   };
 
   return (
-    <Modal title={`Arkadaşlarını ${guildName} sunucusuna davet et`} onClose={close}>
+    <Modal title="Arkadaşlarını davet et" subtitle={guildName} onClose={close}>
       {!(canCreate || canManage) ? (
         <p className="text-sm text-text-muted">Bu sunucuya davet oluşturma yetkin yok.</p>
       ) : (
