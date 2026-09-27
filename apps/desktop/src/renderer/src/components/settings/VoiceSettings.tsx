@@ -217,8 +217,12 @@ export function VoiceSettings() {
         value={s.noise}
         onChange={(noise) => s.set({ noise })}
         options={[
-          { value: 'rnnoise', label: 'Gelişmiş (RNNoise)', description: 'Klavye, fan, köpek havlaması gibi arka plan seslerini yapay zekâ ile bastırır.' },
-          { value: 'standard', label: 'Standart', description: 'Tarayıcı motorunun yerleşik gürültü engellemesi.' },
+          {
+            value: 'deepfilter',
+            label: 'Yapay zekâ (DeepFilterNet 3)',
+            description: 'Klavye, fan, köpek havlaması gibi arka plan seslerini bastırır, sesini doğal bırakır.',
+          },
+          { value: 'standard', label: 'Standart', description: 'Tarayıcı motorunun yerleşik gürültü engellemesi; daha az işlemci kullanır.' },
           { value: 'off', label: 'Kapalı', description: 'Stüdyo mikrofonları veya müzik için.' },
         ]}
       />
