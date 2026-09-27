@@ -61,7 +61,9 @@ export function registerDmRoutes(app: FastifyInstance, ctx: AppContext): void {
       const user = store.getUser(id);
       if (!user || user.removed) return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
     }
-    if (!allowCreate(req.user.id)) {
+    // Sınır yalnızca yeni konuşmaya: var olan bire bir konuşmayı açmak serbest
+    const existing = others.length === 1 ? store.directDmId(req.user.id, others[0]!) : null;
+    if (!existing && !allowCreate(req.user.id)) {
       return sendError(reply, 429, 'rate_limited', 'Çok hızlı konuşma başlatıyorsun, biraz bekle.');
     }
     if (others.length === 1) {

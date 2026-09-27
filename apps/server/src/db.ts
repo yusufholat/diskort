@@ -1136,6 +1136,11 @@ export class Store {
     );
   }
 
+  /** İki kişi arasındaki bire bir konuşmanın kimliği (yoksa null) */
+  directDmId(a: string, b: string): string | null {
+    return this.one<{ id: string }>('SELECT channel_id AS id FROM dm_channels WHERE pair_key = ?', pairKey(a, b))?.id ?? null;
+  }
+
   /**
    * İki kişi arasındaki bire bir konuşmayı bulur, yoksa oluşturur. Konuşma açan kişinin listesinde açılır;
    * karşı tarafın listesinde ilk mesaj gelince görünür (boş konuşma kimseyi rahatsız etmesin).
@@ -1143,21 +1148,20 @@ export class Store {
    */
   openDirectDm(userId: string, otherId: string): { dm: DmChannel; created: boolean; opened: boolean } {
     return this.tx(() => {
-      const key = pairKey(userId, otherId);
-      const existing = this.one<{ id: string }>('SELECT channel_id AS id FROM dm_channels WHERE pair_key = ?', key);
+      const existing = this.directDmId(userId, otherId);
       if (existing) {
         // Hesap silinip yeniden kurulamayacağından kişi hâlâ katılımcıdır; yine de satır yoksa eklenir
         const opened =
           this.run(
             `INSERT INTO dm_participants (channel_id, user_id, joined_at, open) VALUES (?, ?, ?, 1)
              ON CONFLICT (channel_id, user_id) DO UPDATE SET open = 1 WHERE open = 0`,
-            existing.id,
+            existing,
             userId,
             Date.now(),
           ) > 0;
-        return { dm: this.getDm(existing.id)!, created: false, opened };
+        return { dm: this.getDm(existing)!, created: false, opened };
       }
-      const id = this.insertDm(key, null, null);
+      const id = this.insertDm(pairKey(userId, otherId), null, null);
       const now = Date.now();
       this.addParticipant(id, userId, now, true);
       this.addParticipant(id, otherId, now, false);
