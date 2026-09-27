@@ -1,8 +1,9 @@
 [Unit]
-Description=Diskort veritabanı yedeği
+Description=Diskort veritabanı ve dosya eki yedeği
 Requires=docker.service
 After=docker.service
 
 [Service]
 Type=oneshot
 ExecStart=/opt/diskort/infra/backup-db.sh
+ExecStart=/opt/diskort/infra/backup-attachments.sh

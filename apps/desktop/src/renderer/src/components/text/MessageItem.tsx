@@ -13,6 +13,7 @@ import {
   type LocalMessage,
 } from '@diskort/client-core';
 import { renderMarkdown, type MarkdownContext } from '../../features/messages/markdown';
+import { confirmDialog } from '../../lib/dialog';
 import { cn } from '../../lib/utils';
 import { toast, useUi, type EmojiPickerAnchor } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
@@ -30,8 +31,18 @@ interface Props {
   md: MarkdownContext;
 }
 
-function confirmDelete(message: LocalMessage, skipConfirm: boolean): void {
-  if (!skipConfirm && !window.confirm('Bu mesaj silinsin mi?')) return;
+async function confirmDelete(message: LocalMessage, skipConfirm: boolean): Promise<void> {
+  if (
+    !skipConfirm &&
+    !(await confirmDialog({
+      title: 'Mesajı sil',
+      message: 'Bu mesaj silinsin mi? Bu işlem geri alınamaz. İpucu: Shift basılıyken silersen onay sorulmaz.',
+      confirmLabel: 'Sil',
+      danger: true,
+    }))
+  ) {
+    return;
+  }
   void deleteMessage(message);
 }
 
@@ -79,7 +90,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
           : []),
         ...(own ? [{ label: 'Mesajı Düzenle', onClick: () => setEditing(message.id) }] : []),
         ...(canDelete
-          ? [{ label: 'Mesajı Sil', danger: true, onClick: () => confirmDelete(message, false) }]
+          ? [{ label: 'Mesajı Sil', danger: true, onClick: () => void confirmDelete(message, false) }]
           : []),
       ],
     });
@@ -224,7 +235,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
             <button
               className="p-1.5 text-danger hover:bg-bg-hover"
               title="Sil (Shift ile onaysız)"
-              onClick={(e) => confirmDelete(message, e.shiftKey)}
+              onClick={(e) => void confirmDelete(message, e.shiftKey)}
             >
               <Trash2 size={18} />
             </button>
@@ -258,7 +269,7 @@ function EditBox({ message }: { message: LocalMessage }) {
     // Dosyası olmayan mesajın metni silinirse mesajın kendisi silinir (Discord gibi)
     if (!content && message.attachments.length === 0) {
       setEditing(null);
-      confirmDelete(message, false);
+      void confirmDelete(message, false);
       return;
     }
     if (content.length > MESSAGE_MAX_LENGTH) {

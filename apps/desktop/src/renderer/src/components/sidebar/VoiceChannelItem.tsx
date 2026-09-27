@@ -3,6 +3,7 @@ import { Volume2 } from 'lucide-react';
 import type { Channel } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
 import { api, errorMessage, membersOf, useGuild, useSession } from '@diskort/client-core';
+import { confirmDialog } from '../../lib/dialog';
 import { cn } from '../../lib/utils';
 import { toast, useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
@@ -41,9 +42,14 @@ export function VoiceChannelItem({ channel }: { channel: Channel }) {
               {
                 label: 'Kanalı Sil',
                 danger: true,
-                onClick: () => {
-                  if (!window.confirm(`"${channel.name}" kanalı silinsin mi?`)) return;
-                  api.deleteChannel(channel.id).catch((err) => toast(errorMessage(err), 'error'));
+                onClick: async () => {
+                  const ok = await confirmDialog({
+                    title: 'Kanalı sil',
+                    message: `${channel.name} ses kanalı silinsin mi?`,
+                    confirmLabel: 'Kanalı Sil',
+                    danger: true,
+                  });
+                  if (ok) api.deleteChannel(channel.id).catch((err) => toast(errorMessage(err), 'error'));
                 },
               },
             ],

@@ -5,6 +5,7 @@ import { EmojiPicker } from './components/EmojiPicker';
 import { MainLayout } from './components/MainLayout';
 import { TitleBar } from './components/TitleBar';
 import { Toasts } from './components/Toasts';
+import { ConfirmDialogHost } from './components/ui/ConfirmDialog';
 import { UpdateRequired } from './components/UpdateRequired';
 import { useDesktopIntegration } from './features/desktop/useDesktopIntegration';
 import { bridge, isMac, isWindows } from './lib/bridge';
@@ -53,6 +54,7 @@ export function App() {
       </div>
       <ContextMenu />
       <EmojiPicker />
+      <ConfirmDialogHost />
       <Toasts />
     </div>
   );

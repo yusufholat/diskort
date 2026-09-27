@@ -1,6 +1,7 @@
 import { Hash } from 'lucide-react';
 import type { Channel } from '@diskort/shared';
 import { useMessages, api, errorMessage, isUnread, useGuild, useSession } from '@diskort/client-core';
+import { confirmDialog } from '../../lib/dialog';
 import { cn } from '../../lib/utils';
 import { toast, useUi } from '../../stores/ui';
 
@@ -37,9 +38,14 @@ export function TextChannelItem({ channel, selected }: { channel: Channel; selec
               {
                 label: 'Kanalı Sil',
                 danger: true,
-                onClick: () => {
-                  if (!window.confirm(`"#${channel.name}" kanalı ve tüm mesajları silinsin mi?`)) return;
-                  api.deleteChannel(channel.id).catch((err) => toast(errorMessage(err), 'error'));
+                onClick: async () => {
+                  const ok = await confirmDialog({
+                    title: 'Kanalı sil',
+                    message: `#${channel.name} kanalı ve tüm mesajları kalıcı olarak silinsin mi?`,
+                    confirmLabel: 'Kanalı Sil',
+                    danger: true,
+                  });
+                  if (ok) api.deleteChannel(channel.id).catch((err) => toast(errorMessage(err), 'error'));
                 },
               },
             ],

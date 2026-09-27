@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Copy, KeyRound, PhoneOff, Shield, ShieldOff, Trash2 } from 'lucide-react';
 import type { User } from '@diskort/shared';
 import { api, errorMessage, useGuild, useSession } from '@diskort/client-core';
+import { confirmDialog } from '../../lib/dialog';
 import { cn } from '../../lib/utils';
 import { toast } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
@@ -126,9 +127,14 @@ export function MembersSection() {
                   <IconAction
                     title="Hesabı sil"
                     danger
-                    onClick={() => {
-                      if (!window.confirm(`${u.displayName} (@${u.username}) hesabı kalıcı olarak silinsin mi?`)) return;
-                      void run(() => api.deleteUser(u.id), `${u.displayName} silindi.`);
+                    onClick={async () => {
+                      const ok = await confirmDialog({
+                        title: 'Hesabı sil',
+                        message: `${u.displayName} (@${u.username}) hesabı kalıcı olarak silinsin mi?`,
+                        confirmLabel: 'Hesabı Sil',
+                        danger: true,
+                      });
+                      if (ok) void run(() => api.deleteUser(u.id), `${u.displayName} silindi.`);
                     }}
                   >
                     <Trash2 size={16} />
