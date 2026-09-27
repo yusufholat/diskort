@@ -10,7 +10,7 @@ import { useSettings } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
 import { Avatar } from '../ui/Avatar';
-import { LiveBadge, VoiceStateIcons } from '../sidebar/VoiceMemberRow';
+import { LiveBadge, openVoiceProfile, VoiceStateIcons, WatchLiveBadge } from '../sidebar/VoiceMemberRow';
 import { StreamView } from './StreamView';
 
 type Tile = { kind: 'user'; state: VoiceState } | { kind: 'stream'; userId: string };
@@ -116,6 +116,13 @@ function TileView({ tile, compact }: { tile: Tile; compact?: boolean }) {
   );
 }
 
+function tileCenter(el: HTMLElement): { left: number; right: number; top: number; bottom: number } {
+  const r = el.getBoundingClientRect();
+  const x = r.left + r.width / 2;
+  const y = r.top + r.height / 2;
+  return { left: x, right: x, top: y, bottom: y };
+}
+
 function ParticipantTile({ state, compact }: { state: VoiceState; compact?: boolean }) {
   const user = useGuild((s) => s.users[state.userId]);
   const color = useMemberColor(state.userId);
@@ -126,11 +133,21 @@ function ParticipantTile({ state, compact }: { state: VoiceState; compact?: bool
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-label={`${user?.displayName ?? 'Üye'} profili`}
       className={cn(
-        'tile-ring relative flex h-full w-full items-center justify-center overflow-hidden rounded-lg',
+        'tile-ring relative flex h-full w-full cursor-pointer items-center justify-center overflow-hidden rounded-lg',
         speaking && 'tile-speaking',
       )}
       style={{ background: `color-mix(in srgb, ${user?.avatarColor ?? '#5865f2'} 35%, var(--color-bg-rail))` }}
+      // Kutucuğa tıklamak profil kartını kutucuğun ortasının yanında açar (yeniden tıklamak kapatır)
+      onClick={(e) => openVoiceProfile(state.userId, tileCenter(e.currentTarget))}
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        openVoiceProfile(state.userId, tileCenter(e.currentTarget));
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         const isSelf = state.userId === selfId;
@@ -146,6 +163,7 @@ function ParticipantTile({ state, compact }: { state: VoiceState; compact?: bool
         <span className="truncate" style={color ? { color } : undefined}>
           {user?.displayName}
         </span>
+        {state.streaming && <WatchLiveBadge userId={state.userId} channelId={state.channelId} />}
       </div>
     </div>
   );

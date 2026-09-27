@@ -11,10 +11,12 @@ import {
   useSession,
   useStatus,
 } from '@diskort/client-core';
+import { usePathname, useRouter } from 'expo-router';
 import { feedback } from '../haptics';
 import { animateNextLayout } from '../motion';
 import { showChat } from '../stores/nav';
 import { toast } from '../stores/ui';
+import { useVoice, voice as voiceClient } from '../voice/voice';
 import { colors, createStyles, font, radius, space } from '../theme';
 import { Avatar } from './Avatar';
 import { BottomSheet, SheetGroup, SheetItem, SheetNote } from './BottomSheet';
@@ -59,6 +61,11 @@ export function MemberSheet({
   // Mesaj: ortak sunucusu olan herkese (DM'deki başka sunucudan biri de)
   const reachable = useGuild((s) => (userId ? Boolean(s.reachable[userId]) : false));
   const canMessage = Boolean(user && reachable && userId !== selfId);
+  // Başkası ekran paylaşıyorsa "Yayını izle" (o kanalda değilsen önce katılır)
+  const streaming = Boolean(voice?.streaming && userId !== selfId);
+  const watchingThis = useVoice((s) => s.watching !== null && s.watching === userId);
+  const router = useRouter();
+  const pathname = usePathname();
 
   const close = (): void => {
     setConfirm(null);
@@ -87,13 +94,37 @@ export function MemberSheet({
   const name = user?.displayName ?? '';
   const extra = userId ? renderExtra?.(userId) : null;
   const voiceActions = Boolean(voice && actions && (actions.mute || actions.deafen || actions.move));
-  const nothing = !extra && !canMessage && actions && !voiceActions && !actions.kick && !actions.ban;
+  const nothing = !extra && !canMessage && !streaming && actions && !voiceActions && !actions.kick && !actions.ban;
   const roles = roleNames ? roleNames.split('\n') : [];
 
   const message = async (): Promise<void> => {
     close();
     const dm = await openDirectMessage(userId!);
     if (dm) showChat(dm.id);
+  };
+
+  const watchStream = async (): Promise<void> => {
+    const target = userId!;
+    const channelId = voice!.channelId;
+    close();
+    if (watchingThis) {
+      voiceClient.watch(null);
+      return;
+    }
+    const current = useVoice.getState();
+    if (current.channelId !== channelId || current.status === 'idle') {
+      feedback('join');
+      try {
+        await voiceClient.join(channelId);
+      } catch (err) {
+        feedback('error');
+        toast((err as Error).message, 'error');
+        return;
+      }
+      if (useVoice.getState().channelId !== channelId) return;
+    }
+    voiceClient.watch(target);
+    if (pathname !== '/voice') router.push('/voice');
   };
 
   return (
@@ -154,6 +185,15 @@ export function MemberSheet({
           </>
         ) : (
           <>
+            {streaming && (
+              <SheetGroup>
+                <SheetItem
+                  icon={watchingThis ? 'eye-off' : 'eye'}
+                  label={watchingThis ? 'İzlemeyi bırak' : 'Yayını izle'}
+                  onPress={() => void watchStream()}
+                />
+              </SheetGroup>
+            )}
             {canMessage && (
               <SheetGroup>
                 <SheetItem icon="chatbubble-outline" label="Mesaj gönder" onPress={() => void message()} />
