@@ -26,7 +26,17 @@ export function App() {
       if (!target.closest('input, textarea')) e.preventDefault();
     };
     window.addEventListener('contextmenu', onContextMenu);
-    return () => window.removeEventListener('contextmenu', onContextMenu);
+    // Metin kanalı dışına bırakılan dosya pencerede açılmaya çalışılmasın
+    const onDrop = (e: DragEvent): void => {
+      if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+    };
+    window.addEventListener('dragover', onDrop);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('contextmenu', onContextMenu);
+      window.removeEventListener('dragover', onDrop);
+      window.removeEventListener('drop', onDrop);
+    };
   }, []);
 
   return (

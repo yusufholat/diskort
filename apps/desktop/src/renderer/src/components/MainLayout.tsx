@@ -5,6 +5,7 @@ import { voice } from '../features/voice/voiceClient';
 import { toast, useUi } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import { useMainView } from '../lib/mainView';
+import { ImageViewer } from './text/ImageViewer';
 import { TextChannelView } from './text/TextChannelView';
 import { UpdateReadyBar } from './UpdateRequired';
 import { ChannelSidebar } from './sidebar/ChannelSidebar';
@@ -83,6 +84,7 @@ export function MainLayout() {
       {modal?.type === 'settings' && <SettingsModal initial={modal.section} />}
       {modal?.type === 'screenPicker' && <ScreenSharePicker />}
       {modal?.type === 'channel' && <ChannelModal channel={modal.channel} channelType={modal.channelType} />}
+      {modal?.type === 'image' && <ImageViewer attachment={modal.attachment} />}
     </div>
   );
 }

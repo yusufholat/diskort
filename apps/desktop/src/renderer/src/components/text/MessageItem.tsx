@@ -1,6 +1,6 @@
 import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { Pencil, SmilePlus, Trash2 } from 'lucide-react';
-import { MESSAGE_MAX_LENGTH, MESSAGE_MAX_REACTIONS, type User } from '@diskort/shared';
+import { isImageAttachment, MESSAGE_MAX_LENGTH, MESSAGE_MAX_REACTIONS, type User } from '@diskort/shared';
 import {
   deleteMessage,
   discardMessage,
@@ -16,6 +16,8 @@ import { renderMarkdown, type MarkdownContext } from '../../features/messages/ma
 import { cn } from '../../lib/utils';
 import { toast, useUi, type EmojiPickerAnchor } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
+import { downloadAttachment } from '../../features/messages/files';
+import { AttachmentList, UploadList } from './Attachments';
 import { formatFull, formatStamp, formatTime } from './format';
 
 interface Props {
@@ -51,15 +53,30 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
     e.preventDefault();
     const selection = window.getSelection()?.toString();
     const point = { left: e.clientX, top: e.clientY, right: e.clientX, bottom: e.clientY };
+    // Sağ tıklanan dosya (resim ya da dosya kartı)
+    const attachmentId = (e.target as HTMLElement).closest<HTMLElement>('[data-attachment-id]')?.dataset.attachmentId;
+    const attachment = message.attachments.find((a) => a.id === attachmentId);
     openContextMenu({
       x: e.clientX,
       y: e.clientY,
       items: [
         { label: 'Tepki Ekle', onClick: () => pickReaction(point) },
-        {
-          label: selection ? 'Seçimi Kopyala' : 'Metni Kopyala',
-          onClick: () => void navigator.clipboard.writeText(selection || message.content),
-        },
+        ...(attachment
+          ? [
+              {
+                label: isImageAttachment(attachment) ? 'Resmi Kaydet' : 'Dosyayı İndir',
+                onClick: () => downloadAttachment(attachment),
+              },
+            ]
+          : []),
+        ...(selection || message.content
+          ? [
+              {
+                label: selection ? 'Seçimi Kopyala' : 'Metni Kopyala',
+                onClick: () => void navigator.clipboard.writeText(selection || message.content),
+              },
+            ]
+          : []),
         ...(own ? [{ label: 'Mesajı Düzenle', onClick: () => setEditing(message.id) }] : []),
         ...(canDelete
           ? [{ label: 'Mesajı Sil', danger: true, onClick: () => confirmDelete(message, false) }]
@@ -107,20 +124,28 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
         {editing ? (
           <EditBox message={message} />
         ) : (
-          <div
-            className={cn(
-              'leading-[1.375rem] break-words whitespace-pre-wrap text-text-normal select-text',
-              message.status === 'pending' && 'opacity-50',
-              message.status === 'failed' && 'text-danger',
-            )}
-          >
-            {renderMarkdown(message.content, md)}
-            {message.editedAt && (
-              <span className="ml-1 text-[10px] text-text-faint select-none" title={formatFull(message.editedAt)}>
-                (düzenlendi)
-              </span>
-            )}
-          </div>
+          (message.content || message.editedAt) && (
+            <div
+              className={cn(
+                'leading-[1.375rem] break-words whitespace-pre-wrap text-text-normal select-text',
+                message.status === 'pending' && 'opacity-50',
+                message.status === 'failed' && 'text-danger',
+              )}
+            >
+              {renderMarkdown(message.content, md)}
+              {message.editedAt && (
+                <span className="ml-1 text-[10px] text-text-faint select-none" title={formatFull(message.editedAt)}>
+                  (düzenlendi)
+                </span>
+              )}
+            </div>
+          )
+        )}
+
+        {message.uploads ? (
+          <UploadList message={message} />
+        ) : (
+          message.attachments.length > 0 && <AttachmentList attachments={message.attachments} />
         )}
 
         {message.status === 'failed' && message.nonce && (
@@ -230,7 +255,8 @@ function EditBox({ message }: { message: LocalMessage }) {
 
   const save = (): void => {
     const content = value.trim();
-    if (!content) {
+    // Dosyası olmayan mesajın metni silinirse mesajın kendisi silinir (Discord gibi)
+    if (!content && message.attachments.length === 0) {
       setEditing(null);
       confirmDelete(message, false);
       return;

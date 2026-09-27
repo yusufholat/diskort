@@ -44,6 +44,12 @@ export interface TrayState {
 
 export type TrayAction = 'toggleMute' | 'toggleDeafen' | 'disconnect';
 
+/** Biten indirme: kaydedilen dosyanın adı; ok: false ise yarıda kesildi */
+export interface DownloadResult {
+  name: string;
+  ok: boolean;
+}
+
 /**
  * Güncelleme desteği: auto = indirip kendisi kurar (Windows, Linux), manual = kullanıcı indirme
  * sayfasından kurar (macOS; Apple imzası olmadan kendi kendine güncelleme mümkün değil),
@@ -71,6 +77,10 @@ export interface DiskortBridge {
   showWindow(): void;
   /** Pencere odakta değilse görev çubuğu simgesini yakıp söndürerek dikkat çeker. */
   requestAttention(): void;
+  /** Dosyayı indirir ("Farklı kaydet" penceresi açılır). */
+  download(url: string): Promise<void>;
+  /** İndirme bitti (kaydetme penceresinde vazgeçilirse çağrılmaz). */
+  onDownloadDone(cb: (result: DownloadResult) => void): () => void;
 
   screen: {
     /** Sistem sesi paylaşımı destekleniyor mu (şu an yalnızca Windows) */

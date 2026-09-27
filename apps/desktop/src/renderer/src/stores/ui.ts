@@ -1,10 +1,11 @@
 import { create } from 'zustand';
-import type { Channel, ChannelType } from '@diskort/shared';
+import type { Attachment, Channel, ChannelType } from '@diskort/shared';
 
 export type Modal =
   | { type: 'settings'; section?: SettingsSection }
   | { type: 'screenPicker' }
   | { type: 'channel'; channel?: Channel; channelType?: ChannelType }
+  | { type: 'image'; attachment: Attachment }
   | null;
 
 export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app' | 'members' | 'invites';

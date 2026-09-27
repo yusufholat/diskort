@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import {
   app,
   BrowserWindow,
@@ -14,6 +14,7 @@ import {
 } from 'electron';
 import type {
   AppPreferences,
+  DownloadResult,
   HotkeyConfig,
   ScreenSelection,
   ScreenSource,
@@ -263,6 +264,10 @@ function registerIpc(): void {
     updateTrayMenu();
   });
   ipcMain.on('app:show-window', showWindow);
+  // Dosya ekleri: Chromium'un indirme yöneticisi "Farklı kaydet" penceresini açar
+  ipcMain.handle('app:download', (_e, url: string) => {
+    if (/^https?:\/\//.test(url)) mainWindow?.webContents.downloadURL(url);
+  });
   ipcMain.on('app:request-attention', () => {
     if (!mainWindow || mainWindow.isFocused()) return;
     if (isMac) app.dock?.bounce('informational');
@@ -337,6 +342,13 @@ void app.whenReady().then(async () => {
     callback(ALLOWED_PERMISSIONS.has(permission));
   });
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission));
+  session.defaultSession.on('will-download', (_e, item) => {
+    item.once('done', (_ev, state) => {
+      if (state === 'cancelled') return; // kaydetme penceresinde vazgeçildi
+      const result: DownloadResult = { name: basename(item.getSavePath() || item.getFilename()), ok: state === 'completed' };
+      mainWindow?.webContents.send('download:done', result);
+    });
+  });
 
   registerIpc();
 
