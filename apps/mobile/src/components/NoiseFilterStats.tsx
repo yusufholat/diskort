@@ -1,17 +1,15 @@
-import { useEffect, useState } from 'react';
-import { Text } from 'react-native';
+import { useEffect, useState, type ComponentType } from 'react';
 import type { NoiseFilterStatus } from '../../modules/noise-filter';
-import { colors, createStyles } from '../theme';
 import { noiseFilterStats, useNoiseFilter } from '../voice/noiseFilter';
 
 const fmt = (n: number): string => n.toFixed(1).replace('.', ',');
 
 /**
- * Sesli sohbet ekranında DPDFNet'in telefonda nasıl çalıştığı: kare başına ortalama/en uzun süre (bütçe
- * 10 ms; %60'ı aşılırsa standart engellemeye dönülür) ve ses iş parçacığının yükü. Yalnızca DPDFNet
- * seçiliyken görünür.
+ * Bağlantı panelinde (Mikrofon işleme) DPDFNet'in telefonda nasıl çalıştığı: kare başına ortalama/en uzun
+ * süre (bütçe 10 ms; ortalama %60'ı aşarsa standart engellemeye dönülür), ses iş parçacığının yükü ve
+ * çalışmıyorsa nedeni. Ölçümler 2 saniyede bir tazelenir.
  */
-export function NoiseFilterStats() {
+export function NoiseFilterRows({ Row }: { Row: ComponentType<{ label: string; value: string }> }) {
   const selected = useNoiseFilter((s) => s.status !== null);
   const [stats, setStats] = useState<NoiseFilterStatus | null>(null);
   useEffect(() => {
@@ -24,32 +22,24 @@ export function NoiseFilterStats() {
     const timer = setInterval(tick, 2000);
     return () => clearInterval(timer);
   }, [selected]);
-  if (!stats) return null;
+  if (!stats) return <Row label="DPDFNet" value="Sesli sohbette yüklenir" />;
 
-  let text: string;
-  if (!stats.active) text = `DPDFNet kapalı: ${stats.reason ?? 'bilinmeyen neden'} · standart engelleme`;
-  else if (!stats.processing)
-    text =
-      stats.sampleRate && stats.sampleRate !== 48000
-        ? `DPDFNet bekliyor: ses ${stats.sampleRate} Hz (model 48000 Hz)`
-        : `DPDFNet hazır · ısınma ${fmt(stats.warmupMs)} ms/kare`;
-  else {
-    const parts = [
-      'DPDFNet',
-      stats.avgMs !== null ? `${fmt(stats.avgMs)} ms/kare` : null,
-      stats.maxMs !== null ? `en uzun ${fmt(stats.maxMs)} ms` : null,
-      stats.load !== null ? `yük %${Math.round(stats.load * 100)}` : null,
-      stats.overHop ? `10 ms'yi aşan: ${stats.overHop}` : null,
-    ];
-    text = parts.filter(Boolean).join(' · ');
-  }
+  if (!stats.active) return <Row label="DPDFNet" value={`Kapalı: ${stats.reason ?? 'bilinmeyen neden'}`} />;
+  const state = stats.processing
+    ? 'Çalışıyor'
+    : stats.sampleRate && stats.sampleRate !== 48000
+      ? `Bekliyor: ses ${stats.sampleRate} Hz (model 48000 Hz)`
+      : 'Hazır (mikrofon kapalı)';
   return (
-    <Text style={styles.text} selectable accessibilityLabel={`Gürültü engelleme: ${text}`}>
-      {text}
-    </Text>
+    <>
+      <Row label="DPDFNet" value={state} />
+      <Row label="Isınmada kare süresi" value={`${fmt(stats.warmupMs)} ms`} />
+      {stats.avgMs !== null && (
+        <Row label="Kare süresi (ort. / en uzun)" value={`${fmt(stats.avgMs)} / ${fmt(stats.maxMs ?? 0)} ms`} />
+      )}
+      {stats.load !== null && <Row label="Ses iş parçacığı yükü" value={`%${Math.round(stats.load * 100)}`} />}
+      {stats.avgMs !== null && <Row label="10 ms'yi aşan kare (2 sn)" value={String(stats.overHop)} />}
+      <Row label="İşlenen kare" value={String(stats.frames)} />
+    </>
   );
 }
-
-const styles = createStyles(() => ({
-  text: { color: colors.muted, fontSize: 11.5, textAlign: 'center', marginVertical: 4, paddingHorizontal: 12 },
-}));

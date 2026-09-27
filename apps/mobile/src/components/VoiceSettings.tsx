@@ -287,8 +287,8 @@ const styles = createStyles(() => ({
     borderColor: colors.control,
   },
   choiceSelected: { backgroundColor: colors.brand, borderColor: colors.brand },
-  choiceText: { color: colors.text, fontSize: 14, fontWeight: '500' },
-  choiceTextSelected: { color: '#fff' },
+  choiceText: { color: colors.onControl, fontSize: 14, fontWeight: '500' },
+  choiceTextSelected: { color: colors.white },
   vad: { paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: colors.line, marginLeft: 2, marginBottom: 4 },
   hint: { color: colors.muted, fontSize: 12.5, lineHeight: 18, marginTop: 6 },
   // Kaydırıcıyla hizalı olsun diye iki yanda başparmak payı bırakılır

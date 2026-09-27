@@ -7,7 +7,6 @@ import { channelById, membersOf, useCan, useGuild, useMemberColor, useSession } 
 import { Permission, type VoiceState } from '@diskort/shared';
 import { Avatar } from '../components/Avatar';
 import { MemberSheet } from '../components/MemberSheet';
-import { NoiseFilterStats } from '../components/NoiseFilterStats';
 import { SpeakingRing } from '../components/SpeakingRing';
 import { EmptyState, Notice } from '../components/States';
 import { StreamViewer } from '../components/StreamViewer';
@@ -124,8 +123,6 @@ export default function VoiceScreen() {
         ))}
       </ScrollView>
 
-      {/* DPDFNet gürültü engellemenin telefondaki ölçümleri (yalnızca seçiliyken) */}
-      <NoiseFilterStats />
       <View style={styles.controls}>
         <VoiceControl
           icon={speaker ? 'volume-high' : 'ear'}

@@ -98,7 +98,7 @@ class NoiseFilterModule : Module() {
     return mapOf(
       "active" to (reason == null && DpdfnetProcessor.isActive()),
       "processing" to (DpdfnetProcessor.isActive() && DpdfnetProcessor.isProcessing()),
-      "reason" to (reason ?: DpdfnetProcessor.bypassReason),
+      "reason" to (reason ?: DpdfnetProcessor.bypassReason ?: DpdfnetProcessor.slowReason),
       "sampleRate" to DpdfnetProcessor.sampleRate,
       "warmupMs" to DpdfnetProcessor.warmupMs,
       "avgMs" to s?.avgMs,

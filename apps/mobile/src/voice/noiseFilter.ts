@@ -72,9 +72,12 @@ export async function releaseNoiseFilter(): Promise<void> {
 
 /** Anlık ölçümler (sesli sohbet ekranındaki satır) */
 export function noiseFilterStats(): NoiseFilterStatus | null {
-  if (!running && !useNoiseFilter.getState().status) return null;
+  const last = useNoiseFilter.getState().status;
+  if (!running && !last) return null;
   try {
-    return NoiseFilter?.getStats() ?? null;
+    const now = NoiseFilter?.getStats() ?? null;
+    // Yüklenemediyse neden yalnızca katılıştaki sonuçta vardır
+    return now && !now.active && !now.reason ? { ...now, reason: last?.reason ?? null } : now;
   } catch {
     return null;
   }

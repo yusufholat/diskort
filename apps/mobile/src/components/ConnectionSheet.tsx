@@ -11,7 +11,7 @@ import {
   type StreamView,
   type TransportView,
 } from '@diskort/client-core';
-import { getSettings, useSettings } from '../stores/settings';
+import { getSettings, useSettings, type NoiseMode } from '../stores/settings';
 import { toast } from '../stores/ui';
 import { colors, createStyles, font, radius, ripple, space } from '../theme';
 import { APP_VERSION, NATIVE_VERSION } from '../version';
@@ -23,6 +23,8 @@ import {
 } from '../voice/connectionStats';
 import { BottomSheet } from './BottomSheet';
 import { PingChart } from './PingChart';
+import { NoiseFilterRows } from './NoiseFilterStats';
+import { effectiveNoiseMode, noiseFilterStats } from '../voice/noiseFilter';
 
 type Tab = 'connection' | 'debug';
 
@@ -39,7 +41,9 @@ function serverLine(server: VoiceServerInfo | null): string {
 function micProcessing() {
   const s = getSettings();
   return {
-    noiseSuppression: s.noiseSuppression,
+    noiseMode: effectiveNoiseMode(s.noiseMode),
+    noiseStrengthDb: s.noiseStrengthDb,
+    dpdfnet: noiseFilterStats(),
     echoCancellation: s.echoCancellation,
     autoGainControl: s.autoGainControl,
     voiceActivity: s.voiceActivity,
@@ -202,23 +206,22 @@ function DebugTab() {
   );
 }
 
-/**
- * Mikrofon işleme: şimdilik yalnızca ayarlar. Telefondaki gürültü engelleyici ölçüm (yük, kare süresi)
- * verdiğinde masaüstündeki gibi burada gösterilecek.
- */
+const NOISE_MODE_LABELS: Record<NoiseMode, string> = { dpdfnet: 'DPDFNet', standard: 'Standart', off: 'Kapalı' };
+
+/** Mikrofon işleme: ayarlar ve DPDFNet seçiliyse telefondaki ölçümleri (kare süresi, yük, devre dışı nedeni) */
 function MicProcessingSection() {
-  const noise = useSettings((s) => s.noiseSuppression);
+  const noise = effectiveNoiseMode(useSettings((s) => s.noiseMode));
   const echo = useSettings((s) => s.echoCancellation);
   const agc = useSettings((s) => s.autoGainControl);
   const vad = useSettings((s) => s.voiceActivity);
   const onOff = (v: boolean): string => (v ? 'Açık' : 'Kapalı');
   return (
     <Section title="Mikrofon işleme">
-      <Row label="Gürültü engelleme" value={onOff(noise)} />
+      <Row label="Gürültü engelleme" value={NOISE_MODE_LABELS[noise]} />
+      {noise === 'dpdfnet' && <NoiseFilterRows Row={Row} />}
       <Row label="Yankı engelleme" value={onOff(echo)} />
       <Row label="Otomatik kazanç" value={onOff(agc)} />
       <Row label="Ses algılama" value={onOff(vad)} />
-      <Text style={styles.sectionNote}>Gürültü engelleyicinin ayrıntılı ölçümleri telefonda henüz yok.</Text>
     </Section>
   );
 }
