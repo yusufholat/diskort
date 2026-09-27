@@ -249,12 +249,23 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
           maxLength={MESSAGE_MAX_LENGTH * 2}
           style={styles.input}
         />
+        {gifsEnabled && !editing && (
+          <PressableScale
+            scaleTo={0.85}
+            onPress={() => setExpressions('gif')}
+            hitSlop={4}
+            style={styles.gifButton}
+            accessibilityLabel="GIF"
+          >
+            <Text style={styles.gifButtonText}>GIF</Text>
+          </PressableScale>
+        )}
         <PressableScale
           scaleTo={0.85}
-          onPress={() => setExpressions(gifsEnabled && !editing ? 'gif' : 'emoji')}
+          onPress={() => setExpressions('emoji')}
           hitSlop={6}
           style={styles.attach}
-          accessibilityLabel={gifsEnabled && !editing ? 'GIF ve emoji' : 'Emoji'}
+          accessibilityLabel="Emoji"
         >
           <Ionicons name="happy-outline" size={27} color={colors.muted} />
         </PressableScale>
@@ -332,6 +343,16 @@ function AttachOption({
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingVertical: 8 },
   attach: { height: 44, justifyContent: 'center' },
+  gifButton: {
+    alignSelf: 'center',
+    borderWidth: 1.5,
+    borderColor: colors.muted,
+    borderRadius: 5,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    marginHorizontal: 2,
+  },
+  gifButtonText: { color: colors.muted, fontSize: 11.5, fontWeight: '800', letterSpacing: 0.3 },
   locked: {
     flexDirection: 'row',
     alignItems: 'center',
