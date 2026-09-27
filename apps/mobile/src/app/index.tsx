@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
-import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
+import { memo, useCallback, useMemo, useState } from 'react';
+import { Animated, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { hasPermission, Permission, type Channel, type VoiceState } from '@diskort/shared';
 import {
   isUnread,
@@ -15,17 +15,26 @@ import {
   useSession,
 } from '@diskort/client-core';
 import { Avatar } from '../components/Avatar';
+import { CountBadge, UnreadMarker } from '../components/Badge';
+import { ConnectionBanner } from '../components/ConnectionBanner';
+import { HeaderButton } from '../components/HeaderButton';
 import { MemberSheet } from '../components/MemberSheet';
-import { PressableScale } from '../components/PressableScale';
+import { ChannelListSkeleton } from '../components/Skeleton';
 import { SpeakingRing } from '../components/SpeakingRing';
+import { EmptyState } from '../components/States';
+import { TypingDots } from '../components/TypingDots';
+import { UserPanel } from '../components/UserPanel';
 import { VoiceBar } from '../components/VoiceBar';
 import { VoiceStateIcon } from '../components/VoiceStateIcon';
-import { useLayoutAnimationOn } from '../motion';
+import { animateNextLayout, useLayoutAnimationOn, useTimingTo } from '../motion';
 import { toast } from '../stores/ui';
-import { colors } from '../theme';
+import { colors, font, radius, ripple, space } from '../theme';
 import { useVoice, voice } from '../voice/voice';
 
-type Row = { kind: 'text'; channel: Channel } | { kind: 'voice'; channel: Channel };
+type SectionKey = 'text' | 'voice';
+
+/** Kapatılan bölümler uygulama açık kaldıkça hatırlanır (ekran yeniden açılınca da) */
+const collapsedSections = new Set<SectionKey>();
 
 /** Kanal @everyone'dan gizlenmiş mi (kilit simgesi) */
 function usePrivate(channel: Channel): boolean {
@@ -35,71 +44,157 @@ function usePrivate(channel: Channel): boolean {
   });
 }
 
+/** Bu kanalda (kendin dışında) yazan biri var mı; seçici ilkel değer döndürür */
+function useSomeoneTyping(channelId: string): boolean {
+  const selfId = useSession((s) => s.user?.id);
+  return useMessages((s) => {
+    const typing = s.typing[channelId];
+    if (!typing) return false;
+    for (const userId in typing) if (userId !== selfId) return true;
+    return false;
+  });
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const guild = useGuild((s) => s.guild);
   const status = useGuild((s) => s.status);
   const channels = useGuild((s) => s.channels);
+  // Kapalı bölümde de görünmesi gerekenler: okunmamış metin kanalları ve bağlı olunan ses kanalı
+  const unreadKey = useGuild((s) =>
+    s.channels
+      .filter((c) => c.type === 'text' && isUnread(s, c.id))
+      .map((c) => c.id)
+      .join(','),
+  );
+  const voiceChannelId = useVoice((s) => s.channelId);
+  const [collapsed, setCollapsed] = useState<ReadonlySet<SectionKey>>(() => new Set(collapsedSections));
   // Uzun basılan (yönetilecek) üye
   const [member, setMember] = useState<string | null>(null);
 
-  const sections = useMemo(
-    () => [
-      { title: 'Metin Kanalları', data: channels.filter((c) => c.type === 'text').map((c): Row => ({ kind: 'text', channel: c })) },
-      { title: 'Ses Kanalları', data: channels.filter((c) => c.type === 'voice').map((c): Row => ({ kind: 'voice', channel: c })) },
-    ],
-    [channels],
+  const sections = useMemo(() => {
+    const unread = new Set(unreadKey ? unreadKey.split(',') : []);
+    const build = (key: SectionKey, title: string, type: Channel['type']) => {
+      const all = channels.filter((c) => c.type === type);
+      const shown = collapsed.has(key)
+        ? all.filter((c) => (type === 'text' ? unread.has(c.id) : c.id === voiceChannelId))
+        : all;
+      return { key, title, total: all.length, data: shown };
+    };
+    return [build('text', 'Metin Kanalları', 'text'), build('voice', 'Ses Kanalları', 'voice')].filter((s) => s.total > 0);
+  }, [channels, collapsed, unreadKey, voiceChannelId]);
+
+  const toggleSection = useCallback((key: SectionKey) => {
+    animateNextLayout(200);
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      collapsedSections.clear();
+      next.forEach((k) => collapsedSections.add(k));
+      return next;
+    });
+  }, []);
+
+  const openText = useCallback((id: string) => router.push(`/channel/${id}`), [router]);
+  const openVoice = useCallback(
+    (id: string) => {
+      if (useVoice.getState().channelId !== id) {
+        voice.join(id).catch((err: Error) => toast(err.message, 'error'));
+      }
+      router.push('/voice');
+    },
+    [router],
   );
+
+  const loading = channels.length === 0 && status !== 'ready';
 
   return (
     <SafeAreaView style={styles.page} edges={['top', 'bottom']}>
       <View style={styles.header}>
+        <View style={styles.guildIcon}>
+          <Text style={styles.guildIconText}>{(guild?.name ?? 'D').slice(0, 1).toLocaleUpperCase('tr')}</Text>
+        </View>
         <Text style={styles.guild} numberOfLines={1}>
           {guild?.name ?? 'Diskort'}
         </Text>
-        <View style={styles.headerButtons}>
-          <DmButton onPress={() => router.push('/dms')} />
-          <PressableScale scaleTo={0.8} hitSlop={10} onPress={() => router.push('/members')} accessibilityLabel="Üyeler">
-            <Ionicons name="people" size={23} color={colors.muted} />
-          </PressableScale>
-          <PressableScale scaleTo={0.8} hitSlop={10} onPress={() => router.push('/settings')} accessibilityLabel="Ayarlar">
-            <Ionicons name="settings-sharp" size={22} color={colors.muted} />
-          </PressableScale>
-        </View>
+        <DmButton onPress={() => router.push('/dms')} />
+        <HeaderButton icon="people" label="Üyeler" onPress={() => router.push('/members')} />
       </View>
-      {status !== 'ready' && (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>
-            {status === 'reconnecting' ? 'Sunucu bağlantısı koptu, yeniden bağlanılıyor…' : 'Bağlanıyor…'}
-          </Text>
-        </View>
-      )}
-      <SectionList
-        sections={sections}
-        keyExtractor={(row) => row.channel.id}
-        stickySectionHeadersEnabled={false}
-        contentContainerStyle={{ paddingBottom: 16 }}
-        renderSectionHeader={({ section }) => <Text style={styles.section}>{section.title}</Text>}
-        renderItem={({ item }) =>
-          item.kind === 'text' ? (
-            <TextChannelRow channel={item.channel} onPress={() => router.push(`/channel/${item.channel.id}`)} />
-          ) : (
-            <VoiceChannelRow
-              channel={item.channel}
-              onPress={() => {
-                if (useVoice.getState().channelId !== item.channel.id) {
-                  voice.join(item.channel.id).catch((err: Error) => toast(err.message, 'error'));
-                }
-                router.push('/voice');
-              }}
-              onMemberPress={setMember}
+      <ConnectionBanner />
+      {loading ? (
+        <ChannelListSkeleton />
+      ) : (
+        <SectionList
+          sections={sections}
+          keyExtractor={(c) => c.id}
+          stickySectionHeadersEnabled={false}
+          contentContainerStyle={styles.listContent}
+          renderSectionHeader={({ section }) => (
+            <SectionHeader
+              title={section.title}
+              sectionKey={section.key}
+              collapsed={collapsed.has(section.key)}
+              onToggle={toggleSection}
             />
-          )
-        }
-      />
+          )}
+          renderItem={({ item }) =>
+            item.type === 'text' ? (
+              <TextChannelRow channel={item} onOpen={openText} />
+            ) : (
+              <VoiceChannelRow channel={item} onOpen={openVoice} onMemberPress={setMember} />
+            )
+          }
+          ListEmptyComponent={
+            <EmptyState
+              icon="chatbubbles-outline"
+              tone="muted"
+              title="Henüz kanal yok"
+              text="Kanallar masaüstü uygulamasındaki sunucu ayarlarından oluşturulur. Oluşturulunca burada belirir."
+            />
+          }
+        />
+      )}
       <VoiceBar />
+      <UserPanel onSettings={() => router.push('/settings')} />
       <MemberSheet userId={member} onClose={() => setMember(null)} />
     </SafeAreaView>
+  );
+}
+
+/** Bölüm başlığı: dokununca bölüm kapanır/açılır, ok döner */
+function SectionHeader({
+  title,
+  sectionKey,
+  collapsed,
+  onToggle,
+}: {
+  title: string;
+  sectionKey: SectionKey;
+  collapsed: boolean;
+  onToggle: (key: SectionKey) => void;
+}) {
+  const turn = useTimingTo(collapsed ? 1 : 0, 180);
+  return (
+    <Pressable
+      onPress={() => onToggle(sectionKey)}
+      style={styles.section}
+      hitSlop={{ top: 4, bottom: 4 }}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: !collapsed }}
+      accessibilityLabel={`${title}, ${collapsed ? 'kapalı' : 'açık'}`}
+    >
+      {({ pressed }) => (
+        <>
+          <Animated.View
+            style={{ transform: [{ rotate: turn.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-90deg'] }) }] }}
+          >
+            <Ionicons name="chevron-down" size={12} color={pressed ? colors.text : colors.muted} />
+          </Animated.View>
+          <Text style={[styles.sectionText, pressed && { color: colors.text }]}>{title}</Text>
+        </>
+      )}
+    </Pressable>
   );
 }
 
@@ -107,49 +202,58 @@ export default function HomeScreen() {
 function DmButton({ onPress }: { onPress: () => void }) {
   const unread = useDmUnreadTotal();
   return (
-    <PressableScale
-      scaleTo={0.8}
-      hitSlop={10}
+    <HeaderButton
+      icon="chatbubbles"
+      label={unread > 0 ? `Direkt mesajlar, ${unread} okunmamış` : 'Direkt mesajlar'}
+      color={unread > 0 ? colors.head : colors.muted}
       onPress={onPress}
-      accessibilityLabel={unread > 0 ? `Direkt mesajlar, ${unread} okunmamış` : 'Direkt mesajlar'}
     >
-      <Ionicons name="chatbubbles" size={23} color={unread > 0 ? colors.head : colors.muted} />
-      {unread > 0 && (
-        <View style={styles.headerBadge}>
-          <Text style={styles.badgeText}>{unread > 99 ? '99+' : unread}</Text>
-        </View>
-      )}
-    </PressableScale>
+      {unread > 0 ? <CountBadge count={unread} ring={colors.side} /> : null}
+    </HeaderButton>
   );
 }
 
-function TextChannelRow({ channel, onPress }: { channel: Channel; onPress: () => void }) {
+const TextChannelRow = memo(function TextChannelRow({ channel, onOpen }: { channel: Channel; onOpen: (id: string) => void }) {
   const unread = useGuild((s) => isUnread(s, channel.id));
   const mentionCount = useMessages((s) => s.mentionCounts[channel.id] ?? 0);
+  const typing = useSomeoneTyping(channel.id);
   const locked = usePrivate(channel);
+  const tint = unread || mentionCount > 0 ? colors.head : colors.muted;
   return (
-    <PressableScale scaleTo={0.98} onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
-      {unread && <View style={styles.unreadPill} />}
-      <Ionicons name={locked ? 'lock-closed-outline' : 'chatbubble-outline'} size={20} color={unread ? colors.head : colors.muted} />
-      <Text style={[styles.name, unread && styles.nameUnread]} numberOfLines={1}>
-        {channel.name}
-      </Text>
-      {mentionCount > 0 && (
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{mentionCount > 99 ? '99+' : mentionCount}</Text>
+    <View style={styles.rowWrap}>
+      {unread && <UnreadMarker />}
+      <Pressable
+        onPress={() => onOpen(channel.id)}
+        android_ripple={ripple.row}
+        style={styles.row}
+        accessibilityRole="button"
+        accessibilityLabel={`${channel.name} kanalı${unread ? ', okunmamış mesajlar var' : ''}${mentionCount ? `, ${mentionCount} bahsetme` : ''}`}
+      >
+        <View style={styles.rowIcon}>
+          <Feather name="hash" size={20} color={tint} style={{ opacity: unread ? 1 : 0.85 }} />
+          {locked && (
+            <View style={styles.lock}>
+              <Ionicons name="lock-closed" size={8} color={tint} />
+            </View>
+          )}
         </View>
-      )}
-    </PressableScale>
+        <Text style={[styles.name, (unread || mentionCount > 0) && styles.nameUnread]} numberOfLines={1}>
+          {channel.name}
+        </Text>
+        {typing && <TypingDots color={colors.muted} size={4.5} />}
+        <CountBadge count={mentionCount} />
+      </Pressable>
+    </View>
   );
-}
+});
 
-function VoiceChannelRow({
+const VoiceChannelRow = memo(function VoiceChannelRow({
   channel,
-  onPress,
+  onOpen,
   onMemberPress,
 }: {
   channel: Channel;
-  onPress: () => void;
+  onOpen: (id: string) => void;
   onMemberPress: (userId: string) => void;
 }) {
   const voiceStates = useGuild((s) => s.voiceStates);
@@ -159,44 +263,55 @@ function VoiceChannelRow({
   const locked = usePrivate(channel);
   // Katılan üye satırı belirir, ayrılanın yeri yumuşakça kapanır
   useLayoutAnimationOn(members.map((m) => m.userId).join(','));
+  const disabled = !canConnect && !active;
   return (
     <View>
-      <PressableScale
-        scaleTo={0.98}
-        onPress={() => (canConnect || active ? onPress() : toast('Bu ses kanalına bağlanma iznin yok.', 'error'))}
-        style={({ pressed }) => [
-          styles.row,
-          active && styles.rowActive,
-          pressed && styles.pressed,
-          !canConnect && !active && { opacity: 0.55 },
-        ]}
-      >
-        <Ionicons
-          name={!canConnect || locked ? 'lock-closed-outline' : 'volume-medium'}
-          size={21}
-          color={active ? colors.head : colors.muted}
-        />
-        <Text style={[styles.name, active && styles.nameUnread]} numberOfLines={1}>
-          {channel.name}
-        </Text>
-      </PressableScale>
+      <View style={styles.rowWrap}>
+        <Pressable
+          onPress={() => (disabled ? toast('Bu ses kanalına bağlanma iznin yok.', 'error') : onOpen(channel.id))}
+          android_ripple={ripple.row}
+          style={[styles.row, active && styles.rowActive, disabled && { opacity: 0.5 }]}
+          accessibilityRole="button"
+          accessibilityLabel={`${channel.name} ses kanalı${members.length ? `, ${members.length} kişi` : ''}${active ? ', bağlısın' : ''}`}
+        >
+          <View style={styles.rowIcon}>
+            <Ionicons
+              name={disabled || locked ? 'lock-closed-outline' : 'volume-medium'}
+              size={20}
+              color={active ? colors.ok : members.length ? colors.text : colors.muted}
+            />
+          </View>
+          <Text style={[styles.name, (active || members.length > 0) && { color: colors.head }]} numberOfLines={1}>
+            {channel.name}
+          </Text>
+          {members.length > 0 && !active && <Text style={styles.count}>{members.length}</Text>}
+          {active && <Text style={styles.connected}>Bağlısın</Text>}
+        </Pressable>
+      </View>
       {members.map((m) => (
-        <VoiceMember key={m.userId} state={m} onLongPress={() => onMemberPress(m.userId)} />
+        <VoiceMember key={m.userId} state={m} onLongPress={onMemberPress} />
       ))}
     </View>
   );
-}
+});
 
-function VoiceMember({ state, onLongPress }: { state: VoiceState; onLongPress: () => void }) {
+const VoiceMember = memo(function VoiceMember({ state, onLongPress }: { state: VoiceState; onLongPress: (userId: string) => void }) {
   const user = useGuild((s) => s.users[state.userId]);
   const color = useMemberColor(state.userId);
   const selfId = useSession((s) => s.user?.id);
   const speaking = useVoice((s) => Boolean(s.speaking[state.userId]));
   const inMyChannel = useVoice((s) => s.channelId === state.channelId);
   return (
-    <Pressable onLongPress={onLongPress} delayLongPress={300} style={({ pressed }) => [styles.member, pressed && styles.pressed]}>
-      <SpeakingRing speaking={inMyChannel && speaking} size={26}>
-        <Avatar user={user} size={26} />
+    <Pressable
+      onLongPress={() => onLongPress(state.userId)}
+      delayLongPress={300}
+      android_ripple={ripple.row}
+      style={styles.member}
+      accessibilityLabel={`${user?.displayName ?? 'Üye'}${state.streaming ? ', yayında' : ''}`}
+      accessibilityHint="Seçenekler için uzun bas"
+    >
+      <SpeakingRing speaking={inMyChannel && speaking} size={24}>
+        <Avatar user={user} size={24} />
       </SpeakingRing>
       <Text
         style={[styles.memberName, state.userId === selfId && { color: colors.head }, color ? { color } : null]}
@@ -209,76 +324,87 @@ function VoiceMember({ state, onLongPress }: { state: VoiceState; onLongPress: (
           <Text style={styles.liveText}>CANLI</Text>
         </View>
       )}
-      <VoiceStateIcon state={state} />
+      <VoiceStateIcon state={state} size={15} />
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.side },
   header: {
-    height: 56,
+    height: 58,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    gap: space.xs,
+    paddingLeft: space.lg,
+    paddingRight: space.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(0,0,0,0.4)',
+    borderBottomColor: 'rgba(0,0,0,0.45)',
   },
-  guild: { color: colors.head, fontSize: 19, fontWeight: '700', flex: 1, marginRight: 12 },
-  headerButtons: { flexDirection: 'row', alignItems: 'center', gap: 20 },
-  banner: { backgroundColor: colors.warn, paddingVertical: 6, paddingHorizontal: 12 },
-  bannerText: { color: '#000', fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  guildIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: space.sm,
+  },
+  guildIconText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  guild: { color: colors.head, fontSize: font.heading - 1, fontWeight: '800', flex: 1, marginRight: space.sm },
+  listContent: { paddingBottom: space.lg },
   section: {
-    color: colors.muted,
-    fontSize: 12.5,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingLeft: space.md,
+    paddingRight: space.lg,
+    paddingTop: space.xl,
+    paddingBottom: space.sm,
   },
+  sectionText: {
+    color: colors.muted,
+    fontSize: font.caption,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  rowWrap: { marginHorizontal: space.sm, marginVertical: 1 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    minHeight: 46,
-    marginHorizontal: 8,
-    paddingHorizontal: 10,
-    borderRadius: 6,
+    gap: space.sm + 2,
+    minHeight: 42,
+    paddingHorizontal: space.sm + 2,
+    borderRadius: radius.md,
+    overflow: 'hidden',
   },
   rowActive: { backgroundColor: colors.active },
-  pressed: { backgroundColor: colors.hover },
-  unreadPill: { position: 'absolute', left: -8, width: 4, height: 10, borderRadius: 2, backgroundColor: '#fff' },
-  name: { color: colors.muted, fontSize: 16.5, fontWeight: '500', flex: 1 },
-  nameUnread: { color: colors.head, fontWeight: '700' },
-  badge: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    paddingHorizontal: 6,
-    backgroundColor: colors.danger,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  headerBadge: {
+  rowIcon: { width: 22, alignItems: 'center' },
+  lock: {
     position: 'absolute',
-    top: -7,
-    right: -10,
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    paddingHorizontal: 5,
-    backgroundColor: colors.danger,
-    borderWidth: 2,
-    borderColor: colors.side,
-    alignItems: 'center',
-    justifyContent: 'center',
+    top: -3,
+    right: -4,
+    backgroundColor: colors.side,
+    borderRadius: 4,
+    padding: 1,
   },
-  member: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 48, paddingRight: 16, height: 36 },
-  memberName: { color: colors.muted, fontSize: 15, flex: 1 },
-  live: { backgroundColor: colors.danger, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 },
+  name: { color: colors.muted, fontSize: font.row + 0.5, fontWeight: '500', flex: 1 },
+  nameUnread: { color: colors.head, fontWeight: '700' },
+  count: { color: colors.muted, fontSize: font.caption, fontWeight: '700' },
+  connected: { color: colors.ok, fontSize: font.caption, fontWeight: '700' },
+  member: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginLeft: 44,
+    marginRight: space.sm,
+    paddingHorizontal: space.sm,
+    height: 34,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+  },
+  memberName: { color: colors.muted, fontSize: font.body - 0.5, flex: 1 },
+  live: { backgroundColor: colors.danger, borderRadius: radius.sm, paddingHorizontal: 5, paddingVertical: 1 },
   liveText: { color: '#fff', fontSize: 10, fontWeight: '800' },
 });
