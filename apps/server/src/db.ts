@@ -125,6 +125,10 @@ const MIGRATIONS: string[] = [
   CREATE INDEX attachments_by_channel ON attachments(channel_id);
   CREATE INDEX attachments_by_uploader ON attachments(uploader_id);
   `,
+  // 7: profil fotoğrafı. Dosyanın kendisi <DATA_DIR>/avatars/<özet>.webp; boşsa baş harfler gösterilir.
+  `
+  ALTER TABLE users ADD COLUMN avatar_hash TEXT;
+  `,
 ];
 
 type Param = string | number | null;
@@ -137,6 +141,7 @@ interface UserRow {
   avatar_color: string;
   is_admin: number;
   sessions_valid_after: number;
+  avatar_hash: string | null;
 }
 
 interface InviteRow {
@@ -162,6 +167,7 @@ const toUser = (r: UserRow): User => ({
   username: r.username,
   displayName: r.display_name,
   avatarColor: r.avatar_color,
+  avatarUrl: r.avatar_hash ? `/api/avatars/${r.id}/${r.avatar_hash}.webp` : null,
   isAdmin: r.is_admin === 1,
 });
 
@@ -366,6 +372,31 @@ export class Store {
     if (patch.displayName !== undefined) this.run('UPDATE users SET display_name = ? WHERE id = ?', patch.displayName, id);
     if (patch.avatarColor !== undefined) this.run('UPDATE users SET avatar_color = ? WHERE id = ?', patch.avatarColor, id);
     return this.getUser(id);
+  }
+
+  /** Kullanıcının şu anki profil fotoğrafının özeti (yoksa ya da kullanıcı yoksa null). */
+  getAvatarHash(userId: string): string | null {
+    return this.one<{ h: string | null }>('SELECT avatar_hash AS h FROM users WHERE id = ?', userId)?.h ?? null;
+  }
+
+  /**
+   * Profil fotoğrafını değiştirir ya da kaldırır (null); önceki özet diskten silinmek üzere döner.
+   * Kullanıcı yoksa (bu arada silinmişse) null.
+   */
+  setAvatar(userId: string, hash: string | null): { user: User; previous: string | null } | null {
+    return this.tx(() => {
+      const row = this.one<{ h: string | null }>('SELECT avatar_hash AS h FROM users WHERE id = ?', userId);
+      if (!row) return null;
+      this.run('UPDATE users SET avatar_hash = ? WHERE id = ?', hash, userId);
+      return { user: this.getUser(userId)!, previous: row.h };
+    });
+  }
+
+  /** Kullanılan tüm profil fotoğrafı özetleri (artık dosyaların temizliği için) */
+  avatarHashes(): Set<string> {
+    return new Set(
+      this.all<{ h: string }>('SELECT avatar_hash AS h FROM users WHERE avatar_hash IS NOT NULL').map((r) => r.h),
+    );
   }
 
   /** Davet kodunu kullanarak kullanıcı oluşturur; kodu aynı transaction içinde tüketir. */

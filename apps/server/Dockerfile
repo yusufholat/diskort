@@ -20,8 +20,10 @@ ENV NODE_ENV=production \
     DATA_DIR=/data \
     HOST=127.0.0.1 \
     PORT=3000
-# Paket tek dosyadır; yalnızca yerel (native) şifreleme modülü ayrıca kurulur.
-RUN npm install --no-save --no-package-lock @node-rs/argon2@2.2.1 && npm cache clean --force
+# Paket tek dosyadır; yalnızca yerel (native) modüller ayrıca kurulur: şifreleme (argon2) ve profil
+# fotoğrafları için resim işleme (sharp; libvips dahil hazır derlenmiş linux-x64/arm64 glibc paketiyle
+# gelir, derleme gerekmez). Sürümler apps/server/package.json ve pnpm-lock.yaml ile aynı olmalı.
+RUN npm install --no-save --no-package-lock @node-rs/argon2@2.2.1 sharp@0.35.4 && npm cache clean --force
 COPY --from=build /repo/apps/server/dist ./dist
 VOLUME /data
 CMD ["node", "--enable-source-maps", "dist/index.js"]
