@@ -34,6 +34,14 @@ export {
 } from './feedback';
 export { reportVoiceLog, SpuriousDuplicateGuard } from './voiceDiagnostics';
 export {
+  fetchStreamPreview,
+  formatStreamElapsed,
+  reportStreamSource,
+  streamPreviewHeaders,
+  streamPreviewUrl,
+  uploadStreamPreview,
+} from './streamPreview';
+export {
   isStreamMuted,
   setStreamVolume,
   shownStreamVolume,

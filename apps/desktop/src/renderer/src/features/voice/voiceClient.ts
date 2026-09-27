@@ -55,6 +55,7 @@ import {
 import { prepareHardwareEncoder, releaseHardwareEncoder, type HwEncoderChoice } from './hardwareEncoder';
 import { SCREEN_PRESETS } from './screenPresets';
 import { MicTest } from './micTest';
+import { StreamPreviewUploader } from './streamPreviewUploader';
 import type { ScreenCodec, ScreenContent, ScreenPresetId } from '../../stores/settings';
 
 export interface ScreenShareOptions {
@@ -64,6 +65,9 @@ export interface ScreenShareOptions {
   codec: ScreenCodec;
   content: ScreenContent;
   audio: boolean;
+  /** Seçilen pencerenin/ekranın adı ("Şimdi Yayın Yapıyor" kartında görünür) */
+  sourceName?: string;
+  sourceKind?: 'screen' | 'window';
 }
 
 const STATS_INTERVAL_MS = 2000;
@@ -87,6 +91,14 @@ const RESET_ROOM_STATE = {
   pttActive: false,
 };
 
+/** Paylaşılan kaynağın adı; sistem seçicisinde (macOS/tarayıcı) ad bilinmez, türü yazılır */
+function sourceOf(opts: ScreenShareOptions, track: MediaStreamTrack): { name: string; kind: 'screen' | 'window' } {
+  if (opts.sourceName && opts.sourceKind) return { name: opts.sourceName, kind: opts.sourceKind };
+  const surface = (track.getSettings() as MediaTrackSettings & { displaySurface?: string }).displaySurface;
+  if (surface === 'monitor') return { name: 'Ekran', kind: 'screen' };
+  return { name: surface === 'browser' ? 'Tarayıcı sekmesi' : 'Pencere', kind: 'window' };
+}
+
 function disconnectMessage(reason?: DisconnectReason): string {
   switch (reason) {
     case DisconnectReason.DUPLICATE_IDENTITY:
@@ -108,7 +120,7 @@ class VoiceClient {
   private room: Room | null = null;
   private mic: LocalAudioTrack | null = null;
   private processor: MicProcessor | null = null;
-  private screen: { video: LocalVideoTrack; audio: LocalAudioTrack | null } | null = null;
+  private screen: { video: LocalVideoTrack; audio: LocalAudioTrack | null; preview: StreamPreviewUploader } | null = null;
   /** Yayında istenen donanım kodlama yolu (null: ekran kartı kodlayıcısı yok, Chromium'un varsayılanı) */
   screenHardwareEncoder: HwEncoderChoice | null = null;
   private statsTimer: number | null = null;
@@ -778,7 +790,7 @@ class VoiceClient {
       });
     }
 
-    this.screen = { video, audio };
+    this.screen = { video, audio, preview: new StreamPreviewUploader(videoTrack, sourceOf(opts, videoTrack)) };
     this.screenHardwareEncoder = hardware;
     // Paylaşılan pencere kapanırsa veya sistemden durdurulursa yayını bitir.
     videoTrack.addEventListener('ended', () => void this.stopScreenShare());
@@ -796,6 +808,7 @@ class VoiceClient {
     const screen = this.screen;
     if (!screen) return;
     this.screen = null;
+    screen.preview.stop();
     this.screenHardwareEncoder = null;
     releaseHardwareEncoder(screen.video.mediaStreamTrack);
     for (const track of [screen.video, screen.audio]) {

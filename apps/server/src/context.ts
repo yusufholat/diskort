@@ -16,6 +16,7 @@ import type { OtaService } from './ota.js';
 import type { PermissionService } from './permissions.js';
 import type { PushService } from './push.js';
 import type { ReleaseService } from './releases.js';
+import type { StreamPreviewStore } from './streamPreview.js';
 import type { VoiceModeration } from './voiceModeration.js';
 import type { VoiceStateStore } from './voiceState.js';
 
@@ -40,6 +41,8 @@ export interface AppContext {
   embedMedia: EmbedMediaService;
   permissions: PermissionService;
   moderation: VoiceModeration;
+  /** Yayın önizlemeleri (yalnızca bellekte) */
+  streamPreviews: StreamPreviewStore;
   /**
    * Ana sunucu (ilk kurulan; hesap yöneticileri onun yöneticileridir). Adı, simgesi ya da sahibi değişince
    * yerinde güncellenir. Diğer sunucular veritabanındadır.

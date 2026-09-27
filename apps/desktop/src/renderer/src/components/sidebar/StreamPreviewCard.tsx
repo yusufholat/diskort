@@ -1,0 +1,252 @@
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { AppWindow, Monitor, MonitorPlay } from 'lucide-react';
+import { create } from 'zustand';
+import type { VoiceState } from '@diskort/shared';
+import { fetchStreamPreview, formatStreamElapsed, useGuild, useSession } from '@diskort/client-core';
+import { usePresence } from '../../lib/motion';
+import { useSidebarDrag } from '../../lib/sidebarDrag';
+import { cn } from '../../lib/utils';
+import { watchUserStream } from '../../lib/watchStream';
+import { useVoice } from '../../stores/voice';
+
+/**
+ * "Şimdi Yayın Yapıyor" kartı (Discord gibi): kanal listesinde yayın yapan üyenin üstünde biraz
+ * bekleyince sağında açılır; yayının küçük önizlemesi, paylaşılan pencerenin adı, süresi ve "Yayını izle"
+ * düğmesi. İmleç satırdan karta geçerken kapanmaz; kaydırma, sürükleme ya da tıklama kapatır.
+ */
+
+const OPEN_DELAY_MS = 300;
+const CLOSE_DELAY_MS = 150;
+const GAP = 8;
+const MARGIN = 8;
+/** Bellekte tutulan önizleme resimleri (object URL) */
+const CACHE_SIZE = 8;
+
+interface Anchor {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+interface CardTarget {
+  userId: string;
+  channelId: string;
+  anchor: Anchor;
+}
+
+const useStreamCard = create<{ target: CardTarget | null }>(() => ({ target: null }));
+
+let openTimer = 0;
+let closeTimer = 0;
+
+function clearTimers(): void {
+  window.clearTimeout(openTimer);
+  window.clearTimeout(closeTimer);
+}
+
+export function closeStreamCard(): void {
+  clearTimers();
+  if (useStreamCard.getState().target) useStreamCard.setState({ target: null });
+}
+
+function scheduleClose(): void {
+  window.clearTimeout(openTimer);
+  window.clearTimeout(closeTimer);
+  closeTimer = window.setTimeout(closeStreamCard, CLOSE_DELAY_MS);
+}
+
+/**
+ * Yayın yapan üyenin satırına verilecek olaylar. Yalnızca fareyle (dokunmada kart açılmaz); sürükleme
+ * sürerken açılmaz, satıra basınca (tıklama → profil, sürükleme başlangıcı) hemen kapanır.
+ */
+export function streamCardHandlers(state: Pick<VoiceState, 'userId' | 'channelId'>) {
+  return {
+    onPointerEnter: (e: React.PointerEvent<HTMLElement>) => {
+      if (e.pointerType !== 'mouse' || useSidebarDrag.getState().item) return;
+      const el = e.currentTarget;
+      clearTimers();
+      const open = (): void => {
+        if (!el.isConnected || useSidebarDrag.getState().item) return;
+        const r = el.getBoundingClientRect();
+        useStreamCard.setState({
+          target: {
+            userId: state.userId,
+            channelId: state.channelId,
+            anchor: { left: r.left, top: r.top, right: r.right, bottom: r.bottom },
+          },
+        });
+      };
+      // Başka bir yayın kartı zaten açıksa beklemeden geçer
+      if (useStreamCard.getState().target) open();
+      else openTimer = window.setTimeout(open, OPEN_DELAY_MS);
+    },
+    onPointerLeave: scheduleClose,
+    onPointerDownCapture: closeStreamCard,
+  };
+}
+
+// ---------- Önizleme resmi ----------
+
+const cache = new Map<string, string>();
+
+function remember(key: string, url: string): void {
+  cache.set(key, url);
+  while (cache.size > CACHE_SIZE) {
+    const [oldest, old] = cache.entries().next().value as [string, string];
+    cache.delete(oldest);
+    URL.revokeObjectURL(old);
+  }
+}
+
+/** Kart açıkken önizlemeyi indirir; yenisi gelene kadar eskisi görünür */
+function usePreviewImage(state: VoiceState | undefined, open: boolean): string | null {
+  const at = state?.streamPreviewAt;
+  const key = state && at ? `${state.userId}:${state.channelId}:${at}` : null;
+  const [shown, setShown] = useState<{ userId: string; url: string } | null>(null);
+
+  useEffect(() => {
+    if (!open || !key || !state) return;
+    const cached = cache.get(key);
+    if (cached) {
+      setShown({ userId: state.userId, url: cached });
+      return;
+    }
+    const controller = new AbortController();
+    const target = { userId: state.userId, channelId: state.channelId, streamPreviewAt: at };
+    fetchStreamPreview(target, controller.signal)
+      .then((blob) => {
+        if (!blob || controller.signal.aborted) return;
+        const url = URL.createObjectURL(blob);
+        remember(key, url);
+        setShown({ userId: target.userId, url });
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, key]);
+
+  return shown && state && shown.userId === state.userId && at ? shown.url : null;
+}
+
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  return now;
+}
+
+// ---------- Kart ----------
+
+/** App'te bir kez çizilir */
+export function StreamPreviewCard() {
+  const target = useStreamCard((s) => s.target);
+  const { value: shown, closing } = usePresence(target, 100);
+  const state = useGuild((s) => (shown ? s.voiceStates[shown.userId] : undefined));
+  const selfId = useSession((s) => s.user?.id);
+  const watching = useVoice(
+    (s) => Boolean(shown && s.watching[shown.userId] && s.channelId === shown.channelId && s.status !== 'idle'),
+  );
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const open = Boolean(target) && !closing;
+  const image = usePreviewImage(state, open);
+  const now = useNow(open);
+
+  useLayoutEffect(() => {
+    if (!target || !ref.current) return;
+    const { offsetWidth: width, offsetHeight: height } = ref.current;
+    const { anchor } = target;
+    const right = anchor.right + GAP;
+    const x = right + width <= window.innerWidth - MARGIN ? right : Math.max(MARGIN, anchor.left - width - GAP);
+    const y = Math.max(MARGIN, Math.min(anchor.top - 8, window.innerHeight - height - MARGIN));
+    setPos({ x, y });
+  }, [target]);
+
+  // Kaydırma, sürükleme, pencereden çıkma ya da yayının bitmesi kartı kapatır
+  useEffect(() => {
+    if (!target) return;
+    const onWheel = (e: WheelEvent): void => {
+      if (!ref.current?.contains(e.target as Node)) closeStreamCard();
+    };
+    document.addEventListener('wheel', onWheel, { capture: true, passive: true });
+    document.addEventListener('scroll', closeStreamCard, true);
+    window.addEventListener('blur', closeStreamCard);
+    const unsubscribe = useSidebarDrag.subscribe((s) => {
+      if (s.item) closeStreamCard();
+    });
+    return () => {
+      document.removeEventListener('wheel', onWheel, { capture: true });
+      document.removeEventListener('scroll', closeStreamCard, true);
+      window.removeEventListener('blur', closeStreamCard);
+      unsubscribe();
+    };
+  }, [target]);
+
+  useEffect(() => {
+    if (target && (!state?.streaming || state.channelId !== target.channelId)) closeStreamCard();
+  }, [target, state]);
+
+  if (!shown || !state) return null;
+
+  const isSelf = state.userId === selfId;
+  const label = isSelf ? 'Yayınına git' : watching ? 'İzlemeye dön' : 'Yayını izle';
+  const SourceIcon = state.streamSourceKind === 'screen' ? Monitor : AppWindow;
+  const watch = (): void => {
+    closeStreamCard();
+    void watchUserStream(state.userId, state.channelId);
+  };
+
+  return createPortal(
+    <div
+      ref={ref}
+      role="dialog"
+      aria-label="Şimdi Yayın Yapıyor"
+      data-tooltip-off=""
+      onPointerEnter={() => window.clearTimeout(closeTimer)}
+      onPointerLeave={scheduleClose}
+      className={cn(
+        'fixed z-50 w-[300px] rounded-lg border border-edge bg-bg-float p-3 shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
+        closing ? 'anim-pop-out pointer-events-none' : 'anim-pop-in',
+      )}
+      style={pos ? { left: pos.x, top: pos.y, transformOrigin: '0 16px' } : { visibility: 'hidden', left: 0, top: 0 }}
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-sm font-semibold text-text-head">Şimdi Yayın Yapıyor</span>
+        <span className="rounded bg-danger px-1.5 py-px text-[10px] leading-4 font-bold text-white">YAYINDA</span>
+      </div>
+      <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-md bg-black">
+        {image ? (
+          <img src={image} alt="Yayın önizlemesi" draggable={false} className="h-full w-full object-contain" />
+        ) : (
+          <div className="flex flex-col items-center gap-1.5 text-text-faint">
+            <MonitorPlay size={28} />
+            <span className="text-xs">{state.streamPreviewAt ? 'Yükleniyor…' : 'Önizleme hazırlanıyor…'}</span>
+          </div>
+        )}
+      </div>
+      <div className="mt-2 flex items-center gap-1.5 text-sm text-text-normal">
+        <SourceIcon size={14} className="shrink-0 text-text-muted" aria-hidden />
+        <span className="min-w-0 flex-1 truncate">{state.streamSourceName ?? 'Ekran paylaşımı'}</span>
+        {state.streamStartedAt !== undefined && (
+          <span className="shrink-0 text-xs text-text-muted tabular-nums" aria-label="Yayın süresi">
+            {formatStreamElapsed(now - state.streamStartedAt)}
+          </span>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={watch}
+        className="press mt-3 flex w-full items-center justify-center rounded bg-ok px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-ok-hover"
+      >
+        {label}
+      </button>
+    </div>,
+    document.body,
+  );
+}

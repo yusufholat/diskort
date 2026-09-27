@@ -12,6 +12,7 @@ import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
 import { Avatar } from '../ui/Avatar';
 import { openProfile, type ProfileAnchor } from '../members/ProfilePopover';
+import { streamCardHandlers } from './StreamPreviewCard';
 
 export function LiveBadge({ className }: { className?: string }) {
   return (
@@ -24,11 +25,20 @@ export function LiveBadge({ className }: { className?: string }) {
 }
 
 /** Tıklanabilir "CANLI" rozeti: yayını doğrudan izlemeye başlar (gerekirse kanala katılır) */
-export function WatchLiveBadge({ userId, channelId }: { userId: string; channelId: string }) {
+export function WatchLiveBadge({
+  userId,
+  channelId,
+  tooltip = true,
+}: {
+  userId: string;
+  channelId: string;
+  /** Kanal listesinde ipucu yerine "Şimdi Yayın Yapıyor" kartı açılır */
+  tooltip?: boolean;
+}) {
   return (
     <button
       type="button"
-      data-tooltip="Yayını izle"
+      data-tooltip={tooltip ? 'Yayını izle' : undefined}
       aria-label="Yayını izle"
       className="press shrink-0 rounded-full transition-[filter] hover:brightness-110"
       onClick={(e) => {
@@ -138,6 +148,8 @@ export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMy
       onDoubleClick={() => {
         if (inMyChannel && state.streaming && !isSelf) voice.watchStream(state.userId);
       }}
+      // Yayın yapıyorsa üstünde bekleyince "Şimdi Yayın Yapıyor" kartı
+      {...(state.streaming ? streamCardHandlers(state) : {})}
     >
       <Avatar user={user} size={24} speaking={speaking} />
       <span
@@ -146,7 +158,7 @@ export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMy
       >
         {user?.displayName ?? '…'}
       </span>
-      {state.streaming && <WatchLiveBadge userId={state.userId} channelId={state.channelId} />}
+      {state.streaming && <WatchLiveBadge userId={state.userId} channelId={state.channelId} tooltip={false} />}
       <VoiceStateIcons state={state} localMuted={localMuted} />
     </div>
   );
