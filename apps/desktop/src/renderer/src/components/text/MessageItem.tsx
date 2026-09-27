@@ -6,6 +6,7 @@ import {
   discardMessage,
   editMessage,
   isMentioned,
+  useGuild,
   QUICK_REACTIONS,
   retryMessage,
   setEditing,
@@ -16,6 +17,8 @@ import {
 } from '@diskort/client-core';
 import { renderMarkdown, type MarkdownContext } from '../../features/messages/markdown';
 import { confirmDialog } from '../../lib/dialog';
+import { startDm } from '../../lib/dm';
+import { memberMenuItems } from '../../lib/memberMenu';
 import { useMountedRef } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { toast, useUi, type EmojiPickerAnchor } from '../../stores/ui';
@@ -67,6 +70,18 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
   const canDelete = own || canManage;
   const confirmed = !message.status;
   const mentioned = isMentioned(message, self);
+  // Yazara mesaj gönderilebilir mi: başkası, hâlâ üye ve zaten onunla bire bir konuşmada değiliz
+  const inDirect = useGuild((s) => s.dms[message.channelId]?.group === false);
+  const canMessageAuthor = !own && !inDirect && author !== undefined && !author.removed;
+  /** Yazarın adına ya da resmine tıklayınca: kişi menüsü (mesaj gönder, ses seviyesi, yönetim) */
+  const openAuthorMenu = (e: MouseEvent): void => {
+    if (!author || author.removed) return;
+    const items = memberMenuItems(author.id);
+    if (own && items.length === 0) return;
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    openContextMenu({ x: rect.right + 8, y: rect.top, userId: own ? undefined : author.id, items });
+  };
   const react = (emoji: string): void => void toggleReaction(message.channelId, message.id, emoji);
   const pickReaction = (anchor: EmojiPickerAnchor): void => openEmojiPicker({ anchor, onPick: react });
 
@@ -83,6 +98,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
       y: e.clientY,
       items: [
         ...(canReact ? [{ label: 'Tepki Ekle', onClick: () => pickReaction(point) }] : []),
+        ...(canMessageAuthor && author ? [{ label: 'Yazara Mesaj Gönder', onClick: () => void startDm(author.id) }] : []),
         ...(attachment
           ? [
               {
@@ -127,7 +143,14 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
             {formatTime(message.createdAt)}
           </span>
         ) : (
-          <Avatar user={author} size={40} className="mt-0.5" />
+          <button
+            type="button"
+            className="mt-0.5 block rounded-full"
+            aria-label={author ? `${author.displayName} kişisinin menüsü` : undefined}
+            onClick={openAuthorMenu}
+          >
+            <Avatar user={author} size={40} />
+          </button>
         )}
       </div>
 
@@ -135,8 +158,9 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
         {!compact && (
           <div className="flex items-baseline gap-2 leading-snug">
             <span
-              className={cn('font-medium', author ? 'text-text-head' : 'text-text-muted italic')}
+              className={cn('font-medium', author ? 'cursor-pointer text-text-head hover:underline' : 'text-text-muted italic')}
               style={author && authorColor ? { color: authorColor } : undefined}
+              onClick={openAuthorMenu}
             >
               {author?.displayName ?? 'Silinmiş Kullanıcı'}
             </span>

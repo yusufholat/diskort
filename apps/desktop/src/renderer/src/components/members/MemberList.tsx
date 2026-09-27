@@ -1,7 +1,8 @@
 import { memo, useMemo } from 'react';
-import { Crown } from 'lucide-react';
+import { Crown, MessageCircle } from 'lucide-react';
 import type { User } from '@diskort/shared';
 import { memberGroups, useGuild, useMemberColor, useSession } from '@diskort/client-core';
+import { startDm } from '../../lib/dm';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
@@ -41,7 +42,7 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
   return (
     <div
       className={cn(
-        'flex h-[42px] items-center gap-3 rounded px-2 hover:bg-bg-hover',
+        'group flex h-[42px] items-center gap-3 rounded px-2 hover:bg-bg-hover',
         offline && 'opacity-40 hover:opacity-100',
       )}
       onContextMenu={(e) => {
@@ -63,6 +64,16 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
         </div>
         {inVoice && <div className="truncate text-xs text-text-muted">Sesli sohbette</div>}
       </div>
+      {!isSelf && (
+        <button
+          className="press-icon invisible shrink-0 rounded p-1 text-text-muted group-hover:visible hover:text-text-head focus-visible:visible"
+          data-tooltip="Mesaj gönder"
+          aria-label={`${user.displayName} kişisine mesaj gönder`}
+          onClick={() => void startDm(user.id)}
+        >
+          <MessageCircle size={18} />
+        </button>
+      )}
     </div>
   );
 });
