@@ -47,6 +47,7 @@ function diagnostics(): string {
       publisher: detail?.publisher ?? null,
       subscriber: detail?.subscriber ?? null,
       streamLabels: detail?.labels ?? {},
+      micProcessing: voice.micProcessingStats(),
     },
     null,
     2,
@@ -340,6 +341,7 @@ function DebugView({ onBack }: { onBack: () => void }) {
           {server?.nodeId && <Row label="Düğüm" value={server.nodeId} />}
           {server?.version && <Row label="LiveKit sürümü" value={server.version} />}
         </Section>
+        <MicProcessingSection />
         {!detail ? (
           <div className="py-6 text-center text-sm text-text-muted">Ölçülüyor…</div>
         ) : (
@@ -365,6 +367,50 @@ function DebugDetail({ detail }: { detail: ConnectionDetail }) {
         {inbound.length === 0 ? <Empty /> : inbound.map((s) => <StreamRows key={s.id} s={s} labels={detail.labels} />)}
       </Section>
     </>
+  );
+}
+
+const fmtMs = (v: number): string => `${v.toFixed(v < 10 ? 2 : 1)} ms`;
+
+/** Gürültü engelleyicinin işlemci yükü ve kare süreleri (cızırtı teşhisi için); saniyede bir yenilenir. */
+function MicProcessingSection() {
+  const [stats, setStats] = useState(() => voice.micProcessingStats());
+  useEffect(() => {
+    const id = window.setInterval(() => setStats(voice.micProcessingStats()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  return (
+    <Section title="Mikrofon işleme">
+      {!stats ? (
+        <div className="col-span-2 text-text-muted">Yapay zekâ gürültü engelleme çalışmıyor</div>
+      ) : (
+        <>
+          <Row
+            label="Model"
+            value={`${stats.model} · ${stats.host === 'realtime' ? 'gerçek zamanlı iş parçacığı' : 'işçi (yedek)'}`}
+            tip="Model mikrofonun ses iş parçacığında değil, ayrı bir iş parçacığında çalışır; ses iş parçacığı yalnızca örnek kopyalar."
+          />
+          <Row label="Ortalama yük" value={formatPercent(stats.load * 100)} tip="Tek bir işlemci çekirdeğinin oranı" />
+          <Row label="Kare süresi (ort. / p99)" value={`${fmtMs(stats.avgFrameMs)} / ${fmtMs(stats.p99FrameMs)}`} />
+          <Row
+            label="En uzun kare"
+            value={`${fmtMs(stats.maxFrameMs)} (oturumda ${fmtMs(stats.worstFrameMs)})`}
+            tip="Son 2 saniyedeki ve bağlantı boyunca en uzun 10 ms'lik kare işleme süresi"
+          />
+          <Row
+            label="Geç kareler"
+            value={`${stats.over2ms} > 2 ms · ${stats.overQuantum} > 2,67 ms · ${stats.overHop} > 10 ms`}
+            tip="Son 2 saniyede. Model ayrı iş parçacığında çalıştığından ses bloğunu (2,67 ms) bekletmez; 10 ms'yi aşan kareler tampon payından yenir."
+          />
+          <Row
+            label="Ses boşluğu"
+            value={`${stats.underruns}${stats.droppedSamples ? ` · atılan ${Math.round(stats.droppedSamples / 48)} ms` : ''}`}
+            tip="Bağlantı boyunca köprü tamponunun boşaldığı an sayısı (duyulabilir kısa kesinti)"
+          />
+          <Row label="Ek gecikme" value={`${Math.round(stats.latencyMs)} ms`} tip="Modelin algoritmik gecikmesi + tamponlama" />
+        </>
+      )}
+    </Section>
   );
 }
 

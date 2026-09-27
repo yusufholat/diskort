@@ -235,6 +235,12 @@ export function VoiceSettings() {
         onChange={(noise) => s.set({ noise })}
         options={[
           {
+            value: 'dpdfnet',
+            label: 'Gelişmiş yapay zekâ (DPDFNet)',
+            description:
+              'En temiz ses: klavye, fan, arkadaki konuşmalar ve TV sesini daha iyi ayırır. DeepFilterNet’ten yaklaşık 3 kat fazla işlemci kullanır ve ~20 ms daha gecikmelidir; işlemci yetmezse DeepFilterNet’e geçilir.',
+          },
+          {
             value: 'deepfilter',
             label: 'Yapay zekâ (DeepFilterNet 3)',
             description: 'Klavye, fan, köpek havlaması gibi arka plan seslerini bastırır, sesini doğal bırakır.',
@@ -243,7 +249,7 @@ export function VoiceSettings() {
           { value: 'off', label: 'Kapalı', description: 'Stüdyo mikrofonları veya müzik için.' },
         ]}
       />
-      {s.noise === 'deepfilter' && (
+      {(s.noise === 'deepfilter' || s.noise === 'dpdfnet') && (
         <>
           <SectionTitle>Gürültü engelleme gücü</SectionTitle>
           <Segmented<NoiseStrengthDb>

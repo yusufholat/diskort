@@ -10,6 +10,8 @@ allowBuilds:
   '@node-rs/argon2': true
   # Squirrel yükleyicisi kullanılmıyor (NSIS kullanılıyor)
   electron-winstaller: false
+  # onnxruntime-web bağımlılığı; kurulum betiği yalnızca sürüm uyarısı basar
+  protobufjs: false
 
 # Yamalı paketler (patches/). Paket sürümü değişince yama yeniden yapılmalı (pnpm patch <paket>@<sürüm>).
 # - @livekit/react-native: Android'de telefonun donanım gürültü engelleyicisi kapalı (kütüphane bunu

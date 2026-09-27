@@ -3,9 +3,10 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import type { HotkeyConfig } from '../../../shared/bridge';
 
 export type InputMode = 'vad' | 'ptt';
-export type NoiseMode = 'deepfilter' | 'standard' | 'off';
+/** 'dpdfnet': DPDFNet-2 48 kHz (daha kaliteli, ~3 kat işlemci); 'deepfilter': DeepFilterNet 3 */
+export type NoiseMode = 'dpdfnet' | 'deepfilter' | 'standard' | 'off';
 /**
- * DeepFilterNet bastırma sınırı (dB): gürültü en fazla bu kadar kısılır, özgün sesin bir kısmı korunur
+ * Yapay zekâ gürültü engelleyicilerinin (DeepFilterNet / DPDFNet) bastırma sınırı (dB): gürültü en fazla bu kadar kısılır, özgün sesin bir kısmı korunur
  * ve konuşma doğal kalır. 100 = sınırsız (sesi robotikleştirebilir).
  */
 export const NOISE_STRENGTHS_DB = [12, 24, 40, 100] as const;
@@ -28,7 +29,7 @@ export interface Settings {
   vadThresholdDb: number;
   pttReleaseMs: number;
   noise: NoiseMode;
-  /** DeepFilterNet gürültü engelleme gücü (bastırma sınırı, dB) */
+  /** Yapay zekâ gürültü engelleme gücü (bastırma sınırı, dB) */
   noiseStrengthDb: NoiseStrengthDb;
   echoCancellation: boolean;
   autoGainControl: boolean;
@@ -93,7 +94,7 @@ const defaults: Settings = {
   selfDeaf: false,
 };
 
-const NOISE_MODES: readonly NoiseMode[] = ['deepfilter', 'standard', 'off'];
+const NOISE_MODES: readonly NoiseMode[] = ['dpdfnet', 'deepfilter', 'standard', 'off'];
 const AUDIO_BITRATES_KBPS = [32, 64, 96, 128] as const;
 
 /** Kayıtlı ayarları geçerli değerlere çeker (eski sürümlerden kalan veya bozuk değerler). */

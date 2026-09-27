@@ -44,7 +44,14 @@ import {
   type StreamLabel,
   type VoiceServerInfo,
 } from '../../stores/connectionStats';
-import { deepFilterAvailable, MicProcessor, type GateConfig } from './micProcessor';
+import {
+  deepFilterAvailable,
+  dpdfnetAvailable,
+  MicProcessor,
+  type Denoiser,
+  type GateConfig,
+  type MicProcessingStats,
+} from './micProcessor';
 import { prepareHardwareEncoder, releaseHardwareEncoder, type HwEncoderChoice } from './hardwareEncoder';
 import { SCREEN_PRESETS } from './screenPresets';
 import type { ScreenCodec, ScreenContent, ScreenPresetId } from '../../stores/settings';
@@ -250,24 +257,36 @@ class VoiceClient {
   // ---------- Mikrofon ----------
 
   /**
-   * @param deepFilter DeepFilterNet zincirde çalışacak mı. Çalışırken tarayıcının gürültü engelleyicisi
-   * kapatılır (çift işlem sesi bozar); DeepFilterNet yüklenemezse standart engelleme devreye girer.
+   * @param denoiser Zincirde çalışacak yapay zekâ gürültü engelleyicisi. Çalışırken tarayıcının gürültü
+   * engelleyicisi kapatılır (çift işlem sesi bozar); hiçbiri yüklenemezse standart engelleme devreye girer.
    */
-  private captureOptions(deepFilter: boolean): AudioCaptureOptions {
+  private captureOptions(denoiser: Denoiser | null): AudioCaptureOptions {
     const s = getSettings();
+    const wantsAi = s.noise === 'deepfilter' || s.noise === 'dpdfnet';
     return {
       deviceId: s.inputDeviceId,
       echoCancellation: s.echoCancellation,
-      noiseSuppression: s.noise === 'standard' || (s.noise === 'deepfilter' && !deepFilter),
+      noiseSuppression: s.noise === 'standard' || (wantsAi && !denoiser),
       autoGainControl: s.autoGainControl,
       channelCount: 1,
       sampleRate: 48000,
     };
   }
 
-  /** Ayar DeepFilterNet ise dosyaları önceden yükler; kullanılamıyorsa false (standart engellemeye düşülür). */
-  private async wantsDeepFilter(): Promise<boolean> {
-    return getSettings().noise === 'deepfilter' && (await deepFilterAvailable());
+  /**
+   * Ayardaki yapay zekâ gürültü engelleyicisinin dosyalarını önceden yükler. DPDFNet kullanılamıyorsa
+   * (yüklenemedi, işlemci yetmedi) DeepFilterNet'e, o da olmazsa standart engellemeye (null) düşülür.
+   */
+  private async wantedDenoiser(): Promise<Denoiser | null> {
+    const noise = getSettings().noise;
+    if (noise === 'dpdfnet' && (await dpdfnetAvailable())) return 'dpdfnet';
+    if ((noise === 'dpdfnet' || noise === 'deepfilter') && (await deepFilterAvailable())) return 'deepfilter';
+    return null;
+  }
+
+  /** Mikrofon işleme ölçümleri (gürültü engelleyici yükü, kare süreleri); bağlı değilse null */
+  micProcessingStats(): MicProcessingStats | null {
+    return this.processor?.stats ?? null;
   }
 
   private gateConfig(): GateConfig {
@@ -337,19 +356,19 @@ class VoiceClient {
     const s = getSettings();
     let track: LocalAudioTrack | null = null;
     try {
-      const deepFilter = await this.wantsDeepFilter();
-      track = await createLocalAudioTrack(this.captureOptions(deepFilter));
+      const denoiser = await this.wantedDenoiser();
+      track = await createLocalAudioTrack(this.captureOptions(denoiser));
       track.setAudioContext(sharedAudioContext());
       const processor = new MicProcessor(
         this.gateConfig(),
-        deepFilter,
+        denoiser,
         getSettings().noiseStrengthDb,
         (level) => this.onMicLevel(level),
         () => void this.republishMic(),
       );
       await track.setProcessor(processor);
-      // DeepFilterNet kurulamadıysa mikrofonu tarayıcının gürültü engellemesiyle yeniden aç
-      if (processor.denoiserFailed) await track.restartTrack(this.captureOptions(false));
+      // Gürültü engelleyici kurulamadıysa mikrofonu tarayıcının gürültü engellemesiyle yeniden aç
+      if (processor.denoiserFailed) await track.restartTrack(this.captureOptions(null));
       if (s.selfMute || s.selfDeaf) await track.mute();
       if (room !== this.room) {
         track.stop();
@@ -364,6 +383,9 @@ class VoiceClient {
       });
       this.mic = track;
       this.processor = processor;
+      // DPDFNet kurulamadıysa (ör. işlemci yetmedi) şimdilik standart engellemeyle yayınlanır; DeepFilterNet
+      // ile yeniden denenir.
+      if (processor.denoiserFailed && denoiser === 'dpdfnet') void this.republishMic();
     } catch (err) {
       track?.stop();
       const name = (err as Error)?.name;
@@ -912,8 +934,8 @@ class VoiceClient {
   async startMicTest(loopback: boolean): Promise<() => void> {
     if (this.processor) return () => undefined; // bağlıyken canlı seviye zaten akıyor
     const s = getSettings();
-    const open = async (deepFilter: boolean): Promise<{ track: MediaStreamTrack; processor: MicProcessor }> => {
-      const opts = this.captureOptions(deepFilter);
+    const open = async (denoiser: Denoiser | null): Promise<{ track: MediaStreamTrack; processor: MicProcessor }> => {
+      const opts = this.captureOptions(denoiser);
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: s.inputDeviceId === 'default' ? undefined : { exact: s.inputDeviceId },
@@ -924,17 +946,23 @@ class VoiceClient {
         },
       });
       const track = stream.getAudioTracks()[0]!;
-      const processor = new MicProcessor(this.gateConfig(), deepFilter, getSettings().noiseStrengthDb, (level) =>
+      const processor = new MicProcessor(this.gateConfig(), denoiser, getSettings().noiseStrengthDb, (level) =>
         setVoice({ micLevel: level }),
       );
       await processor.init({ kind: Track.Kind.Audio, track, audioContext: sharedAudioContext() });
       return { track, processor };
     };
-    let { track, processor } = await open(await this.wantsDeepFilter());
+    let { track, processor } = await open(await this.wantedDenoiser());
     if (processor.denoiserFailed) {
+      // DPDFNet kurulamadıysa DeepFilterNet, o da olmazsa standart engelleme denenir
       track.stop();
       await processor.destroy();
-      ({ track, processor } = await open(false));
+      ({ track, processor } = await open(await this.wantedDenoiser()));
+      if (processor.denoiserFailed) {
+        track.stop();
+        await processor.destroy();
+        ({ track, processor } = await open(null));
+      }
     }
 
     let audioEl: HTMLAudioElement | null = null;

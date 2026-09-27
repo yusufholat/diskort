@@ -51,13 +51,17 @@ app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
 // Chromium özellikleri tek anahtarda toplanır: 'enable-features' ikinci kez eklenirse öncekini ezer.
-const enabledFeatures: string[] = [];
+// SharedArrayBuffer: gürültü engelleyici (ayrı Worker) ile ses iş parçacığı (AudioWorklet) arasındaki kilitsiz
+// halka tamponlar için. Sayfa file:// ile yüklendiğinden COOP/COEP başlıkları verilemiyor (crossOriginIsolated
+// değil); Chromium bu anahtarla SharedArrayBuffer'ı yine de açar. Pencere yalnızca uygulamanın kendi kodunu
+// çalıştırır; dış içerik (YouTube vb.) ayrı süreçteki iframe'lerdedir.
+const enabledFeatures: string[] = ['SharedArrayBuffer'];
 if (isLinux) enabledFeatures.push('WebRTCPipeWireCapturer');
 // Windows: WebRTC AV1'i ekran kartıyla kodlasın (NVIDIA RTX 40+, AMD RX 7000+, Intel Arc). Chromium'da Windows
 // için varsayılan kapalı; kartta AV1 kodlayıcı yoksa veya açılamazsa kendiliğinden libaom'a (yazılım) düşer.
 // H.264 ve H.265 donanım kodlaması zaten açık (H.264 için bkz. renderer'da hardwareEncoder.ts).
 if (isWindows) enabledFeatures.push('WebRtcAV1HWEncode');
-if (enabledFeatures.length) app.commandLine.appendSwitch('enable-features', enabledFeatures.join(','));
+app.commandLine.appendSwitch('enable-features', enabledFeatures.join(','));
 
 // Yalnızca geliştirme: otomatik test için hata ayıklama portu ve sahte mikrofon/kamera.
 if (!app.isPackaged) {
