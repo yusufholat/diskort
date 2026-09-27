@@ -1,8 +1,10 @@
 // Sunucu ve masaüstü istemcisi arasında paylaşılan tipler ve sabitler.
 
+import type { Feedback } from './feedback';
 import type { PermissionOverwrite, Role } from './permissions';
 
 export * from './permissions';
+export * from './feedback';
 
 // ---------- Modeller ----------
 
@@ -316,7 +318,12 @@ export type GatewayServerMessage =
   /** İstemci sürümü eski: bağlantı kapatılır, güncellemeden yeniden bağlanılamaz */
   | { t: 'UPDATE_REQUIRED'; d: { version: string } }
   /** Yeni sürüm yayınlandı: istemci arka planda indirmeye başlar */
-  | { t: 'UPDATE_AVAILABLE'; d: { version: string } };
+  | { t: 'UPDATE_AVAILABLE'; d: { version: string } }
+  /** Yeni geri bildirim (yalnızca Sunucuyu Yönet yetkililerine) */
+  | { t: 'FEEDBACK_CREATE'; d: Feedback }
+  /** Geri bildirimin durumu ya da notu değişti (yetkililere ve gönderene) */
+  | { t: 'FEEDBACK_UPDATE'; d: Feedback }
+  | { t: 'FEEDBACK_DELETE'; d: { id: number } };
 
 /** İstemci türü: sürüm kuralı her platform için ayrı uygulanır */
 export type ClientPlatform = 'desktop' | 'android' | 'ios';

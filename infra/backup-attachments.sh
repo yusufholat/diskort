@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Dosya eklerinin (mesajlardaki resim/dosyalar) ve profil fotoğraflarının günlük anlık kopyası:
-# BACKUP_DIR/attachments ve BACKUP_DIR/avatars.
+# Dosya eklerinin (mesajlardaki resim/dosyalar), profil fotoğraflarının ve geri bildirim ekran görüntülerinin
+# günlük anlık kopyası: BACKUP_DIR/attachments, BACKUP_DIR/avatars ve BACKUP_DIR/feedback.
 # Bu dosyalar hiç değişmez (adları rastgele kimlik ya da içerik özeti), bu yüzden kopya "sabit bağlantı" (hard link) ile alınır:
 # diskte ek yer kaplamaz. Mesaj silinip dosya uygulamadan kalkınca kopyadaki bağlantı tek başına kalır
 # ve KEEP_DAYS gün sonra silinir; yanlışlıkla silinenler bu süre içinde geri getirilebilir.
@@ -41,3 +41,4 @@ backup_dir() {
 chmod 700 "$BACKUP_DIR"
 backup_dir "${data}/attachments" "${BACKUP_DIR}/attachments" '[0-9a-f]{32}'
 backup_dir "${data}/avatars" "${BACKUP_DIR}/avatars" '[0-9a-f]{32}\.webp'
+backup_dir "${data}/feedback" "${BACKUP_DIR}/feedback" '[0-9a-f]{32}\.webp'

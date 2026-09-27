@@ -23,6 +23,7 @@ import {
   type User,
 } from '@diskort/shared';
 import { AVATAR_COLORS } from '@diskort/shared';
+import { FEEDBACK_MIGRATION } from './feedbackStore.js';
 
 /**
  * Göç 8'de @everyone'a verilen yetkiler: rollerden önce herkesin yapabildikleri (+ yeni @everyone
@@ -203,6 +204,9 @@ export const MIGRATIONS: string[] = [
     WHERE u.is_admin = 1;
   UPDATE guilds SET owner_id = (SELECT id FROM users ORDER BY is_admin DESC, created_at, rowid LIMIT 1);
   `,
+  // Göç 12: geri bildirimler (feedbackStore.ts). 9–11 paralel dallarda (DM, yanıtlar, GIF); birleştirmede
+  // bunların ardına konur. Kendi başınadır ve yeniden çalışsa da zararsızdır (IF NOT EXISTS).
+  FEEDBACK_MIGRATION,
 ];
 
 type Param = string | number | null;

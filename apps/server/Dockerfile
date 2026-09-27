@@ -24,6 +24,7 @@ ENV NODE_ENV=production \
 # fotoğrafları için resim işleme (sharp; libvips dahil hazır derlenmiş linux-x64/arm64 glibc paketiyle
 # gelir, derleme gerekmez). Sürümler apps/server/package.json ve pnpm-lock.yaml ile aynı olmalı.
 RUN npm install --no-save --no-package-lock @node-rs/argon2@2.2.1 sharp@0.35.4 && npm cache clean --force
+# dist: sunucu (index.js) ve geri bildirim aracı (feedback-cli.js; ortak parçalar chunk-*.js)
 COPY --from=build /repo/apps/server/dist ./dist
 VOLUME /data
 CMD ["node", "--enable-source-maps", "dist/index.js"]

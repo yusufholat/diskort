@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import WebSocket from 'ws';
 import type { Channel, GatewayServerMessage, ReadyPayload, Role, User } from '@diskort/shared';
-import { buildApp } from '../src/app.js';
+import { buildApp, type BuildOptions } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import type { AppContext } from '../src/context.js';
 import { LiveKitService, type PublishSources } from '../src/livekit.js';
@@ -66,9 +66,9 @@ export interface TestServer {
 }
 
 /** Sahip (ilk kayıt) hazır bir sunucu */
-export async function startServer(): Promise<TestServer> {
+export async function startServer(options: BuildOptions = {}): Promise<TestServer> {
   const livekit = new FakeLiveKit();
-  const { app, ctx } = await buildApp(config, { dbFile: ':memory:', logger: false, livekit });
+  const { app, ctx } = await buildApp(config, { dbFile: ':memory:', logger: false, livekit, ...options });
   const register = async (inviteCode: string, username: string, password = 'sifre12345'): Promise<Account> => {
     const res = await app.inject({ method: 'POST', url: '/api/auth/register', payload: { inviteCode, username, password } });
     if (res.statusCode !== 201) throw new Error(`kayıt başarısız: ${res.body}`);

@@ -9,6 +9,8 @@ import { ClientVersionPolicy } from './clientVersion.js';
 import type { Config } from './config.js';
 import type { AppContext } from './context.js';
 import { Store } from './db.js';
+import { FeedbackService } from './feedback.js';
+import { FeedbackStore } from './feedbackStore.js';
 import { Gateway } from './gateway.js';
 import { LiveKitService } from './livekit.js';
 import { OtaService } from './ota.js';
@@ -23,6 +25,7 @@ import { registerAuthRoutes } from './routes/auth.js';
 import { registerClientErrorRoutes } from './routes/clientErrors.js';
 import { registerAvatarRoutes } from './routes/avatars.js';
 import { registerDownloadRoutes } from './routes/download.js';
+import { registerFeedbackRoutes } from './routes/feedback.js';
 import { registerMessageRoutes } from './routes/messages.js';
 import { registerRoleRoutes } from './routes/roles.js';
 import { registerUpdateRoutes } from './routes/updates.js';
@@ -41,6 +44,8 @@ export interface BuildOptions {
   attachmentsDir?: string;
   /** Profil fotoğraflarının klasörü (varsayılan: <DATA_DIR>/avatars) */
   avatarsDir?: string;
+  /** Geri bildirim ekran görüntülerinin klasörü (varsayılan: <DATA_DIR>/feedback) */
+  feedbackDir?: string;
 }
 
 /** Süresi geçmiş yüklemelerin ve artık dosyaların temizlenme aralığı */
@@ -125,6 +130,11 @@ export async function buildApp(
   registerAvatarRoutes(app, ctx);
   registerUpdateRoutes(app, ctx);
   registerClientErrorRoutes(app, ctx);
+  registerFeedbackRoutes(
+    app,
+    ctx,
+    new FeedbackService(new FeedbackStore(store.db), opts.feedbackDir ?? path.join(config.dataDir, 'feedback'), app.log),
+  );
 
   return { app, ctx };
 }
