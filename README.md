@@ -25,6 +25,9 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
 - **Dosya ve resim paylaşımı:** düğme, sürükle-bırak, panodan yapıştırma (Android'de galeri/dosya seçici);
   yükleme ilerlemesi, resimler mesajın içinde, tam boyut görüntüleyici; dosya başına varsayılan en fazla 25 MB.
   JPEG'lerdeki konum (GPS) bilgisi sunucuda silinir
+- **Profil fotoğrafı:** masaüstünde sürükle/yakınlaştır kırpma penceresi, Android'de sistemin kırpma ekranı;
+  sunucu 256×256 WebP'ye çevirir (konum dahil üst veriler silinir), değişiklik herkese anında yansır.
+  Fotoğraf yoksa baş harfler ve profil rengi
 - **Davet kodu + hesap** sistemi; **şifre sıfırlama** (yöneticinin verdiği tek kullanımlık kodla) ve şifre değiştirme
 - **Yönetici paneli:** davetler, kanallar, üyeler (sıfırlama kodu, yöneticilik, sesten atma, hesap silme)
 - **Yedek bağlantı:** doğrudan UDP kurulamayan ağlarda TURN/UDP 3478, yalnızca 443'e izin veren ağlarda
@@ -177,6 +180,9 @@ Açık olması gereken portlar: `80/tcp`, `443/tcp`, `7881/tcp`, `3478/udp`, `50
   Eski bir veritabanı yedeği geri yüklenirse, yedekte karşılığı olmayan dosyalar bir saat içinde kendiliğinden
   silinir; yedekte olup diskte olmayan dosyaların adresi "bulunamadı" döner. Disk dolmasın diye sunucuda 1 GB'tan
   az yer kalınca yükleme reddedilir (tek dosya sınırı: `.env`'de `ATTACHMENT_MAX_MB`, varsayılan 25).
+- **Profil fotoğrafları** de yedeğe dahil değil: `/data/avatars/` altında 256×256 WebP (kişi başı birkaç KB).
+  Kaybolursa uygulamalar baş harfleri gösterir, kullanıcı fotoğrafını yeniden yükler. Kimsenin kullanmadığı
+  dosyalar (ör. eski yedek geri yüklenince) bir saat sonra kendiliğinden silinir.
 - **Geri yükleme** (önce mevcut veritabanının güvenlik kopyasını alır):
   ```bash
   bash /opt/diskort/infra/restore-db.sh /var/backups/diskort/diskort-2026-09-27_0400.db.gz
