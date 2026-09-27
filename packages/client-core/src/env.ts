@@ -1,4 +1,4 @@
-import type { ClientPlatform, Message } from '@diskort/shared';
+import type { ClientPlatform, DmChannel, Message } from '@diskort/shared';
 
 /** Oturum gibi kalıcı verilerin saklandığı yer (masaüstü: localStorage, mobil: güvenli depolama). */
 export interface KeyValueStorage {
@@ -52,6 +52,8 @@ export interface ClientEnvironment {
   isViewingChannel?(channelId: string): boolean;
   /** Görülmeyen bir kanalda kullanıcıdan bahsedildi */
   onMention?(message: Message): void;
+  /** Görülmeyen bir direkt mesaj konuşmasına başkasından mesaj geldi */
+  onDirectMessage?(message: Message, dm: DmChannel): void;
   /** Sunucu bu sürümü artık kabul etmiyor */
   onUpdateRequired?(version: string): void;
   /** Yeni sürüm yayınlandı */

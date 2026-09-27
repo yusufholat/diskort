@@ -31,14 +31,21 @@ const MENTION_QUERY = /(?:^|[\s(])@([a-z0-9_.]{0,32})$/i;
 const NO_FILES: LocalFile[] = [];
 
 interface Props {
-  channel: Channel;
+  /** Metin kanalı ya da direkt mesaj konuşması (kimlik ve görünen ad) */
+  channel: Pick<Channel, 'id' | 'name'>;
   /** Düzenlenen mesaj (varsa kutu düzenleme kipine geçer) */
   editing: LocalMessage | null;
   onDoneEditing: () => void;
   onSent: () => void;
+  /** Kutudaki ipucu (verilmezse "#kanal kanalına mesaj gönder") */
+  placeholder?: string;
+  /** Yazılamıyorsa kutu yerine gösterilecek açıklama (verilmezse izin yok mesajı) */
+  lockedText?: string;
+  /** Bahsetme önerilerinde yalnızca bu kişiler (ör. konuşmanın katılımcıları) */
+  mentionable?: readonly string[];
 }
 
-export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
+export function Composer({ channel, editing, onDoneEditing, onSent, placeholder, lockedText, mentionable }: Props) {
   const [value, setValue] = useState(() => drafts.get(channel.id) ?? '');
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   // İmleç yalnızca bahsetme seçilince bir kez ayarlanır (sürekli kontrol Android'de imleci zıplatır)
@@ -69,11 +76,11 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
     if (query === undefined) return [];
     const q = query.toLocaleLowerCase('tr');
     return Object.values(users)
-      .filter((u) => !u.removed)
+      .filter((u) => !u.removed && (!mentionable || mentionable.includes(u.id)))
       .filter((u) => u.username.startsWith(q) || u.displayName.toLocaleLowerCase('tr').includes(q))
       .sort((a, b) => Number(!!online[b.id]) - Number(!!online[a.id]) || a.username.localeCompare(b.username))
       .slice(0, 5);
-  }, [query, users, online]);
+  }, [query, users, online, mentionable]);
 
   const pick = (user: User): void => {
     const before = text.slice(0, selection.start).replace(/@[a-z0-9_.]*$/i, `@${user.username} `);
@@ -116,11 +123,11 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
   const remaining = MESSAGE_MAX_LENGTH - text.trim().length;
 
   // Salt okunur kanal (kendi mesajını düzenlemek yine serbest)
-  if (!canSend && !editing) {
+  if ((!canSend || lockedText) && !editing) {
     return (
       <View style={styles.locked}>
         <Ionicons name="lock-closed" size={16} color={colors.muted} />
-        <Text style={styles.lockedText}>Bu kanala mesaj gönderme iznin yok.</Text>
+        <Text style={styles.lockedText}>{lockedText ?? 'Bu kanala mesaj gönderme iznin yok.'}</Text>
       </View>
     );
   }
@@ -199,7 +206,7 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
             setForcedSelection(undefined);
           }}
           selection={forcedSelection}
-          placeholder={`#${channel.name} kanalına mesaj gönder`}
+          placeholder={placeholder ?? `#${channel.name} kanalına mesaj gönder`}
           placeholderTextColor={colors.faint}
           multiline
           maxLength={MESSAGE_MAX_LENGTH * 2}
@@ -274,7 +281,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     backgroundColor: colors.side,
   },
-  lockedText: { color: colors.muted, fontSize: 15 },
+  lockedText: { color: colors.muted, fontSize: 15, flexShrink: 1 },
   tray: { flexGrow: 0, backgroundColor: colors.side },
   trayContent: { gap: 10, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 8 },
   trayItem: { width: 92 },

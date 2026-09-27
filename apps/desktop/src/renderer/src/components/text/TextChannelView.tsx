@@ -1,9 +1,21 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
-import { Hash, Upload, Users } from 'lucide-react';
-import { Permission, type Channel } from '@diskort/shared';
-import { ackChannel, addFiles, loadInitial, useCan, useMessages, useGuild, useSession } from '@diskort/client-core';
+import { Hash, Upload, UserPlus, Users } from 'lucide-react';
+import { DM_GROUP_MAX_PARTICIPANTS, Permission, type Channel, type DmChannel } from '@diskort/shared';
+import {
+  ackChannel,
+  addFiles,
+  dmBlockedReason,
+  dmPartner,
+  loadInitial,
+  useCan,
+  useMessages,
+  useGuild,
+  useSession,
+} from '@diskort/client-core';
 import { cn } from '../../lib/utils';
 import { toast, useUi } from '../../stores/ui';
+import { DmAvatar } from '../dms/DmAvatar';
+import { DmMembers } from '../dms/DmMembers';
 import { MemberList } from '../members/MemberList';
 import { toLocalFiles } from '../../features/messages/files';
 import { Composer, type ComposerHandle } from './Composer';
@@ -11,8 +23,11 @@ import { MessageList } from './MessageList';
 
 const hasFiles = (e: DragEvent): boolean => e.dataTransfer.types.includes('Files');
 
-/** Metin kanalı: başlık, mesaj listesi, yazma kutusu ve "yazıyor" göstergesi. */
-export function TextChannelView({ channel }: { channel: Channel }) {
+/**
+ * Metin kanalı ya da direkt mesaj konuşması (`dm` verilir; `channel.name` konuşmanın görünen adıdır):
+ * başlık, mesaj listesi, yazma kutusu ve "yazıyor" göstergesi.
+ */
+export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' | 'name'>; dm?: DmChannel }) {
   const self = useSession((s) => s.user)!;
   const loaded = useMessages((s) => s.channels[channel.id]?.loaded ?? false);
   const lastId = useGuild((s) => s.lastMessageIds[channel.id]);
@@ -23,6 +38,11 @@ export function TextChannelView({ channel }: { channel: Channel }) {
   const composer = useRef<ComposerHandle>(null);
   const canAttach = useCan(Permission.SEND_MESSAGES | Permission.ATTACH_FILES, channel.id);
   const memberListOpen = useUi((s) => s.memberListOpen);
+  // Bire bir konuşmada karşı taraf ayrıldıysa yazma kutusu yerine neden gösterilir
+  const blocked = useGuild((s) => (dm ? dmBlockedReason(dm, s.users, self.id) : null));
+  const partner = useGuild((s) => (dm ? dmPartner(dm, s.users, self.id) : undefined));
+  // Adı kanal gibi "#ad", bire bir konuşmada "@ad" olarak geçer
+  const label = dm ? (dm.group ? channel.name : `@${channel.name}`) : `#${channel.name}`;
 
   // Kanal açıldığında okunmamış ilk mesajın üstüne "YENİ" ayracı konur.
   const readAtOpen = useRef(readId);
@@ -124,14 +144,26 @@ export function TextChannelView({ channel }: { channel: Channel }) {
           <div className="anim-fade-in pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/60">
             <div className="anim-modal-in flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-white/60 bg-brand px-10 py-8 text-white shadow-2xl">
               <Upload size={40} />
-              <div className="text-lg font-bold">#{channel.name} kanalına yükle</div>
+              <div className="text-lg font-bold">{dm ? `${label} ile paylaş` : `${label} kanalına yükle`}</div>
               <div className="text-sm text-white/80">Göndermeden önce bir not ekleyebilirsin.</div>
             </div>
           </div>
         )}
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-black/30 px-4 shadow-sm">
-          <Hash size={22} className="text-text-muted" />
-          <span className="min-w-0 flex-1 truncate font-semibold text-text-head">{channel.name}</span>
+          {dm ? <DmAvatar dm={dm} size={24} status /> : <Hash size={22} className="text-text-muted" />}
+          <span className="min-w-0 truncate font-semibold text-text-head">{channel.name}</span>
+          {partner && <span className="min-w-0 truncate text-sm text-text-muted">@{partner.username}</span>}
+          <span className="flex-1" />
+          {dm?.group && dm.participantIds.length < DM_GROUP_MAX_PARTICIPANTS && (
+            <button
+              data-tooltip="Kişi ekle"
+              aria-label="Kişi ekle"
+              className="press-icon rounded p-1 text-text-muted hover:text-text-normal"
+              onClick={() => useUi.getState().openModal({ type: 'newDm', addTo: dm.id })}
+            >
+              <UserPlus size={22} />
+            </button>
+          )}
           <button
             data-tooltip={memberListOpen ? 'Üye listesini gizle' : 'Üye listesini göster'}
             aria-label={memberListOpen ? 'Üye listesini gizle' : 'Üye listesini göster'}
@@ -158,6 +190,7 @@ export function TextChannelView({ channel }: { channel: Channel }) {
           )}
           <MessageList
             channel={channel}
+            dm={dm}
             self={self}
             dividerId={dividerId}
             onAtBottomChange={setAtBottom}
@@ -169,6 +202,9 @@ export function TextChannelView({ channel }: { channel: Channel }) {
           ref={composer}
           channel={channel}
           self={self}
+          placeholder={dm ? `${label} ${dm.group ? 'grubuna' : 'kişisine'} mesaj gönder` : undefined}
+          lockedText={blocked ?? undefined}
+          mentionable={dm?.participantIds}
           onSend={() => {
             setDividerId(null);
             setScrollSignal((n) => n + 1);
@@ -176,7 +212,7 @@ export function TextChannelView({ channel }: { channel: Channel }) {
         />
         <TypingIndicator channelId={channel.id} selfId={self.id} />
       </div>
-      {memberListOpen && <MemberList />}
+      {memberListOpen && (dm ? <DmMembers dm={dm} /> : <MemberList />)}
     </div>
   );
 }

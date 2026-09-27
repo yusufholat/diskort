@@ -7,6 +7,10 @@ export type Modal =
   | { type: 'screenPicker' }
   | { type: 'channel'; channel?: Channel; channelType?: ChannelType }
   | { type: 'image'; attachment: Attachment }
+  /** Direkt mesaj başlatmak için kişi seçimi; `addTo` verilirse o gruba kişi eklenir */
+  | { type: 'newDm'; addTo?: string }
+  /** Grup konuşmasının adını değiştirmek */
+  | { type: 'renameDm'; channelId: string }
   | null;
 
 export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app';
@@ -55,8 +59,16 @@ export interface Toast {
   kind: 'info' | 'error' | 'success';
 }
 
-/** Ana alanda gösterilen: bir metin kanalı ya da bağlı olunan ses kanalının sahnesi */
-export type View = { kind: 'text'; channelId: string } | { kind: 'voice' } | { kind: 'home' };
+/**
+ * Ana alanda gösterilen: bir metin kanalı, bağlı olunan ses kanalının sahnesi ya da direkt mesajlar
+ * (`dm`: bir konuşma, `dms`: konuşma seçilmemiş liste). İlk üçü topluluk, son ikisi "ana sayfa" bölümüdür.
+ */
+export type View =
+  | { kind: 'text'; channelId: string }
+  | { kind: 'voice' }
+  | { kind: 'home' }
+  | { kind: 'dm'; channelId: string }
+  | { kind: 'dms' };
 
 interface UiStore {
   /** Metin kanalının sağındaki üye listesi açık mı */
@@ -68,6 +80,8 @@ interface UiStore {
   view: View;
   /** Ses sahnesinden dönülecek metin kanalı */
   lastTextChannelId: string | null;
+  /** Direkt mesajlar bölümüne dönülünce açılacak konuşma */
+  lastDmId: string | null;
   setView: (view: View) => void;
   modal: Modal;
   contextMenu: ContextMenuState | null;
@@ -86,6 +100,7 @@ interface UiStore {
 let toastId = 0;
 
 const LAST_TEXT_CHANNEL_KEY = 'diskort-last-text-channel';
+const LAST_DM_KEY = 'diskort-last-dm';
 const MEMBER_LIST_KEY = 'diskort-member-list';
 
 function stored(key: string): string | null {
@@ -117,13 +132,17 @@ export const useUi = create<UiStore>()((set, get) => ({
   setBanUser: (banUser) => set({ banUser, contextMenu: null }),
   view: initialTextChannel ? { kind: 'text', channelId: initialTextChannel } : { kind: 'home' },
   lastTextChannelId: initialTextChannel,
+  lastDmId: stored(LAST_DM_KEY),
   setView: (view) => {
-    if (view.kind !== 'text') {
+    if (view.kind === 'text') {
+      store(LAST_TEXT_CHANNEL_KEY, view.channelId);
+      set({ view, lastTextChannelId: view.channelId });
+    } else if (view.kind === 'dm') {
+      store(LAST_DM_KEY, view.channelId);
+      set({ view, lastDmId: view.channelId });
+    } else {
       set({ view });
-      return;
     }
-    store(LAST_TEXT_CHANNEL_KEY, view.channelId);
-    set({ view, lastTextChannelId: view.channelId });
   },
   modal: null,
   contextMenu: null,
