@@ -12,16 +12,11 @@ export type NoiseMode = 'dpdfnet' | 'deepfilter' | 'standard' | 'off';
  */
 export const NOISE_STRENGTHS_DB = [12, 24, 40, 100] as const;
 export type NoiseStrengthDb = (typeof NOISE_STRENGTHS_DB)[number];
-/** Yayın bit hızı üst sınırı seçenekleri (Mbps); 0: kaliteye göre varsayılan */
-export const SCREEN_BITRATES_MBPS = [0, 4, 6, 8, 10, 12, 15, 20, 25, 30] as const;
 export const SIDEBAR_WIDTH = { min: 200, default: 240, max: 480 } as const;
 export const clampSidebarWidth = (w: number): number =>
   Number.isFinite(w) ? Math.round(Math.min(SIDEBAR_WIDTH.max, Math.max(SIDEBAR_WIDTH.min, w))) : SIDEBAR_WIDTH.default;
-const SCREEN_PRESET_IDS = ['720p30', '1080p30', '1080p60', '1440p60'] as const;
+const SCREEN_PRESET_IDS = ['720p60', '1080p30', '1080p60', '1440p60'] as const;
 export type ScreenPresetId = (typeof SCREEN_PRESET_IDS)[number];
-/** Yayın kalitesi: 'auto' içeriğe ve ağa göre kendisi ayarlar (bkz. client-core screenAuto.ts), diğerleri sabit */
-export type ScreenQuality = 'auto' | ScreenPresetId;
-const SCREEN_QUALITY_IDS: readonly ScreenQuality[] = ['auto', ...SCREEN_PRESET_IDS];
 const SCREEN_CODEC_IDS = ['h264', 'vp9', 'vp8', 'av1'] as const;
 export type ScreenCodec = (typeof SCREEN_CODEC_IDS)[number];
 export type ScreenContent = 'motion' | 'detail';
@@ -52,9 +47,7 @@ export interface Settings {
   localMutes: Record<string, boolean>;
   streamVolumes: Record<string, number>;
 
-  screenPreset: ScreenQuality;
-  /** Yayın bit hızı üst sınırı (Mbps); 0: kaliteye göre varsayılan. Otomatik'te de tavanın üst sınırı olur */
-  screenBitrateMbps: number;
+  screenPreset: ScreenPresetId;
   screenCodec: ScreenCodec;
   screenContent: ScreenContent;
   shareAudio: boolean;
@@ -105,8 +98,7 @@ const defaults: Settings = {
   userVolumes: {},
   localMutes: {},
   streamVolumes: {},
-  screenPreset: 'auto',
-  screenBitrateMbps: 0,
+  screenPreset: '1080p60',
   screenCodec: 'h264',
   screenContent: 'motion',
   shareAudio: true,
@@ -152,10 +144,7 @@ function sanitize(saved: Partial<Settings>): Partial<Settings> {
     const v = s[key];
     if (v !== undefined) s[key] = clampVolume(v);
   }
-  if (s.screenPreset !== undefined && !SCREEN_QUALITY_IDS.includes(s.screenPreset)) s.screenPreset = defaults.screenPreset;
-  if (s.screenBitrateMbps !== undefined && !(SCREEN_BITRATES_MBPS as readonly number[]).includes(s.screenBitrateMbps)) {
-    s.screenBitrateMbps = defaults.screenBitrateMbps;
-  }
+  if (s.screenPreset !== undefined && !SCREEN_PRESET_IDS.includes(s.screenPreset)) s.screenPreset = defaults.screenPreset;
   if (s.sidebarWidth !== undefined) s.sidebarWidth = clampSidebarWidth(s.sidebarWidth);
   if (s.theme !== undefined && !isThemeId(s.theme)) s.theme = defaults.theme;
   if (s.sfxVolume !== undefined) s.sfxVolume = Number.isFinite(s.sfxVolume) ? Math.min(1, Math.max(0, s.sfxVolume)) : defaults.sfxVolume;
@@ -171,7 +160,7 @@ export const useSettings = create<SettingsStore>()(
     }),
     {
       name: 'diskort-settings',
-      version: 7,
+      version: 8,
       storage: createJSONStorage(() => localStorage),
       partialize: ({ set: _set, ...rest }) => rest,
       // Sürüm 1 → 2: gürültü engelleme RNNoise → DeepFilterNet 3 (sanitize içinde)
@@ -181,15 +170,16 @@ export const useSettings = create<SettingsStore>()(
       // Sürüm 4 → 5: DPDFNet varsayılan oldu (kullanıcılar Krisp'e yakın buldu); kapalı olanlar hariç herkes DPDFNet'e geçer.
       // Sürüm 5 → 6: Siyah (OLED) varsayılan tema oldu; eski varsayılandaki (koyu) herkes siyaha geçer
       // (şimdiye dek yalnızca koyu ve siyah vardı), isteyen Görünüm'den geri seçebilir.
-      // Sürüm 6 → 7: Otomatik yayın kalitesi varsayılan oldu; eski varsayılandaki (1080p30) herkes Otomatik'e geçer,
-      // başka bir kaliteyi bilerek seçmiş olanlar olduğu gibi kalır.
+      // Sürüm 6 → 7 → 8: Otomatik yayın kalitesi denendi ve kaldırıldı; eski varsayılan (1080p30) ya da Otomatik'teki
+      // herkes yeni varsayılan 1080p60'a geçer, başka bir kaliteyi bilerek seçmiş olanlar olduğu gibi kalır.
       migrate: (saved, version) => {
         const s = { ...(saved as Partial<Settings>) };
         if (version < 3) s.noiseStrengthDb = defaults.noiseStrengthDb;
         if (version < 4 && s.noise === 'deepfilter') s.noise = 'standard';
         if (version < 5 && (s.noise === undefined || s.noise === 'standard' || s.noise === 'deepfilter')) s.noise = 'dpdfnet';
         if (version < 6 && (s.theme === undefined || s.theme === 'dark')) s.theme = 'black';
-        if (version < 7 && (s.screenPreset === undefined || s.screenPreset === '1080p30')) s.screenPreset = 'auto';
+        if (version < 7 && (s.screenPreset === undefined || s.screenPreset === '1080p30')) s.screenPreset = '1080p60';
+        if (version < 8 && (s.screenPreset as string | undefined) === 'auto') s.screenPreset = '1080p60';
         return s as Settings;
       },
       merge: (saved, current) => ({ ...current, ...sanitize((saved ?? {}) as Partial<Settings>) }),

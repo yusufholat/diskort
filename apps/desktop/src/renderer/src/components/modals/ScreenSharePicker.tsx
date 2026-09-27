@@ -1,12 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { AppWindow, Monitor, RefreshCw } from 'lucide-react';
 import type { ScreenSource } from '../../../../shared/bridge';
-import { screenBitrateOptions, screenQualityOptions } from '../../features/voice/screenPresets';
+import { SCREEN_PRESETS } from '../../features/voice/screenPresets';
 import { voice } from '../../features/voice/voiceClient';
 import { errorMessage } from '@diskort/client-core';
 import { bridge, isMac } from '../../lib/bridge';
 import { cn } from '../../lib/utils';
-import { useSettings, type ScreenQuality } from '../../stores/settings';
+import { useSettings, type ScreenPresetId } from '../../stores/settings';
 import { toast, useUi } from '../../stores/ui';
 import { Modal } from '../ui/Modal';
 import { Button, Select, Toggle } from '../ui/controls';
@@ -134,43 +134,31 @@ export function ScreenSharePicker() {
         </>
       )}
 
-      <div className="mt-4 grid grid-cols-3 gap-3">
+      <div className="mt-4 grid grid-cols-2 gap-3">
         <div>
           <div className="mb-1.5 text-xs font-bold text-text-muted uppercase">Kalite</div>
-          {/* Sabit kalitede yayıncının yükleme hızı en az bu kadar olmalı (bant yetmezse WebRTC kendiliğinden düşürür) */}
-          <Select<ScreenQuality>
+          <Select<ScreenPresetId>
             aria-label="Yayın kalitesi"
             value={settings.screenPreset}
             onChange={(screenPreset) => settings.set({ screenPreset })}
-            options={screenQualityOptions()}
-          />
-        </div>
-        <div>
-          <div className="mb-1.5 text-xs font-bold text-text-muted uppercase">Bit hızı</div>
-          <Select<number>
-            aria-label="Bit hızı sınırı"
-            value={settings.screenBitrateMbps}
-            onChange={(screenBitrateMbps) => settings.set({ screenBitrateMbps })}
-            options={screenBitrateOptions(settings.screenPreset)}
+            options={Object.entries(SCREEN_PRESETS).map(([value, p]) => ({
+              value: value as ScreenPresetId,
+              // Yayıncının yükleme hızı en az bu kadar olmalı (bant yetmezse WebRTC kendiliğinden düşürür)
+              label: `${p.label} · ${p.bitrate / 1_000_000} Mbps`,
+            }))}
           />
         </div>
         <div>
           <div className="mb-1.5 text-xs font-bold text-text-muted uppercase">İçerik</div>
-          {settings.screenPreset === 'auto' ? (
-            <div className="flex min-h-9 items-center text-sm leading-snug text-text-muted">
-              Otomatik algılanır (oyun/video → akıcılık, metin/kod → netlik)
-            </div>
-          ) : (
-            <Select
-              aria-label="İçerik türü"
-              value={settings.screenContent}
-              onChange={(screenContent) => settings.set({ screenContent })}
-              options={[
-                { value: 'motion', label: 'Oyun / Video (akıcılık)' },
-                { value: 'detail', label: 'Metin / Kod (netlik)' },
-              ]}
-            />
-          )}
+          <Select
+            aria-label="İçerik türü"
+            value={settings.screenContent}
+            onChange={(screenContent) => settings.set({ screenContent })}
+            options={[
+              { value: 'motion', label: 'Oyun / Video (akıcılık)' },
+              { value: 'detail', label: 'Metin / Kod (netlik)' },
+            ]}
+          />
         </div>
       </div>
       {bridge?.screen.supportsAudio && (

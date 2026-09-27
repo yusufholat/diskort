@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Check, X } from 'lucide-react';
 import { AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH } from '@diskort/shared';
 import { gateway, api, errorMessage, useFeedback, useGuild, useSession } from '@diskort/client-core';
-import { SCREEN_CODECS, screenBitrateOptions, screenQualityOptions } from '../../features/voice/screenPresets';
+import { SCREEN_CODECS, SCREEN_PRESETS } from '../../features/voice/screenPresets';
 import { voice } from '../../features/voice/voiceClient';
 import { bridge, isWindows } from '../../lib/bridge';
 import { confirmDialog } from '../../lib/dialog';
@@ -10,8 +10,7 @@ import { useEscapeLayer } from '../../lib/escape';
 import { usePresenceClosing } from '../../lib/motion';
 import { THEMES, themeVars } from '../../lib/theme';
 import { cn } from '../../lib/utils';
-import { useSettings, type ScreenCodec, type ScreenQuality, type ThemeId } from '../../stores/settings';
-import { useVoice } from '../../stores/voice';
+import { useSettings, type ScreenCodec, type ScreenPresetId, type ThemeId } from '../../stores/settings';
 import { toast, useUi, type SettingsSection } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 import { Button, Divider, Field, SectionTitle, Select, TextInput, Toggle } from '../ui/controls';
@@ -333,23 +332,15 @@ function StreamSection() {
     <div>
       <h2 className="mb-5 text-xl font-bold text-text-head">Yayın (Ekran Paylaşımı)</h2>
       <Field label="Varsayılan kalite">
-        <Select<ScreenQuality>
+        <Select<ScreenPresetId>
           value={s.screenPreset}
           onChange={(screenPreset) => s.set({ screenPreset })}
-          options={screenQualityOptions()}
+          options={Object.entries(SCREEN_PRESETS).map(([value, p]) => ({
+            value: value as ScreenPresetId,
+            label: `${p.label} · ${p.bitrate / 1_000_000} Mbps`,
+          }))}
         />
       </Field>
-      <Field
-        label="Bit hızı sınırı"
-        hint="Yüksek bit hızı daha net görüntü verir; yükleme hızın en az bu kadar olmalı. Hareketsiz ekranda gerçek hız bunun çok altında kalır. Otomatik'te ağ sorun çıkarırsa yine düşürülür."
-      >
-        <Select<number>
-          value={s.screenBitrateMbps}
-          onChange={(screenBitrateMbps) => s.set({ screenBitrateMbps })}
-          options={screenBitrateOptions(s.screenPreset)}
-        />
-      </Field>
-      {s.screenPreset === 'auto' && <ScreenAutoIndicator />}
       <Field label="Video kodeği">
         <Select<ScreenCodec>
           value={s.screenCodec}
@@ -357,18 +348,16 @@ function StreamSection() {
           options={Object.entries(SCREEN_CODECS).map(([value, label]) => ({ value: value as ScreenCodec, label }))}
         />
       </Field>
-      {s.screenPreset !== 'auto' && (
-        <Field label="İçerik türü">
-          <Select
-            value={s.screenContent}
-            onChange={(screenContent) => s.set({ screenContent })}
-            options={[
-              { value: 'motion', label: 'Oyun / Video — akıcılık öncelikli' },
-              { value: 'detail', label: 'Metin / Kod — netlik öncelikli' },
-            ]}
-          />
-        </Field>
-      )}
+      <Field label="İçerik türü">
+        <Select
+          value={s.screenContent}
+          onChange={(screenContent) => s.set({ screenContent })}
+          options={[
+            { value: 'motion', label: 'Oyun / Video — akıcılık öncelikli' },
+            { value: 'detail', label: 'Metin / Kod — netlik öncelikli' },
+          ]}
+        />
+      </Field>
       <Toggle
         label="Sistem sesini paylaş"
         description={
@@ -381,32 +370,9 @@ function StreamSection() {
         onChange={(shareAudio) => s.set({ shareAudio })}
       />
       <p className="mt-4 text-sm text-text-muted">
-        Not: sabit kaliteler en az o kadar yükleme hızı ister (ör. 1080p60 için ~10 Mbps); yetmezse yayın kendiliğinden düşer. Yayını izleyen her kişi için sunucu bu veriyi ayrıca
+        Not: seçilen kalite en az o kadar yükleme hızı ister (ör. 1080p60 için ~10 Mbps); yetmezse yayın kendiliğinden düşer. Yayını izleyen her kişi için sunucu bu veriyi ayrıca
         gönderir; izlemeyenlere hiç video gitmez.
       </p>
-    </div>
-  );
-}
-
-/** Otomatik kalitenin o anki kararı: yayın yaparken canlı, değilse kısa açıklama */
-function ScreenAutoIndicator() {
-  const status = useVoice((v) => v.screenAuto);
-  return (
-    <div className="-mt-2 mb-5 flex items-start gap-2 rounded-md bg-bg-deep px-3 py-2 text-xs leading-relaxed text-text-muted">
-      <span
-        className={cn('mt-1 size-2 shrink-0 rounded-full', status ? 'animate-pulse bg-ok' : 'bg-text-faint')}
-        aria-hidden
-      />
-      {status ? (
-        <span>
-          <span className="font-semibold text-text-head">Şu an: </span>
-          {status.label.replace(/^Otomatik — /, '')}        </span>
-      ) : (
-        <span>
-          Yayın sırasında içerik ve bağlantı izlenir: oyun/video 60 FPS akıcılıkla, metin/kod/slayt tam çözünürlükte
-          netlikle gönderilir; yükleme hızı yetmezse tavan düşürülür (1,5–8 Mbps).
-        </span>
-      )}
     </div>
   );
 }

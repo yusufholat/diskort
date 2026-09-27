@@ -76,21 +76,6 @@ export {
   type TransportStats,
   type TransportView,
 } from './connectionStats';
-export {
-  createScreenAuto,
-  describeScreenAuto,
-  evenScale,
-  measureScreen,
-  planScreenEncoding,
-  SCREEN_AUTO,
-  screenAutoCeiling,
-  stepScreenAuto,
-  type QualityLimitation,
-  type ScreenAutoState,
-  type ScreenContentKind,
-  type ScreenEncodingPlan,
-  type ScreenMeasurement,
-} from './screenAuto';
 export { gateway } from './gateway';
 export {
   displayStatusOf,

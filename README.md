@@ -15,8 +15,7 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
 - **Ses aktivitesi** (otomatik veya elle eşik) ve **bas-konuş** (global kısayol, fare yan tuşları, bırakma gecikmesi)
 - **Sustur / sağırlaştır**, kişi başı ses seviyesi (0–200%) ve yerel susturma (sağ tık)
 - **Konuşan göstergesi** (yeşil halka), ping göstergesi, katılma/ayrılma sesleri
-- **Ekran paylaşımı:** Discord tarzı pencere/ekran seçici; varsayılan **Otomatik** kalite içeriğe (oyun/video → 60 FPS,
-  metin/kod → tam çözünürlük) ve bağlantıya göre ayarlanır (1,5–8 Mbps); sabit 720p30 → 1440p60 (3–15 Mbps), H.264/VP9/VP8/AV1,
+- **Ekran paylaşımı:** Discord tarzı pencere/ekran seçici, 720p30 → 1440p60 (3–15 Mbps), H.264/VP9/VP8/AV1,
   sistem sesi (Windows; sohbet sesleri otomatik hariç tutulur → yankı yok)
 - **“Yayını İzle”:** video yalnızca izlemek isteyene gönderilir; tam ekran, yayın sesi ayarı
 - Kanala girmeden **kim hangi kanalda**, kim susturulmuş, kim yayında görünür
