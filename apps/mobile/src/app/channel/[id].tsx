@@ -15,17 +15,21 @@ import {
 import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
+import { Ionicons } from '@expo/vector-icons';
 import {
   ackChannel,
   deleteMessage,
   loadInitial,
   loadOlder,
+  QUICK_REACTIONS,
+  toggleReaction,
   useGuild,
   useMessages,
   useSession,
   type LocalMessage,
 } from '@diskort/client-core';
 import { Composer } from '../../components/Composer';
+import { EmojiGrid } from '../../components/EmojiGrid';
 import type { MarkdownContext } from '../../components/Markdown';
 import { MessageRow, sameDay } from '../../components/MessageRow';
 import { VoiceBar } from '../../components/VoiceBar';
@@ -172,6 +176,9 @@ export default function TextChannelScreen() {
   );
 }
 
+/** Uzun basınca açılan menüdeki hızlı tepkiler (sonrasında tüm emojiler için +) */
+const MENU_REACTIONS = QUICK_REACTIONS.slice(0, 6);
+
 function MessageMenu({
   message,
   canEdit,
@@ -186,48 +193,115 @@ function MessageMenu({
   onEdit: (m: LocalMessage) => void;
 }) {
   const [confirm, setConfirm] = useState(false);
+  const [allEmojis, setAllEmojis] = useState(false);
+  // Menü açıkken gelen tepki değişiklikleri de görünsün
+  const reactions = useMessages(
+    (s) => (message ? s.channels[message.channelId]?.messages.find((m) => m.id === message.id)?.reactions : undefined) ?? [],
+  );
   const close = (): void => {
     setConfirm(false);
+    setAllEmojis(false);
     onClose();
   };
+  const react = (emoji: string): void => {
+    if (message) void toggleReaction(message.channelId, message.id, emoji);
+    close();
+  };
+  const mine = (emoji: string): boolean => reactions.some((r) => r.emoji === emoji && r.me);
   return (
     <Modal visible={message !== null} transparent animationType="slide" onRequestClose={close}>
       <Pressable style={styles.backdrop} onPress={close}>
         <Pressable style={styles.sheet}>
-          <MenuItem
-            label="Metni kopyala"
-            onPress={() => {
-              if (message) void Clipboard.setStringAsync(message.content).then(() => toast('Kopyalandı'));
-              close();
-            }}
-          />
-          {canEdit && (
-            <MenuItem
-              label="Düzenle"
-              onPress={() => {
-                if (message) onEdit(message);
-                close();
-              }}
-            />
+          {allEmojis ? (
+            <EmojiGrid onPick={react} />
+          ) : (
+            <>
+              <View style={styles.quickRow}>
+                {MENU_REACTIONS.map((emoji) => (
+                  <Pressable
+                    key={emoji}
+                    onPress={() => react(emoji)}
+                    style={({ pressed }) => [styles.quick, mine(emoji) && styles.quickMine, pressed && styles.quickPressed]}
+                  >
+                    <Text style={styles.quickEmoji}>{emoji}</Text>
+                  </Pressable>
+                ))}
+                <Pressable
+                  accessibilityLabel="Tüm emojiler"
+                  onPress={() => setAllEmojis(true)}
+                  style={({ pressed }) => [styles.quick, pressed && styles.quickPressed]}
+                >
+                  <Ionicons name="add" size={26} color={colors.text} />
+                </Pressable>
+              </View>
+              <MessageMenuItems
+                message={message}
+                canEdit={canEdit}
+                canDelete={canDelete}
+                confirm={confirm}
+                setConfirm={setConfirm}
+                close={close}
+                onEdit={onEdit}
+              />
+            </>
           )}
-          {canDelete && (
-            <MenuItem
-              label={confirm ? 'Emin misin? Kalıcı olarak sil' : 'Mesajı sil'}
-              danger
-              onPress={() => {
-                if (!confirm) {
-                  setConfirm(true);
-                  return;
-                }
-                if (message) void deleteMessage(message);
-                close();
-              }}
-            />
-          )}
-          <MenuItem label="Vazgeç" onPress={close} />
         </Pressable>
       </Pressable>
     </Modal>
+  );
+}
+
+function MessageMenuItems({
+  message,
+  canEdit,
+  canDelete,
+  confirm,
+  setConfirm,
+  close,
+  onEdit,
+}: {
+  message: LocalMessage | null;
+  canEdit: boolean;
+  canDelete: boolean;
+  confirm: boolean;
+  setConfirm: (confirm: boolean) => void;
+  close: () => void;
+  onEdit: (m: LocalMessage) => void;
+}) {
+  return (
+    <>
+      <MenuItem
+        label="Metni kopyala"
+        onPress={() => {
+          if (message) void Clipboard.setStringAsync(message.content).then(() => toast('Kopyalandı'));
+          close();
+        }}
+      />
+      {canEdit && (
+        <MenuItem
+          label="Düzenle"
+          onPress={() => {
+            if (message) onEdit(message);
+            close();
+          }}
+        />
+      )}
+      {canDelete && (
+        <MenuItem
+          label={confirm ? 'Emin misin? Kalıcı olarak sil' : 'Mesajı sil'}
+          danger
+          onPress={() => {
+            if (!confirm) {
+              setConfirm(true);
+              return;
+            }
+            if (message) void deleteMessage(message);
+            close();
+          }}
+        />
+      )}
+      <MenuItem label="Vazgeç" onPress={close} />
+    </>
   );
 }
 
@@ -248,6 +322,27 @@ const styles = StyleSheet.create({
   typing: { color: colors.text, fontSize: 12.5, paddingHorizontal: 16, height: 18 },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: colors.side, borderTopLeftRadius: 14, borderTopRightRadius: 14, paddingVertical: 8, paddingBottom: 24 },
+  quickRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingTop: 6,
+    paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.line,
+    marginBottom: 4,
+  },
+  quick: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.main,
+  },
+  quickMine: { backgroundColor: 'rgba(88,101,242,0.35)' },
+  quickPressed: { backgroundColor: colors.active },
+  quickEmoji: { fontSize: 24 },
   menuItem: { paddingHorizontal: 20, paddingVertical: 15 },
   menuText: { color: colors.head, fontSize: 16 },
 });

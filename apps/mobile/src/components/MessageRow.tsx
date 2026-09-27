@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { discardMessage, mentions, retryMessage, type LocalMessage } from '@diskort/client-core';
+import { discardMessage, mentions, retryMessage, toggleReaction, type LocalMessage } from '@diskort/client-core';
 import type { User } from '@diskort/shared';
 import { colors } from '../theme';
 import { Avatar } from './Avatar';
@@ -80,6 +80,21 @@ export const MessageRow = memo(function MessageRow({ message, author, compact, d
               </Text>
             </Text>
           )}
+          {message.reactions.length > 0 && (
+            <View style={styles.reactions}>
+              {message.reactions.map((r) => (
+                <Pressable
+                  key={r.emoji}
+                  hitSlop={3}
+                  onPress={() => void toggleReaction(message.channelId, message.id, r.emoji)}
+                  style={({ pressed }) => [styles.pill, r.me && styles.pillMine, pressed && { opacity: 0.6 }]}
+                >
+                  <Text style={styles.pillEmoji}>{r.emoji}</Text>
+                  <Text style={[styles.pillCount, r.me && styles.pillCountMine]}>{r.count}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
         </View>
       </Pressable>
     </View>
@@ -101,6 +116,22 @@ const styles = StyleSheet.create({
   edited: { color: colors.faint, fontSize: 11 },
   failed: { color: colors.muted, fontSize: 13, marginTop: 2 },
   action: { color: colors.link },
+  reactions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 30,
+    paddingHorizontal: 9,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    backgroundColor: colors.side,
+  },
+  pillMine: { borderColor: colors.brand, backgroundColor: 'rgba(88,101,242,0.22)' },
+  pillEmoji: { fontSize: 16 },
+  pillCount: { color: colors.muted, fontSize: 13.5, fontWeight: '600' },
+  pillCountMine: { color: colors.head },
   dayBreak: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 18, marginBottom: 4 },
   dayLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.line },
   dayText: { color: colors.muted, fontSize: 12, fontWeight: '600' },
