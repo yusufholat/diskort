@@ -125,29 +125,43 @@ export default function RootLayout() {
         <>
           <Stack
             screenOptions={{
-              headerStyle: { backgroundColor: colors.side },
+              // Başlık çubuğu içerikle aynı renkte, altında ince gölge (masaüstündeki kanal başlığı gibi)
+              headerStyle: { backgroundColor: colors.main },
               headerTintColor: colors.head,
-              headerTitleStyle: { fontWeight: '600' },
+              headerTitleStyle: { fontWeight: '700', fontSize: 18 },
+              headerShadowVisible: true,
               contentStyle: { backgroundColor: colors.main },
-              // Önceki ekranın hafifçe geride kaldığı yumuşak kayma (react-native-screens'in kendi geçişi)
+              // Önceki ekranın hafifçe geride kaldığı yumuşak kayma (react-native-screens'in kendi geçişi,
+              // yerel iş parçacığında oynar). Android'in geri hareketi de aynı animasyonla geri döner.
               animation: 'ios_from_right',
+              // Arkada kalan ekranlar (ör. sohbet açıkken kanal listesi) donar: ses/okunmamış
+              // güncellemeleri görünmeyen ekranı yeniden çizmez, geri dönünce güncel hâliyle açılır.
+              freezeOnBlur: true,
             }}
           >
             <Stack.Protected guard={Boolean(token)}>
-              <Stack.Screen name="index" options={{ headerShown: false }} />
+              <Stack.Screen name="index" options={{ headerShown: false, contentStyle: { backgroundColor: colors.side } }} />
               <Stack.Screen name="channel/[id]" />
-              {/* Ses ekranı alttan yükselir; ayarlar ve giriş yumuşakça belirir */}
-              <Stack.Screen name="voice" options={{ title: 'Ses', animation: 'slide_from_bottom' }} />
+              {/* Ses ekranı alttan yükselir; yeni mesaj seçimi alttan belirir */}
+              <Stack.Screen
+                name="voice"
+                options={{
+                  title: 'Ses',
+                  animation: 'slide_from_bottom',
+                  headerStyle: { backgroundColor: colors.deep },
+                  contentStyle: { backgroundColor: colors.deep },
+                }}
+              />
               <Stack.Screen name="members" options={{ title: 'Üyeler' }} />
               <Stack.Screen name="dms" options={{ title: 'Direkt Mesajlar' }} />
-              <Stack.Screen name="dm-new" options={{ title: 'Yeni mesaj', animation: 'slide_from_bottom' }} />
-              <Stack.Screen name="dm-rename" options={{ title: 'Grubun adı' }} />
+              <Stack.Screen name="dm-new" options={{ title: 'Yeni mesaj', animation: 'fade_from_bottom' }} />
+              <Stack.Screen name="dm-rename" options={{ title: 'Grubun adı', animation: 'fade_from_bottom' }} />
               <Stack.Screen name="settings" options={{ title: 'Ayarlar' }} />
               <Stack.Screen name="feedback" options={{ title: 'Geri bildirim' }} />
               <Stack.Screen name="whats-new" options={{ title: 'Yenilikler' }} />
             </Stack.Protected>
             <Stack.Protected guard={!token}>
-              <Stack.Screen name="login" options={{ headerShown: false, animation: 'fade' }} />
+              <Stack.Screen name="login" options={{ headerShown: false, animation: 'fade', contentStyle: { backgroundColor: colors.rail } }} />
             </Stack.Protected>
           </Stack>
           <Toast />
