@@ -94,6 +94,7 @@ const config: ExpoConfig = {
     ],
     './plugins/withReleaseSigning',
     './plugins/withAbiSplits',
+    './plugins/withScreenShareNotification',
   ],
   experiments: {
     typedRoutes: true,
