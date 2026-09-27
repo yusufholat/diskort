@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,7 +11,7 @@ import { Avatar } from '../components/Avatar';
 import { IconButton } from '../components/VoiceBar';
 import { useSettings } from '../stores/settings';
 import { colors } from '../theme';
-import { useVoice, voice } from '../voice/voice';
+import { useVoice, voice, type ScreenShareStats } from '../voice/voice';
 
 export default function VoiceScreen() {
   const router = useRouter();
@@ -59,6 +59,7 @@ export default function VoiceScreen() {
       {sharing && (
         <View style={[styles.banner, { backgroundColor: colors.ok }]}>
           <Text style={[styles.bannerText, { color: '#fff' }]}>Ekranını paylaşıyorsun</Text>
+          <ShareStatsLine />
         </View>
       )}
 
@@ -105,6 +106,39 @@ export default function VoiceScreen() {
         </Pressable>
       </Modal>
     </SafeAreaView>
+  );
+}
+
+/** Yayının gerçekte nasıl gittiği: çözünürlük, kare hızı, bit hızı, kodlayıcı ve varsa darboğaz */
+function ShareStatsLine() {
+  const [stats, setStats] = useState<ScreenShareStats | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const tick = (): void =>
+      void voice
+        .screenShareStats()
+        .then((next) => alive && setStats(next))
+        .catch(() => undefined);
+    tick();
+    const timer = setInterval(tick, 2000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
+  if (!stats) return null;
+  const parts = [
+    stats.width ? `${stats.width}×${stats.height}` : null,
+    `${stats.fps} FPS`,
+    `${(stats.kbps / 1000).toFixed(1).replace('.', ',')} Mbps`,
+    stats.encoder,
+    stats.limit ? `darboğaz: ${stats.limit === 'cpu' ? 'işlemci' : stats.limit === 'bandwidth' ? 'bağlantı' : stats.limit}` : null,
+    stats.keyframeRequests ? `anahtar kare isteği: ${stats.keyframeRequests}` : null,
+  ];
+  return (
+    <Text style={styles.statsText} selectable>
+      {parts.filter(Boolean).join(' · ')}
+    </Text>
   );
 }
 
@@ -167,6 +201,7 @@ const styles = StyleSheet.create({
   muted: { color: colors.muted, fontSize: 15 },
   banner: { backgroundColor: colors.warn, paddingVertical: 6, paddingHorizontal: 12 },
   bannerText: { color: '#000', fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  statsText: { color: 'rgba(255,255,255,0.85)', fontSize: 11.5, textAlign: 'center', marginTop: 2 },
   stream: { aspectRatio: 16 / 9, backgroundColor: '#000' },
   streamHint: { position: 'absolute', right: 8, bottom: 8, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 12, padding: 5 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', padding: 12, gap: 12 },

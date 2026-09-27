@@ -34,6 +34,19 @@ export type VoiceStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting';
 /** Telefon ekranı paylaşılırken gönderilen görüntünün kısa kenarı (piksel) */
 const SCREEN_SHARE_SHORT_SIDE = 720;
 
+export interface ScreenShareStats {
+  width: number;
+  height: number;
+  fps: number;
+  kbps: number;
+  /** Kodlayıcı (ör. donanım: c2.qti.avc.encoder, yazılım: libvpx) */
+  encoder: string | null;
+  /** Kaliteyi düşüren neden: cpu (işlemci yetişmiyor) / bandwidth (bağlantı) */
+  limit: string | null;
+  /** İzleyicilerin istediği anahtar kare sayısı (çoksa görüntü kayboluyor demektir) */
+  keyframeRequests: number;
+}
+
 interface VoiceStore {
   channelId: string | null;
   status: VoiceStatus;
@@ -211,6 +224,7 @@ class MobileVoiceClient {
     const room = this.room;
     if (!room || useVoice.getState().status !== 'connected') return;
     const next = !useVoice.getState().sharing;
+    this.lastShareSample = null;
     try {
       await room.localParticipant.setScreenShareEnabled(
         next,
@@ -251,6 +265,35 @@ class MobileVoiceClient {
     } catch {
       // desteklenmiyorsa tam çözünürlükte devam eder
     }
+  }
+
+  private lastShareSample: { bytes: number; at: number } | null = null;
+
+  /** Paylaşılan ekranın gönderim bilgileri: donma gibi sorunların nedenini görmek için ses ekranında gösterilir. */
+  async screenShareStats(): Promise<ScreenShareStats | null> {
+    const sender = this.room?.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.videoTrack?.sender;
+    if (!sender) return null;
+    let found: Record<string, unknown> | null = null;
+    (await sender.getStats()).forEach((entry: Record<string, unknown>) => {
+      if (entry.type === 'outbound-rtp' && entry.kind === 'video') found = entry;
+    });
+    const stats = found as Record<string, unknown> | null;
+    if (!stats) return null;
+    const num = (key: string): number => (typeof stats[key] === 'number' ? (stats[key] as number) : 0);
+    const bytes = num('bytesSent');
+    const at = Date.now();
+    const previous = this.lastShareSample;
+    this.lastShareSample = { bytes, at };
+    const reason = typeof stats.qualityLimitationReason === 'string' ? stats.qualityLimitationReason : 'none';
+    return {
+      width: num('frameWidth'),
+      height: num('frameHeight'),
+      fps: Math.round(num('framesPerSecond')),
+      kbps: previous && at > previous.at ? Math.round(((bytes - previous.bytes) * 8) / (at - previous.at)) : 0,
+      encoder: typeof stats.encoderImplementation === 'string' ? stats.encoderImplementation : null,
+      limit: reason === 'none' ? null : reason,
+      keyframeRequests: num('pliCount') + num('firCount'),
+    };
   }
 
   getScreenPublication(userId: string): { participant: RemoteParticipant; publication: RemoteTrackPublication } | null {
