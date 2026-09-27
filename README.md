@@ -10,6 +10,7 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
 - **Ses:** Opus 64 kbps (32–128 ayarlanabilir), DTX + RED (paket kaybına dayanıklı), ~30 ms jitter buffer
 - **Gürültü engelleme:** standart (varsayılan) / yapay zekâ: DeepFilterNet 3 ya da daha kaliteli DPDFNet-2 48 kHz
   (uygulamanın içinde, sunucusuz; model ayrı gerçek zamanlı iş parçacığında) / kapalı;
+  Android'de de DPDFNet (varsayılan; ONNX Runtime ile telefonda, WebRTC'nin ses işleme hattının sonunda) / standart / kapalı;
   yankı engelleme, otomatik kazanç
 - **Ses aktivitesi** (otomatik veya elle eşik) ve **bas-konuş** (global kısayol, fare yan tuşları, bırakma gecikmesi)
 - **Sustur / sağırlaştır**, kişi başı ses seviyesi (0–200%) ve yerel susturma (sağ tık)
@@ -217,6 +218,7 @@ Masaüstü (Electron + React) ──HTTPS/WSS──► Caddy :443 ──► API 
   - Metin kanalları: `features/messages` (mesaj deposu, biçimlendirme), `components/text` (görünüm)
 - `apps/mobile` — Android uygulaması (Expo SDK 57 + React Native, `src/app` ekranlar, `src/voice` sesli sohbet).
   Ekran kilitliyken sesin sürmesi için yerel Android modülü: `modules/voice-service` (ön plan servisi).
+  DPDFNet gürültü engelleme: `modules/noise-filter` (Kotlin STFT/ISTFT + onnxruntime-android; model `assets/`).
   `android/` klasörü üretilir (`expo prebuild`), elle düzenlenmez; ayarlar `app.config.ts` ve eklentilerde.
 - `apps/server` — API + gateway + LiveKit entegrasyonu, indirme yönlendirmeleri
 - `apps/web` — indirme ve gizlilik sayfası (derleme adımı yok; Caddy doğrudan sunar). Butonlar `/download/<platform>`

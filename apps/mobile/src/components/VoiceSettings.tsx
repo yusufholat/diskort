@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Pressable, Switch, Text, View } from 'react-native';
 import { feedback, soundCue, useHapticsAvailable } from '../haptics';
-import { useSettings } from '../stores/settings';
+import { useSettings, type NoiseMode, type NoiseStrengthDb } from '../stores/settings';
 import { colors, createStyles } from '../theme';
+import { dpdfnetAvailable, effectiveNoiseMode, useNoiseFilter } from '../voice/noiseFilter';
 import { useVoice, voice } from '../voice/voice';
 import { Slider } from './Slider';
 import { Card, SectionTitle } from './ui';
@@ -16,7 +17,6 @@ const toRatio = (db: number): number => Math.min(1, Math.max(0, (db - METER_MIN)
  * "ses aktivitesi"nin telefondaki karşılığı; canlı seviye göstergesiyle).
  */
 export function VoiceSettings() {
-  const noiseSuppression = useSettings((s) => s.noiseSuppression);
   const echoCancellation = useSettings((s) => s.echoCancellation);
   const autoGainControl = useSettings((s) => s.autoGainControl);
   const voiceActivity = useSettings((s) => s.voiceActivity);
@@ -56,12 +56,7 @@ export function VoiceSettings() {
             if (v) soundCue('unmute');
           }}
         />
-        <ToggleRow
-          label="Gürültü engelleme"
-          description="Fan, trafik, klima gibi sürekli arka plan seslerini azaltır."
-          value={noiseSuppression}
-          onChange={(v) => set({ noiseSuppression: v })}
-        />
+        <NoiseSetting />
         <ToggleRow
           label="Yankı engelleme"
           description="Hoparlörden gelen sesin mikrofona geri girmesini önler."
@@ -117,6 +112,95 @@ export function VoiceSettings() {
           </View>
         )}
       </Card>
+    </View>
+  );
+}
+
+const NOISE_MODE_OPTIONS: { value: NoiseMode; label: string }[] = [
+  { value: 'dpdfnet', label: 'DPDFNet (önerilen)' },
+  { value: 'standard', label: 'Standart' },
+  { value: 'off', label: 'Kapalı' },
+];
+
+const NOISE_MODE_HINTS: Record<NoiseMode, string> = {
+  dpdfnet:
+    'Yapay zekâ modeli telefonunda çalışır (masaüstündekiyle aynı): klavye, fan, trafik, kalabalık gibi sesleri keser, sesini doğal bırakır. Sese yaklaşık 50 ms gecikme ekler.',
+  standard: 'Fan, trafik, klima gibi sürekli arka plan seslerini azaltır (WebRTC). Pil dostu.',
+  off: 'Mikrofonun sesi gürültü engellemeden geçer.',
+};
+
+const NOISE_STRENGTH_OPTIONS: { value: NoiseStrengthDb; label: string }[] = [
+  { value: 12, label: 'Hafif' },
+  { value: 24, label: 'Dengeli' },
+  { value: 40, label: 'Güçlü' },
+  { value: 100, label: 'Maksimum' },
+];
+
+const NOISE_STRENGTH_HINTS: Record<NoiseStrengthDb, string> = {
+  12: 'Gürültüyü en fazla 12 dB kısar; ses en doğal hâlinde kalır, arka plan hafifçe duyulabilir.',
+  24: 'Önerilen: gürültünün çoğunu bastırır, sesini doğal bırakır.',
+  40: 'Gürültülü ortamlar için; ses biraz daha işlenmiş duyulabilir.',
+  100: 'Sınırsız bastırma: gürültü tamamen kesilir ama ses robotik duyulabilir.',
+};
+
+/** Gürültü engelleme türü (DPDFNet / standart / kapalı) ve DPDFNet'in gücü */
+function NoiseSetting() {
+  const mode = effectiveNoiseMode(useSettings((s) => s.noiseMode));
+  const strength = useSettings((s) => s.noiseStrengthDb);
+  const set = useSettings((s) => s.set);
+  const status = useNoiseFilter((s) => s.status);
+  const inVoice = useVoice((s) => s.status !== 'idle');
+  // Eski APK'larda (yerel modül yok) DPDFNet seçeneği gösterilmez
+  const modes = dpdfnetAvailable ? NOISE_MODE_OPTIONS : NOISE_MODE_OPTIONS.filter((o) => o.value !== 'dpdfnet');
+  return (
+    <View style={styles.choiceBlock}>
+      <Text style={styles.label}>Gürültü engelleme</Text>
+      <Choices options={modes} value={mode} onChange={(v) => set({ noiseMode: v })} label="Gürültü engelleme" />
+      <Text style={styles.description}>{NOISE_MODE_HINTS[mode]}</Text>
+      {mode === 'dpdfnet' && inVoice && status && !status.active && status.reason ? (
+        <Text style={styles.note}>
+          DPDFNet bu bağlantıda çalışmıyor ({status.reason}); standart gürültü engelleme kullanılıyor.
+        </Text>
+      ) : null}
+      {mode === 'dpdfnet' && (
+        <>
+          <Text style={[styles.label, styles.subLabel]}>Güç</Text>
+          <Choices options={NOISE_STRENGTH_OPTIONS} value={strength} onChange={(v) => set({ noiseStrengthDb: v })} label="Gürültü engelleme gücü" />
+          <Text style={styles.description}>{NOISE_STRENGTH_HINTS[strength]}</Text>
+        </>
+      )}
+    </View>
+  );
+}
+
+/** Yan yana seçenek düğmeleri (tek seçim) */
+function Choices<T extends string | number>({
+  options,
+  value,
+  onChange,
+  label,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+  label: string;
+}) {
+  return (
+    <View style={styles.choices} accessibilityRole="radiogroup" accessibilityLabel={label}>
+      {options.map((o) => {
+        const selected = o.value === value;
+        return (
+          <Pressable
+            key={String(o.value)}
+            onPress={() => onChange(o.value)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected }}
+            style={({ pressed }) => [styles.choice, selected && styles.choiceSelected, pressed && { opacity: 0.8 }]}
+          >
+            <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>{o.label}</Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -191,6 +275,20 @@ const styles = createStyles(() => ({
   label: { color: colors.text, fontSize: 15.5, fontWeight: '500' },
   description: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 2 },
   note: { color: colors.warn, fontSize: 13, lineHeight: 18, marginBottom: 4 },
+  choiceBlock: { paddingVertical: 10 },
+  subLabel: { marginTop: 12 },
+  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8, marginBottom: 6 },
+  choice: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    backgroundColor: colors.control,
+    borderWidth: 1,
+    borderColor: colors.control,
+  },
+  choiceSelected: { backgroundColor: colors.brand, borderColor: colors.brand },
+  choiceText: { color: colors.onControl, fontSize: 14, fontWeight: '500' },
+  choiceTextSelected: { color: colors.white },
   vad: { paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: colors.line, marginLeft: 2, marginBottom: 4 },
   hint: { color: colors.muted, fontSize: 12.5, lineHeight: 18, marginTop: 6 },
   // Kaydırıcıyla hizalı olsun diye iki yanda başparmak payı bırakılır
