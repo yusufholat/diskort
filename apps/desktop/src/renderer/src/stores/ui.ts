@@ -22,6 +22,8 @@ export type Modal =
   | { type: 'invite' }
   /** Özel durum (emoji + kısa metin) */
   | { type: 'customStatus' }
+  /** Mesajdaki tepkiler ve tepki verenler; `emoji` verilirse o sekme açılır */
+  | { type: 'reactions'; channelId: string; messageId: string; emoji?: string }
   | null;
 
 export type SettingsSection = 'account' | 'appearance' | 'voice' | 'stream' | 'keybinds' | 'app' | 'feedback' | 'whatsNew';

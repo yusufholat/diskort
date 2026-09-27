@@ -1,6 +1,6 @@
 import { Fragment, useState, type ReactNode } from 'react';
 import { Linking, Text, View } from 'react-native';
-import { broadcastMention, parseMarkdown, type MdInline } from '@diskort/client-core';
+import { broadcastMention, isJumboEmoji, parseMarkdown, type MdInline } from '@diskort/client-core';
 import type { Message, User } from '@diskort/shared';
 import { colors, createStyles } from '../theme';
 
@@ -10,6 +10,8 @@ export interface MarkdownContext {
   selfId: string | undefined;
   /** Çizilen mesajın @everyone / @here bayrakları: yalnızca bildirim olduysa vurgulanır (yoksa düz metin) */
   flags?: Pick<Message, 'mentionEveryone' | 'mentionHere'>;
+  /** Mesaj yalnızca emojiden oluşuyor: emojiler dev boyutta (Markdown kendisi belirler) */
+  jumbo?: boolean;
 }
 
 function Spoiler({ children }: { children: ReactNode }) {
@@ -31,6 +33,13 @@ function inline(nodes: MdInline[], ctx: MarkdownContext, key: string): ReactNode
     switch (node.type) {
       case 'text':
         return <Fragment key={k}>{node.text}</Fragment>;
+      case 'emoji':
+        // Metinden büyük (Discord gibi); yalnızca emojiden oluşan mesajda dev boyutta
+        return (
+          <Text key={k} style={ctx.jumbo ? styles.emojiJumbo : styles.emoji}>
+            {node.text}
+          </Text>
+        );
       case 'code':
         return (
           <Text key={k} style={styles.code}>
@@ -92,6 +101,7 @@ function inline(nodes: MdInline[], ctx: MarkdownContext, key: string): ReactNode
 
 export function Markdown({ content, ctx, dim }: { content: string; ctx: MarkdownContext; dim?: boolean }) {
   const blocks = parseMarkdown(content);
+  const c = isJumboEmoji(content) ? { ...ctx, jumbo: true } : ctx;
   return (
     <View style={dim && styles.dim}>
       {blocks.map((block, i) => {
@@ -99,15 +109,15 @@ export function Markdown({ content, ctx, dim }: { content: string; ctx: Markdown
         switch (block.type) {
           case 'paragraph':
             return (
-              <Text key={k} style={styles.text} selectable>
-                {inline(block.children, ctx, k)}
+              <Text key={k} style={[styles.text, c.jumbo && styles.jumboLine]} selectable>
+                {inline(block.children, c, k)}
               </Text>
             );
           case 'quote':
             return (
               <View key={k} style={styles.quote}>
                 <Text style={styles.text} selectable>
-                  {inline(block.children, ctx, k)}
+                  {inline(block.children, c, k)}
                 </Text>
               </View>
             );
@@ -129,6 +139,10 @@ const mono = 'monospace';
 
 const styles = createStyles(() => ({
   text: { color: colors.text, fontSize: 15.5, lineHeight: 22 },
+  // Satır yüksekliği metinle aynı: emojili satırlar düz satırlardan uzun olmaz
+  emoji: { fontSize: 20, lineHeight: 22 },
+  emojiJumbo: { fontSize: 44, lineHeight: 54 },
+  jumboLine: { lineHeight: 54 },
   dim: { opacity: 0.5 },
   bold: { fontWeight: '700' },
   italic: { fontStyle: 'italic' },

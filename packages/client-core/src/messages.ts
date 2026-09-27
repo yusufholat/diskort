@@ -19,6 +19,7 @@ import { api, ApiError, errorMessage } from './api';
 import { env, type LocalFile } from './env';
 import { gateway } from './gateway';
 import { gifEmbed } from './gifs';
+import { forgetReactionUsers } from './reactions';
 import { useGuild } from './guild';
 import { useSession } from './session';
 import { formatBytes, uploadFile } from './uploads';
@@ -414,6 +415,8 @@ function removeLocal(channelId: string, id: string): void {
  * iki kez sayılmaz.
  */
 function applyReaction(channelId: string, messageId: string, emoji: string, add: boolean, self: boolean): void {
+  // Tepki verenler listesi eskidi (ipucu / Tepkiler penceresi yeniden ister)
+  forgetReactionUsers(messageId, emoji);
   if (!useMessages.getState().channels[channelId]) return;
   patch(channelId, (c) => ({
     messages: c.messages.map((m) => {

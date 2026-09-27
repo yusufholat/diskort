@@ -23,6 +23,7 @@ import {
   type PermissionContext,
   type PermissionOverwrite,
   type Reaction,
+  type ReactionUsersPage,
   type ReferencedMessage,
   type Role,
   type User,
@@ -1938,6 +1939,34 @@ export class Store {
       );
       return added > 0 ? 'added' : 'exists';
     });
+  }
+
+  /**
+   * Mesajda bu emojiyle tepki verenler, tepki verilme sırasına göre (eşitlikte kullanıcı kimliğiyle).
+   * `after` önceki sayfanın `next` imlecidir ("<zaman>_<kullanıcı>"); tepki bu arada geri alınsa da
+   * imleç geçerli kalır. Hesabı silinenlerin tepkileri zaten silinmiştir.
+   */
+  reactionUsers(messageId: number, emoji: string, limit: number, after: { at: number; userId: string } | null): ReactionUsersPage {
+    const rows = this.all<UserRow & { reacted_at: number }>(
+      `SELECT u.*, r.created_at AS reacted_at FROM reactions r JOIN users u ON u.id = r.user_id
+       WHERE r.message_id = ? AND r.emoji = ?
+         AND (? IS NULL OR r.created_at > ? OR (r.created_at = ? AND r.user_id > ?))
+       ORDER BY r.created_at, r.user_id LIMIT ?`,
+      messageId,
+      emoji,
+      after?.at ?? null,
+      after?.at ?? null,
+      after?.at ?? null,
+      after?.userId ?? null,
+      limit + 1,
+    );
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    const data = this.permissionData();
+    return {
+      users: page.map((r) => this.toUser(r, data)),
+      next: rows.length > limit && last ? `${last.reacted_at}_${last.id}` : null,
+    };
   }
 
   /** Kullanıcının tepkisini kaldırır; yoksa false. */
