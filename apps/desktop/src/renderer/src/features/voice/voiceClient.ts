@@ -20,6 +20,7 @@ import { playSound, sharedAudioContext } from '../../lib/sfx';
 import { getSettings, useSettings, type Settings } from '../../stores/settings';
 import { setVoice, useVoice, type MicLevel } from '../../stores/voice';
 import { deepFilterAvailable, MicProcessor, type GateConfig } from './micProcessor';
+import { prepareHardwareEncoder, releaseHardwareEncoder, type HwEncoderChoice } from './hardwareEncoder';
 import { SCREEN_PRESETS } from './screenPresets';
 import type { ScreenCodec, ScreenContent, ScreenPresetId } from '../../stores/settings';
 
@@ -69,6 +70,8 @@ class VoiceClient {
   private mic: LocalAudioTrack | null = null;
   private processor: MicProcessor | null = null;
   private screen: { video: LocalVideoTrack; audio: LocalAudioTrack | null } | null = null;
+  /** Yayında istenen donanım kodlama yolu (null: ekran kartı kodlayıcısı yok, Chromium'un varsayılanı) */
+  screenHardwareEncoder: HwEncoderChoice | null = null;
   private statsTimer: number | null = null;
   private pttReleaseTimer: number | null = null;
   private joinSeq = 0;
@@ -587,14 +590,24 @@ class VoiceClient {
       warning = 'Sistem sesi yakalanamadı; yayın sessiz devam ediyor.';
     }
 
+    // Ekran kartı kodlayıcısı: SDP anlaşmasından önce ayarlanmalı (bkz. hardwareEncoder.ts)
+    const hardware = await prepareHardwareEncoder(videoTrack, opts.codec, preset);
+    if (room !== this.room) {
+      releaseHardwareEncoder(videoTrack);
+      stream.getTracks().forEach((t) => t.stop());
+      return null;
+    }
     const video = new LocalVideoTrack(videoTrack, undefined, true);
     await room.localParticipant.publishTrack(video, {
       source: Track.Source.ScreenShare,
       videoCodec: opts.codec,
-      backupCodec: false,
-      // Simulcast kapalı: Electron'daki WebRTC donanım kodlayıcısı kullanamadığında (ör. NVIDIA kartlı test
-      // makinesi) H.264'ü yazılımla (OpenH264) kodluyor; 720p alt katman toplam kodlama süresini ~2 katına
-      // çıkarıp çözünürlüğü CPU yüzünden düşürtüyor. 10–20 kişide sunucu trafiği kazancı bu bedele değmiyor.
+      // Donanım kodlayıcısı yayın ortasında hata verirse WebRTC başka kodeğe geçer; LiveKit sunucusu yük türü
+      // değişince yayını izleyicilere iletmeyi keser. Yedek VP8 tanımlıyken sunucu izleyicileri kesintisiz ona
+      // aktarır (yedek yalnızca gerektiğinde kodlanır, normalde ek yük yok).
+      backupCodec: hardware ? { codec: 'vp8' } : false,
+      // Simulcast kapalı: ekran kartı kodlayıcısı olmayan sistemlerde H.264 yazılımla (OpenH264) kodlanıyor;
+      // 720p alt katman toplam kodlama süresini ~2 katına çıkarıp çözünürlüğü CPU yüzünden düşürtüyor.
+      // 10–20 kişide sunucu trafiği kazancı bu bedele değmiyor.
       simulcast: false,
       screenShareEncoding: { maxBitrate: preset.bitrate, maxFramerate: preset.fps, priority: 'high' },
       degradationPreference: opts.content === 'motion' ? 'maintain-framerate' : 'maintain-resolution',
@@ -613,6 +626,7 @@ class VoiceClient {
     }
 
     this.screen = { video, audio };
+    this.screenHardwareEncoder = hardware;
     // Paylaşılan pencere kapanırsa veya sistemden durdurulursa yayını bitir.
     videoTrack.addEventListener('ended', () => void this.stopScreenShare());
     setVoice({ sharing: true, shareHasAudio: audio !== null });
@@ -629,6 +643,8 @@ class VoiceClient {
     const screen = this.screen;
     if (!screen) return;
     this.screen = null;
+    this.screenHardwareEncoder = null;
+    releaseHardwareEncoder(screen.video.mediaStreamTrack);
     for (const track of [screen.video, screen.audio]) {
       if (!track) continue;
       if (room) await room.localParticipant.unpublishTrack(track, true).catch(() => undefined);
