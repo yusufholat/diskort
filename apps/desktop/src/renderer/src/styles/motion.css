@@ -1,0 +1,276 @@
+/*
+ * Hareket tasarımı: kısa (120–250 ms), yumuşak (ease-out) animasyonlar.
+ * Kapanış animasyonları `forwards` ile son karede kalır; öğe, süre bitince JS tarafından kaldırılır
+ * (bkz. lib/motion.ts: usePresence / usePresenceList). Sistemde "animasyonları azalt" açıksa
+ * en alttaki kural her şeyi anında bitirir.
+ */
+
+:root {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 240ms;
+  --dur-exit: 140ms;
+}
+
+@keyframes dk-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes dk-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes dk-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes dk-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+@keyframes dk-pop-out {
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@keyframes dk-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.95);
+  }
+}
+@keyframes dk-modal-out {
+  to {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+@keyframes dk-settings-in {
+  from {
+    opacity: 0;
+    transform: scale(1.04);
+  }
+}
+@keyframes dk-settings-out {
+  to {
+    opacity: 0;
+    transform: scale(1.04);
+  }
+}
+@keyframes dk-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--drop-from, -4px)) scaleY(0.96);
+  }
+}
+@keyframes dk-drop-out {
+  to {
+    opacity: 0;
+    transform: translateY(var(--drop-from, -4px)) scaleY(0.98);
+  }
+}
+@keyframes dk-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(32px) scale(0.98);
+  }
+}
+@keyframes dk-toast-out {
+  to {
+    opacity: 0;
+    transform: translateX(32px) scale(0.98);
+  }
+}
+@keyframes dk-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@keyframes dk-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+}
+/* Yüksekliği içerikten bağımsız açılıp kapanan satırlar (display: grid gerekir) */
+@keyframes dk-collapse-in {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+@keyframes dk-collapse-out {
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+@keyframes dk-bump {
+  40% {
+    transform: scale(1.22);
+  }
+}
+@keyframes dk-pill-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+@keyframes dk-icon-swap {
+  from {
+    opacity: 0;
+    transform: scale(0.55) rotate(-15deg);
+  }
+}
+@keyframes dk-shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+@keyframes dk-indicator-in {
+  from {
+    transform: scale(0, 0.5);
+  }
+}
+
+/* ---------- Kullanıma hazır sınıflar ---------- */
+
+.anim-fade-in {
+  animation: dk-fade-in var(--dur-base) var(--ease-out);
+}
+.anim-fade-out {
+  animation: dk-fade-out var(--dur-exit) var(--ease-in) forwards;
+}
+.anim-rise-in {
+  animation: dk-rise-in var(--dur-base) var(--ease-out);
+}
+.anim-pop-in {
+  animation: dk-pop-in var(--dur-fast) var(--ease-out);
+}
+.anim-pop-out {
+  animation: dk-pop-out 100ms var(--ease-in) forwards;
+}
+.anim-modal-in {
+  animation: dk-modal-in var(--dur-slow) var(--ease-out);
+}
+.anim-modal-out {
+  animation: dk-modal-out var(--dur-exit) var(--ease-in) forwards;
+}
+.anim-settings-in {
+  animation: dk-settings-in var(--dur-slow) var(--ease-out);
+}
+.anim-settings-out {
+  animation: dk-settings-out var(--dur-base) var(--ease-in) forwards;
+}
+.anim-drop-in {
+  animation: dk-drop-in var(--dur-fast) var(--ease-out);
+}
+.anim-drop-out {
+  animation: dk-drop-out 90ms var(--ease-in) forwards;
+}
+.anim-toast-in {
+  animation: dk-toast-in var(--dur-slow) var(--ease-out);
+}
+.anim-toast-out {
+  animation: dk-toast-out var(--dur-base) var(--ease-in) forwards;
+}
+.anim-slide-down {
+  animation: dk-slide-down var(--dur-base) var(--ease-out);
+}
+.anim-bar-in {
+  animation: dk-bar-in var(--dur-base) var(--ease-out);
+}
+.anim-icon-swap {
+  display: inline-flex;
+  animation: dk-icon-swap var(--dur-base) var(--ease-out);
+}
+.anim-bump {
+  animation: dk-bump 260ms var(--ease-out);
+}
+.anim-pill-in {
+  animation: dk-pill-in 260ms var(--ease-out);
+}
+.anim-tile-in {
+  animation: dk-pop-in var(--dur-slow) var(--ease-out);
+}
+.anim-tile-out {
+  animation: dk-pop-out var(--dur-base) var(--ease-in) forwards;
+  pointer-events: none;
+}
+.anim-indicator-in {
+  animation: dk-indicator-in var(--dur-base) var(--ease-out);
+}
+
+/* Açılıp kapanan satır: dış öğe .collapse-*, iç öğe .collapse-inner (yalnızca dikeyde kırpar,
+   böylece yana kayan içerik ve gölgeler kesilmez) */
+.collapse-in,
+.collapse-out,
+.collapse-static {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+.collapse-static > * {
+  min-height: 0;
+}
+.collapse-in {
+  animation: dk-collapse-in var(--dur-base) var(--ease-out);
+}
+.collapse-out {
+  animation: dk-collapse-out var(--dur-exit) var(--ease-in) forwards;
+  pointer-events: none;
+}
+.collapse-inner {
+  min-height: 0;
+  overflow-x: visible;
+  overflow-y: clip;
+}
+
+/* Basınca hafifçe içe göçen düğmeler: .press geniş düğmeler, .press-icon simge düğmeleri için */
+.press,
+.press-icon {
+  transition-property: color, background-color, border-color, opacity, box-shadow, transform;
+  transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease-out);
+}
+.press:active:not(:disabled) {
+  transform: translateY(1px) scale(0.985);
+}
+.press-icon:active:not(:disabled) {
+  transform: scale(0.88);
+}
+
+/* İskelet (yükleniyor) yer tutucusu */
+.skeleton {
+  background: linear-gradient(90deg, #3b3d44 0%, #484a51 40%, #3b3d44 80%) 0 0 / 200% 100%;
+  animation: dk-shimmer 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

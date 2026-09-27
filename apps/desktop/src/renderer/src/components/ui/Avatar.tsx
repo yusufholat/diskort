@@ -15,7 +15,7 @@ export function Avatar({ user, size = 32, speaking, online, className }: Props) 
     <div className={cn('relative shrink-0', className)} style={{ width: size, height: size }}>
       <div
         className={cn(
-          'flex h-full w-full items-center justify-center rounded-full font-semibold text-white transition-shadow duration-75',
+          'avatar-ring flex h-full w-full items-center justify-center rounded-full font-semibold text-white',
           speaking && 'speaking-ring',
         )}
         style={{ background: user?.avatarColor ?? '#747f8d', fontSize: Math.max(10, size * 0.38) }}

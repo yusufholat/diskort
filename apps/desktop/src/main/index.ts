@@ -15,6 +15,7 @@ import {
 import type {
   AppPreferences,
   DownloadResult,
+  EditCommand,
   HotkeyConfig,
   ScreenSelection,
   ScreenSource,
@@ -254,6 +255,8 @@ function createTray(): void {
 
 // ---------- IPC ----------
 
+const EDIT_COMMANDS = new Set<EditCommand>(['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll']);
+
 function registerIpc(): void {
   ipcMain.handle('app:version', () => app.getVersion());
   ipcMain.handle('app:open-external', (_e, url: string) => {
@@ -271,6 +274,10 @@ function registerIpc(): void {
   // Dosya ekleri: Chromium'un indirme yöneticisi "Farklı kaydet" penceresini açar
   ipcMain.handle('app:download', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) mainWindow?.webContents.downloadURL(url);
+  });
+  // Temalı metin kutusu menüsünden gelen düzenleme komutları (Kes/Kopyala/Yapıştır…)
+  ipcMain.on('app:edit', (e, command: EditCommand) => {
+    if (EDIT_COMMANDS.has(command)) e.sender[command]();
   });
   ipcMain.on('app:request-attention', () => {
     if (!mainWindow || mainWindow.isFocused()) return;

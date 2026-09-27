@@ -1,4 +1,6 @@
 @import 'tailwindcss';
+@import './styles/motion.css';
+@import './styles/controls.css';
 
 /* Discord koyu temasına yakın renk paleti */
 @theme {
@@ -60,18 +62,6 @@
     cursor: not-allowed;
   }
 
-  ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: #1a1b1e;
-    border-radius: 8px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
   :focus-visible {
     outline: 2px solid var(--color-brand);
     outline-offset: 1px;
@@ -91,45 +81,30 @@
   }
 }
 
-/* Konuşan kullanıcı yeşil halkası */
+/* Konuşan kullanıcı yeşil halkası: yumuşak açılır, konuşma bitince biraz daha yavaş söner */
+.avatar-ring {
+  box-shadow:
+    0 0 0 0 var(--color-bg-side),
+    0 0 0 0 rgb(35 165 90 / 0);
+  transition: box-shadow 260ms var(--ease-out);
+}
 .speaking-ring {
   box-shadow:
     0 0 0 2px var(--color-bg-side),
     0 0 0 4px var(--color-ok);
+  transition-duration: 90ms;
 }
 
+.tile-ring {
+  box-shadow: inset 0 0 0 0 rgb(35 165 90 / 0);
+  transition: box-shadow 260ms var(--ease-out);
+}
 .tile-speaking {
   box-shadow: inset 0 0 0 2px var(--color-ok);
+  transition-duration: 90ms;
 }
 
-input[type='range'].slider {
-  -webkit-appearance: none;
-  appearance: none;
-  height: 8px;
-  border-radius: 4px;
-  background: #4e5058;
-  outline: none;
-}
-input[type='range'].slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 10px;
-  height: 24px;
-  border-radius: 3px;
-  background: #fff;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.4);
-  cursor: pointer;
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
-    transform: scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
+/* Eski ad: açılırken kısa büyüme */
 .animate-pop {
-  animation: fade-in 120ms ease-out;
+  animation: dk-pop-in var(--dur-fast) var(--ease-out);
 }

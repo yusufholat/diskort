@@ -1,5 +1,7 @@
-import { useEffect, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
+import { useEscapeLayer } from '../../lib/escape';
+import { usePresenceClosing } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 
 interface Props {
@@ -11,23 +13,35 @@ interface Props {
   className?: string;
 }
 
+/**
+ * Ortada açılan pencere: arka plan kararır, pencere hafifçe büyüyerek belirir. Kapanırken
+ * (bir PresenceProvider içinde closing=true) ters animasyonu oynatır.
+ */
 export function Modal({ title, subtitle, onClose, children, footer, className }: Props) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const closing = usePresenceClosing();
+  useEscapeLayer(onClose, !closing);
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70" onMouseDown={onClose}>
+    <div
+      className={cn(
+        'fixed inset-0 z-40 flex items-center justify-center bg-black/70',
+        closing ? 'anim-fade-out pointer-events-none' : 'anim-fade-in',
+      )}
+      onMouseDown={onClose}
+    >
       <div
-        className={cn('animate-pop relative w-[440px] max-w-[92vw] rounded-lg bg-bg-main shadow-2xl', className)}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className={cn(
+          'relative w-[440px] max-w-[92vw] rounded-lg bg-bg-main shadow-2xl',
+          closing ? 'anim-modal-out' : 'anim-modal-in',
+          className,
+        )}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <button
-          className="absolute top-3 right-3 rounded p-1 text-text-muted hover:text-text-head"
+          className="press-icon absolute top-3 right-3 rounded p-1 text-text-muted hover:text-text-head"
           onClick={onClose}
           aria-label="Kapat"
         >
