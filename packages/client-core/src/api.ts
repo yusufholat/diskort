@@ -97,6 +97,10 @@ export const api = {
     request<Message>('POST', `/api/channels/${channelId}/messages`, { content }),
   updateMessage: (id: string, content: string) => request<Message>('PATCH', `/api/messages/${id}`, { content }),
   deleteMessage: (id: string) => request<void>('DELETE', `/api/messages/${id}`),
+  addReaction: (messageId: string, emoji: string) =>
+    request<void>('PUT', `/api/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`),
+  removeReaction: (messageId: string, emoji: string) =>
+    request<void>('DELETE', `/api/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`),
   ack: (channelId: string, messageId: string) =>
     request<void>('POST', `/api/channels/${channelId}/ack`, { messageId }),
 };

@@ -34,6 +34,15 @@ export interface VoiceState {
   joinedAt: number;
 }
 
+/** Bir mesajdaki tek bir emoji tepkisinin özeti */
+export interface Reaction {
+  /** Tek bir Unicode emoji (özel emoji yok) */
+  emoji: string;
+  count: number;
+  /** İsteği yapan kullanıcı bu tepkiyi vermiş mi */
+  me: boolean;
+}
+
 export interface Message {
   /** Kanal içinde artan sayısal kimlik (metin olarak) */
   id: string;
@@ -43,6 +52,19 @@ export interface Message {
   content: string;
   createdAt: number;
   editedAt: number | null;
+  /** Tepkiler, ilk verilme sırasına göre */
+  reactions: Reaction[];
+}
+
+/** Gateway'deki mesaj güncellemesi: tepkiler kişiye özel (`me`) olduğundan taşınmaz */
+export type MessageUpdate = Omit<Message, 'reactions'>;
+
+/** Bir kullanıcı bir mesaja tepki verdi ya da tepkisini geri aldı */
+export interface ReactionEvent {
+  messageId: string;
+  channelId: string;
+  userId: string;
+  emoji: string;
 }
 
 export interface Invite {
@@ -177,8 +199,10 @@ export type GatewayServerMessage =
   | { t: 'CHANNEL_UPDATE'; d: Channel }
   | { t: 'CHANNEL_DELETE'; d: { id: string } }
   | { t: 'MESSAGE_CREATE'; d: Message }
-  | { t: 'MESSAGE_UPDATE'; d: Message }
+  | { t: 'MESSAGE_UPDATE'; d: MessageUpdate }
   | { t: 'MESSAGE_DELETE'; d: { id: string; channelId: string } }
+  | { t: 'MESSAGE_REACTION_ADD'; d: ReactionEvent }
+  | { t: 'MESSAGE_REACTION_REMOVE'; d: ReactionEvent }
   | { t: 'TYPING_START'; d: { channelId: string; userId: string } }
   | { t: 'INVALID_SESSION'; d: { reason: string } }
   /** İstemci sürümü eski: bağlantı kapatılır, güncellemeden yeniden bağlanılamaz */
@@ -215,6 +239,8 @@ export const DISPLAY_NAME_MAX_LENGTH = 32;
 export const CHANNEL_NAME_MAX_LENGTH = 48;
 export const MESSAGE_MAX_LENGTH = 2000;
 export const MESSAGE_PAGE_SIZE = 50;
+/** Bir mesajdaki en fazla farklı emoji tepkisi sayısı */
+export const MESSAGE_MAX_REACTIONS = 20;
 /** "Yazıyor…" göstergesinin geçerlilik süresi; istemci bu aralıkta en fazla bir kez bildirir */
 export const TYPING_TIMEOUT_MS = 8000;
 

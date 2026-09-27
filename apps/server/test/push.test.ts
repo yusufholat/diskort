@@ -154,7 +154,7 @@ describe('telefon bildirimleri', () => {
     const push = new PushService(built.ctx.store, null, { warn: () => undefined, info: () => undefined }, google.fn);
     expect(push.enabled).toBe(false);
     await push.notifyMention(
-      { id: '1', channelId: 'c', authorId: null, content: '@x', createdAt: 0, editedAt: null },
+      { id: '1', channelId: 'c', authorId: null, content: '@x', createdAt: 0, editedAt: null, reactions: [] },
       ['u'],
       'genel',
     );

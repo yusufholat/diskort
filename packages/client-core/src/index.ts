@@ -19,8 +19,10 @@ export {
   retryMessage,
   sendMessage,
   setEditing,
+  toggleReaction,
   useMessages,
   type ChannelMessages,
   type LocalMessage,
 } from './messages';
+export { EMOJI_CATEGORIES, QUICK_REACTIONS, type EmojiCategory } from './emoji';
 export { parseInline, parseMarkdown, type MdBlock, type MdInline, type MdStyle } from './markdown';

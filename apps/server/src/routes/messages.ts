@@ -1,7 +1,15 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { MESSAGE_MAX_LENGTH, MESSAGE_PAGE_SIZE, type Channel } from '@diskort/shared';
+import {
+  MESSAGE_MAX_LENGTH,
+  MESSAGE_MAX_REACTIONS,
+  MESSAGE_PAGE_SIZE,
+  type Channel,
+  type Message,
+  type MessageUpdate,
+} from '@diskort/shared';
 import { parseBody, sendError, type AppContext } from '../context.js';
+import { normalizeEmoji } from '../emoji.js';
 
 // Kontrol karakterlerini (satır sonu ve sekme hariç) temizler.
 // eslint-disable-next-line no-control-regex
@@ -24,7 +32,10 @@ const listQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
-/** Kullanıcı başına mesaj sınırı: 10 saniyede en fazla 10 mesaj. */
+/** Gateway'e giden güncelleme: tepkilerin `me` alanı kişiye özel olduğundan çıkarılır. */
+const toUpdate = ({ reactions: _reactions, ...message }: Message): MessageUpdate => message;
+
+/** Kullanıcı başına istek sınırı (varsayılan: 10 saniyede en fazla 10). */
 function createMessageLimiter(max = 10, windowMs = 10_000) {
   const hits = new Map<string, number[]>();
   return (userId: string): boolean => {
@@ -43,6 +54,7 @@ function createMessageLimiter(max = 10, windowMs = 10_000) {
 export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): void {
   const { store, auth, gateway, push } = ctx;
   const allowMessage = createMessageLimiter();
+  const allowReaction = createMessageLimiter(30);
 
   const textChannel = (id: string, reply: FastifyReply): Channel | null => {
     const channel = store.getChannel(id);
@@ -61,7 +73,7 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
       const query = listQuery.safeParse(req.query);
       if (!query.success) return sendError(reply, 400, 'invalid_query', 'Geçersiz sorgu.');
       const before = query.data.before ? Number(query.data.before) : null;
-      return store.listMessages(req.params.id, before, query.data.limit ?? MESSAGE_PAGE_SIZE);
+      return store.listMessages(req.params.id, before, query.data.limit ?? MESSAGE_PAGE_SIZE, req.user.id);
     },
   );
 
@@ -94,9 +106,9 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
     }
     const body = parseBody(messageSchema, req.body, reply);
     if (!body) return reply;
-    if (body.content === existing.content) return existing;
-    const message = store.updateMessage(Number(existing.id), body.content)!;
-    gateway.broadcast({ t: 'MESSAGE_UPDATE', d: message });
+    if (body.content === existing.content) return store.getMessage(Number(existing.id), req.user.id);
+    const message = store.updateMessage(Number(existing.id), body.content, req.user.id)!;
+    gateway.broadcast({ t: 'MESSAGE_UPDATE', d: toUpdate(message) });
     return message;
   });
 
@@ -110,6 +122,73 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
     gateway.broadcast({ t: 'MESSAGE_DELETE', d: { id: existing.id, channelId: existing.channelId } });
     return reply.code(204).send();
   });
+
+  // ---------- Tepkiler ----------
+  // Kullanıcı yalnızca kendi tepkisini ekler/kaldırır. İkisi de tekrarlanabilir (aynı istek ikinci
+  // kez bir şey değiştirmez); yalnızca gerçek değişiklik tüm istemcilere duyurulur.
+
+  const reactionTarget = (
+    params: { id: string; emoji: string },
+    userId: string,
+    reply: FastifyReply,
+  ): { messageId: number; channelId: string; emoji: string } | null => {
+    const message = /^\d+$/.test(params.id) ? store.getMessage(Number(params.id)) : null;
+    if (!message) {
+      void sendError(reply, 404, 'not_found', 'Mesaj bulunamadı.');
+      return null;
+    }
+    const emoji = normalizeEmoji(params.emoji);
+    if (!emoji) {
+      void sendError(reply, 400, 'invalid_emoji', 'Tepki olarak yalnızca tek bir emoji kullanılabilir.');
+      return null;
+    }
+    if (!allowReaction(userId)) {
+      void sendError(reply, 429, 'rate_limited', 'Çok hızlı tepki veriyorsun, biraz yavaşla.');
+      return null;
+    }
+    return { messageId: Number(message.id), channelId: message.channelId, emoji };
+  };
+
+  app.put<{ Params: { id: string; emoji: string } }>(
+    '/api/messages/:id/reactions/:emoji',
+    { preHandler: auth.requireUser },
+    async (req, reply) => {
+      const target = reactionTarget(req.params, req.user.id, reply);
+      if (!target) return reply;
+      const result = store.addReaction(target.messageId, req.user.id, target.emoji);
+      if (result === 'limit') {
+        return sendError(
+          reply,
+          400,
+          'too_many_reactions',
+          `Bir mesaja en fazla ${MESSAGE_MAX_REACTIONS} farklı tepki verilebilir.`,
+        );
+      }
+      if (result === 'added') {
+        gateway.broadcast({
+          t: 'MESSAGE_REACTION_ADD',
+          d: { messageId: String(target.messageId), channelId: target.channelId, userId: req.user.id, emoji: target.emoji },
+        });
+      }
+      return reply.code(204).send();
+    },
+  );
+
+  app.delete<{ Params: { id: string; emoji: string } }>(
+    '/api/messages/:id/reactions/:emoji',
+    { preHandler: auth.requireUser },
+    async (req, reply) => {
+      const target = reactionTarget(req.params, req.user.id, reply);
+      if (!target) return reply;
+      if (store.removeReaction(target.messageId, req.user.id, target.emoji)) {
+        gateway.broadcast({
+          t: 'MESSAGE_REACTION_REMOVE',
+          d: { messageId: String(target.messageId), channelId: target.channelId, userId: req.user.id, emoji: target.emoji },
+        });
+      }
+      return reply.code(204).send();
+    },
+  );
 
   app.post<{ Params: { id: string } }>(
     '/api/channels/:id/ack',

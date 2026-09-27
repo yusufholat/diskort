@@ -62,7 +62,7 @@ export async function buildApp(
   app.addHook('onClose', async () => store.close());
 
   // Masaüstü istemcisi file:// veya localhost kökeninden bağlanır; kimlik jetonla taşınır.
-  await app.register(cors, { origin: true, methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
+  await app.register(cors, { origin: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] });
   await app.register(websocket, { options: { maxPayload: 16 * 1024 } });
 
   app.get('/api/health', async () => ({ ok: true }));

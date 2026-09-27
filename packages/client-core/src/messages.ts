@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 import {
   extractMentions,
+  MESSAGE_MAX_REACTIONS,
   MESSAGE_PAGE_SIZE,
   TYPING_TIMEOUT_MS,
   type GatewayServerMessage,
   type Message,
+  type Reaction,
 } from '@diskort/shared';
 import { api, errorMessage } from './api';
 import { env } from './env';
@@ -117,6 +119,7 @@ export function sendMessage(channelId: string, content: string): void {
     content,
     createdAt: Date.now(),
     editedAt: null,
+    reactions: [],
     status: 'pending',
     nonce,
   };
@@ -183,6 +186,58 @@ function removeLocal(channelId: string, id: string): void {
   if (guild.lastMessageIds[channelId] === id && channel?.loaded) {
     const last = [...channel.messages].reverse().find((m) => !m.status);
     guild.setLastMessageId(channelId, last?.id ?? null);
+  }
+}
+
+// ---------- Tepkiler ----------
+
+/**
+ * Mesajdaki bir tepkinin sayısını değiştirir. Kendi tepkimiz (`self`) için işlem tekrarlanabilir:
+ * ekranda zaten öyleyse bir şey yapmaz. Böylece iyimser güncelleme ile gateway'den gelen aynı olay
+ * iki kez sayılmaz.
+ */
+function applyReaction(channelId: string, messageId: string, emoji: string, add: boolean, self: boolean): void {
+  if (!useMessages.getState().channels[channelId]) return;
+  patch(channelId, (c) => ({
+    messages: c.messages.map((m) => {
+      if (m.id !== messageId || m.status) return m;
+      const reactions = m.reactions ?? [];
+      const current = reactions.find((r) => r.emoji === emoji);
+      if (self && (current?.me ?? false) === add) return m;
+      if (!current) {
+        return add ? { ...m, reactions: [...reactions, { emoji, count: 1, me: self }] } : m;
+      }
+      const next: Reaction = {
+        emoji,
+        count: current.count + (add ? 1 : -1),
+        me: self ? add : current.me,
+      };
+      return {
+        ...m,
+        reactions:
+          next.count > 0 ? reactions.map((r) => (r.emoji === emoji ? next : r)) : reactions.filter((r) => r.emoji !== emoji),
+      };
+    }),
+  }));
+}
+
+/** Kendi tepkimizi ekler ya da kaldırır (hemen ekrana yansır; sunucu reddederse geri alınır). */
+export async function toggleReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
+  const message = useMessages.getState().channels[channelId]?.messages.find((m) => m.id === messageId);
+  if (!message || message.status) return;
+  const reactions = message.reactions ?? [];
+  const current = reactions.find((r) => r.emoji === emoji);
+  const add = !current?.me;
+  if (add && !current && reactions.length >= MESSAGE_MAX_REACTIONS) {
+    env().notifyError(`Bir mesaja en fazla ${MESSAGE_MAX_REACTIONS} farklı tepki verilebilir.`);
+    return;
+  }
+  applyReaction(channelId, messageId, emoji, add, true);
+  try {
+    await (add ? api.addReaction(messageId, emoji) : api.removeReaction(messageId, emoji));
+  } catch (err) {
+    applyReaction(channelId, messageId, emoji, !add, true);
+    env().notifyError(errorMessage(err));
   }
 }
 
@@ -266,11 +321,20 @@ gateway.on((msg: GatewayServerMessage) => {
       break;
     }
     case 'MESSAGE_UPDATE':
-      patch(msg.d.channelId, (c) => ({ messages: c.messages.map((m) => (m.id === msg.d.id ? msg.d : m)) }));
+      // Güncelleme tepkileri taşımaz (kişiye özel); ekrandakiler korunur
+      patch(msg.d.channelId, (c) => ({
+        messages: c.messages.map((m) => (m.id === msg.d.id ? { ...m, ...msg.d } : m)),
+      }));
       break;
     case 'MESSAGE_DELETE':
       removeLocal(msg.d.channelId, msg.d.id);
       break;
+    case 'MESSAGE_REACTION_ADD':
+    case 'MESSAGE_REACTION_REMOVE': {
+      const { channelId, messageId, userId, emoji } = msg.d;
+      applyReaction(channelId, messageId, emoji, msg.t === 'MESSAGE_REACTION_ADD', userId === selfId());
+      break;
+    }
     case 'TYPING_START': {
       const { channelId, userId } = msg.d;
       const until = Date.now() + TYPING_TIMEOUT_MS;

@@ -2,7 +2,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { nanoid, customAlphabet } from 'nanoid';
-import { extractMentions, type Channel, type ChannelType, type Guild, type Invite, type Message, type User } from '@diskort/shared';
+import {
+  extractMentions,
+  MESSAGE_MAX_REACTIONS,
+  type Channel,
+  type ChannelType,
+  type Guild,
+  type Invite,
+  type Message,
+  type Reaction,
+  type User,
+} from '@diskort/shared';
 import { AVATAR_COLORS } from '@diskort/shared';
 
 const MIGRATIONS: string[] = [
@@ -83,6 +93,17 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX push_tokens_by_user ON push_tokens(user_id);
   `,
+  // 5: mesaj tepkileri — kullanıcı başına, emoji başına bir kayıt
+  `
+  CREATE TABLE reactions (
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    emoji      TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (message_id, emoji, user_id)
+  ) WITHOUT ROWID;
+  CREATE INDEX reactions_by_user ON reactions(user_id);
+  `,
 ];
 
 type Param = string | number | null;
@@ -148,7 +169,10 @@ const toMessage = (r: MessageRow): Message => ({
   content: r.content,
   createdAt: r.created_at,
   editedAt: r.edited_at,
+  reactions: [],
 });
+
+export type AddReactionResult = 'added' | 'exists' | 'limit';
 
 const toChannel = (r: ChannelRow): Channel => ({
   id: r.id,
@@ -488,8 +512,11 @@ export class Store {
 
   // ---------- Mesajlar ----------
 
-  /** En yeni mesajlardan geriye doğru bir sayfa; sonuç eskiden yeniye sıralıdır. */
-  listMessages(channelId: string, before: number | null, limit: number): Message[] {
+  /**
+   * En yeni mesajlardan geriye doğru bir sayfa; sonuç eskiden yeniye sıralıdır. Tepkilerdeki `me`
+   * alanı `viewerId` kullanıcısına göredir.
+   */
+  listMessages(channelId: string, before: number | null, limit: number, viewerId: string | null = null): Message[] {
     const rows = before
       ? this.all<MessageRow>(
           'SELECT * FROM messages WHERE channel_id = ? AND id < ? ORDER BY id DESC LIMIT ?',
@@ -498,12 +525,61 @@ export class Store {
           limit,
         )
       : this.all<MessageRow>('SELECT * FROM messages WHERE channel_id = ? ORDER BY id DESC LIMIT ?', channelId, limit);
-    return rows.reverse().map(toMessage);
+    return this.withDetails(rows.reverse().map(toMessage), viewerId);
   }
 
-  getMessage(id: number): Message | null {
+  getMessage(id: number, viewerId: string | null = null): Message | null {
     const row = this.one<MessageRow>('SELECT * FROM messages WHERE id = ?', id);
-    return row ? toMessage(row) : null;
+    return row ? this.withDetails([toMessage(row)], viewerId)[0]! : null;
+  }
+
+  /** Mesajlara tepkilerini ekler (tek sorguda). */
+  private withDetails(messages: Message[], viewerId: string | null): Message[] {
+    if (messages.length === 0) return messages;
+    const ids = messages.map((m) => Number(m.id));
+    const marks = ids.map(() => '?').join(',');
+    const reactions = new Map<string, Reaction[]>();
+    for (const r of this.all<{ message_id: number; emoji: string; n: number; me: number }>(
+      `SELECT message_id, emoji, COUNT(*) AS n, MAX(user_id = ?) AS me, MIN(created_at) AS first
+       FROM reactions WHERE message_id IN (${marks})
+       GROUP BY message_id, emoji ORDER BY first, emoji`,
+      viewerId,
+      ...ids,
+    )) {
+      const list = reactions.get(String(r.message_id)) ?? [];
+      list.push({ emoji: r.emoji, count: r.n, me: r.me === 1 });
+      reactions.set(String(r.message_id), list);
+    }
+    return messages.map((m) => ({ ...m, reactions: reactions.get(m.id) ?? [] }));
+  }
+
+  /** Kullanıcının tepkisini ekler; mesajda en fazla MESSAGE_MAX_REACTIONS farklı emoji olabilir. */
+  addReaction(messageId: number, userId: string, emoji: string): AddReactionResult {
+    return this.tx((): AddReactionResult => {
+      const known = this.one('SELECT 1 FROM reactions WHERE message_id = ? AND emoji = ? LIMIT 1', messageId, emoji);
+      if (!known) {
+        const distinct = this.one<{ n: number }>(
+          'SELECT COUNT(DISTINCT emoji) AS n FROM reactions WHERE message_id = ?',
+          messageId,
+        )!.n;
+        if (distinct >= MESSAGE_MAX_REACTIONS) return 'limit';
+      }
+      const added = this.run(
+        'INSERT OR IGNORE INTO reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)',
+        messageId,
+        userId,
+        emoji,
+        Date.now(),
+      );
+      return added > 0 ? 'added' : 'exists';
+    });
+  }
+
+  /** Kullanıcının tepkisini kaldırır; yoksa false. */
+  removeReaction(messageId: number, userId: string, emoji: string): boolean {
+    return (
+      this.run('DELETE FROM reactions WHERE message_id = ? AND user_id = ? AND emoji = ?', messageId, userId, emoji) > 0
+    );
   }
 
   /** Mesajı kaydeder; bahsedilen kullanıcıların okunmamış bahsetme sayısını artırır. */
@@ -534,9 +610,9 @@ export class Store {
     return ids;
   }
 
-  updateMessage(id: number, content: string): Message | null {
+  updateMessage(id: number, content: string, viewerId: string | null = null): Message | null {
     this.run('UPDATE messages SET content = ?, edited_at = ? WHERE id = ?', content, Date.now(), id);
-    return this.getMessage(id);
+    return this.getMessage(id, viewerId);
   }
 
   deleteMessage(id: number): boolean {
