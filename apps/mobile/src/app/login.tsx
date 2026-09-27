@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api, errorMessage, normalizeServerUrl, useSession } from '@diskort/client-core';
-import { Button, Field, ui } from '../components/ui';
+import { Button, FadeIn, Field, ui } from '../components/ui';
+import { animateNextLayout } from '../motion';
 import { DEFAULT_SERVER_URL, useSettings } from '../stores/settings';
 import { colors } from '../theme';
 
@@ -22,6 +23,7 @@ export default function LoginScreen() {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const serverUrl = useSettings((s) => s.serverUrl);
   const setSettings = useSettings((s) => s.set);
   const [showServer, setShowServer] = useState(serverUrl !== DEFAULT_SERVER_URL);
@@ -45,12 +47,15 @@ export default function LoginScreen() {
       useSession.getState().setSession(res.token, res.user);
     } catch (err) {
       setError(errorMessage(err));
+      setAttempt((n) => n + 1);
     } finally {
       setBusy(false);
     }
   };
 
   const switchMode = (next: Mode): void => {
+    // Eklenen/kalkan alanlar yumuşakça belirip kaybolur
+    animateNextLayout(200);
     setMode(next);
     setError(null);
     setPassword('');
@@ -97,9 +102,10 @@ export default function LoginScreen() {
             />
 
             {error && (
-              <View style={ui.errorBox}>
+              // Hata kayarak belirir; her başarısız denemede sallanır
+              <FadeIn style={ui.errorBox} shakeKey={attempt}>
                 <Text style={ui.errorText}>{error}</Text>
-              </View>
+              </FadeIn>
             )}
 
             <Button

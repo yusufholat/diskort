@@ -1,11 +1,13 @@
-import { memo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { memo, useEffect, useRef } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { discardMessage, isMentioned, retryMessage, toggleReaction, useMemberColor, type LocalMessage } from '@diskort/client-core';
 import type { User } from '@diskort/shared';
+import { useAppear } from '../motion';
 import { colors } from '../theme';
 import { Avatar } from './Avatar';
 import { AttachmentList, UploadList } from './Attachments';
 import { Markdown, type MarkdownContext } from './Markdown';
+import { ReactionPill } from './ReactionPill';
 
 const time = new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' });
 const shortDate = new Intl.DateTimeFormat('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -34,13 +36,35 @@ interface Props {
   self: User;
   md: MarkdownContext;
   onLongPress: (message: LocalMessage) => void;
+  /** Yeni gelen mesaj: hafifçe yükselerek belirir (geçmiş yüklenirken false) */
+  animateIn?: boolean;
 }
 
-export const MessageRow = memo(function MessageRow({ message, author, compact, dayBreak, self, md, onLongPress }: Props) {
+export const MessageRow = memo(function MessageRow({
+  message,
+  author,
+  compact,
+  dayBreak,
+  self,
+  md,
+  onLongPress,
+  animateIn = false,
+}: Props) {
   const mentioned = isMentioned(message, self);
   const authorColor = useMemberColor(message.authorId);
+  const appear = useAppear(animateIn, 240);
+  // Satır ekrandayken eklenen tepkiler animasyonla belirir
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+  }, []);
   return (
-    <View>
+    <Animated.View
+      style={{
+        opacity: appear,
+        transform: [{ translateY: appear.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }],
+      }}
+    >
       {dayBreak && (
         <View style={styles.dayBreak}>
           <View style={styles.dayLine} />
@@ -93,21 +117,20 @@ export const MessageRow = memo(function MessageRow({ message, author, compact, d
           {message.reactions.length > 0 && (
             <View style={styles.reactions}>
               {message.reactions.map((r) => (
-                <Pressable
+                <ReactionPill
                   key={r.emoji}
-                  hitSlop={3}
+                  emoji={r.emoji}
+                  count={r.count}
+                  me={r.me}
+                  animateIn={mounted.current}
                   onPress={() => void toggleReaction(message.channelId, message.id, r.emoji)}
-                  style={({ pressed }) => [styles.pill, r.me && styles.pillMine, pressed && { opacity: 0.6 }]}
-                >
-                  <Text style={styles.pillEmoji}>{r.emoji}</Text>
-                  <Text style={[styles.pillCount, r.me && styles.pillCountMine]}>{r.count}</Text>
-                </Pressable>
+                />
               ))}
             </View>
           )}
         </View>
       </Pressable>
-    </View>
+    </Animated.View>
   );
 });
 
@@ -127,21 +150,6 @@ const styles = StyleSheet.create({
   failed: { color: colors.muted, fontSize: 13, marginTop: 2 },
   action: { color: colors.link },
   reactions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
-  pill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    height: 30,
-    paddingHorizontal: 9,
-    borderRadius: 9,
-    borderWidth: 1,
-    borderColor: 'transparent',
-    backgroundColor: colors.side,
-  },
-  pillMine: { borderColor: colors.brand, backgroundColor: 'rgba(88,101,242,0.22)' },
-  pillEmoji: { fontSize: 16 },
-  pillCount: { color: colors.muted, fontSize: 13.5, fontWeight: '600' },
-  pillCountMine: { color: colors.head },
   dayBreak: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 18, marginBottom: 4 },
   dayLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.line },
   dayText: { color: colors.muted, fontSize: 12, fontWeight: '600' },

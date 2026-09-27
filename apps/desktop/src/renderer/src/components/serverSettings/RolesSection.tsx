@@ -127,6 +127,7 @@ export function RolesSection() {
                   {role.id !== guildId && (
                     <span className="flex opacity-0 group-hover:opacity-100">
                       <button
+                        data-tooltip="Yukarı taşı"
                         aria-label="Yukarı taşı"
                         disabled={!movable(role, -1)}
                         className="rounded p-0.5 text-text-muted hover:text-text-head disabled:invisible"
@@ -135,6 +136,7 @@ export function RolesSection() {
                         <ChevronUp size={16} />
                       </button>
                       <button
+                        data-tooltip="Aşağı taşı"
                         aria-label="Aşağı taşı"
                         disabled={!movable(role, 1)}
                         className="rounded p-0.5 text-text-muted hover:text-text-head disabled:invisible"
@@ -275,6 +277,7 @@ function RoleEditor({ role, everyone, onDeleted }: { role: Role; everyone: boole
           <div className="mb-2 text-xs font-bold tracking-wide text-text-muted uppercase">Rol rengi</div>
           <div className="mb-2 flex flex-wrap gap-2">
             <button
+              data-tooltip="Renksiz"
               aria-label="Renksiz"
               disabled={!manageable}
               className={cn(
@@ -448,6 +451,7 @@ function RoleMembers({ role }: { role: Role }) {
             <span className="min-w-0 flex-1 truncate text-text-head">{u.displayName}</span>
             {canAssignRole(s, selfId, u.id, role) && (
               <button
+                data-tooltip={`${u.displayName} kişisini rolden çıkar`}
                 aria-label={`${u.displayName} kişisini rolden çıkar`}
                 className="rounded p-1 text-text-muted hover:bg-bg-hover hover:text-danger"
                 onClick={() => void moderation.setRole(u.id, role.id, false)}

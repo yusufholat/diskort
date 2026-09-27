@@ -7,8 +7,11 @@ import { hasPermission, Permission, type Channel, type VoiceState } from '@disko
 import { isUnread, membersOf, useCan, useGuild, useMemberColor, useMessages, useSession } from '@diskort/client-core';
 import { Avatar } from '../components/Avatar';
 import { MemberSheet } from '../components/MemberSheet';
+import { PressableScale } from '../components/PressableScale';
+import { SpeakingRing } from '../components/SpeakingRing';
 import { VoiceBar } from '../components/VoiceBar';
 import { VoiceStateIcon } from '../components/VoiceStateIcon';
+import { useLayoutAnimationOn } from '../motion';
 import { toast } from '../stores/ui';
 import { colors } from '../theme';
 import { useVoice, voice } from '../voice/voice';
@@ -46,12 +49,12 @@ export default function HomeScreen() {
           {guild?.name ?? 'Diskort'}
         </Text>
         <View style={styles.headerButtons}>
-          <Pressable hitSlop={10} onPress={() => router.push('/members')} accessibilityLabel="Üyeler">
+          <PressableScale scaleTo={0.8} hitSlop={10} onPress={() => router.push('/members')} accessibilityLabel="Üyeler">
             <Ionicons name="people" size={23} color={colors.muted} />
-          </Pressable>
-          <Pressable hitSlop={10} onPress={() => router.push('/settings')} accessibilityLabel="Ayarlar">
+          </PressableScale>
+          <PressableScale scaleTo={0.8} hitSlop={10} onPress={() => router.push('/settings')} accessibilityLabel="Ayarlar">
             <Ionicons name="settings-sharp" size={22} color={colors.muted} />
-          </Pressable>
+          </PressableScale>
         </View>
       </View>
       {status !== 'ready' && (
@@ -95,7 +98,7 @@ function TextChannelRow({ channel, onPress }: { channel: Channel; onPress: () =>
   const mentionCount = useMessages((s) => s.mentionCounts[channel.id] ?? 0);
   const locked = usePrivate(channel);
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
+    <PressableScale scaleTo={0.98} onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
       {unread && <View style={styles.unreadPill} />}
       <Ionicons name={locked ? 'lock-closed-outline' : 'chatbubble-outline'} size={20} color={unread ? colors.head : colors.muted} />
       <Text style={[styles.name, unread && styles.nameUnread]} numberOfLines={1}>
@@ -106,7 +109,7 @@ function TextChannelRow({ channel, onPress }: { channel: Channel; onPress: () =>
           <Text style={styles.badgeText}>{mentionCount > 99 ? '99+' : mentionCount}</Text>
         </View>
       )}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -124,11 +127,19 @@ function VoiceChannelRow({
   const active = useVoice((s) => s.channelId === channel.id);
   const canConnect = useCan(Permission.CONNECT, channel.id);
   const locked = usePrivate(channel);
+  // Katılan üye satırı belirir, ayrılanın yeri yumuşakça kapanır
+  useLayoutAnimationOn(members.map((m) => m.userId).join(','));
   return (
     <View>
-      <Pressable
+      <PressableScale
+        scaleTo={0.98}
         onPress={() => (canConnect || active ? onPress() : toast('Bu ses kanalına bağlanma iznin yok.', 'error'))}
-        style={({ pressed }) => [styles.row, active && styles.rowActive, pressed && styles.pressed, !canConnect && !active && { opacity: 0.55 }]}
+        style={({ pressed }) => [
+          styles.row,
+          active && styles.rowActive,
+          pressed && styles.pressed,
+          !canConnect && !active && { opacity: 0.55 },
+        ]}
       >
         <Ionicons
           name={!canConnect || locked ? 'lock-closed-outline' : 'volume-medium'}
@@ -138,7 +149,7 @@ function VoiceChannelRow({
         <Text style={[styles.name, active && styles.nameUnread]} numberOfLines={1}>
           {channel.name}
         </Text>
-      </Pressable>
+      </PressableScale>
       {members.map((m) => (
         <VoiceMember key={m.userId} state={m} onLongPress={() => onMemberPress(m.userId)} />
       ))}
@@ -154,7 +165,9 @@ function VoiceMember({ state, onLongPress }: { state: VoiceState; onLongPress: (
   const inMyChannel = useVoice((s) => s.channelId === state.channelId);
   return (
     <Pressable onLongPress={onLongPress} delayLongPress={300} style={({ pressed }) => [styles.member, pressed && styles.pressed]}>
-      <Avatar user={user} size={26} speaking={inMyChannel && speaking} />
+      <SpeakingRing speaking={inMyChannel && speaking} size={26}>
+        <Avatar user={user} size={26} />
+      </SpeakingRing>
       <Text
         style={[styles.memberName, state.userId === selfId && { color: colors.head }, color ? { color } : null]}
         numberOfLines={1}

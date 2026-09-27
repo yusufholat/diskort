@@ -2,7 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { Permission } from '@diskort/shared';
 import { isOwner, usePermissions, useGuild, useSession } from '@diskort/client-core';
-import { useDialog } from '../../lib/dialog';
+import { useEscapeLayer } from '../../lib/escape';
+import { usePresenceClosing } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { useUi, type ServerSettingsSection } from '../../stores/ui';
 import { BansSection } from './BansSection';
@@ -42,17 +43,9 @@ export function ServerSettingsModal({ initial }: { initial?: ServerSettingsSecti
   const [section, setSection] = useState<ServerSettingsSection>(initial ?? 'overview');
   const current = sections.find((s) => s.id === section)?.id ?? sections[0]?.id;
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return;
-      // Üstte açık bir onay penceresi ya da menü varsa yalnızca o kapansın
-      const ui = useUi.getState();
-      if (useDialog.getState().current || ui.contextMenu || ui.banUser) return;
-      close();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [close]);
+  // Esc yalnızca en üstteki katmanı kapatır (üstte açık menü ya da onay penceresi varsa önce o)
+  const closing = usePresenceClosing();
+  useEscapeLayer(close, !closing);
 
   // Yetki alınırsa ayarlar kapanır
   useEffect(() => {
@@ -60,7 +53,12 @@ export function ServerSettingsModal({ initial }: { initial?: ServerSettingsSecti
   }, [sections.length, close]);
 
   return (
-    <div className="animate-pop fixed inset-x-0 bottom-0 top-[var(--titlebar-h,0px)] z-40 flex bg-bg-main">
+    <div
+      className={cn(
+        'fixed inset-x-0 bottom-0 top-[var(--titlebar-h,0px)] z-40 flex bg-bg-main',
+        closing ? 'anim-settings-out pointer-events-none' : 'anim-settings-in',
+      )}
+    >
       <nav className="flex w-[30%] min-w-[220px] justify-end overflow-y-auto bg-bg-side py-14 pr-2">
         <div className="w-[190px]">
           <div className="truncate px-2.5 pb-1.5 text-xs font-bold text-text-muted uppercase">{guildName}</div>
@@ -72,7 +70,8 @@ export function ServerSettingsModal({ initial }: { initial?: ServerSettingsSecti
         </div>
       </nav>
       <main className="relative flex-1 overflow-y-auto py-14 pr-10 pl-10">
-        <div className="max-w-[860px]">
+        {/* Bölüm değişince içerik hafifçe yükselerek belirir */}
+        <div key={current} className="anim-rise-in max-w-[860px]">
           {current === 'overview' && <OverviewSection />}
           {current === 'roles' && <RolesSection />}
           {current === 'members' && <MembersSection />}
@@ -81,10 +80,10 @@ export function ServerSettingsModal({ initial }: { initial?: ServerSettingsSecti
         </div>
         <button
           onClick={close}
-          className="fixed top-14 right-10 flex flex-col items-center gap-1 text-text-muted hover:text-text-head"
+          className="group fixed top-14 right-10 flex flex-col items-center gap-1 text-text-muted transition-colors hover:text-text-head"
           aria-label="Kapat"
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-current">
+          <span className="press-icon flex h-9 w-9 items-center justify-center rounded-full border-2 border-current transition-transform group-hover:rotate-90 group-active:scale-90">
             <X size={20} />
           </span>
           <span className="text-xs font-semibold">ESC</span>

@@ -25,6 +25,7 @@ const bridge: DiskortBridge = {
   requestAttention: () => ipcRenderer.send('app:request-attention'),
   download: (url) => ipcRenderer.invoke('app:download', url),
   onDownloadDone: (cb) => listen<DownloadResult>('download:done', cb),
+  edit: (command) => ipcRenderer.send('app:edit', command),
 
   screen: {
     supportsAudio: process.platform === 'win32',

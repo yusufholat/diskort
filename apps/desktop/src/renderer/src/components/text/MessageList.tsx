@@ -3,6 +3,8 @@ import { Hash } from 'lucide-react';
 import type { Channel, User } from '@diskort/shared';
 import { loadOlder, useMessages, type LocalMessage, useGuild } from '@diskort/client-core';
 import type { MarkdownContext } from '../../features/messages/markdown';
+import { animate, riseIn } from '../../lib/motion';
+import { MessageSkeleton } from '../ui/Skeleton';
 import { MessageItem } from './MessageItem';
 import { formatDay, sameDay } from './format';
 
@@ -11,6 +13,8 @@ const STICK_THRESHOLD_PX = 24;
 const LOAD_OLDER_THRESHOLD_PX = 600;
 
 const EMPTY: LocalMessage[] = [];
+
+const keyOf = (m: LocalMessage): string => m.nonce ?? m.id;
 
 interface Props {
   channel: Channel;
@@ -54,6 +58,35 @@ export function MessageList({ channel, self, dividerId, onAtBottomChange, scroll
     snapshot.current = { firstId, height: el.scrollHeight, top: el.scrollTop };
   }, [messages, hasMore]);
 
+  // Yeni gelen mesajlar hafifçe yükselerek belirir; geçmiş yüklenirken ve eski mesajlar eklenirken
+  // animasyon oynatılmaz. Bekleyen mesajımız onaylanınca (anahtarı değişir) yeniden oynatılmaz.
+  const rendered = useRef<Map<string, LocalMessage>>(new Map());
+  const armed = useRef(false);
+  useLayoutEffect(() => {
+    const prev = rendered.current;
+    const next = new Map(messages.map((m) => [keyOf(m), m]));
+    if (!loaded) {
+      armed.current = false;
+    } else if (!armed.current) {
+      armed.current = true;
+      // Geçmiş ilk kez geldi: iskeletten içeriğe yumuşak geçiş
+      animate(contentRef.current, [{ opacity: 0.4 }, { opacity: 1 }], { duration: 180, easing: 'ease-out' });
+    } else {
+      let lastKnown = -1;
+      messages.forEach((m, i) => {
+        if (prev.has(keyOf(m))) lastKnown = i;
+      });
+      const confirmed = new Set(
+        [...prev.entries()].filter(([key, m]) => m.status === 'pending' && !next.has(key)).map(([, m]) => m.content),
+      );
+      for (const m of messages.slice(lastKnown + 1)) {
+        if (!m.status && m.authorId === self.id && confirmed.has(m.content)) continue;
+        riseIn(contentRef.current?.querySelector(`[data-message-id="${CSS.escape(m.id)}"]`));
+      }
+    }
+    rendered.current = next;
+  }, [messages, loaded, self.id]);
+
   // Pencere/yazma kutusu boyutu değişince de altta kal
   useEffect(() => {
     const el = scrollRef.current;
@@ -91,12 +124,12 @@ export function MessageList({ channel, self, dividerId, onAtBottomChange, scroll
   return (
     <div ref={scrollRef} className="min-h-0 flex-1 overflow-x-hidden overflow-y-scroll" onScroll={onScroll}>
       <div ref={contentRef} className="flex min-h-full flex-col justify-end pb-6">
-        {hasMore || !loaded ? (
-          <div className="flex h-24 shrink-0 items-center justify-center text-sm text-text-faint">
-            {loaded || messages.length ? 'Eski mesajlar yükleniyor…' : 'Mesajlar yükleniyor…'}
-          </div>
+        {!loaded && !messages.length ? (
+          <MessageSkeleton rows={8} className="shrink-0" />
+        ) : hasMore || !loaded ? (
+          <MessageSkeleton rows={2} className="shrink-0 pb-2" />
         ) : (
-          <div className="mx-4 mt-4 mb-2">
+          <div className="anim-fade-in mx-4 mt-4 mb-2">
             <div className="mb-2 flex h-[68px] w-[68px] items-center justify-center rounded-full bg-bg-active">
               <Hash size={42} className="text-text-head" />
             </div>

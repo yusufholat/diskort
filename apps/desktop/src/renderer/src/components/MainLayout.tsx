@@ -5,6 +5,7 @@ import { voice } from '../features/voice/voiceClient';
 import { toast, useUi } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import { useMainView } from '../lib/mainView';
+import { DURATION, PresenceProvider, usePresence } from '../lib/motion';
 import { ImageViewer } from './text/ImageViewer';
 import { TextChannelView } from './text/TextChannelView';
 import { UpdateReadyBar } from './UpdateRequired';
@@ -27,7 +28,11 @@ export function MainLayout() {
     view.kind === 'text' ? s.channels.find((c) => c.id === view.channelId) : undefined,
   );
   const voiceError = useVoice((s) => s.error);
-  const modal = useUi((s) => s.modal);
+  // Kapanan pencere, kapanış animasyonu bitene kadar ekranda kalır
+  const { value: modal, closing: modalClosing } = usePresence(
+    useUi((s) => s.modal),
+    DURATION.base,
+  );
 
   useEffect(() => {
     gateway.connect();
@@ -45,7 +50,7 @@ export function MainLayout() {
 
   if (!hasGuild) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 bg-bg-main text-text-muted">
+      <div className="anim-fade-in flex h-full flex-col items-center justify-center gap-4 bg-bg-main text-text-muted">
         <AudioLines size={48} className="animate-pulse text-brand" />
         <div>{status === 'reconnecting' ? 'Sunucuya ulaşılamıyor, tekrar deneniyor…' : 'Bağlanıyor…'}</div>
         <button
@@ -68,26 +73,33 @@ export function MainLayout() {
       <main className="flex min-w-0 flex-1 flex-col">
         <UpdateReadyBar />
         {status === 'reconnecting' && (
-          <div className="bg-warn px-4 py-1 text-center text-sm font-medium text-black">
+          <div className="anim-bar-in bg-warn px-4 py-1 text-center text-sm font-medium text-black">
             Sunucu bağlantısı koptu, yeniden bağlanılıyor…
           </div>
         )}
-        <div className="min-h-0 flex-1">
+        {/* Kanal/görünüm değişince yeni içerik hafifçe belirir */}
+        <div className="min-h-0 flex-1 bg-bg-main">
           {view.kind === 'voice' ? (
-            <VoiceStage />
+            <div key="voice" className="anim-fade-in h-full">
+              <VoiceStage />
+            </div>
           ) : textChannel ? (
             <TextChannelView key={textChannel.id} channel={textChannel} />
           ) : (
-            <Welcome />
+            <div key="home" className="anim-fade-in h-full">
+              <Welcome />
+            </div>
           )}
         </div>
       </main>
 
-      {modal?.type === 'settings' && <SettingsModal initial={modal.section} />}
-      {modal?.type === 'serverSettings' && <ServerSettingsModal initial={modal.section} />}
-      {modal?.type === 'screenPicker' && <ScreenSharePicker />}
-      {modal?.type === 'channel' && <ChannelModal channel={modal.channel} channelType={modal.channelType} />}
-      {modal?.type === 'image' && <ImageViewer attachment={modal.attachment} />}
+      <PresenceProvider value={modalClosing}>
+        {modal?.type === 'settings' && <SettingsModal initial={modal.section} />}
+        {modal?.type === 'serverSettings' && <ServerSettingsModal initial={modal.section} />}
+        {modal?.type === 'screenPicker' && <ScreenSharePicker />}
+        {modal?.type === 'channel' && <ChannelModal channel={modal.channel} channelType={modal.channelType} />}
+        {modal?.type === 'image' && <ImageViewer attachment={modal.attachment} />}
+      </PresenceProvider>
       <BanModal />
     </div>
   );

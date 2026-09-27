@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useMemo, useState, type ReactNode } from 'react';
+import { Animated, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { MESSAGE_MAX_LENGTH, Permission, type Channel, type User } from '@diskort/shared';
 import {
@@ -16,10 +16,13 @@ import {
   type LocalMessage,
 } from '@diskort/client-core';
 import { pickDocuments, pickMedia } from '../attachments';
+import { useAppear } from '../motion';
 import { toast } from '../stores/ui';
 import { colors } from '../theme';
 import { fileIcon } from './Attachments';
 import { Avatar } from './Avatar';
+import { BottomSheet } from './BottomSheet';
+import { PressableScale } from './PressableScale';
 
 /** Kanal değiştirince yarım kalan mesaj kaybolmasın */
 const drafts = new Map<string, string>();
@@ -125,7 +128,7 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
   return (
     <View>
       {suggestions.length > 0 && (
-        <View style={styles.suggestions}>
+        <Suggestions>
           {suggestions.map((u) => (
             <Pressable key={u.id} style={({ pressed }) => [styles.suggestion, pressed && { backgroundColor: colors.active }]} onPress={() => pick(u)}>
               <Avatar user={u} size={26} online={!!online[u.id]} />
@@ -133,7 +136,7 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
               <Text style={styles.suggestionUser}>{u.username}</Text>
             </Pressable>
           ))}
-        </View>
+        </Suggestions>
       )}
       {editing && (
         <View style={styles.editBar}>
@@ -178,14 +181,15 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
       )}
       <View style={styles.row}>
         {!editing && canAttach && (
-          <Pressable
+          <PressableScale
+            scaleTo={0.85}
             onPress={() => setAttachMenu(true)}
             hitSlop={6}
-            style={({ pressed }) => [styles.attach, pressed && { opacity: 0.6 }]}
+            style={styles.attach}
             accessibilityLabel="Dosya ekle"
           >
             <Ionicons name="add-circle" size={30} color={colors.muted} />
-          </Pressable>
+          </PressableScale>
         )}
         <TextInput
           value={text}
@@ -202,25 +206,41 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
           style={styles.input}
         />
         {remaining < 200 && <Text style={[styles.counter, remaining < 0 && { color: colors.danger }]}>{remaining}</Text>}
-        <Pressable
+        <PressableScale
+          scaleTo={0.86}
           onPress={submit}
           disabled={!canSubmit}
-          style={({ pressed }) => [styles.send, !canSubmit && { opacity: 0.4 }, pressed && { opacity: 0.7 }]}
+          accessibilityLabel={editing ? 'Kaydet' : 'Gönder'}
+          style={[styles.send, !canSubmit && { opacity: 0.4 }]}
         >
           <Ionicons name={editing ? 'checkmark' : 'send'} size={20} color="#fff" />
-        </Pressable>
+        </PressableScale>
       </View>
 
-      <Modal visible={attachMenu} transparent animationType="slide" onRequestClose={() => setAttachMenu(false)}>
-        <Pressable style={styles.backdrop} onPress={() => setAttachMenu(false)}>
-          <Pressable style={styles.sheet}>
-            <AttachOption icon="images-outline" label="Fotoğraf veya video" onPress={() => void attach(pickMedia)} />
-            <AttachOption icon="document-outline" label="Dosya" onPress={() => void attach(pickDocuments)} />
-            <AttachOption icon="close" label="Vazgeç" onPress={() => setAttachMenu(false)} />
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <BottomSheet visible={attachMenu} onClose={() => setAttachMenu(false)}>
+        <AttachOption icon="images-outline" label="Fotoğraf veya video" onPress={() => void attach(pickMedia)} />
+        <AttachOption icon="document-outline" label="Dosya" onPress={() => void attach(pickDocuments)} />
+        <AttachOption icon="close" label="Vazgeç" onPress={() => setAttachMenu(false)} />
+      </BottomSheet>
     </View>
+  );
+}
+
+/** @bahsetme önerileri: yazma kutusunun üstünde hafifçe yükselerek belirir */
+function Suggestions({ children }: { children: ReactNode }) {
+  const appear = useAppear(true, 160);
+  return (
+    <Animated.View
+      style={[
+        styles.suggestions,
+        {
+          opacity: appear,
+          transform: [{ translateY: appear.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }],
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
   );
 }
 
@@ -273,8 +293,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.deep,
   },
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: colors.side, borderTopLeftRadius: 14, borderTopRightRadius: 14, paddingVertical: 8, paddingBottom: 24 },
   option: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 15 },
   optionText: { color: colors.head, fontSize: 16 },
   input: {

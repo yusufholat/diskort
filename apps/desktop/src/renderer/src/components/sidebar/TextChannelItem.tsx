@@ -14,11 +14,14 @@ export function TextChannelItem({ channel, selected }: { channel: Channel; selec
   const highlight = unread && !selected;
 
   return (
-    <div className="relative mb-0.5">
-      {highlight && <span className="absolute top-1/2 -left-2 h-2 w-1 -translate-y-1/2 rounded-r bg-white" />}
+    <div className="group/item relative mb-0.5">
+      {/* Okunmamış işareti: belirirken büyür, üstüne gelince uzar */}
+      {highlight && (
+        <span className="anim-indicator-in absolute top-1/2 -left-2 h-2 w-1 origin-left -translate-y-1/2 rounded-r bg-white transition-[height] duration-150 group-hover/item:h-4" />
+      )}
       <button
         className={cn(
-          'group flex h-8 w-full items-center gap-1.5 rounded px-2 text-left transition-colors',
+          'group flex h-8 w-full items-center gap-1.5 rounded px-2 text-left transition-colors duration-150',
           selected
             ? 'bg-bg-active text-text-head'
             : highlight
@@ -42,7 +45,10 @@ export function TextChannelItem({ channel, selected }: { channel: Channel; selec
           {channel.name}
         </span>
         {mentionCount > 0 && !selected && (
-          <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-danger px-1 text-[11px] font-bold text-white">
+          <span
+            key={mentionCount}
+            className="anim-pill-in flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-danger px-1 text-[11px] font-bold text-white"
+          >
             {mentionCount > 99 ? '99+' : mentionCount}
           </span>
         )}

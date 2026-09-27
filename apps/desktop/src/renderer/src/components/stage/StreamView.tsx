@@ -6,6 +6,7 @@ import { useGuild, useSession } from '@diskort/client-core';
 import { useSettings } from '../../stores/settings';
 import { useVoice } from '../../stores/voice';
 import { LiveBadge } from '../sidebar/VoiceMemberRow';
+import { Slider } from '../ui/Slider';
 
 interface Props {
   userId: string;
@@ -66,8 +67,14 @@ export function StreamView({ userId, large, onClick }: Props) {
       onClick={onClick}
       onDoubleClick={toggleFullscreen}
     >
-      <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-contain" />
-      {!hasVideo && <div className="absolute text-sm text-text-muted">Yayın yükleniyor…</div>}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className={cn('h-full w-full object-contain transition-opacity duration-300', hasVideo ? 'opacity-100' : 'opacity-0')}
+      />
+      {!hasVideo && <div className="absolute animate-pulse text-sm text-text-muted">Yayın yükleniyor…</div>}
 
       <div className="pointer-events-none absolute top-0 right-0 left-0 flex items-center gap-2 bg-gradient-to-b from-black/60 to-transparent p-3 opacity-0 transition-opacity group-hover:opacity-100">
         <LiveBadge />
@@ -85,16 +92,21 @@ export function StreamView({ userId, large, onClick }: Props) {
       >
         {!isSelf && hasAudio && (
           <div className="mr-auto flex items-center gap-2 rounded bg-black/50 px-2 py-1">
-            <button className="text-white" onClick={() => setVolume(volume > 0 ? 0 : 1)} title="Yayın sesi">
+            <button
+              className="press-icon text-white"
+              onClick={() => setVolume(volume > 0 ? 0 : 1)}
+              data-tooltip={volume > 0 ? 'Yayın sesini kapat' : 'Yayın sesini aç'}
+              aria-label="Yayın sesi"
+            >
               {volume > 0 ? <Volume2 size={18} /> : <VolumeX size={18} />}
             </button>
-            <input
-              type="range"
-              className="slider w-28"
+            <Slider
+              className="w-28"
+              aria-label="Yayın ses seviyesi"
               min={0}
               max={200}
               value={Math.round(volume * 100)}
-              onChange={(e) => setVolume(Number(e.target.value) / 100)}
+              onValueChange={(v) => setVolume(v / 100)}
             />
           </div>
         )}
@@ -114,10 +126,10 @@ export function StreamView({ userId, large, onClick }: Props) {
 function IconButton({ title, onClick, children }: { title: string; onClick: () => void; children: ReactNode }) {
   return (
     <button
-      title={title}
+      data-tooltip={title}
       aria-label={title}
       onClick={onClick}
-      className="flex h-8 w-8 items-center justify-center rounded bg-black/50 text-white hover:bg-black/80"
+      className="press-icon flex h-8 w-8 items-center justify-center rounded bg-black/50 text-white hover:bg-black/80"
     >
       {children}
     </button>

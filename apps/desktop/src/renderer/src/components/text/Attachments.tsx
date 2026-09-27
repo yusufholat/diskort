@@ -44,8 +44,8 @@ export function AttachmentList({ attachments }: { attachments: Attachment[] }) {
               <button
                 key={a.id}
                 data-attachment-id={a.id}
-                title={a.name}
-                className="block overflow-hidden rounded-lg bg-bg-side"
+                data-tooltip={a.name}
+                className="block overflow-hidden rounded-lg bg-bg-side transition-[filter] duration-150 hover:brightness-110"
                 style={size ?? { maxWidth: IMAGE_MAX.width, maxHeight: IMAGE_MAX.height }}
                 onClick={() => openModal({ type: 'image', attachment: a })}
               >
@@ -71,7 +71,7 @@ export function AttachmentList({ attachments }: { attachments: Attachment[] }) {
           <div className="min-w-0 flex-1">
             <button
               className="block max-w-full truncate text-left text-[#00a8fc] hover:underline"
-              title={a.name}
+              data-tooltip={a.name}
               onClick={() => downloadAttachment(a)}
             >
               {a.name}
@@ -80,7 +80,8 @@ export function AttachmentList({ attachments }: { attachments: Attachment[] }) {
           </div>
           <button
             className="shrink-0 rounded p-1 text-text-muted hover:text-text-head"
-            title="İndir"
+            data-tooltip="İndir"
+            aria-label="İndir"
             onClick={() => downloadAttachment(a)}
           >
             <Download size={22} />
@@ -125,7 +126,8 @@ export function UploadList({ message }: { message: LocalMessage }) {
             {!failed && message.nonce && (
               <button
                 className="shrink-0 rounded p-1 text-text-muted hover:text-danger"
-                title="Yüklemeyi iptal et"
+                data-tooltip="Yüklemeyi iptal et"
+                aria-label="Yüklemeyi iptal et"
                 onClick={() => discardMessage(message.channelId, message.nonce!)}
               >
                 <X size={18} />

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { Animated, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,8 +9,10 @@ import { membersOf, useCan, useGuild, useMemberColor, useSession } from '@diskor
 import { Permission, type VoiceState } from '@diskort/shared';
 import { Avatar } from '../components/Avatar';
 import { MemberSheet } from '../components/MemberSheet';
+import { SpeakingRing } from '../components/SpeakingRing';
 import { IconButton } from '../components/VoiceBar';
 import { VoiceStateIcon } from '../components/VoiceStateIcon';
+import { useAppear, useLayoutAnimationOn } from '../motion';
 import { toast } from '../stores/ui';
 import { useSettings } from '../stores/settings';
 import { colors } from '../theme';
@@ -34,6 +36,9 @@ export default function VoiceScreen() {
   const [fullscreen, setFullscreen] = useState(false);
   // Uzun basılan (yönetilecek) üye
   const [member, setMember] = useState<string | null>(null);
+  // Katılan/ayrılan kutucukta diğerleri yumuşakça yer değiştirir
+  // (yeni kutucuğun kendisi Animated ile büyür; LayoutAnimation yalnızca kaymayı ve çıkışı yapar)
+  useLayoutAnimationOn(members.map((m) => m.userId).join(','), 220, false);
 
   if (status === 'idle' || !channelId) {
     return (
@@ -192,9 +197,23 @@ function Member({ state, onLongPress }: { state: VoiceState; onLongPress: () => 
   const speaking = useVoice((s) => Boolean(s.speaking[state.userId]));
   const hasStream = useVoice((s) => Boolean(s.streams[state.userId]));
   const watching = useVoice((s) => s.watching === state.userId);
+  // Katılan kişinin kutucuğu büyüyerek belirir
+  const appear = useAppear(true, 260);
   return (
-    <Pressable style={styles.member} onLongPress={onLongPress} delayLongPress={300}>
-      <Avatar user={user} size={72} speaking={speaking} />
+    <Pressable onLongPress={onLongPress} delayLongPress={300}>
+    <Animated.View
+      style={[
+        styles.member,
+        speaking && styles.memberSpeaking,
+        {
+          opacity: appear,
+          transform: [{ scale: appear.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }],
+        },
+      ]}
+    >
+      <SpeakingRing speaking={speaking} size={72}>
+        <Avatar user={user} size={72} />
+      </SpeakingRing>
       <View style={styles.memberNameRow}>
         <VoiceStateIcon state={state} size={14} />
         <Text
@@ -214,6 +233,7 @@ function Member({ state, onLongPress }: { state: VoiceState; onLongPress: () => 
           <Text style={styles.watchText}>{watching ? 'İzlemeyi bırak' : 'Yayını izle'}</Text>
         </Pressable>
       )}
+    </Animated.View>
     </Pressable>
   );
 }
@@ -235,7 +255,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 16,
     paddingHorizontal: 8,
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
+  memberSpeaking: { borderColor: 'rgba(35,165,90,0.55)' },
   memberNameRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10 },
   memberName: { color: colors.text, fontSize: 15, fontWeight: '500', flexShrink: 1 },
   watch: { marginTop: 10, backgroundColor: colors.brand, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 },

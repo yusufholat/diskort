@@ -16,6 +16,9 @@ export type ServerSettingsSection = 'overview' | 'roles' | 'members' | 'invites'
 export interface ContextMenuItem {
   label: string;
   danger?: boolean;
+  /** Sağda soluk gösterilen kısayol (ör. "Ctrl+C") */
+  hint?: string;
+  disabled?: boolean;
   /** Onay kutusu gibi gösterilir (ör. üyenin rolü, sunucuda susturma) */
   checked?: boolean;
   /** Etiketin önündeki renkli nokta (rol rengi) */

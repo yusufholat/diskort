@@ -3,7 +3,9 @@ import { Lock, Volume2 } from 'lucide-react';
 import { Permission, type Channel } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
 import { membersOf, useCan, useGuild } from '@diskort/client-core';
+import type { VoiceState } from '@diskort/shared';
 import { channelMenuItems, isPrivateChannel } from '../../lib/channelMenu';
+import { collapseClass, usePresenceList } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { toast, useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
@@ -18,12 +20,14 @@ export function VoiceChannelItem({ channel }: { channel: Channel }) {
   const openContextMenu = useUi((s) => s.openContextMenu);
   const setView = useUi((s) => s.setView);
   const isActive = activeChannel === channel.id;
+  // Katılan üye satırı aşağı doğru açılarak, ayrılan kapanarak görünür
+  const rows = usePresenceList(members, (m: VoiceState) => m.userId, 180);
 
   return (
     <div className="mb-0.5">
       <button
         className={cn(
-          'group flex h-8 w-full items-center gap-1.5 rounded px-2 text-left transition-colors',
+          'group flex h-8 w-full items-center gap-1.5 rounded px-2 text-left transition-colors duration-150',
           isActive ? 'bg-bg-active text-text-head' : 'text-text-muted hover:bg-bg-hover hover:text-text-normal',
           !canConnect && !isActive && 'opacity-60',
         )}
@@ -57,10 +61,14 @@ export function VoiceChannelItem({ channel }: { channel: Channel }) {
         </span>
         <span className="truncate font-medium">{channel.name}</span>
       </button>
-      {members.length > 0 && (
-        <div className="mt-0.5 mb-1 ml-6 flex flex-col gap-px">
-          {members.map((m) => (
-            <VoiceMemberRow key={m.userId} state={m} inMyChannel={isActive} />
+      {rows.length > 0 && (
+        <div className="mt-0.5 mb-1 ml-6 flex flex-col">
+          {rows.map(({ key, item, phase }) => (
+            <div key={key} className={collapseClass(phase)}>
+              <div className={cn(phase !== 'static' && 'collapse-inner', 'pb-px')}>
+                <VoiceMemberRow state={item} inMyChannel={isActive} />
+              </div>
+            </div>
           ))}
         </div>
       )}

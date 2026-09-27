@@ -92,7 +92,8 @@ export function ScreenSharePicker() {
             </TabButton>
             <button
               className="ml-auto rounded p-1.5 text-text-muted hover:bg-bg-hover hover:text-text-head"
-              title="Yenile"
+              data-tooltip="Yenile"
+              aria-label="Yenile"
               onClick={() => void load()}
             >
               <RefreshCw size={16} className={cn(loading && 'animate-spin')} />
@@ -136,6 +137,7 @@ export function ScreenSharePicker() {
         <div>
           <div className="mb-1.5 text-xs font-bold text-text-muted uppercase">Kalite</div>
           <Select<ScreenPresetId>
+            aria-label="Yayın kalitesi"
             value={settings.screenPreset}
             onChange={(screenPreset) => settings.set({ screenPreset })}
             options={Object.entries(SCREEN_PRESETS).map(([value, p]) => ({
@@ -148,6 +150,7 @@ export function ScreenSharePicker() {
         <div>
           <div className="mb-1.5 text-xs font-bold text-text-muted uppercase">İçerik</div>
           <Select
+            aria-label="İçerik türü"
             value={settings.screenContent}
             onChange={(screenContent) => settings.set({ screenContent })}
             options={[

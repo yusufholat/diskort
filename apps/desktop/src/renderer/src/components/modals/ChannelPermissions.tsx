@@ -92,6 +92,7 @@ export function ChannelPermissions({ channel, onDone }: { channel: Channel; onDo
             <span className="text-xs font-bold text-text-muted uppercase">Roller</span>
             {addable.length > 0 && (
               <button
+                data-tooltip="Rol ekle"
                 aria-label="Rol ekle"
                 className="rounded p-0.5 text-text-muted hover:text-text-head"
                 onClick={(e) => {
@@ -204,6 +205,7 @@ function TriState({
       {OPTIONS.map((o) => (
         <button
           key={o.value}
+          data-tooltip={o.label}
           aria-label={o.label}
           aria-pressed={value === o.value}
           disabled={disabled}

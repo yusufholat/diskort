@@ -35,31 +35,32 @@ export function VoiceConnectionPanel() {
   const connected = status === 'connected';
 
   return (
-    <div className="border-b border-line/60 bg-bg-panel px-2 py-2">
+    <div className="anim-rise-in border-b border-line/60 bg-bg-panel px-2 py-2">
       <div className="flex items-center gap-2 px-1">
         <Signal
           size={18}
-          className={cn(connected ? pingColor(ping) : 'text-warn', !connected && 'animate-pulse')}
+          className={cn('transition-colors duration-300', connected ? pingColor(ping) : 'text-warn', !connected && 'animate-pulse')}
         />
         <div className="min-w-0 flex-1">
           <div
-            className={cn('text-sm font-semibold', connected ? pingColor(ping) : 'text-warn')}
-            title={ping !== null ? `Gecikme: ${ping} ms` : undefined}
+            className={cn('text-sm font-semibold transition-colors duration-300', connected ? pingColor(ping) : 'text-warn')}
+            data-tooltip={ping !== null ? `Gecikme: ${ping} ms` : undefined}
           >
             {STATUS_TEXT[status]}
             {connected && ping !== null && <span className="ml-1.5 text-xs font-normal text-text-muted">{ping} ms</span>}
           </div>
           <button
             className="block max-w-full truncate text-left text-xs text-text-muted hover:text-text-normal hover:underline"
-            title="Ses kanalını göster"
+            data-tooltip="Ses kanalını göster"
             onClick={() => setView({ kind: 'voice' })}
           >
             {channel?.name} / {guildName}
           </button>
         </div>
         <button
-          className="rounded p-1.5 text-text-normal hover:bg-bg-hover hover:text-text-head"
-          title="Bağlantıyı Kes"
+          className="press-icon rounded p-1.5 text-text-normal hover:bg-bg-hover hover:text-text-head"
+          data-tooltip="Bağlantıyı Kes"
+          aria-label="Bağlantıyı Kes"
           onClick={() => void voice.leave()}
         >
           <PhoneOff size={20} />
@@ -70,7 +71,7 @@ export function VoiceConnectionPanel() {
           disabled={!connected || (!sharing && !canStream)}
           aria-label={!canStream && !sharing ? 'Bu kanalda ekran paylaşma iznin yok' : undefined}
           className={cn(
-            'flex h-8 flex-1 items-center justify-center gap-2 rounded text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+            'press flex h-8 flex-1 items-center justify-center gap-2 rounded text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40',
             sharing ? 'bg-ok/20 text-ok hover:bg-ok/30' : 'bg-bg-hover text-text-normal hover:bg-bg-active',
           )}
           onClick={() => (sharing ? void voice.stopScreenShare() : openModal({ type: 'screenPicker' }))}

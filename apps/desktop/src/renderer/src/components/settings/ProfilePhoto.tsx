@@ -3,6 +3,7 @@ import { Camera } from 'lucide-react';
 import type { User } from '@diskort/shared';
 import { errorMessage, formatBytes, removeAvatar, uploadAvatar } from '@diskort/client-core';
 import { confirmDialog } from '../../lib/dialog';
+import { PresenceProvider, usePresence } from '../../lib/motion';
 import { toast } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 import { Button, SectionTitle } from '../ui/controls';
@@ -17,6 +18,7 @@ export function ProfilePhoto({ user }: { user: User }) {
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [removing, setRemoving] = useState(false);
+  const cropper = usePresence(file);
   const pick = (): void => input.current?.click();
 
   const save = async (image: Blob): Promise<void> => {
@@ -54,13 +56,14 @@ export function ProfilePhoto({ user }: { user: User }) {
       <div className="flex items-center gap-4">
         <button
           type="button"
-          className="group relative shrink-0 rounded-full"
+          className="press-icon group relative shrink-0 rounded-full"
           onClick={pick}
-          title={user.avatarUrl ? 'Profil fotoğrafını değiştir' : 'Profil fotoğrafı yükle'}
+          data-tooltip={user.avatarUrl ? 'Profil fotoğrafını değiştir' : 'Profil fotoğrafı yükle'}
+          aria-label={user.avatarUrl ? 'Profil fotoğrafını değiştir' : 'Profil fotoğrafı yükle'}
         >
           <Avatar user={user} size={56} />
           <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100">
-            <Camera size={20} />
+            <Camera size={20} className="scale-75 transition-transform duration-200 group-hover:scale-100" />
           </span>
         </button>
         <div className="flex gap-2">
@@ -93,7 +96,10 @@ export function ProfilePhoto({ user }: { user: User }) {
           setFile(picked);
         }}
       />
-      {file && <AvatarCropper file={file} onCancel={() => setFile(null)} onSave={save} />}
+      {/* Kırpma penceresi kapanırken de animasyonla kaybolur */}
+      <PresenceProvider value={cropper.closing}>
+        {cropper.value && <AvatarCropper file={cropper.value} onCancel={() => setFile(null)} onSave={save} />}
+      </PresenceProvider>
     </div>
   );
 }

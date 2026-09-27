@@ -190,6 +190,7 @@ function MemberRow({ user, onResetCode }: { user: User; onResetCode: (code: stri
                 {role.name}
                 {removable && (
                   <button
+                    data-tooltip={`${role.name} rolünü al`}
                     aria-label={`${role.name} rolünü al`}
                     className="text-text-muted hover:text-danger"
                     onClick={() => void moderation.setRole(user.id, role.id, false)}
@@ -204,6 +205,7 @@ function MemberRow({ user, onResetCode }: { user: User; onResetCode: (code: stri
         </div>
       </div>
       <button
+        data-tooltip="Üyeyi yönet"
         aria-label="Üyeyi yönet"
         className={cn(
           'flex h-8 w-8 shrink-0 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-hover hover:text-text-head',

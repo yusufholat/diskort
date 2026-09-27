@@ -119,10 +119,10 @@ export function TextChannelView({ channel }: { channel: Channel }) {
 
   return (
     <div className="flex h-full min-w-0 flex-1">
-      <div className="relative flex h-full min-w-0 flex-1 flex-col bg-bg-main" {...dropHandlers}>
+      <div className="anim-fade-in relative flex h-full min-w-0 flex-1 flex-col bg-bg-main" {...dropHandlers}>
         {dragging && (
-          <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/60">
-            <div className="animate-pop flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-white/60 bg-brand px-10 py-8 text-white shadow-2xl">
+          <div className="anim-fade-in pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/60">
+            <div className="anim-modal-in flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-white/60 bg-brand px-10 py-8 text-white shadow-2xl">
               <Upload size={40} />
               <div className="text-lg font-bold">#{channel.name} kanalına yükle</div>
               <div className="text-sm text-white/80">Göndermeden önce bir not ekleyebilirsin.</div>
@@ -133,9 +133,13 @@ export function TextChannelView({ channel }: { channel: Channel }) {
           <Hash size={22} className="text-text-muted" />
           <span className="min-w-0 flex-1 truncate font-semibold text-text-head">{channel.name}</span>
           <button
+            data-tooltip={memberListOpen ? 'Üye listesini gizle' : 'Üye listesini göster'}
             aria-label={memberListOpen ? 'Üye listesini gizle' : 'Üye listesini göster'}
             aria-pressed={memberListOpen}
-            className={cn('rounded p-1', memberListOpen ? 'text-text-head' : 'text-text-muted hover:text-text-normal')}
+            className={cn(
+              'press-icon rounded p-1',
+              memberListOpen ? 'text-text-head' : 'text-text-muted hover:text-text-normal',
+            )}
             onClick={() => useUi.getState().toggleMemberList()}
           >
             <Users size={22} />
@@ -145,7 +149,7 @@ export function TextChannelView({ channel }: { channel: Channel }) {
         <div className="relative flex min-h-0 flex-1 flex-col">
           {unreadBelow && (
             <button
-              className="absolute top-0 right-4 left-4 z-10 flex items-center justify-between rounded-b-lg bg-brand px-3 py-1 text-sm font-medium text-white shadow"
+              className="anim-bar-in absolute top-0 right-4 left-4 z-10 flex items-center justify-between rounded-b-lg bg-brand px-3 py-1 text-sm font-medium text-white shadow transition-colors hover:bg-brand-hover"
               onClick={() => setScrollSignal((n) => n + 1)}
             >
               <span>Yeni mesajların var</span>
@@ -194,7 +198,7 @@ function TypingIndicator({ channelId, selfId }: { channelId: string; selfId: str
   return (
     <div className="flex h-6 shrink-0 items-center gap-1.5 px-4 text-xs text-text-normal">
       {text && (
-        <>
+        <span className="anim-fade-in flex min-w-0 items-center gap-1.5">
           <span className="flex gap-0.5">
             {[0, 1, 2].map((i) => (
               <span
@@ -207,7 +211,7 @@ function TypingIndicator({ channelId, selfId }: { channelId: string; selfId: str
           <span className="truncate">
             <strong>{text.replace(/ yazıyor…$/, '')}</strong> yazıyor…
           </span>
-        </>
+        </span>
       )}
     </div>
   );

@@ -1,10 +1,12 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useGuild } from '@diskort/client-core';
+import { useBump } from '../motion';
 import { useSettings } from '../stores/settings';
 import { colors } from '../theme';
 import { useVoice, voice } from '../voice/voice';
+import { PressableScale } from './PressableScale';
 
 const STATUS = { connecting: 'Bağlanıyor…', reconnecting: 'Yeniden bağlanıyor…', connected: 'Ses bağlı', idle: '' };
 
@@ -23,7 +25,7 @@ export function VoiceBar() {
   const muted = selfMute || selfDeaf || !micAllowed;
 
   return (
-    <Pressable style={styles.bar} onPress={() => router.push('/voice')}>
+    <Pressable style={({ pressed }) => [styles.bar, pressed && { backgroundColor: colors.hover }]} onPress={() => router.push('/voice')}>
       <Ionicons name="volume-high" size={22} color={connected ? colors.ok : colors.warn} />
       <View style={styles.info}>
         <Text style={[styles.status, { color: connected ? colors.ok : colors.warn }]}>{STATUS[status]}</Text>
@@ -55,23 +57,30 @@ export function IconButton({
   danger?: boolean;
   size?: number;
 }) {
+  // Simge değişince (sustur ↔ sesi aç) kısa bir zıplamayla yenisine geçer
+  const bump = useBump(icon);
   return (
-    <Pressable
+    <PressableScale
+      scaleTo={0.86}
       onPress={onPress}
       hitSlop={6}
+      accessibilityState={{ selected: Boolean(active || on) }}
       style={({ pressed }) => [
         styles.icon,
         danger && { backgroundColor: colors.danger },
-        pressed && { opacity: 0.7 },
+        !danger && (active || on) && { backgroundColor: active ? 'rgba(242,63,67,0.14)' : 'rgba(35,165,90,0.16)' },
+        pressed && { opacity: 0.8 },
       ]}
     >
-      <Ionicons
-        name={icon}
-        size={size}
-        color={danger ? '#fff' : active ? colors.danger : on ? colors.ok : colors.text}
-        style={danger ? { transform: [{ rotate: '135deg' }] } : undefined}
-      />
-    </Pressable>
+      <Animated.View style={{ transform: [{ scale: bump }] }}>
+        <Ionicons
+          name={icon}
+          size={size}
+          color={danger ? '#fff' : active ? colors.danger : on ? colors.ok : colors.text}
+          style={danger ? { transform: [{ rotate: '135deg' }] } : undefined}
+        />
+      </Animated.View>
+    </PressableScale>
   );
 }
 

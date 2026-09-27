@@ -11,7 +11,9 @@ import { Avatar } from '../ui/Avatar';
 
 export function LiveBadge({ className }: { className?: string }) {
   return (
-    <span className={cn('rounded-full bg-danger px-1.5 py-px text-[10px] leading-4 font-bold text-white', className)}>
+    <span
+      className={cn('anim-pill-in rounded-full bg-danger px-1.5 py-px text-[10px] leading-4 font-bold text-white', className)}
+    >
       CANLI
     </span>
   );
@@ -38,14 +40,14 @@ export function VoiceStateIcons({ state, localMuted, size = 15 }: { state: Voice
           aria-label={
             state.serverMute ? 'Sunucuda susturuldu' : suppressed ? 'Bu kanalda konuşma izni yok' : 'Susturuldu'
           }
-          className={mutedByOthers ? 'text-danger' : 'text-text-muted'}
+          className={cn('anim-pill-in', mutedByOthers ? 'text-danger' : 'text-text-muted')}
         />
       )}
       {deaf && (
         <HeadphoneOff
           size={size}
           aria-label={state.serverDeaf ? 'Sunucuda sağırlaştırıldı' : 'Sağırlaştırıldı'}
-          className={state.serverDeaf ? 'text-danger' : undefined}
+          className={cn('anim-pill-in', state.serverDeaf && 'text-danger')}
         />
       )}
     </>
@@ -63,7 +65,7 @@ export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMy
 
   return (
     <div
-      className="group flex h-8 items-center gap-2 rounded px-2 text-text-muted hover:bg-bg-hover hover:text-text-normal"
+      className="group flex h-8 items-center gap-2 rounded px-2 text-text-muted transition-colors duration-150 hover:bg-bg-hover hover:text-text-normal"
       onContextMenu={(e) => {
         e.preventDefault();
         const items = memberMenuItems(state.userId);
@@ -82,7 +84,7 @@ export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMy
     >
       <Avatar user={user} size={24} speaking={speaking} />
       <span
-        className={cn('flex-1 truncate text-sm', speaking && 'text-text-head')}
+        className={cn('flex-1 truncate text-sm transition-colors duration-200', speaking && 'text-text-head')}
         style={color ? { color } : undefined}
       >
         {user?.displayName ?? '…'}

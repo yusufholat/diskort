@@ -1,8 +1,10 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { AudioLines } from 'lucide-react';
+import { PASSWORD_MIN_LENGTH, USERNAME_PATTERN } from '@diskort/shared';
 import { api, errorMessage, normalizeServerUrl, useSession } from '@diskort/client-core';
 import { useSettings } from '../stores/settings';
-import { Button, Field, TextInput } from './ui/controls';
+import { Button, TextInput } from './ui/controls';
+import { FormAlert, FormField, REQUIRED, focusFirstInvalid, useFormErrors } from './ui/FormField';
 
 type Mode = 'login' | 'register' | 'reset';
 
@@ -28,18 +30,38 @@ export function AuthScreen() {
   const setSettings = useSettings((s) => s.set);
   const [editingServer, setEditingServer] = useState(false);
   const setSession = useSession((s) => s.setSession);
+  const form = useFormErrors<'code' | 'username' | 'password'>();
+  const [attempt, setAttempt] = useState(0);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const switchMode = (next: Mode): void => {
     setMode(next);
     setError(null);
     setCode('');
     setPassword('');
+    form.reset();
   };
 
   const submit = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
-    setBusy(true);
     setError(null);
+    const newAccount = mode !== 'login';
+    const ok = form.validate({
+      code: newAccount && !code.trim() && REQUIRED,
+      username: !username.trim()
+        ? REQUIRED
+        : mode === 'register' &&
+          !USERNAME_PATTERN.test(username) &&
+          'Kullanıcı adı 3–32 karakter olmalı; yalnızca küçük harf, rakam, nokta ve alt çizgi.',
+      password: !password
+        ? REQUIRED
+        : newAccount && password.length < PASSWORD_MIN_LENGTH && `Şifre en az ${PASSWORD_MIN_LENGTH} karakter olmalı.`,
+    });
+    if (!ok) {
+      focusFirstInvalid(formRef.current);
+      return;
+    }
+    setBusy(true);
     try {
       const res =
         mode === 'login'
@@ -50,6 +72,7 @@ export function AuthScreen() {
       setSession(res.token, res.user);
     } catch (err) {
       setError(errorMessage(err));
+      setAttempt((n) => n + 1);
     } finally {
       setBusy(false);
     }
@@ -59,7 +82,12 @@ export function AuthScreen() {
 
   return (
     <div className="flex h-full items-center justify-center bg-gradient-to-br from-[#404eed] via-[#5865f2] to-[#3b3fb8] p-4">
-      <form onSubmit={submit} className="animate-pop w-[480px] max-w-full rounded-md bg-bg-main p-8 shadow-2xl">
+      <form
+        ref={formRef}
+        onSubmit={submit}
+        noValidate
+        className="anim-modal-in w-[480px] max-w-full rounded-md bg-bg-main p-8 shadow-2xl"
+      >
         <div className="mb-5 flex flex-col items-center text-center">
           <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand text-white">
             <AudioLines size={30} />
@@ -68,47 +96,64 @@ export function AuthScreen() {
           <p className="mt-1 text-text-muted">{text.subtitle}</p>
         </div>
 
-        {mode !== 'login' && (
-          <Field label={mode === 'register' ? 'Davet kodu' : 'Sıfırlama kodu'}>
+        {/* Mod değişince alanlar hafifçe yeniden belirir */}
+        <div key={mode} className="anim-fade-in">
+          {mode !== 'login' && (
+            <FormField
+              label={mode === 'register' ? 'Davet kodu' : 'Sıfırlama kodu'}
+              error={form.errors.code}
+              shakeKey={form.attempt}
+            >
+              <TextInput
+                value={code}
+                onChange={(e) => {
+                  setCode(e.target.value.toUpperCase());
+                  form.clear('code');
+                }}
+                placeholder="ÖRN. 4EZZHQMF"
+                autoFocus
+              />
+            </FormField>
+          )}
+          <FormField label="Kullanıcı adı" error={form.errors.username} shakeKey={form.attempt}>
             <TextInput
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              placeholder="ÖRN. 4EZZHQMF"
-              required
-              autoFocus
+              value={username}
+              onChange={(e) => {
+                setUsername(e.target.value.toLowerCase());
+                form.clear('username');
+              }}
+              autoComplete="username"
+              autoFocus={mode === 'login'}
             />
-          </Field>
-        )}
-        <Field label="Kullanıcı adı">
-          <TextInput
-            value={username}
-            onChange={(e) => setUsername(e.target.value.toLowerCase())}
-            autoComplete="username"
-            required
-            autoFocus={mode === 'login'}
-          />
-        </Field>
-        {mode === 'register' && (
-          <Field label="Görünen ad">
+          </FormField>
+          {mode === 'register' && (
+            <FormField label="Görünen ad">
+              <TextInput
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="Diğerlerinin göreceği ad"
+              />
+            </FormField>
+          )}
+          <FormField
+            label={mode === 'reset' ? 'Yeni şifre' : 'Şifre'}
+            error={form.errors.password}
+            shakeKey={form.attempt}
+            hint={mode !== 'login' && !form.errors.password ? `En az ${PASSWORD_MIN_LENGTH} karakter.` : undefined}
+          >
             <TextInput
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Diğerlerinin göreceği ad"
+              type="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                form.clear('password');
+              }}
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             />
-          </Field>
-        )}
-        <Field label={mode === 'reset' ? 'Yeni şifre' : 'Şifre'}>
-          <TextInput
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-            minLength={mode === 'login' ? undefined : 8}
-            required
-          />
-        </Field>
+          </FormField>
+        </div>
 
-        {error && <div className="mb-4 rounded-[3px] bg-danger/15 px-3 py-2 text-sm text-[#fa777c]">{error}</div>}
+        <FormAlert message={error} shakeKey={attempt} />
 
         <Button type="submit" className="w-full text-base" disabled={busy}>
           {busy ? 'Bekle…' : text.submit}
@@ -138,7 +183,7 @@ export function AuthScreen() {
 
         <div className="mt-5 border-t border-line pt-4 text-xs text-text-muted">
           {editingServer ? (
-            <Field label="Sunucu adresi">
+            <FormField label="Sunucu adresi" className="anim-slide-down">
               <TextInput
                 value={serverUrl}
                 onChange={(e) => setSettings({ serverUrl: e.target.value })}
@@ -149,7 +194,7 @@ export function AuthScreen() {
                 placeholder="https://diskort.ornek.com"
                 autoFocus
               />
-            </Field>
+            </FormField>
           ) : (
             <span>
               Sunucu: <span className="text-text-normal">{serverUrl}</span> ·{' '}

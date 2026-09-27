@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Copy, Trash2 } from 'lucide-react';
 import type { Invite } from '@diskort/shared';
 import { api, errorMessage } from '@diskort/client-core';
+import { confirmDialog } from '../../lib/dialog';
 import { cn } from '../../lib/utils';
 import { toast } from '../../stores/ui';
 import { Button, Field, SectionTitle, Select } from '../ui/controls';
@@ -82,7 +83,7 @@ export function InvitesSection() {
           const expired = inv.expiresAt !== null && inv.expiresAt < Date.now();
           const used = inv.maxUses !== null && inv.uses >= inv.maxUses;
           return (
-            <div key={inv.code} className="flex items-center gap-3 rounded bg-bg-side px-3 py-2">
+            <div key={inv.code} className="anim-rise-in flex items-center gap-3 rounded bg-bg-side px-3 py-2">
               <code className={cn('font-mono text-base text-text-head', (expired || used) && 'line-through opacity-50')}>
                 {inv.code}
               </code>
@@ -91,8 +92,9 @@ export function InvitesSection() {
                 {inv.expiresAt ? `${new Date(inv.expiresAt).toLocaleString('tr-TR')} tarihine kadar` : 'süresiz'}
               </span>
               <button
+                data-tooltip="Kopyala"
                 aria-label="Kopyala"
-                className="rounded p-1.5 text-text-muted hover:bg-bg-hover hover:text-text-head"
+                className="press-icon rounded p-1.5 text-text-muted hover:bg-bg-hover hover:text-text-head"
                 onClick={() => {
                   void navigator.clipboard.writeText(inv.code);
                   toast('Kopyalandı.');
@@ -101,9 +103,18 @@ export function InvitesSection() {
                 <Copy size={16} />
               </button>
               <button
-                aria-label="Sil"
-                className="rounded p-1.5 text-text-muted hover:bg-bg-hover hover:text-danger"
-                onClick={() => api.deleteInvite(inv.code).then(load).catch((err) => toast(errorMessage(err), 'error'))}
+                data-tooltip="Daveti sil"
+                aria-label="Daveti sil"
+                className="press-icon rounded p-1.5 text-text-muted hover:bg-bg-hover hover:text-danger"
+                onClick={async () => {
+                  const ok = await confirmDialog({
+                    title: 'Daveti sil',
+                    message: `${inv.code} davet kodu silinsin mi? Bu kodla artık kayıt olunamaz.`,
+                    confirmLabel: 'Sil',
+                    danger: true,
+                  });
+                  if (ok) api.deleteInvite(inv.code).then(load).catch((err) => toast(errorMessage(err), 'error'));
+                }}
               >
                 <Trash2 size={16} />
               </button>

@@ -3,7 +3,9 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-na
 import { api, errorMessage, gateway, removeAvatar, uploadAvatar, useSession } from '@diskort/client-core';
 import { pickAvatar } from '../attachments';
 import { Avatar } from '../components/Avatar';
-import { Button, Field, SectionTitle, ui } from '../components/ui';
+import { PressableScale } from '../components/PressableScale';
+import { Button, FadeIn, Field, SectionTitle, ui } from '../components/ui';
+import { animateNextLayout } from '../motion';
 import { registerForPush, unregisterPush, usePushState } from '../notifications';
 import { APP_VERSION, NATIVE_VERSION } from '../version';
 import { DEFAULT_SERVER_URL, useSettings } from '../stores/settings';
@@ -43,9 +45,9 @@ export default function SettingsScreen() {
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.profile}>
-        <Pressable onPress={() => void photo.change()} disabled={photo.busy !== null} accessibilityLabel="Profil fotoğrafını değiştir">
+        <PressableScale scaleTo={0.92} onPress={() => void photo.change()} disabled={photo.busy !== null} accessibilityLabel="Profil fotoğrafını değiştir">
           <Avatar user={user} size={64} />
-        </Pressable>
+        </PressableScale>
         <View style={{ flex: 1 }}>
           <Text style={styles.name}>{user.displayName}</Text>
           <Text style={styles.username}>@{user.username}</Text>
@@ -194,6 +196,7 @@ function DeleteAccount({ onDeleted }: { onDeleted: () => void }) {
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
 
   const submit = async (): Promise<void> => {
@@ -204,6 +207,7 @@ function DeleteAccount({ onDeleted }: { onDeleted: () => void }) {
       onDeleted();
     } catch (err) {
       setError(errorMessage(err));
+      setAttempt((n) => n + 1);
       setBusy(false);
     }
   };
@@ -218,17 +222,32 @@ function DeleteAccount({ onDeleted }: { onDeleted: () => void }) {
         <>
           <Field label="Onaylamak için şifren" value={password} onChangeText={setPassword} secureTextEntry autoFocus />
           {error && (
-            <View style={ui.errorBox}>
+            <FadeIn style={ui.errorBox} shakeKey={attempt}>
               <Text style={ui.errorText}>{error}</Text>
-            </View>
+            </FadeIn>
           )}
           <Button title="Hesabımı Kalıcı Olarak Sil" variant="danger" busy={busy} disabled={!password} onPress={() => void submit()} />
           <View style={{ marginTop: 8 }}>
-            <Button title="Vazgeç" variant="ghost" onPress={() => setOpen(false)} />
+            <Button
+              title="Vazgeç"
+              variant="ghost"
+              onPress={() => {
+                animateNextLayout(180);
+                setOpen(false);
+              }}
+            />
           </View>
         </>
       ) : (
-        <Button title="Hesabımı Sil" variant="danger" onPress={() => setOpen(true)} />
+        <Button
+          title="Hesabımı Sil"
+          variant="danger"
+          onPress={() => {
+            // Şifre alanı yumuşakça açılır
+            animateNextLayout(200);
+            setOpen(true);
+          }}
+        />
       )}
     </View>
   );
