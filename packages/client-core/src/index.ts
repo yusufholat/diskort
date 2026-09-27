@@ -28,6 +28,6 @@ export {
   type LocalMessage,
   type LocalUpload,
 } from './messages';
-export { attachmentUrl, formatBytes } from './uploads';
+export { attachmentUrl, avatarUrl, formatBytes, removeAvatar, uploadAvatar } from './uploads';
 export { EMOJI_CATEGORIES, QUICK_REACTIONS, type EmojiCategory } from './emoji';
 export { parseInline, parseMarkdown, type MdBlock, type MdInline, type MdStyle } from './markdown';
