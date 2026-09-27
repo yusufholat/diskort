@@ -63,6 +63,23 @@ export async function pickMedia(): Promise<LocalFile[]> {
   );
 }
 
+/**
+ * Profil fotoğrafı için galeriden tek resim seçtirir ve Android'in kırpma ekranında kare kırptırır.
+ * Küçültmeyi sunucu yapar (256×256); yerel resim işleme modülü gerekmez.
+ */
+export async function pickAvatar(): Promise<LocalFile | null> {
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsEditing: true,
+    aspect: [1, 1],
+    quality: 0.9,
+  });
+  if (result.canceled || !result.assets[0]) return null;
+  const a = result.assets[0];
+  // Boyut kırpılmış dosyanın kendisinden okunur (seçicinin bildirdiği özgün resme ait olabilir)
+  return withSize({ name: a.fileName ?? baseName(a.uri), type: a.mimeType ?? 'image/jpeg', uri: a.uri });
+}
+
 /** Herhangi bir dosya seçer (sistemin dosya seçicisi). */
 export async function pickDocuments(): Promise<LocalFile[]> {
   const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true });
