@@ -1,11 +1,17 @@
-"""DPDFNet ONNX modeli için çevrimdışı grafik dönüşümleri (deneme ve ölçüm aracı).
+"""DPDFNet ONNX modeli için çevrimdışı grafik dönüşümleri.
 
+  --int8-all        Sabit ağırlıklı tüm Gemm/MatMul düğümlerini (GRUCell'ler, tam bağlı katmanlar) dinamik
+                    int8'e çevirir: ağırlıklar sütun başına simetrik int8, etkinlikler her karede uint8'e
+                    (com.microsoft DynamicQuantizeMatMul). Telefondaki model budur:
+                      python optimize_model.py <masaüstündeki dpdfnet2_48khz_hr.onnx> \\
+                        ../android/src/main/assets/dpdfnet2_48khz_hr_int8.onnx --int8-all
+                    Çıktı belirlenimcidir (aynı girişten bayt bayt aynı dosya).
+  --int8-gru-cells  Yalnızca GRUCell'lerin büyük (≥ 100k) matrisleri (deneme).
   --fuse-gru-cells  PyTorch GRUCell'in açık hâlini (2 Gemm + Split + Sigmoid/Tanh ... 14 düğüm) tek bir
-                    ONNX GRU düğümüne (linear_before_reset=1) çevirir. Matematik aynı (çıkış farkı ~1e-7).
-  --int8-gru-cells  GRUCell'lerin büyük (≥ 100k) ağırlık matrislerini sütun başına int8'e çevirir
-                    (com.microsoft DynamicQuantizeMatMul). Kalite kaybı olabilir: bench_model.py ile ölç.
+                    ONNX GRU düğümüne (linear_before_reset=1) çevirir. Matematik aynı (çıkış farkı ~1e-7)
+                    ama ARM64'te hızlandırmadı (bench_model.py), kullanılmıyor.
 
-Kullanım: python optimize_model.py giriş.onnx çıkış.onnx [--fuse-gru-cells] [--int8-gru-cells]
+Kullanım: python optimize_model.py giriş.onnx çıkış.onnx [--int8-all] [--int8-gru-cells] [--fuse-gru-cells]
 Gerekenler: pip install onnx numpy
 """
 import argparse
@@ -46,18 +52,23 @@ def _replace(g, nodes, removed, inserted, new_inits):
     g.initializer.extend(keep)
 
 
-def int8_gru_cells(m, min_size=100_000):
+def int8_gru_cells(m, min_size=100_000, everything=False):
+    """everything: GRUCell'lerle sınırlı kalma, sabit ağırlıklı her Gemm/MatMul (min_size'dan büyük)."""
     g = m.graph
     init = {t.name: t for t in g.initializer}
     nodes = list(g.node)
     removed, inserted, new_inits = set(), {}, []
     for n in nodes:
-        if n.op_type != "Gemm" or "grucell" not in n.name or n.input[1] not in init:
+        if n.op_type not in ("Gemm", "MatMul") or len(n.input) < 2 or n.input[1] not in init:
+            continue
+        if not everything and (n.op_type != "Gemm" or "grucell" not in n.name):
             continue
         at = _attrs(n)
         if at.get("transA", 0) or at.get("alpha", 1.0) != 1.0 or at.get("beta", 1.0) != 1.0:
             continue
         w = numpy_helper.to_array(init[n.input[1]])
+        if w.ndim != 2 or (n.op_type == "Gemm" and len(n.input) > 2 and n.input[2] in init and numpy_helper.to_array(init[n.input[2]]).ndim != 1):
+            continue
         if at.get("transB", 0):
             w = w.T  # [K, N]
         if w.size < min_size:
@@ -164,13 +175,29 @@ def main():
     ap.add_argument("dst")
     ap.add_argument("--fuse-gru-cells", action="store_true")
     ap.add_argument("--int8-gru-cells", action="store_true")
+    ap.add_argument("--int8-all", action="store_true", help="sabit ağırlıklı tüm Gemm/MatMul int8")
     a = ap.parse_args()
     m = onnx.load(a.src)
     before = len(m.graph.node)
-    if a.int8_gru_cells:
-        print("int8 GRUCell Gemm:", int8_gru_cells(m))
+    changes = []
+    if a.int8_all:
+        n = int8_gru_cells(m, min_size=0, everything=True)
+        changes.append(f"{n} Gemm/MatMul -> DynamicQuantizeMatMul (int8 weights, per-column scale)")
+    elif a.int8_gru_cells:
+        n = int8_gru_cells(m)
+        changes.append(f"{n} GRUCell Gemm -> DynamicQuantizeMatMul (int8 weights, per-column scale)")
     if a.fuse_gru_cells:
-        print("GRUCell -> GRU:", fuse_gru_cells(m))
+        n = fuse_gru_cells(m)
+        changes.append(f"{n} GRUCell subgraphs -> ONNX GRU")
+    print("\n".join(changes))
+    if changes:
+        # Apache 2.0 madde 4(b): değiştirilen dosya bunu belirtmeli
+        meta = {p.key: p for p in m.metadata_props}
+        note = "Modified by Diskort (apps/mobile/modules/noise-filter/scripts/optimize_model.py): " + "; ".join(changes)
+        if "modified" in meta:
+            meta["modified"].value = note
+        else:
+            m.metadata_props.append(onnx.StringStringEntryProto(key="modified", value=note))
     onnx.checker.check_model(m)
     onnx.save(m, a.dst)
     print(f"nodes: {before} -> {len(m.graph.node)}")
