@@ -203,26 +203,45 @@ export function searchSuggestions(
   const last = text.split(/\s/).at(-1) ?? '';
   const m = last.match(/^([^:\s]+):(.*)$/);
   if (!m) return [];
-  const key = foldSearchText(m[1]!);
-  const value = foldSearchText(m[2]!.replace(/^[@#]/, ''));
+  const all = suggestionsFor(m[1]!, m[2]!, s, dm, limit);
+  // Değer zaten tamamsa (ör. arama yapılmış "from:ali") öneri gösterilmez
+  return all.some((x) => foldSearchText(x.insert.trim()) === foldSearchText(last)) ? [] : all;
+}
+
+function suggestionsFor(
+  op: string,
+  raw: string,
+  s: Pick<GuildStore, 'users' | 'channels'>,
+  dm: boolean,
+  limit: number,
+): SearchSuggestion[] {
+  const key = foldSearchText(op);
+  const value = foldSearchText(raw.replace(/^[@#]/, ''));
   if (key === 'from' || key === 'kimden') {
     return Object.values(s.users)
       .filter((u) => !u.removed)
       .filter((u) => foldSearchText(u.username).startsWith(value) || foldSearchText(u.displayName).startsWith(value))
       .sort((a, b) => a.displayName.localeCompare(b.displayName, 'tr'))
       .slice(0, limit)
-      .map((u) => ({ key: u.id, insert: `${m[1]}:${u.username} `, label: u.displayName, detail: u.username, user: u }));
+      .map((u) => ({
+        key: u.id,
+        insert: `${op}:${u.username} `,
+        label: u.displayName,
+        // Kullanıcı adı görünen adla aynıysa tekrar yazılmaz
+        detail: foldSearchText(u.displayName) === foldSearchText(u.username) ? undefined : u.username,
+        user: u,
+      }));
   }
   if (!dm && (key === 'in' || key === 'kanal')) {
     return s.channels
       .filter((c) => c.type === 'text' && foldSearchText(c.name).startsWith(value))
       .slice(0, limit)
-      .map((c) => ({ key: c.id, insert: `${m[1]}:${c.name} `, label: `#${c.name}` }));
+      .map((c) => ({ key: c.id, insert: `${op}:${c.name} `, label: `#${c.name}` }));
   }
   if (key === 'has' || key === 'iceren' || key === 'icerir') {
     return SEARCH_HAS_VALUES.map((h) => SEARCH_HAS_LABELS[h])
       .filter((label) => foldSearchText(label).startsWith(value))
-      .map((label) => ({ key: label, insert: `${m[1]}:${label} `, label }));
+      .map((label) => ({ key: label, insert: `${op}:${label} `, label }));
   }
   return [];
 }

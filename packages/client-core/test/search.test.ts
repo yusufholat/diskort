@@ -90,6 +90,8 @@ describe('arama', () => {
     expect(searchSuggestions('merhaba from:', s, false).map((x) => x.key)).toEqual(['ali', 'sahip', 'veli']);
     expect(searchSuggestions('from:@ALI', s, false).map((x) => x.insert)).toEqual(['from:ali ']);
     expect(searchSuggestions('kimden:ali ı', s, false)).toEqual([]);
+    // Tamamlanmış değerde öneri yok (arama yapıldıktan sonra kutuda kalan metin)
+    expect(searchSuggestions('kitap from:ali', s, false)).toEqual([]);
     expect(searchSuggestions('from:ali-isik', s, false)).toEqual([]);
     expect(searchSuggestions('in:#g', s, false).map((x) => x.label)).toEqual(['#genel', '#gizli']);
     expect(searchSuggestions('in:g', s, true)).toEqual([]);

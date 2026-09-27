@@ -41,7 +41,7 @@ export function SearchBox({ scope, placeholder }: { scope: SearchScope; placehol
 
   // Arama başka yerden kapatılınca (panelin X'i) kutu da boşalır
   useEffect(() => {
-    setText(current);
+    setText((t) => (t.trim() === current ? t : current));
   }, [current]);
   useEffect(() => setSelected(0), [suggestions]);
 
