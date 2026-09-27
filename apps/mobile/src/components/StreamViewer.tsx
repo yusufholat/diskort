@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { VideoTrack } from '@livekit/react-native';
 import { RemoteVideoTrack, Track } from 'livekit-client';
-import { useGuild } from '@diskort/client-core';
+import { isStreamMuted, shownStreamVolume, useGuild } from '@diskort/client-core';
 import { spring, timing } from '../motion';
 import { useSettings } from '../stores/settings';
 import { colors } from '../theme';
@@ -62,7 +62,9 @@ export function StreamViewer({
   const name = useGuild((s) => s.users[userId]?.displayName ?? '…');
   const ended = useVoice((s) => s.streamEnded === userId && s.watching !== userId);
   const hasAudio = useVoice((s) => Boolean(s.streamAudio[userId]));
-  const volume = useSettings((s) => s.streamVolumes[userId] ?? 1);
+  // Kaydedilmiş istek (sessize alma ayrı tutulur); ses izi her geldiğinde voice bunu yeniden uygular
+  const volume = useSettings((s) => shownStreamVolume(s, userId));
+  const streamMuted = useSettings((s) => isStreamMuted(s, userId));
   // Abonelik değişince (iz geldi/gitti) yeniden çiz
   useVoice((s) => s.tracksVersion);
   const found = ended ? null : voice.getScreenPublication(userId);
@@ -189,6 +191,8 @@ export function StreamViewer({
                 label="Yayın sesi"
                 style={{ flex: 1, maxWidth: fullscreen ? 380 : undefined }}
                 value={volume}
+                muted={streamMuted}
+                onToggleMute={() => voice.toggleStreamAudio(userId)}
                 onInteract={poke}
                 onPreview={(v) => voice.setVolume(userId, 'stream', v, false)}
                 onCommit={(v) => voice.setVolume(userId, 'stream', v)}

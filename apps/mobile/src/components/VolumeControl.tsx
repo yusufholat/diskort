@@ -8,6 +8,7 @@ import { Slider } from './Slider';
 
 /** Ses seviyesi 0–2 (%0–%200); %100'de kaydırıcı hafifçe yapışır */
 const MAX = 2;
+const HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 0 };
 
 function volumeIcon(v: number): 'volume-mute' | 'volume-low' | 'volume-medium' | 'volume-high' {
   if (v <= 0) return 'volume-mute';
@@ -19,16 +20,23 @@ function volumeIcon(v: number): 'volume-mute' | 'volume-low' | 'volume-medium' |
 /**
  * Sessize alma düğmesi + kaydırıcı + yüzde. Sürüklerken ses anında değişir (`onPreview`),
  * bırakınca kaydedilir (`onCommit`). Sessizden açınca son duyulan seviyeye döner.
+ * `muted`/`onToggleMute` verilirse sessize alma ayrı bir durumdur (yayın sesi): düğme o durumu gösterir
+ * ve değiştirir, seviye korunur.
  */
 export function VolumeControl({
   value,
   onPreview,
   onCommit,
   onInteract,
+  muted: mutedProp,
+  onToggleMute,
   label,
   style,
 }: {
   value: number;
+  /** Ayrı tutulan sessize alma durumu (verilmezse seviye 0 sessiz sayılır) */
+  muted?: boolean;
+  onToggleMute?: () => void;
   onPreview: (value: number) => void;
   onCommit: (value: number) => void;
   /** Her dokunuşta (tam ekranda denetimlerin kaybolma süresini uzatmak için) */
@@ -40,21 +48,24 @@ export function VolumeControl({
   const shown = preview ?? value;
   const lastAudible = useRef(value > 0 ? value : 1);
   if (value > 0) lastAudible.current = value;
-  const muted = shown <= 0;
+  const muted = preview !== null ? preview <= 0 : (mutedProp ?? shown <= 0);
 
   return (
     <View style={[styles.row, style]}>
       <Pressable
         onPress={() => {
           onInteract?.();
-          onCommit(muted ? lastAudible.current : 0);
+          setPreview(null);
+          if (onToggleMute) onToggleMute();
+          else onCommit(muted ? lastAudible.current : 0);
         }}
-        hitSlop={8}
+        // Sağda pay yok: kaydırıcının başına taşarsa dokunuş sesi 0'a çeker (düğme çalışmıyor sanılır)
+        hitSlop={HIT_SLOP}
         style={({ pressed }) => [styles.mute, pressed && { opacity: 0.6 }]}
         accessibilityRole="button"
         accessibilityLabel={muted ? `${label}: sesi aç` : `${label}: sessize al`}
       >
-        <Ionicons name={volumeIcon(shown)} size={20} color={muted ? colors.danger : '#fff'} />
+        <Ionicons name={volumeIcon(muted ? 0 : shown)} size={20} color={muted ? colors.danger : '#fff'} />
       </Pressable>
       <Slider
         style={styles.slider}
