@@ -273,7 +273,9 @@ export {
 } from './search';
 export {
   ChannelSoundGate,
+  DEFAULT_SOUND_PACK,
   encodeWav,
+  isSoundPack,
   OTHERS_QUIET_MS,
   OTHERS_SOUNDS,
   renderSound,
@@ -281,5 +283,9 @@ export {
   SFX_SAMPLE_RATE,
   SOUND_LABELS,
   SOUND_NAMES,
+  SOUND_PACK_LABELS,
+  SOUND_PACK_PEAK_DBFS,
+  SOUND_PACKS,
   type SoundName,
+  type SoundPack,
 } from './sfx';

@@ -1,5 +1,5 @@
 import { Play } from 'lucide-react';
-import { SOUND_LABELS, SOUND_NAMES } from '@diskort/client-core';
+import { SOUND_LABELS, SOUND_NAMES, SOUND_PACK_LABELS, SOUND_PACKS } from '@diskort/client-core';
 import { useEffect, useRef, useState } from 'react';
 import { voice } from '../../features/voice/voiceClient';
 import { MIC_TEST_RECORD_MS, type MicTest, type MicTestPhase } from '../../features/voice/micTest';
@@ -367,7 +367,7 @@ export function VoiceSettings() {
   );
 }
 
-/** Ses efektleri: açık/kapalı, seviye ve her sesi dinleme listesi */
+/** Ses efektleri: açık/kapalı, seviye, ses paketi ve seçili paketin her sesini dinleme listesi */
 function SoundSettings() {
   const s = useSettings();
   const volume = Math.round(s.sfxVolume * 100);
@@ -386,6 +386,19 @@ function SoundSettings() {
         onPointerUp={() => playSound('unmute', { preview: true })}
         onKeyUp={() => playSound('unmute', { preview: true })}
       />
+      <div className="mt-4">
+        <div className="mb-2 text-xs font-bold text-text-muted uppercase">Ses paketi</div>
+        <Select
+          aria-label="Ses paketi"
+          value={s.soundPack}
+          onChange={(soundPack) => {
+            s.set({ soundPack });
+            // Yeni paketten bir örnek
+            playSound('join', { preview: true });
+          }}
+          options={SOUND_PACKS.map((value) => ({ value, label: SOUND_PACK_LABELS[value] }))}
+        />
+      </div>
       <div className="mt-4 space-y-4">
         <Toggle
           label="Arayüz sesleri"
