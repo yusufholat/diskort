@@ -1,13 +1,24 @@
 import { AndroidAudioTypePresets, AudioSession } from '@livekit/react-native';
-import { api, errorMessage, gateway, useGuild, useSession } from '@diskort/client-core';
+import {
+  api,
+  errorMessage,
+  gateway,
+  reportClientError,
+  reportVoiceLog,
+  SpuriousDuplicateGuard,
+  useGuild,
+  useSession,
+} from '@diskort/client-core';
 import {
   ConnectionState,
   DisconnectReason,
   type Participant,
   type RemoteParticipant,
   type RemoteTrackPublication,
+  LogLevel,
   Room,
   RoomEvent,
+  setLogExtension,
   Track,
 } from 'livekit-client';
 import { Dimensions, PermissionsAndroid, PixelRatio, Platform } from 'react-native';
@@ -115,6 +126,7 @@ async function requestPermissions(): Promise<boolean> {
 class MobileVoiceClient {
   private room: Room | null = null;
   private joinSeq = 0;
+  private readonly duplicates = new SpuriousDuplicateGuard();
 
   constructor() {
     // Bildirimdeki düğmeler
@@ -434,14 +446,30 @@ class MobileVoiceClient {
         void this.applyLocalState();
         if (useVoice.getState().sharing && !canPublish(room, PROTO_SOURCE.screenShare)) void this.toggleScreenShare();
       })
-      .on(RoomEvent.Reconnecting, () => useVoice.setState({ status: 'reconnecting' }))
+      .on(RoomEvent.Reconnecting, () => {
+        this.duplicates.noteReconnect();
+        useVoice.setState({ status: 'reconnecting' });
+      })
+      .on(RoomEvent.SignalReconnecting, () => this.duplicates.noteReconnect())
       .on(RoomEvent.Reconnected, () => {
+        this.duplicates.noteReconnect();
         useVoice.setState({ status: 'connected' });
         this.syncVoiceState();
       })
       .on(RoomEvent.Disconnected, (reason) => {
         // Kendi başlattığımız ayrılma değilse: sunucu çıkardı, başka cihaza geçildi ya da bağlantı koptu
         if (this.room !== room || room.state !== ConnectionState.Disconnected) return;
+        const channelId = useVoice.getState().channelId;
+        if (reason !== DisconnectReason.CLIENT_INITIATED) {
+          reportClientError(new Error(`ses bağlantısı kapandı: ${DisconnectReason[reason ?? 0] ?? reason}`), 'ses');
+        }
+        // Kendi yeniden bağlanmamızın ardından gelen "başka cihaz" uyarısı: sessizce kanala geri dön
+        if (channelId && this.duplicates.shouldRejoin(reason === DisconnectReason.DUPLICATE_IDENTITY)) {
+          void this.leave()
+            .then(() => this.join(channelId))
+            .catch((err: Error) => toast(err.message, 'error'));
+          return;
+        }
         toast(disconnectMessage(reason), reason === DisconnectReason.CLIENT_INITIATED ? 'info' : 'error');
         void this.leave();
       });
@@ -459,6 +487,9 @@ class MobileVoiceClient {
     }
   }
 }
+
+// LiveKit'in uyarıları sunucu kayıtlarına: telefondaki bağlantı sorunlarının nedenini görmek için
+setLogExtension((level, message, context) => reportVoiceLog(level, LogLevel.warn, message, context));
 
 export const voice = new MobileVoiceClient();
 
