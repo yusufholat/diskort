@@ -1,6 +1,6 @@
 // Uygulamanın her şeyden önce çalışan kurulumu (index.ts'te ilk içe aktarılır).
 import { registerGlobals } from '@livekit/react-native';
-import { configureClient, reportClientError, useGuild } from '@diskort/client-core';
+import { configureClient, reportClientError, useGuild, useSession } from '@diskort/client-core';
 import * as SecureStore from 'expo-secure-store';
 import { AppState, Vibration } from 'react-native';
 import { uploadFromDevice } from './attachments';
@@ -35,7 +35,8 @@ export const clientReady = configureClient({
     const author = message.authorId ? guild.users[message.authorId]?.displayName : undefined;
     const channel = guild.channels.find((c) => c.id === message.channelId)?.name;
     Vibration.vibrate(60);
-    toast(`${author ?? 'Biri'} senden bahsetti · #${channel ?? ''}`);
+    const replied = message.replyMentionUserId != null && message.replyMentionUserId === useSession.getState().user?.id;
+    toast(`${author ?? 'Biri'} ${replied ? 'sana yanıt verdi' : 'senden bahsetti'} · #${channel ?? ''}`);
   },
   onUpdateRequired: (version) => useUi.setState({ updateRequired: version }),
   // Yeni sürüm yayınlandı: hemen denetle. Arayüz güncellemesi arka planda iner, uygulamaya dönünce

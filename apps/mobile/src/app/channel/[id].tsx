@@ -17,10 +17,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Permission } from '@diskort/shared';
 import {
   ackChannel,
+  clearJump,
   deleteMessage,
   loadInitial,
   loadOlder,
   QUICK_REACTIONS,
+  startReply,
   toggleReaction,
   useCan,
   useGuild,
@@ -63,6 +65,10 @@ export default function TextChannelScreen() {
   // Başkasının mesajını silmek ve yeni tepki eklemek kanaldaki yetkiye bağlı
   const canManageMessages = useCan(Permission.MANAGE_MESSAGES, id);
   const canReact = useCan(Permission.ADD_REACTIONS, id);
+  const canSend = useCan(Permission.SEND_MESSAGES, id);
+  const jump = useMessages((s) => s.jump);
+  // Alıntıdan atlanan mesaj: kısa süre vurgulanır
+  const [flash, setFlash] = useState<{ id: string; seq: number } | null>(null);
 
   const [atBottom, setAtBottom] = useState(true);
   const [active, setActive] = useState(AppState.currentState === 'active');
@@ -99,6 +105,16 @@ export default function TextChannelScreen() {
 
   // Ters liste: en yeni mesaj en altta (indeks 0)
   const data = useMemo(() => [...messages].reverse(), [messages]);
+
+  // Yanıtın alıntısına dokununca asıl mesaja kaydır (yüklü değilse çekirdek önce geçmişi yükler)
+  useEffect(() => {
+    if (!jump || jump.channelId !== id) return;
+    const index = data.findIndex((m) => m.id === jump.messageId && !m.status);
+    if (index < 0) return;
+    clearJump(jump.seq);
+    list.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+    setFlash({ id: jump.messageId, seq: jump.seq });
+  }, [jump, data, id]);
 
   // Yeni gelen mesajlar animasyonla belirir; geçmiş yüklenirken, eski mesajlar eklenirken ve
   // bekleyen mesajımız onaylanırken (anahtarı değişir) oynatılmaz.
@@ -153,6 +169,16 @@ export default function TextChannelScreen() {
           scrollEventThrottle={100}
           onEndReached={() => void loadOlder(id)}
           onEndReachedThreshold={0.4}
+          extraData={flash}
+          // Satır yükseklikleri değişken: hedef henüz ölçülmediyse önce tahmini yere, sonra tam yerine kaydır
+          onScrollToIndexFailed={(info) => {
+            list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+            setTimeout(() => {
+              if (info.index < data.length) {
+                list.current?.scrollToIndex({ index: info.index, viewPosition: 0.5, animated: true });
+              }
+            }, 120);
+          }}
           contentContainerStyle={{ paddingVertical: 8 }}
           // Geçmiş gelene kadar mesaj biçimli iskelet
           ListEmptyComponent={!loaded ? <MessageSkeleton rows={8} /> : null}
@@ -170,9 +196,11 @@ export default function TextChannelScreen() {
           renderItem={({ item, index }) => {
             const older = data[index + 1];
             const dayBreak = !older || !sameDay(older.createdAt, item.createdAt);
+            // Yanıt her zaman başlıklı gösterilir (üstünde alıntısı olur)
             const compact =
               !!older &&
               !dayBreak &&
+              !item.replyToId &&
               older.authorId === item.authorId &&
               older.status !== 'failed' &&
               item.createdAt - older.createdAt < GROUP_WINDOW_MS;
@@ -186,6 +214,7 @@ export default function TextChannelScreen() {
                 md={md}
                 onLongPress={setMenuFor}
                 animateIn={fresh.has(keyOf(item))}
+                flash={flash?.id === item.id ? flash.seq : 0}
               />
             );
           }}
@@ -213,6 +242,7 @@ export default function TextChannelScreen() {
         self={self}
         canManageMessages={canManageMessages}
         canReact={canReact}
+        canReply={canSend}
         onClose={() => setMenuFor(null)}
         onEdit={(m) => setEditing(m)}
       />
@@ -229,6 +259,7 @@ function MessageMenu({
   self,
   canManageMessages,
   canReact,
+  canReply,
   onClose,
   onEdit,
 }: {
@@ -238,6 +269,8 @@ function MessageMenu({
   canManageMessages: boolean;
   /** Yeni tepki ekleyebilir mi (var olan tepkilere katılmak her zaman serbest) */
   canReact: boolean;
+  /** Kanala yazabiliyor mu (yanıt da bir mesajdır) */
+  canReply: boolean;
   onClose: () => void;
   onEdit: (m: LocalMessage) => void;
 }) {
@@ -302,6 +335,7 @@ function MessageMenu({
           </View>
           <MessageMenuItems
             message={shown}
+            canReply={canReply}
             canEdit={canEdit}
             canDelete={canDelete}
             confirm={confirm}
@@ -320,6 +354,7 @@ function MessageMenu({
 
 function MessageMenuItems({
   message,
+  canReply,
   canEdit,
   canDelete,
   confirm,
@@ -328,6 +363,7 @@ function MessageMenuItems({
   onEdit,
 }: {
   message: LocalMessage | null;
+  canReply: boolean;
   canEdit: boolean;
   canDelete: boolean;
   confirm: boolean;
@@ -337,6 +373,16 @@ function MessageMenuItems({
 }) {
   return (
     <>
+      {canReply && (
+        <MenuItem
+          icon="arrow-undo-outline"
+          label="Yanıtla"
+          onPress={() => {
+            if (message) startReply(message);
+            close();
+          }}
+        />
+      )}
       {message?.content ? (
         <MenuItem
           icon="copy-outline"
