@@ -35,6 +35,15 @@ export interface Config {
   giphyLang: string;
   /** Mesajlardaki bağlantıların önizlemesi (LINK_PREVIEWS=0 kapatır; testlerde varsayılan kapalı) */
   linkPreviews: boolean;
+  /**
+   * Yönetim paneli için düzenli sistem ölçümü (CPU, bellek, ağ; 5 sn) ve kalıcı sayaçlar (<DATA_DIR>/traffic.json,
+   * activity.json). SYSTEM_STATS=0 kapatır; testlerde varsayılan kapalı (panel yine istek anında ölçer).
+   */
+  systemStats: boolean;
+  /** Makine bilgilerinin okunduğu /proc kökü (PROC_ROOT, varsayılan /proc) */
+  procRoot: string;
+  /** Aylık trafik kotası, bayt (TRAFFIC_QUOTA_GB, varsayılan 5000 GB = 5 TB; gelen + giden) */
+  trafficQuotaBytes: number;
   isDev: boolean;
 }
 
@@ -58,6 +67,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const attachmentMaxMb = Number(env.ATTACHMENT_MAX_MB || 25);
   if (!Number.isFinite(attachmentMaxMb) || attachmentMaxMb <= 0) {
     throw new Error(`Geçersiz ATTACHMENT_MAX_MB: ${env.ATTACHMENT_MAX_MB}`);
+  }
+
+  const trafficQuotaGb = Number(env.TRAFFIC_QUOTA_GB || 5000);
+  if (!Number.isFinite(trafficQuotaGb) || trafficQuotaGb <= 0) {
+    throw new Error(`Geçersiz TRAFFIC_QUOTA_GB: ${env.TRAFFIC_QUOTA_GB}`);
   }
 
   const giphyRating = (env.GIPHY_RATING || 'pg-13').toLowerCase();
@@ -100,6 +114,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     giphyRating,
     giphyLang,
     linkPreviews: env.LINK_PREVIEWS ? env.LINK_PREVIEWS !== '0' : env.NODE_ENV !== 'test',
+    systemStats: env.SYSTEM_STATS ? env.SYSTEM_STATS !== '0' : env.NODE_ENV !== 'test',
+    procRoot: env.PROC_ROOT || '/proc',
+    trafficQuotaBytes: Math.round(trafficQuotaGb * 1e9),
     isDev,
   };
 }

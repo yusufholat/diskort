@@ -2,6 +2,7 @@ import {
   AccessToken,
   RoomServiceClient,
   TrackSource,
+  TrackType,
   WebhookReceiver,
   type WebhookEvent,
 } from 'livekit-server-sdk';
@@ -10,6 +11,30 @@ import type { Config } from './config.js';
 import type { VoiceSnapshotEntry } from './voiceState.js';
 
 const TOKEN_TTL = '12h';
+
+/** Yönetim paneli: bir katılımcının LiveKit'te yayınladığı iz */
+export interface LiveTrack {
+  kind: 'audio' | 'video';
+  source: 'microphone' | 'camera' | 'screen' | 'screen_audio' | 'unknown';
+  muted: boolean;
+  /** ör. audio/opus, video/VP8 */
+  mimeType: string;
+  width: number;
+  height: number;
+}
+
+/** Yönetim paneli: LiveKit'teki bir ses odası */
+export interface LiveRoom {
+  channelId: string;
+  participants: { userId: string; joinedAt: number; tracks: LiveTrack[] }[];
+}
+
+const TRACK_SOURCES: Partial<Record<TrackSource, LiveTrack['source']>> = {
+  [TrackSource.MICROPHONE]: 'microphone',
+  [TrackSource.CAMERA]: 'camera',
+  [TrackSource.SCREEN_SHARE]: 'screen',
+  [TrackSource.SCREEN_SHARE_AUDIO]: 'screen_audio',
+};
 
 /** Yayınlanabilecek kaynaklar: mikrofon (SPEAK), ekran ve sesi (STREAM) */
 export type PublishSources = TrackSource[];
@@ -109,6 +134,34 @@ export class LiveKitService {
           streaming: p.tracks.some((t) => t.source === TrackSource.SCREEN_SHARE),
         });
       }
+    }
+    return result;
+  }
+
+  /** Yönetim paneli: odalar, katılımcılar ve yayınladıkları izler (LiveKit'e ulaşılamazsa hata atar) */
+  async liveRooms(): Promise<LiveRoom[]> {
+    const result: LiveRoom[] = [];
+    for (const room of await this.rooms.listRooms()) {
+      const channelId = channelIdFromRoom(room.name);
+      if (!channelId) continue;
+      const participants = room.numParticipants === 0 ? [] : await this.rooms.listParticipants(room.name);
+      result.push({
+        channelId,
+        participants: participants.map((p) => ({
+          userId: p.identity,
+          joinedAt: Number(p.joinedAtMs) || Number(p.joinedAt) * 1000,
+          tracks: p.tracks
+            .filter((t) => t.type === TrackType.AUDIO || t.type === TrackType.VIDEO)
+            .map((t) => ({
+              kind: t.type === TrackType.AUDIO ? 'audio' : 'video',
+              source: TRACK_SOURCES[t.source] ?? 'unknown',
+              muted: t.muted,
+              mimeType: t.mimeType,
+              width: t.width,
+              height: t.height,
+            })),
+        })),
+      });
     }
     return result;
   }

@@ -144,6 +144,27 @@ docker compose exec api node dist/admin-cli.js grant <kullanıcı>
 docker compose exec api node dist/admin-cli.js revoke <kullanıcı>   # son yönetici alınamaz
 ```
 
+### Yönetim paneli (site: `/admin`)
+
+Hesap yöneticileri için telefona uygun web sayfası (`apps/web/admin.html`; ana sayfadan bağlantı yok, `noindex`).
+Diskort hesabıyla giriş yapılır (`POST /api/auth/login`); yönetici olmayana "yalnızca yöneticiler" yazar. Sekme
+açıkken 5 sn'de bir `GET /api/admin/dashboard` (yalnızca hesap yöneticileri; ?tz= istemcinin saat dilimi) okunur:
+
+- **Genel bakış:** hesaplar, bağlı kişiler, son 24 saat / 7 günde etkin hesaplar (bağlananlar + mesaj yazanlar),
+  son 14 günün günlük mesaj sayıları, depolama (veritabanı, dosya ekleri, resim klasörleri).
+- **Ses ve yayın:** sesteki kişiler (kanal, süre, susturma, yayın ve LiveKit'teki izleri: çözünürlük/kodek).
+- **Sunucu:** CPU, bellek, disk, ağ hızı (grafikler son 15 dk, 5 sn aralıklı) ve bu ayın trafiği / kota.
+  Makine bilgileri `/proc`'tan okunur (API host ağında çalıştığından `/proc/net/dev` makinenin arayüzleridir).
+- **Sürümler ve istemciler:** platform ve sürüme göre bağlantılar, hesapların son görülme anı ve cihazı.
+- **Hatalar:** son istemci hataları (`/api/client-errors`) ve 5xx ile biten istekler (son 200'er, yalnızca bellekte).
+- **Geri bildirim:** durumlara göre sayılar.
+
+Kalıcı küçük dosyalar `<DATA_DIR>`'da: `traffic.json` (aylık trafik sayacı, dış arayüzlerin gelen + giden baytı;
+ilk çalışmada makine bu ay açıldıysa açılıştan beri olan trafik de sayılır; makine yeniden açılınca sayaç sıfırlansa
+da toplam sürer, en çok dakikada bir yazılır) ve `activity.json` (hesapların son görülme anı). Ayarlar (isteğe bağlı,
+compose'da `api` ortamına eklenir): `TRAFFIC_QUOTA_GB` (aylık kota, varsayılan 5000 = 5 TB, gelen + giden),
+`SYSTEM_STATS=0` (düzenli ölçümü kapatır), `PROC_ROOT` (varsayılan `/proc`).
+
 ## Direkt mesajlar
 
 - **Veri modeli (şema 9):** konuşma da bir kanaldır (`channels.type = 'dm'`, topluluğa bağlı değil); mesajlar,

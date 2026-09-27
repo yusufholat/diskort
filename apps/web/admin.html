@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Yönetim Paneli — Diskort</title>
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#0d0e14" />
+    <link rel="icon" href="/assets/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/styles.css" />
+    <!-- Hesap yöneticilerine sunucunun genel durumu; veriler GET /api/admin/dashboard'dan (bkz. admin.js) -->
+    <script type="module" src="/admin.js"></script>
+  </head>
+  <body>
+    <div class="page adm">
+      <header class="nav adm-nav">
+        <a class="brand small" href="/" aria-label="Diskort ana sayfa">
+          <img src="/assets/logo.svg" alt="" width="28" height="28" />
+          <span>Diskort</span>
+        </a>
+        <span class="adm-title">Yönetim Paneli</span>
+        <div class="adm-session" id="adm-session" hidden>
+          <span class="adm-live" id="adm-live" role="status"><i></i><span id="adm-live-text">Bağlanıyor…</span></span>
+          <button type="button" class="btn btn-ghost adm-logout" id="adm-logout">Çıkış</button>
+        </div>
+      </header>
+
+      <main class="adm-main">
+        <section id="adm-login" class="adm-box" hidden>
+          <h1>Yönetim Paneli</h1>
+          <p>Diskort hesabınla giriş yap. Bu sayfa yalnızca hesap yöneticileri içindir.</p>
+          <form id="adm-login-form" class="adm-form" novalidate>
+            <label>
+              <span>Kullanıcı adı</span>
+              <input name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required />
+            </label>
+            <label>
+              <span>Şifre</span>
+              <input name="password" type="password" autocomplete="current-password" required />
+            </label>
+            <label class="adm-check">
+              <input name="remember" type="checkbox" />
+              <span>Beni hatırla (bu cihazda açık kalsın)</span>
+            </label>
+            <p class="adm-error" id="adm-login-error" role="alert" hidden></p>
+            <button type="submit" class="btn btn-primary" id="adm-login-submit">Giriş yap</button>
+          </form>
+        </section>
+
+        <section id="adm-denied" class="adm-box" hidden>
+          <h1>Erişim yok</h1>
+          <p>Bu sayfa yalnızca yöneticiler içindir.</p>
+          <button type="button" class="btn btn-ghost" id="adm-denied-logout">Başka hesapla giriş yap</button>
+        </section>
+
+        <section id="adm-loading" class="adm-box adm-muted" hidden>
+          <p id="adm-loading-text">Yükleniyor…</p>
+        </section>
+
+        <div id="adm-dashboard" hidden>
+          <nav class="adm-jump" aria-label="Bölümler">
+            <a href="#genel">Genel</a>
+            <a href="#ses">Ses</a>
+            <a href="#sunucu">Sunucu</a>
+            <a href="#istemciler">İstemciler</a>
+            <a href="#hatalar">Hatalar</a>
+            <a href="#geri-bildirim">Geri bildirim</a>
+          </nav>
+
+          <section class="adm-section" id="genel">
+            <h2>Genel bakış</h2>
+            <div class="adm-grid" id="adm-overview"></div>
+          </section>
+
+          <section class="adm-section" id="ses">
+            <h2>Ses ve yayın <span class="adm-badge adm-badge-live">canlı</span></h2>
+            <div class="adm-grid" id="adm-voice"></div>
+          </section>
+
+          <section class="adm-section" id="sunucu">
+            <h2>Sunucu</h2>
+            <div class="adm-grid" id="adm-system"></div>
+          </section>
+
+          <section class="adm-section" id="istemciler">
+            <h2>Sürümler ve istemciler</h2>
+            <div class="adm-grid" id="adm-clients"></div>
+          </section>
+
+          <section class="adm-section" id="hatalar">
+            <h2>Hatalar</h2>
+            <div class="adm-grid" id="adm-errors"></div>
+          </section>
+
+          <section class="adm-section" id="geri-bildirim">
+            <h2>Geri bildirim</h2>
+            <div class="adm-grid" id="adm-feedback"></div>
+          </section>
+
+          <p class="adm-foot" id="adm-foot"></p>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

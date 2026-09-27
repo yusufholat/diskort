@@ -12,9 +12,10 @@ const clientErrorSchema = z.object({
 });
 
 /**
- * İstemcilerin beklenmedik hataları (özellikle telefonda hata ayıklama aracı yok). Veritabanına yazılmaz,
- * yalnızca sunucu kayıtlarına düşer: `docker compose logs api | grep "istemci hatası"`.
- * Giriş yapmadan önceki hatalar da gelebilsin diye oturum zorunlu değildir; adres başına sınırlıdır.
+ * İstemcilerin beklenmedik hataları (özellikle telefonda hata ayıklama aracı yok). Veritabanına yazılmaz:
+ * sunucu kayıtlarına düşer (`docker compose logs api | grep "istemci hatası"`) ve son 200'ü bellekte
+ * yönetim panelinde görünür. Giriş yapmadan önceki hatalar da gelebilsin diye oturum zorunlu değildir;
+ * adres başına sınırlıdır.
  */
 export function registerClientErrorRoutes(app: FastifyInstance, ctx: AppContext): void {
   const allow = createRateLimiter(20, 60_000);
@@ -26,6 +27,7 @@ export function registerClientErrorRoutes(app: FastifyInstance, ctx: AppContext)
     const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
     const user = token ? await ctx.auth.userFromToken(token).catch(() => null) : null;
     req.log.warn({ clientError: { ...body, user: user?.username ?? null } }, 'istemci hatası');
+    ctx.errors.client.push({ at: Date.now(), ...body, user: user?.username ?? null });
     return reply.code(204).send();
   });
 }

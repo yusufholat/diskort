@@ -1,13 +1,15 @@
 import path from 'node:path';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
+import { ActivityTracker, createErrorLog } from './activity.js';
 import { AttachmentService } from './attachments.js';
 import { AvatarService } from './avatars.js';
 import { AuthService } from './auth.js';
 import { ClientVersionPolicy } from './clientVersion.js';
 import type { Config } from './config.js';
 import type { AppContext } from './context.js';
+import { DashboardService } from './dashboard.js';
 import { Store } from './db.js';
 import { EmbedMediaService, type Fetcher } from './embedMedia.js';
 import { FeedbackService } from './feedback.js';
@@ -22,12 +24,14 @@ import { createApns } from './apns.js';
 import { PushService } from './push.js';
 import { ReleaseService } from './releases.js';
 import { StreamPreviewStore } from './streamPreview.js';
+import { SystemMonitor } from './systemStats.js';
 import { VoiceModeration } from './voiceModeration.js';
 import { VoiceStateStore } from './voiceState.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerAttachmentRoutes } from './routes/attachments.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerClientErrorRoutes } from './routes/clientErrors.js';
+import { registerDashboardRoutes } from './routes/dashboard.js';
 import { registerUdidRoutes } from './routes/udid.js';
 import { registerAvatarRoutes } from './routes/avatars.js';
 import { registerDmRoutes } from './routes/dms.js';
@@ -64,6 +68,8 @@ export interface BuildOptions {
   embedMediaDir?: string;
   /** Testler için sahte dış istek (verilirse bağlantı önizlemeleri açılır) */
   linkFetch?: Fetcher;
+  /** Yönetim paneli: makine ölçümü (testlerde sahte /proc klasörüyle) */
+  systemMonitor?: SystemMonitor;
 }
 
 /** Süresi geçmiş yüklemelerin ve artık dosyaların temizlenme aralığı */
@@ -81,7 +87,8 @@ export async function buildApp(
     bodyLimit: 64 * 1024,
   });
 
-  const store = new Store(opts.dbFile ?? path.join(config.dataDir, 'diskort.db'));
+  const dbFile = opts.dbFile ?? path.join(config.dataDir, 'diskort.db');
+  const store = new Store(dbFile);
   const guild = store.ensureGuild(config.guildName);
   const permissions = new PermissionService(store);
   const auth = new AuthService(config.jwtSecret, store, permissions);
@@ -135,6 +142,7 @@ export async function buildApp(
     permissions,
     moderation,
     streamPreviews: new StreamPreviewStore(voice),
+    errors: createErrorLog(),
     guild,
   };
 
@@ -161,6 +169,48 @@ export async function buildApp(
   releases.onNewRelease((release) => gateway.broadcast({ t: 'UPDATE_AVAILABLE', d: { version: release.version } }));
   if (!config.isDev) releases.startPolling();
   app.addHook('onClose', async () => releases.stopPolling());
+
+  // Yönetim paneli: makine yükü, aylık trafik ve hesapların son görülme anı. Kalıcı sayaçlar ve düzenli
+  // ölçüm yalnızca SYSTEM_STATS açıkken (testlerde kapalı; panel istek anında ölçer).
+  const statsFile = (name: string): string | null => (config.systemStats ? path.join(config.dataDir, name) : null);
+  const feedbackStore = new FeedbackStore(store.db);
+  const dashboard = new DashboardService(ctx, {
+    monitor:
+      opts.systemMonitor ??
+      new SystemMonitor({
+        procRoot: config.procRoot,
+        diskPath: config.dataDir,
+        stateFile: statsFile('traffic.json'),
+        quotaBytes: config.trafficQuotaBytes,
+        log: app.log,
+      }),
+    activity: new ActivityTracker(statsFile('activity.json'), Date.now(), app.log),
+    feedback: feedbackStore,
+    dbFile,
+    dirs: {
+      avatars: opts.avatarsDir ?? path.join(config.dataDir, 'avatars'),
+      feedback: opts.feedbackDir ?? path.join(config.dataDir, 'feedback'),
+      linkPreviews: opts.embedMediaDir ?? path.join(config.dataDir, 'embed-media'),
+    },
+  });
+  if (config.systemStats) dashboard.start();
+  app.addHook('onClose', async () => dashboard.stop());
+
+  // 5xx ile biten istekler panelin hata listesine (hatanın iletisiyle birlikte)
+  const failures = new WeakMap<FastifyRequest, string>();
+  app.addHook('onError', async (req, _reply, error) => {
+    failures.set(req, error.message);
+  });
+  app.addHook('onResponse', async (req, reply) => {
+    if (reply.statusCode < 500) return;
+    ctx.errors.server.push({
+      at: Date.now(),
+      method: req.method,
+      route: req.routeOptions.url ?? req.url.split('?')[0]!.slice(0, 200),
+      status: reply.statusCode,
+      message: (failures.get(req) ?? '').slice(0, 500),
+    });
+  });
 
   app.decorateRequest('user', null as never);
   // Arka planda süren önizlemeler veritabanı kapanmadan bitsin
@@ -195,8 +245,9 @@ export async function buildApp(
   registerFeedbackRoutes(
     app,
     ctx,
-    new FeedbackService(new FeedbackStore(store.db), opts.feedbackDir ?? path.join(config.dataDir, 'feedback'), app.log),
+    new FeedbackService(feedbackStore, opts.feedbackDir ?? path.join(config.dataDir, 'feedback'), app.log),
   );
+  registerDashboardRoutes(app, ctx, dashboard);
 
   return { app, ctx };
 }

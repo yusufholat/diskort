@@ -917,3 +917,640 @@ h3 {
   outline: 2px solid var(--brand);
   outline-offset: 1px;
 }
+
+/* ---------- Yönetim paneli (/admin) ---------- */
+.adm {
+  --warn: #f0b232;
+  --pink: #eb459e;
+  --line: rgba(255, 255, 255, 0.08);
+}
+.adm [hidden] {
+  display: none !important;
+}
+.adm-nav {
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 16px 24px;
+}
+.adm-title {
+  color: var(--muted);
+  font-weight: 700;
+}
+.adm-session {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+.adm-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.adm-live i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.adm-live[data-state='ok'] i {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(35, 165, 90, 0.25);
+}
+.adm-live[data-state='bad'] i {
+  background: var(--danger);
+}
+.adm-logout {
+  padding: 7px 14px;
+  font-size: 0.9rem;
+}
+.adm-main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 8px 24px 64px;
+}
+
+/* Giriş ve bilgi kutuları */
+.adm-box {
+  max-width: 420px;
+  margin: 8vh auto 0;
+  padding: 28px 24px;
+  border-radius: var(--radius);
+  background: var(--card);
+  border: 1px solid var(--card-border);
+}
+.adm-box h1 {
+  font-size: 1.8rem;
+  margin: 0 0 8px;
+}
+.adm-box p {
+  color: var(--muted);
+  margin: 0 0 18px;
+}
+.adm-muted,
+.adm-box.adm-muted p {
+  color: var(--muted);
+}
+.adm-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.adm-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.adm-form input[type='text'],
+.adm-form input[type='password'] {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  background: var(--bg-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px; /* iOS 16 px altında odaklanınca sayfayı büyütür */
+}
+.adm-form input:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+.adm-form .adm-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.adm-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--brand);
+}
+.adm-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(242, 63, 67, 0.12);
+  color: #ff9a9c;
+  font-size: 0.92rem;
+}
+.adm-form .btn {
+  margin-top: 4px;
+}
+.adm-form .btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Bölümler */
+.adm-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.adm-jump a {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.adm-jump a:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.adm-section {
+  scroll-margin-top: 16px;
+}
+.adm h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 28px 0 12px;
+  font-size: 1.2rem;
+  text-align: left;
+  letter-spacing: -0.01em;
+}
+.adm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
+  grid-auto-flow: row dense; /* geniş kutudan önce kalan boşluğu sonraki küçük kutular doldurur */
+  gap: 12px;
+}
+.adm-card {
+  position: relative;
+  min-width: 0;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+}
+.adm-wide {
+  grid-column: 1 / -1;
+}
+.adm-tone-ok {
+  border-color: rgba(35, 165, 90, 0.45);
+}
+.adm-tone-warn {
+  border-color: rgba(240, 178, 50, 0.55);
+}
+.adm-tone-bad {
+  border-color: rgba(242, 63, 67, 0.6);
+}
+.adm-tone-accent {
+  border-color: rgba(88, 101, 242, 0.7);
+}
+.adm-label {
+  margin-bottom: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.adm-value {
+  color: var(--head);
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.adm-value-sm {
+  font-size: 1.2rem;
+}
+.adm-unit {
+  margin-left: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.adm-sub {
+  margin-top: 2px;
+  font-size: 0.86rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.adm-empty,
+.adm-note {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+.adm-note b {
+  color: var(--text);
+}
+.adm-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.adm-badge-live {
+  background: rgba(242, 63, 67, 0.16);
+  color: #ff8d8f;
+}
+.adm-badge-ok {
+  background: rgba(35, 165, 90, 0.16);
+  color: #6fdc9b;
+}
+.adm-badge-warn {
+  background: rgba(240, 178, 50, 0.16);
+  color: #f5c867;
+}
+.adm-badge-muted {
+  color: var(--muted);
+}
+.adm h2 .adm-badge {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Doluluk çubuğu: dolu kısım durumu taşır, boş kısım aynı rengin soluğu */
+.adm-meter {
+  height: 8px;
+  margin: 10px 0 4px;
+  border-radius: 999px;
+  background: rgba(35, 165, 90, 0.18);
+  overflow: hidden;
+}
+.adm-meter span {
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  border-radius: inherit;
+  background: var(--ok);
+}
+.adm-meter-warn {
+  background: rgba(240, 178, 50, 0.18);
+}
+.adm-meter-warn span {
+  background: var(--warn);
+}
+.adm-meter-danger {
+  background: rgba(242, 63, 67, 0.18);
+}
+.adm-meter-danger span {
+  background: var(--danger);
+}
+
+/* Küçük çizgi grafikler */
+.adm-spark {
+  --c: var(--brand);
+  position: relative;
+  height: 52px;
+  margin-top: 10px;
+  touch-action: pan-y;
+}
+.adm-c-ok {
+  --c: var(--ok);
+}
+.adm-c-pink {
+  --c: var(--pink);
+}
+.adm-spark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.adm-spark-line {
+  fill: none;
+  stroke: var(--c);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.adm-spark-area {
+  fill: var(--c);
+  opacity: 0.16;
+}
+.adm-spark-empty {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.adm-spark-cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+}
+.adm-spark-dot {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 0 2px var(--bg);
+  pointer-events: none;
+}
+.adm-spark-tip {
+  position: absolute;
+  top: -26px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: #000;
+  color: var(--head);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(6px);
+  font-variant-numeric: tabular-nums;
+}
+.adm-spark-tip[data-side='left'] {
+  transform: translateX(calc(-100% - 6px));
+}
+.adm-net + .adm-net {
+  margin-top: 8px;
+}
+.adm-net-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 0.9rem;
+}
+.adm-net-head b {
+  color: var(--head);
+  font-variant-numeric: tabular-nums;
+}
+.adm-net .adm-spark {
+  height: 40px;
+  margin-top: 4px;
+}
+
+/* Geri bildirim durumları */
+.adm-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 8px;
+  margin: 8px 0 10px;
+}
+.adm-stat {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.adm-stat b {
+  color: var(--head);
+  font-size: 1.4rem;
+  line-height: 1.2;
+}
+.adm-stat span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.adm-stat span + span {
+  font-size: 0.75rem;
+}
+.adm-stat-new {
+  background: rgba(88, 101, 242, 0.18);
+}
+
+/* Günlük mesaj çubukları */
+.adm-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 84px;
+  margin-top: 14px;
+}
+.adm-bar {
+  flex: 1;
+  min-width: 0;
+  border-radius: 4px 4px 0 0;
+  background: rgba(88, 101, 242, 0.55);
+  transition: background 0.15s;
+}
+.adm-bar:hover,
+.adm-bar-today {
+  background: var(--brand);
+}
+.adm-bar-zero {
+  background: rgba(255, 255, 255, 0.1);
+}
+.adm-bars-caption {
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Anahtar-değer satırları (depolama) */
+.adm-kvs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 0.86rem;
+}
+.adm-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+}
+.adm-kv b {
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Satır listeleri (ses kanalları, hesaplar, hatalar) */
+.adm-channel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin-bottom: 8px;
+}
+.adm-channel-name {
+  color: var(--head);
+  font-weight: 700;
+}
+.adm-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.adm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.adm-row:first-child {
+  border-top: 0;
+}
+.adm-rows-compact .adm-row {
+  padding: 6px 0;
+  flex-wrap: wrap;
+}
+.adm-row-top {
+  align-items: flex-start;
+}
+.adm-row-main {
+  flex: 1;
+  min-width: 0;
+}
+.adm-row-title {
+  color: var(--head);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.adm-row-title .adm-badge {
+  margin-left: 6px;
+}
+.adm-push {
+  margin-left: auto;
+}
+.adm-nowrap {
+  white-space: nowrap;
+  font-size: 0.86rem;
+}
+.adm-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 4px;
+}
+.adm-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+.adm-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.adm-status {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+}
+.adm-status-on {
+  background: var(--ok);
+}
+.adm-error-msg {
+  margin-top: 6px;
+  color: var(--text);
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.84rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.adm-details {
+  margin-top: 6px;
+  font-size: 0.84rem;
+}
+.adm-details summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+.adm-details pre {
+  max-height: 260px;
+  margin: 6px 0 0;
+  padding: 10px;
+  overflow: auto;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.adm-more {
+  margin-top: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.adm-more:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.adm-foot {
+  margin: 28px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 640px) {
+  /* Telefonda kutular tam genişlik; yalnızca kısa sayı kutuları ikişer yan yana */
+  .adm-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .adm-grid > * {
+    grid-column: 1 / -1;
+  }
+  .adm-grid > .adm-compact {
+    grid-column: auto;
+  }
+  .adm-card {
+    padding: 12px 14px;
+  }
+  .adm-nav {
+    padding: 12px 16px;
+  }
+  .adm-title {
+    display: none;
+  }
+  .adm-main {
+    padding: 4px 16px 48px;
+  }
+  .adm-box {
+    margin-top: 4vh;
+    padding: 22px 18px;
+  }
+  .adm-value {
+    font-size: 1.4rem;
+  }
+  .adm-compact .adm-unit {
+    display: block;
+    margin-left: 0;
+    font-size: 0.82rem;
+  }
+}
