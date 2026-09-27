@@ -18,18 +18,32 @@ import {
 import type { VoiceJoinResponse } from '@diskort/shared';
 import {
   api,
+  describeTransport,
   errorMessage,
   gateway,
+  linkQuality,
+  outboundDelta,
+  parseTransportStats,
+  pushSample,
   reportClientError,
   reportVoiceLog,
   SpuriousDuplicateGuard,
+  summarizePings,
   useGuild,
   useSession,
+  type TransportStats,
 } from '@diskort/client-core';
 import { bridge } from '../../lib/bridge';
 import { playSound, sharedAudioContext } from '../../lib/sfx';
 import { getSettings, useSettings, type Settings } from '../../stores/settings';
 import { setVoice, useVoice, type MicLevel } from '../../stores/voice';
+import {
+  EMPTY_CONNECTION_STATS,
+  setConnectionStats,
+  useConnectionStats,
+  type StreamLabel,
+  type VoiceServerInfo,
+} from '../../stores/connectionStats';
 import { deepFilterAvailable, MicProcessor, type GateConfig } from './micProcessor';
 import { prepareHardwareEncoder, releaseHardwareEncoder, type HwEncoderChoice } from './hardwareEncoder';
 import { SCREEN_PRESETS } from './screenPresets';
@@ -45,6 +59,8 @@ export interface ScreenShareOptions {
 }
 
 const STATS_INTERVAL_MS = 2000;
+/** Etiket/simge rengi son bu kadar sürenin ping ve kaybına göre belirlenir */
+const QUALITY_WINDOW_MS = 10_000;
 const PREFETCH_TTL_MS = 60_000;
 
 /** LiveKit protokolündeki kaynak numaraları (ParticipantPermission.canPublishSources) */
@@ -88,6 +104,14 @@ class VoiceClient {
   /** Yayında istenen donanım kodlama yolu (null: ekran kartı kodlayıcısı yok, Chromium'un varsayılanı) */
   screenHardwareEncoder: HwEncoderChoice | null = null;
   private statsTimer: number | null = null;
+  /** Bir önceki istatistik ölçümü (bit hızı ve kayıp farkları için) */
+  private statsPrev: { publisher: TransportStats | null; subscriber: TransportStats | null } = {
+    publisher: null,
+    subscriber: null,
+  };
+  private statsBusy = false;
+  /** Açık bağlantı paneli sayısı; açıkken ayrıntılı istatistikler de toplanır */
+  private detailWatchers = 0;
   private pttReleaseTimer: number | null = null;
   private joinSeq = 0;
   private readonly duplicates = new SpuriousDuplicateGuard();
@@ -171,6 +195,7 @@ class VoiceClient {
         for (const pub of p.trackPublications.values()) this.onPublication(pub, p);
       }
       this.applyVolumes();
+      setConnectionStats({ server: this.serverInfo(room, url) });
       setVoice({ status: 'connected', micAllowed: this.canPublish(room, PROTO_SOURCE.microphone) });
       playSound('join');
       this.startStats();
@@ -205,6 +230,8 @@ class VoiceClient {
 
   private async teardownRoom(): Promise<void> {
     this.stopStats();
+    this.statsPrev = { publisher: null, subscriber: null };
+    setConnectionStats(EMPTY_CONNECTION_STATS);
     if (this.pttReleaseTimer !== null) window.clearTimeout(this.pttReleaseTimer);
     this.pttReleaseTimer = null;
     const room = this.room;
@@ -769,15 +796,112 @@ class VoiceClient {
     this.statsTimer = null;
   }
 
+  /**
+   * Ping ve giden paket kaybı her 2 saniyede yayın bağlantısından ölçülür (grafik ve kalite rengi için).
+   * Bağlantı paneli açıkken iki bağlantının ayrıntılı istatistikleri de toplanır.
+   */
   private async collectStats(): Promise<void> {
-    const report = await this.mic?.getRTCStatsReport().catch(() => undefined);
-    let rtt: number | null = null;
-    report?.forEach((stat: { type: string; nominated?: boolean; currentRoundTripTime?: number }) => {
-      if (stat.type === 'candidate-pair' && stat.nominated && typeof stat.currentRoundTripTime === 'number') {
-        rtt = Math.round(stat.currentRoundTripTime * 1000);
+    const room = this.room;
+    if (!room || this.statsBusy) return;
+    this.statsBusy = true;
+    try {
+      const pcs = room.engine.pcManager;
+      const detail = this.detailWatchers > 0;
+      const at = Date.now();
+      const pubReport = await pcs?.publisher.getStats()?.catch(() => undefined);
+      const publisher = pubReport ? parseTransportStats(pubReport, at) : null;
+      // Yayın bağlantısında ölçüm yoksa (ör. konuşma izni yok) ping abonelik bağlantısından alınır
+      const needSubscriber = detail || publisher?.rttMs == null;
+      const subReport = needSubscriber ? await pcs?.subscriber?.getStats()?.catch(() => undefined) : undefined;
+      const subscriber = subReport ? parseTransportStats(subReport, at) : null;
+      if (room !== this.room) return;
+
+      const prev = this.statsPrev;
+      this.statsPrev = { publisher, subscriber };
+      const rttMs = publisher?.rttMs ?? subscriber?.rttMs ?? null;
+      const { sent, lost } = outboundDelta(publisher, prev.publisher);
+      const samples = pushSample(useConnectionStats.getState().samples, { at, rttMs, sent, lost });
+      const recent = summarizePings(samples, at - QUALITY_WINDOW_MS);
+      setConnectionStats({
+        samples,
+        quality: linkQuality(recent.lastMs, recent.lossPercent),
+        detail: detail
+          ? {
+              at,
+              publisher: publisher && describeTransport(publisher, prev.publisher),
+              subscriber: subscriber && describeTransport(subscriber, prev.subscriber),
+              labels: this.streamLabels(room),
+            }
+          : null,
+      });
+      if (rttMs !== null) setVoice({ pingMs: rttMs });
+    } finally {
+      this.statsBusy = false;
+    }
+  }
+
+  /** Bağlantı paneli açıkken çağrılır; dönen işlev paneli kapatınca ayrıntılı ölçümü durdurur. */
+  watchConnectionDetail(): () => void {
+    this.detailWatchers++;
+    void this.collectStats();
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      this.detailWatchers = Math.max(0, this.detailWatchers - 1);
+      if (this.detailWatchers === 0) setConnectionStats({ detail: null });
+    };
+  }
+
+  private serverInfo(room: Room, url: string): VoiceServerInfo {
+    let host = url;
+    try {
+      host = new URL(url).host;
+    } catch {
+      // adres çözümlenemezse olduğu gibi gösterilir
+    }
+    const info = room.serverInfo;
+    return {
+      host,
+      roomName: room.name,
+      region: info?.region || null,
+      nodeId: info?.nodeId || null,
+      version: info?.version || null,
+      e2ee: room.isE2EEEnabled,
+    };
+  }
+
+  /** getStats'taki track kimliklerini kullanıcı/kaynak adına çevirir */
+  private streamLabels(room: Room): Record<string, StreamLabel> {
+    const labels: Record<string, StreamLabel> = {};
+    const add = (id: string | undefined, label: string, screen: boolean): void => {
+      if (id) labels[id] = { label, screen };
+    };
+    const local = (track: LocalAudioTrack | LocalVideoTrack | null | undefined, label: string, screen: boolean): void => {
+      if (!track) return;
+      add(track.mediaStreamTrack?.id, label, screen);
+      add(track.sender?.track?.id ?? undefined, label, screen);
+    };
+    local(this.mic, 'Mikrofonun', false);
+    local(this.screen?.video, 'Ekran yayının', true);
+    local(this.screen?.audio, 'Yayın sesin', true);
+    const users = useGuild.getState().users;
+    for (const p of room.remoteParticipants.values()) {
+      const name = users[p.identity]?.displayName ?? (p.name || p.identity);
+      for (const pub of p.trackPublications.values()) {
+        const screen = pub.source === Track.Source.ScreenShare || pub.source === Track.Source.ScreenShareAudio;
+        const what =
+          pub.source === Track.Source.Microphone
+            ? 'mikrofon'
+            : pub.source === Track.Source.ScreenShare
+              ? 'ekran yayını'
+              : pub.source === Track.Source.ScreenShareAudio
+                ? 'yayın sesi'
+                : pub.kind;
+        add(pub.track?.mediaStreamTrack?.id, `${name} · ${what}`, screen);
       }
-    });
-    if (rtt !== null || !this.mic) setVoice({ pingMs: rtt });
+    }
+    return labels;
   }
 
   // ---------- Mikrofon testi (ayarlar ekranı) ----------
