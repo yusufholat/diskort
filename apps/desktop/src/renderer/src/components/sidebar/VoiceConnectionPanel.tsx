@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Monitor, MonitorOff, PhoneOff, Signal } from 'lucide-react';
+import { MicOff, Monitor, MonitorOff, PhoneOff, Signal } from 'lucide-react';
 import type { LinkQuality } from '@diskort/client-core';
 import { voice } from '../../features/voice/voiceClient';
 import { cn } from '../../lib/utils';
@@ -38,6 +38,7 @@ export function VoiceConnectionPanel() {
   const ping = useVoice((s) => s.pingMs);
   const quality = useConnectionStats((s) => s.quality);
   const sharing = useVoice((s) => s.sharing);
+  const micTesting = useVoice((s) => s.micTesting);
   const channel = useGuild((s) => channelById(s, channelId));
   const canStream = useCan(Permission.STREAM, channelId ?? undefined);
   // Ses kanalının sunucusu (seçili sunucu başka olabilir)
@@ -92,6 +93,12 @@ export function VoiceConnectionPanel() {
           <PhoneOff size={20} />
         </button>
       </div>
+      {micTesting && (
+        <div role="status" className="mt-1.5 flex items-center gap-1.5 px-1 text-xs font-medium text-warn">
+          <MicOff size={14} className="shrink-0" />
+          <span className="truncate">Mikrofon testi: odada susturuldun</span>
+        </div>
+      )}
       <div className="mt-2 flex gap-2">
         <button
           disabled={!connected || (!sharing && !canStream)}

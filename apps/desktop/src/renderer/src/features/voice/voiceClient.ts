@@ -99,6 +99,12 @@ function sourceOf(opts: ScreenShareOptions, track: MediaStreamTrack): { name: st
   return { name: surface === 'browser' ? 'Tarayıcı sekmesi' : 'Pencere', kind: 'window' };
 }
 
+/**
+ * Mikrofon testi bitince odaya gönderim bu kadar gecikmeyle açılır: susturma/bas-konuş kapısı yeniden
+ * uygulandıktan sonra zincirde (gürültü engelleyici gecikmesi + tamponlar) kalan test sesi odaya sızmasın.
+ */
+const MIC_TEST_RESUME_SEND_MS = 300;
+
 function disconnectMessage(reason?: DisconnectReason): string {
   switch (reason) {
     case DisconnectReason.DUPLICATE_IDENTITY:
@@ -139,6 +145,11 @@ class VoiceClient {
   private selfSpeaking = false;
   /** Katılırken ya da izin gelince mikrofon yayınlanıyor (iki kez yayınlanmasın) */
   private micStarting = false;
+  /** Görüşmede mikrofon açılamadı (izin yok, aygıt yok); mikrofon testi kendi zincirini dener */
+  private micFailed = false;
+  /** Ayarlardaki mikrofon testi; görüşmedeyken sürdükçe odaya sessizlik gider ve susturulmuş görünürsün */
+  private micTest: MicTest | null = null;
+  private resumeSendTimer: number | null = null;
   private prefetched: { channelId: string; at: number; response: Promise<VoiceJoinResponse> } | null = null;
   private readonly audioSink: HTMLDivElement;
 
@@ -262,6 +273,8 @@ class VoiceClient {
     await this.processor?.destroy().catch(() => undefined);
     this.mic = null;
     this.processor = null;
+    this.micFailed = false;
+    this.micTest?.liveChanged();
     this.remoteSpeaking.clear();
     this.selfSpeaking = false;
     this.audioSink.replaceChildren();
@@ -305,7 +318,8 @@ class VoiceClient {
   private gateConfig(): GateConfig {
     const s = getSettings();
     return {
-      mode: s.inputMode === 'ptt' ? 'ptt' : 'vad',
+      // Test sürerken bas-konuş kapısı açık tutulur (odaya zaten sessizlik gider), kendini tuşsuz duyarsın
+      mode: s.inputMode === 'ptt' ? (this.micTest ? 'open' : 'ptt') : 'vad',
       auto: s.vadAuto,
       threshold: s.vadThresholdDb,
       ptt: useVoice.getState().pttActive,
@@ -340,6 +354,7 @@ class VoiceClient {
       const oldProcessor = this.processor;
       this.mic = null;
       this.processor = null;
+      this.micTest?.liveChanged();
       await room.localParticipant.unpublishTrack(old, true).catch(() => undefined);
       old.stop();
       await oldProcessor?.destroy().catch(() => undefined);
@@ -367,6 +382,7 @@ class VoiceClient {
     // Konuşma izni yoksa (ya da sunucuda susturulduysa) yalnızca dinlenir; izin gelince yayınlanır
     if (!this.canPublish(room, PROTO_SOURCE.microphone)) return;
     const s = getSettings();
+    this.micFailed = false;
     let track: LocalAudioTrack | null = null;
     try {
       const denoiser = await this.wantedDenoiser();
@@ -379,10 +395,15 @@ class VoiceClient {
         (level) => this.onMicLevel(level),
         () => void this.republishMic(),
       );
+      // Mikrofon testi sürüyorsa odaya daha ilk andan sessizlik gider
+      processor.setSendMuted(this.micTest !== null || this.resumeSendTimer !== null);
+      processor.onRebuilt = () => {
+        if (this.processor === processor) this.micTest?.liveChanged();
+      };
       await track.setProcessor(processor);
       // Gürültü engelleyici kurulamadıysa mikrofonu tarayıcının gürültü engellemesiyle yeniden aç
       if (processor.denoiserFailed) await track.restartTrack(this.captureOptions(null));
-      if (s.selfMute || s.selfDeaf) await track.mute();
+      if (this.micMuted()) await track.mute();
       if (room !== this.room) {
         track.stop();
         await processor.destroy();
@@ -396,11 +417,18 @@ class VoiceClient {
       });
       this.mic = track;
       this.processor = processor;
+      // Kurulum sürerken test başladı/bittiyse güncel duruma getir
+      processor.setSendMuted(this.micTest !== null || this.resumeSendTimer !== null);
+      processor.updateGate(this.gateConfig());
+      if (this.micMuted() !== track.isMuted) this.applyMicMute();
+      this.micTest?.liveChanged();
       // DPDFNet kurulamadıysa (ör. işlemci yetmedi) şimdilik standart engellemeyle yayınlanır; DeepFilterNet
       // ile yeniden denenir.
       if (processor.denoiserFailed && denoiser === 'dpdfnet') void this.republishMic();
     } catch (err) {
       track?.stop();
+      this.micFailed = true;
+      this.micTest?.liveChanged();
       const name = (err as Error)?.name;
       setVoice({
         error:
@@ -421,6 +449,7 @@ class VoiceClient {
     const oldProcessor = this.processor;
     this.mic = null;
     this.processor = null;
+    this.micTest?.liveChanged();
     if (old) {
       await room.localParticipant.unpublishTrack(old, true).catch(() => undefined);
       old.stop();
@@ -431,7 +460,7 @@ class VoiceClient {
 
   private onMicLevel(level: MicLevel): void {
     const s = getSettings();
-    const speaking = level.open && !s.selfMute && !s.selfDeaf && this.mic !== null;
+    const speaking = level.open && !s.selfMute && !s.selfDeaf && !this.micTest && this.mic !== null;
     const prev = useVoice.getState().micLevel;
     if (Math.abs(prev.db - level.db) > 0.5 || prev.open !== level.open || prev.threshold !== level.threshold) {
       setVoice({ micLevel: level });
@@ -487,10 +516,18 @@ class VoiceClient {
     this.processor?.updateGate({ ptt: active });
   }
 
-  private applyMicMute(): void {
+  /**
+   * LiveKit düzeyinde susturulmalı mı. Test sürerken mikrofon LiveKit'te açık kalır (kapatılırsa zincire ses
+   * gelmez, kendini duyamazsın); odaya gitmeyi işlemcinin gönderim kazancı keser.
+   */
+  private micMuted(): boolean {
     const s = getSettings();
+    return (s.selfMute || s.selfDeaf) && !this.micTest;
+  }
+
+  private applyMicMute(): void {
     if (!this.mic) return;
-    if (s.selfMute || s.selfDeaf) void this.mic.mute();
+    if (this.micMuted()) void this.mic.mute();
     else void this.mic.unmute();
   }
 
@@ -509,7 +546,9 @@ class VoiceClient {
 
   private syncVoiceState(): void {
     const s = getSettings();
-    gateway.send({ t: 'VOICE_STATE_SET', d: { selfMute: s.selfMute, selfDeaf: s.selfDeaf } });
+    // Mikrofon testi sürerken diğerleri seni susturulmuş görür (kayıtlı susturma ayarın değişmez)
+    const selfMute = s.selfMute || this.micTest !== null;
+    gateway.send({ t: 'VOICE_STATE_SET', d: { selfMute, selfDeaf: s.selfDeaf } });
   }
 
   private onSettingsChanged(next: Settings, prev: Settings): void {
@@ -945,19 +984,68 @@ class VoiceClient {
   // ---------- Mikrofon testi (ayarlar ekranı) ----------
 
   /**
-   * Ses kanalında değilken ayarlardaki mikrofon testi: görüşmedeki işlem zincirinin aynısı (bkz. MicTest).
-   * Bağlıyken null döner; mikrofon görüşmede kullanılıyor, gösterge canlı mikrofonu gösterir.
+   * Ayarlardaki mikrofon testi (bkz. MicTest). Görüşmedeyken canlı zincirin dinleme kolu çalınır; test
+   * sürdükçe odaya sessizlik gider ve diğerleri seni susturulmuş görür. Test durunca (durdur, ayarlar kapandı,
+   * kanaldan çıkıldı) önceki durum aynen geri gelir: kayıtlı susturma/sağırlaştırma ayarı hiç değişmez,
+   * sunucuda susturma da testten etkilenmez. Aynı anda tek test olur; yenisi eskisini durdurur.
    */
-  startMicTest(onError: (message: string | null) => void): MicTest | null {
-    if (this.processor || useVoice.getState().status !== 'idle') return null;
-    return new MicTest(
+  startMicTest(onError: (message: string | null) => void): MicTest {
+    this.micTest?.stop();
+    const test: MicTest = new MicTest(
       {
         wantedDenoiser: () => this.wantedDenoiser(),
         captureOptions: (denoiser) => this.captureOptions(denoiser),
         gateConfig: () => this.gateConfig(),
+        liveTrack: () => this.liveMicTrack(),
+        onStop: () => {
+          if (this.micTest !== test) return;
+          this.micTest = null;
+          this.applyMicTestState();
+        },
       },
       onError,
     );
+    this.micTest = test;
+    this.applyMicTestState();
+    // Kurucu, micTest atanmadan kaynağı seçmiş olabilir; canlı zincir varsa ona geçsin
+    test.liveChanged();
+    return test;
+  }
+
+  /** Görüşmedeki mikrofonun dinleme kolu; mikrofon kuruluyorsa 'pending', görüşmede yayın yoksa null */
+  private liveMicTrack(): MediaStreamTrack | 'pending' | null {
+    const track = this.processor?.monitorTrack;
+    if (track) return track;
+    const v = useVoice.getState();
+    // Bağlanırken ya da mikrofon yeniden yayınlanırken (aygıt/gürültü ayarı değişti) ikinci bir mikrofon açılmaz
+    return v.status === 'idle' || !v.micAllowed || this.micFailed ? null : 'pending';
+  }
+
+  /** Test başladı/bitti: odaya gönderimi, LiveKit susturmasını, bas-konuş kapısını ve görünen durumu uygula. */
+  private applyMicTestState(): void {
+    const testing = this.micTest !== null;
+    setVoice({ micTesting: testing });
+    if (this.resumeSendTimer !== null) window.clearTimeout(this.resumeSendTimer);
+    this.resumeSendTimer = null;
+    if (testing) {
+      // Önce odaya gönderim kesilir, sonra (susturulduysan) mikrofon LiveKit'te açılır: hiçbir şey sızmaz
+      this.processor?.setSendMuted(true);
+      this.applyMicMute();
+      this.processor?.updateGate(this.gateConfig());
+      if (this.selfSpeaking) {
+        this.selfSpeaking = false;
+        this.publishSpeaking();
+      }
+    } else {
+      // Önce susturma ve kapı geri gelir; zincirde kalan test sesi boşalınca gönderim açılır
+      this.applyMicMute();
+      this.processor?.updateGate(this.gateConfig());
+      this.resumeSendTimer = window.setTimeout(() => {
+        this.resumeSendTimer = null;
+        if (!this.micTest) this.processor?.setSendMuted(false);
+      }, MIC_TEST_RESUME_SEND_MS);
+    }
+    if (useVoice.getState().status !== 'idle') this.syncVoiceState();
   }
 }
 
