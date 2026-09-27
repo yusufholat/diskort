@@ -1,6 +1,5 @@
 // Arayüz sesleri. Sesler client-core'da tek yerde tanımlı (packages/client-core/src/sfx.ts); burada
-// seçili ses paketinden (Ayarlar → Ses → Ses paketi) bellekte üretilip Web Audio ile çalınır. Telefon aynı
-// tanımdan üretilmiş WAV dosyalarını çalar.
+// bellekte üretilip Web Audio ile çalınır. Telefon aynı tanımdan üretilmiş WAV dosyalarını çalar.
 //
 // Çıkış aygıtı: sesler seçili çıkış aygıtından (Ayarlar → Ses → Çıkış) çalınır. Aygıt değişimi
 // (setSinkId) bitmeden çalınan ses eskiden kayboluyordu (ilk ses genelde "katıldın" sesiydi); artık
@@ -12,7 +11,6 @@ import {
   useGuild,
   useSession,
   type SoundName,
-  type SoundPack,
 } from '@diskort/client-core';
 import { getSettings, useSettings } from '../stores/settings';
 
@@ -24,9 +22,7 @@ let ctx: SinkContext | null = null;
 /** Bağlama uygulanmış çıkış aygıtı ('' = sistemin varsayılanı) */
 let appliedSink = '';
 let sinkChange: Promise<void> | null = null;
-/** Üretilmiş sesler; yalnızca bufferPack paketinin sesleri tutulur, paket değişince boşaltılır */
 const buffers = new Map<SoundName, AudioBuffer>();
-let bufferPack: SoundPack | null = null;
 const lastPlayed = new Map<SoundName, number>();
 
 /** Aynı ses bu süreden sık çalınmaz (ör. kısayola art arda basınca üst üste binmesin) */
@@ -66,14 +62,9 @@ async function ready(): Promise<AudioContext> {
 }
 
 function buffer(ac: AudioContext, name: SoundName): AudioBuffer {
-  const pack = getSettings().soundPack;
-  if (pack !== bufferPack) {
-    buffers.clear();
-    bufferPack = pack;
-  }
   let b = buffers.get(name);
   if (!b) {
-    const samples = renderSound(name, SFX_SAMPLE_RATE, pack);
+    const samples = renderSound(name, SFX_SAMPLE_RATE);
     b = ac.createBuffer(1, samples.length, SFX_SAMPLE_RATE);
     b.copyToChannel(samples, 0);
     buffers.set(name, b);

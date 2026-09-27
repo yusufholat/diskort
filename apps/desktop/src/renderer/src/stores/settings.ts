@@ -1,4 +1,3 @@
-import { DEFAULT_SOUND_PACK, isSoundPack, type SoundPack } from '@diskort/client-core';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type { HotkeyConfig } from '../../../shared/bridge';
@@ -60,8 +59,6 @@ export interface Settings {
   sounds: boolean;
   /** Arayüz seslerinin seviyesi (0–1) */
   sfxVolume: number;
-  /** Arayüz seslerinin paketi (Yumuşak / Klasik); bkz. client-core sfx.ts */
-  soundPack: SoundPack;
   /** Bahsedilince ve direkt mesaj gelince ses (Rahatsız Etmeyin durumunda çalmaz) */
   notificationSound: boolean;
   /** Bas-konuş tuşuna basınca ve bırakınca kısa ses */
@@ -110,7 +107,6 @@ const defaults: Settings = {
   openAtLogin: false,
   sounds: true,
   sfxVolume: 0.7,
-  soundPack: DEFAULT_SOUND_PACK,
   notificationSound: true,
   pttSounds: false,
   theme: DEFAULT_THEME,
@@ -153,7 +149,6 @@ function sanitize(saved: Partial<Settings>): Partial<Settings> {
   if (s.theme !== undefined && !isThemeId(s.theme)) s.theme = defaults.theme;
   if (s.sfxVolume !== undefined) s.sfxVolume = Number.isFinite(s.sfxVolume) ? Math.min(1, Math.max(0, s.sfxVolume)) : defaults.sfxVolume;
   if (s.screenCodec !== undefined && !SCREEN_CODEC_IDS.includes(s.screenCodec)) s.screenCodec = defaults.screenCodec;
-  if (s.soundPack !== undefined && !isSoundPack(s.soundPack)) s.soundPack = defaults.soundPack;
   return s;
 }
 
@@ -165,7 +160,7 @@ export const useSettings = create<SettingsStore>()(
     }),
     {
       name: 'diskort-settings',
-      version: 9,
+      version: 10,
       storage: createJSONStorage(() => localStorage),
       partialize: ({ set: _set, ...rest }) => rest,
       // Sürüm 1 → 2: gürültü engelleme RNNoise → DeepFilterNet 3 (sanitize içinde)
@@ -179,6 +174,7 @@ export const useSettings = create<SettingsStore>()(
       // herkes yeni varsayılan 1080p60'a geçer, başka bir kaliteyi bilerek seçmiş olanlar olduğu gibi kalır.
       // Sürüm 8 → 9: Yumuşak ses paketi eklendi ve varsayılan oldu (katılma sesi sert/takılır bulundu); herkes
       // Yumuşak pakete geçer, isteyen Ses → Ses efektleri → Ses paketi'nden Klasik'e dönebilir.
+      // Sürüm 9 → 10: ses paketleri kaldırıldı, tek (yumuşak) ses takımı kaldı; kayıtlı soundPack ayarı silinir.
       migrate: (saved, version) => {
         const s = { ...(saved as Partial<Settings>) };
         if (version < 3) s.noiseStrengthDb = defaults.noiseStrengthDb;
@@ -187,7 +183,8 @@ export const useSettings = create<SettingsStore>()(
         if (version < 6 && (s.theme === undefined || s.theme === 'dark')) s.theme = 'black';
         if (version < 7 && (s.screenPreset === undefined || s.screenPreset === '1080p30')) s.screenPreset = '1080p60';
         if (version < 8 && (s.screenPreset as string | undefined) === 'auto') s.screenPreset = '1080p60';
-        if (version < 9) s.soundPack = 'soft';
+        // Artık olmayan ayar: türde yok, kayıtta kalmasın
+        if (version < 10) delete (s as Record<string, unknown>).soundPack;
         return s as Settings;
       },
       merge: (saved, current) => ({ ...current, ...sanitize((saved ?? {}) as Partial<Settings>) }),
