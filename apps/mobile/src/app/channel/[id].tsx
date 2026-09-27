@@ -146,11 +146,15 @@ export default function TextChannelScreen() {
 
   // Kanal açıldığında okunmamış ilk mesajın üstüne "YENİ" ayracı konur (masaüstündeki gibi);
   // bakmıyorken (aşağıda değilken ya da uygulama arkadayken) gelen ilk mesaj için de.
+  // Okunma bilgisi sunucudan (READY) gelmeden karar verilmez: yoksa bildirimle soğuk açılışta
+  // bütün geçmiş "yeni" sayılırdı
+  const guildReady = useGuild((s) => s.guild !== null);
   const readAtOpen = useRef(readId);
   const dividerDecided = useRef(false);
+  if (!dividerDecided.current && readAtOpen.current === undefined) readAtOpen.current = readId;
   const [dividerId, setDividerId] = useState<string | null>(null);
   useEffect(() => {
-    if (!loaded || !self) return;
+    if (!loaded || !self || !guildReady) return;
     if (!dividerDecided.current) {
       dividerDecided.current = true;
       const first = messages.find(
@@ -163,7 +167,7 @@ export default function TextChannelScreen() {
       const first = messages.find((m) => !m.status && m.authorId !== self.id && Number(m.id) > Number(readId ?? 0));
       if (first) setDividerId(first.id);
     }
-  }, [loaded, messages, watching, dividerId, lastId, readId, self]);
+  }, [loaded, messages, watching, dividerId, lastId, readId, self, guildReady]);
 
   const md: MarkdownContext = useMemo(
     () => ({ usersByName: Object.fromEntries(Object.values(users).map((u) => [u.username, u])), selfId: self?.id }),
@@ -343,7 +347,7 @@ export default function TextChannelScreen() {
       <Stack.Screen options={screenOptions} />
       <ConnectionBanner />
       <View style={styles.listArea}>
-        {failed && messages.length === 0 ? (
+        {failed && !loaded && !loading ? (
           <ErrorState text="Mesajlar yüklenemedi. Bağlantını denetleyip yeniden dene." onRetry={load} />
         ) : (
           <FlatList
