@@ -171,6 +171,7 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
   };
 
   const remaining = MESSAGE_MAX_LENGTH - text.trim().length;
+  const hint = placeholder ?? `#${channel.name} kanalına mesaj gönder`;
 
   // Salt okunur kanal (kendi mesajını düzenlemek yine serbest)
   if ((!canSend || lockedText) && !editing) {
@@ -251,23 +252,33 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
           </PressableScale>
         )}
         <View style={styles.field}>
-          <TextInput
-            ref={input}
-            value={text}
-            onChangeText={setText}
-            onSelectionChange={(e) => {
-              setSelection(e.nativeEvent.selection);
-              setForcedSelection(undefined);
-            }}
-            selection={forcedSelection}
-            placeholder={placeholder ?? `#${channel.name} kanalına mesaj gönder`}
-            placeholderTextColor={colors.faint}
-            selectionColor={brandTint(0.5)}
-            cursorColor={colors.head}
-            multiline
-            maxLength={MESSAGE_MAX_LENGTH * 2}
-            style={styles.input}
-          />
+          {/* Android'in kendi ipucu tek satıra sığdırılamıyor (kayıp kutuyu iki satır yapıyor): ipucu,
+              Discord'daki gibi tek satırda "…" ile kısalan kendi yazımızla gösterilir */}
+          <View style={styles.inputWrap}>
+            {!text && (
+              <View pointerEvents="none" style={styles.placeholder}>
+                <Text numberOfLines={1} ellipsizeMode="tail" style={styles.placeholderText}>
+                  {hint}
+                </Text>
+              </View>
+            )}
+            <TextInput
+              ref={input}
+              value={text}
+              onChangeText={setText}
+              onSelectionChange={(e) => {
+                setSelection(e.nativeEvent.selection);
+                setForcedSelection(undefined);
+              }}
+              selection={forcedSelection}
+              accessibilityLabel={hint}
+              selectionColor={brandTint(0.5)}
+              cursorColor={colors.head}
+              multiline
+              maxLength={MESSAGE_MAX_LENGTH * 2}
+              style={styles.input}
+            />
+          </View>
           {remaining < 200 && <Text style={[styles.counter, remaining < 0 && { color: colors.danger }]}>{remaining}</Text>}
           {gifsEnabled && !editing && (
             <PressableScale
@@ -413,6 +424,12 @@ function AttachTile({
   );
 }
 
+/** Yazma kutusu ölçüleri: tek satırken düğmelerle aynı boy, en çok 6 satıra kadar uzar */
+const FIELD_HEIGHT = 42;
+const LINE_HEIGHT = 21;
+const MAX_LINES = 6;
+const INPUT_PADDING = (FIELD_HEIGHT - LINE_HEIGHT) / 2;
+
 const styles = createStyles(() => ({
   wrap: { backgroundColor: colors.main },
   row: { flexDirection: 'row', alignItems: 'flex-end', gap: space.sm, paddingHorizontal: space.sm + 2, paddingTop: 6, paddingBottom: space.sm },
@@ -430,20 +447,29 @@ const styles = createStyles(() => ({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'flex-end',
-    minHeight: 42,
+    minHeight: FIELD_HEIGHT,
     borderRadius: 21,
     backgroundColor: colors.field,
     paddingLeft: space.lg,
     paddingRight: 4,
   },
+  inputWrap: { flex: 1, minHeight: FIELD_HEIGHT, justifyContent: 'flex-end' },
+  // Tek satırken tam bir satır (düğmelerle aynı boy); yazdıkça kendiliğinden uzar, 6 satırdan sonra
+  // içinde kayar. Satır yüksekliği sabit: Android'in yazı tipi boşluğu kutuyu şişirmesin.
   input: {
-    flex: 1,
-    maxHeight: 150,
-    paddingTop: 10,
-    paddingBottom: 10,
+    minHeight: FIELD_HEIGHT,
+    maxHeight: LINE_HEIGHT * MAX_LINES + INPUT_PADDING * 2,
+    paddingTop: INPUT_PADDING,
+    paddingBottom: INPUT_PADDING,
+    paddingHorizontal: 0,
     color: colors.text,
     fontSize: font.row,
+    lineHeight: LINE_HEIGHT,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
+  placeholder: { position: 'absolute', left: 0, right: 0, top: 0, height: FIELD_HEIGHT, justifyContent: 'center' },
+  placeholderText: { color: colors.faint, fontSize: font.row, lineHeight: LINE_HEIGHT, includeFontPadding: false },
   fieldIcon: { width: 36, height: 42, alignItems: 'center', justifyContent: 'center' },
   gifButton: {
     height: 42,
