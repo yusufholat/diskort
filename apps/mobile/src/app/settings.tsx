@@ -230,7 +230,6 @@ function useProfilePhoto() {
 
 function NotificationSettings() {
   const state = usePushState((s) => s.state);
-  const [busy, setBusy] = useState(false);
   const text =
     state.kind === 'registered'
       ? 'Açık: biri senden bahsedince uygulama kapalıyken de bildirim gelir.'
@@ -239,18 +238,6 @@ function NotificationSettings() {
         : state.kind === 'error'
           ? `Çalışmıyor: ${state.message}`
           : 'Denetleniyor…';
-
-  const test = async (): Promise<void> => {
-    setBusy(true);
-    try {
-      const { devices } = await api.sendTestPush();
-      toast(devices ? 'Test bildirimi gönderildi; birkaç saniye içinde gelmeli.' : 'Bu hesaba kayıtlı cihaz yok.', devices ? 'info' : 'error');
-    } catch (err) {
-      toast(errorMessage(err), 'error');
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <View>
@@ -270,9 +257,7 @@ function NotificationSettings() {
             {text}
           </Text>
         </View>
-        {state.kind === 'registered' ? (
-          <Button title="Test bildirimi gönder" variant="secondary" busy={busy} onPress={() => void test()} />
-        ) : (
+        {state.kind !== 'registered' && (
           <Button title="Yeniden dene" variant="secondary" onPress={() => void registerForPush()} />
         )}
       </Card>

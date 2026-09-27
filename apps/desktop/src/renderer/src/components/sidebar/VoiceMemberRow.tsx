@@ -3,7 +3,7 @@ import { Permission, type VoiceState } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
-import { can, outranksUser, useGuild, useMemberColor, useSession, voiceDropTargets } from '@diskort/client-core';
+import { can, useGuild, useMemberColor, useSession, voiceDropTargets } from '@diskort/client-core';
 import { currentView } from '../../lib/mainView';
 import { startSidebarDrag, useSidebarDrag } from '../../lib/sidebarDrag';
 import { watchUserStream } from '../../lib/watchStream';
@@ -93,7 +93,7 @@ export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMy
   const isSelf = state.userId === selfId;
   // Sürüklenebilir: kendin (kanal değiştirme) ya da taşıma yetkin olan, senden aşağıdaki üye
   const draggable = useGuild(
-    (s) => isSelf || (outranksUser(s, selfId, state.userId) && can(s, selfId, Permission.MOVE_MEMBERS, state.channelId)),
+    (s) => isSelf || can(s, selfId, Permission.MOVE_MEMBERS, state.channelId),
   );
   const dragging = useSidebarDrag((s) => s.item?.kind === 'member' && s.item.userId === state.userId && !s.ending);
 

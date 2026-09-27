@@ -176,10 +176,10 @@ describe('seste yönetim', () => {
       204,
     );
     expect(s.ctx.voice.get(member.user.id)).toBeUndefined();
-    // Hiyerarşi: sahibi taşıyamaz
+    // Seste yönetim hiyerarşiye bakmaz: sahip de sesten çıkarılabilir (Discord gibi)
     s.ctx.voice.join(s.owner.user.id, b!.id);
     expect((await s.req(mover.token, 'PATCH', `/api/guilds/${s.guildId}/members/${s.owner.user.id}/voice`, { channelId: null })).statusCode).toBe(
-      403,
+      204,
     );
   });
 
