@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { ChevronDown, Plus } from 'lucide-react';
 import { Permission, type ChannelType } from '@diskort/shared';
 import { useMainView } from '../../lib/mainView';
@@ -25,6 +26,7 @@ export function ChannelSidebar() {
   const settingsSections = useServerSettingsSections();
   const openModal = useUi((s) => s.openModal);
   const openContextMenu = useUi((s) => s.openContextMenu);
+  const headerMenuWasOpen = useRef(false);
   const view = useMainView();
 
   const textChannels = channels.filter((c) => c.type === 'text');
@@ -70,8 +72,18 @@ export function ChannelSidebar() {
     <aside className="flex w-60 shrink-0 flex-col border-r border-divider bg-bg-side">
       <button
         className="flex h-12 shrink-0 items-center justify-between border-b border-edge px-4 font-semibold text-text-head shadow-sm transition-colors hover:bg-bg-hover"
+        // Menü açıkken başlığa basmak kapatır: dışarı tıklama menüyü mousedown'da kapattığından
+        // durumu ondan önce (React'in mousedown'ı pencereninkinden önce çalışır) kaydederiz.
+        onMouseDown={(e) => {
+          const open = useUi.getState().contextMenu;
+          const rect = e.currentTarget.getBoundingClientRect();
+          headerMenuWasOpen.current = open !== null && open.x === rect.left + 8 && open.y === rect.bottom + 4;
+        }}
         onClick={(e) => {
-          if (menu.length === 0) return;
+          if (menu.length === 0 || headerMenuWasOpen.current) {
+            headerMenuWasOpen.current = false;
+            return;
+          }
           const rect = e.currentTarget.getBoundingClientRect();
           openContextMenu({ x: rect.left + 8, y: rect.bottom + 4, items: menu });
         }}
