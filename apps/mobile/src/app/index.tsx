@@ -6,7 +6,6 @@ import { ChannelList, GuildHeader } from '../components/ChannelList';
 import { ConnectionBanner } from '../components/ConnectionBanner';
 import { MemberSheet } from '../components/MemberSheet';
 import { UserPanel } from '../components/UserPanel';
-import { VoiceBar } from '../components/VoiceBar';
 import { colors } from '../theme';
 import { joinVoice } from '../voice/actions';
 
@@ -27,7 +26,6 @@ export default function HomeScreen() {
         }}
         onMemberPress={setMember}
       />
-      <VoiceBar />
       <UserPanel onSettings={() => router.push('/settings')} />
       <MemberSheet userId={member} onClose={() => setMember(null)} />
     </SafeAreaView>

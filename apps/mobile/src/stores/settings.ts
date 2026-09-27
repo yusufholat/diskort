@@ -13,6 +13,8 @@ interface MobileSettings {
   /** Kişi başı ses seviyesi ve izlenen yayının ses seviyesi (0–2); yalnızca %100'den farklı olanlar tutulur */
   userVolumes: Record<string, number>;
   streamVolumes: Record<string, number>;
+  /** Yayın sesi sessize alınan yayıncılar (seviye korunur; açınca ona dönülür) */
+  streamMuted: Record<string, true>;
   /** Mikrofon işleme (WebRTC ve telefonun kendi ses işlemcisi); sesli sohbete katılırken uygulanır */
   noiseSuppression: boolean;
   echoCancellation: boolean;
@@ -39,6 +41,7 @@ export const useSettings = create<MobileSettings>()(
       selfDeaf: false,
       userVolumes: {},
       streamVolumes: {},
+      streamMuted: {},
       noiseSuppression: true,
       echoCancellation: true,
       autoGainControl: true,

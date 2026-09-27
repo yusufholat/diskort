@@ -5,7 +5,11 @@ import {
   gateway,
   reportClientError,
   reportVoiceLog,
+  setStreamVolume,
   SpuriousDuplicateGuard,
+  type StreamAudioPrefs,
+  streamAudioOutput,
+  toggleStreamMute,
   useGuild,
   useSession,
 } from '@diskort/client-core';
@@ -15,6 +19,7 @@ import {
   ConnectionState,
   DisconnectReason,
   type Participant,
+  RemoteAudioTrack,
   type RemoteParticipant,
   type RemoteTrackPublication,
   LogLevel,
@@ -127,6 +132,12 @@ const isAudio = (pub: RemoteTrackPublication): boolean =>
   pub.source === Track.Source.Microphone ||
   (pub.kind === Track.Kind.Audio && pub.source !== Track.Source.ScreenShareAudio);
 
+/** Ayarlardaki yayın sesi tercihleri (yalnızca ilgili alanlar) */
+const streamPrefs = (s: { streamVolumes: Record<string, number>; streamMuted: Record<string, true> }): StreamAudioPrefs => ({
+  streamVolumes: s.streamVolumes,
+  streamMuted: s.streamMuted,
+});
+
 /** Yayın bitti ya da yayıncı ayrıldı: izleniyorsa "sona erdi" durumuna geçilir */
 function streamGone(s: VoiceStore, identity: string): Partial<VoiceStore> {
   const { [identity]: _gone, ...streams } = s.streams;
@@ -203,7 +214,13 @@ class MobileVoiceClient {
     });
     // Kişi/yayın ses seviyeleri ve ses algılama ayarları anında uygulanır
     useSettings.subscribe((next, prev) => {
-      if (next.userVolumes !== prev.userVolumes || next.streamVolumes !== prev.streamVolumes) this.applyVolumes();
+      if (
+        next.userVolumes !== prev.userVolumes ||
+        next.streamVolumes !== prev.streamVolumes ||
+        next.streamMuted !== prev.streamMuted
+      ) {
+        this.applyVolumes();
+      }
       if (
         next.voiceActivity !== prev.voiceActivity ||
         next.vadAuto !== prev.vadAuto ||
@@ -341,6 +358,8 @@ class MobileVoiceClient {
       }
     }
     useVoice.setState({ watching: userId, streamEnded: null });
+    const watched = userId ? room.remoteParticipants.get(userId) : undefined;
+    if (watched) this.applyVolume(watched, true);
   }
 
   /** "Yayın sona erdi" bilgisini kapatır */
@@ -354,17 +373,35 @@ class MobileVoiceClient {
    */
   setVolume(userId: string, kind: 'voice' | 'stream', volume: number, persist = true): void {
     const participant = this.room?.remoteParticipants.get(userId);
-    if (participant) {
-      if (kind === 'voice') participant.setVolume(volume, Track.Source.Microphone);
-      else participant.setVolume(this.deafened() ? 0 : volume, Track.Source.ScreenShareAudio);
-    }
-    if (!persist) return;
     const s = getSettings();
-    const key = kind === 'voice' ? 'userVolumes' : 'streamVolumes';
-    const next = { ...s[key] };
+    if (kind === 'stream') {
+      if (!persist) {
+        // Sürüklerken yalnızca seviye değişir; kaydedilince (bırakınca) tam durum yeniden uygulanır
+        if (participant) this.setStreamTrackVolume(participant, this.deafened() || volume <= 0 ? 0 : volume);
+        return;
+      }
+      // Ayar değişince abonelik (useSettings.subscribe) durumu yeniden uygular
+      s.set(setStreamVolume(streamPrefs(s), userId, volume));
+      if (participant) this.applyVolume(participant, true);
+      return;
+    }
+    participant?.setVolume(volume, Track.Source.Microphone);
+    if (!persist) return;
+    const next = { ...s.userVolumes };
     if (Math.abs(volume - 1) < 0.005) delete next[userId];
     else next[userId] = Math.round(volume * 100) / 100;
-    s.set({ [key]: next });
+    s.set({ userVolumes: next });
+  }
+
+  /**
+   * İzlenen yayının sesini sessize al / aç. İstenen durum kişi başı kaydedilir ve yayın sesi izi her
+   * geldiğinde (abonelik, yeniden bağlanma, yayının yeniden başlaması) yeniden uygulanır.
+   */
+  toggleStreamAudio(userId: string): void {
+    const s = getSettings();
+    s.set(toggleStreamMute(streamPrefs(s), userId));
+    const participant = this.room?.remoteParticipants.get(userId);
+    if (participant) this.applyVolume(participant, true);
   }
 
   /** Ayarlardaki mikrofon seviyesi göstergesi için ölçümü başlatır; dönen işlev durdurur */
@@ -514,14 +551,40 @@ class MobileVoiceClient {
   }
 
   /** Kaydedilmiş kişi/yayın ses seviyelerini uygular (iz sonradan gelirse LiveKit aboneliğe uygular) */
-  private applyVolumes(): void {
-    for (const p of this.room?.remoteParticipants.values() ?? []) this.applyVolume(p);
+  private applyVolumes(resend = false): void {
+    for (const p of this.room?.remoteParticipants.values() ?? []) this.applyVolume(p, resend);
   }
 
-  private applyVolume(p: RemoteParticipant): void {
+  /**
+   * Kişinin ses seviyesini ve yayın sesi tercihini uygular. `resend` iken yayın sesinin gönderim durumu
+   * sunucuya yeniden bildirilir (abonelik ve yeniden bağlanma sonrası LiveKit ses izleri için bunu
+   * kendiliğinden yapmıyor).
+   */
+  private applyVolume(p: RemoteParticipant, resend = false): void {
     const s = getSettings();
     p.setVolume(s.userVolumes[p.identity] ?? 1, Track.Source.Microphone);
-    p.setVolume(this.deafened() ? 0 : (s.streamVolumes[p.identity] ?? 1), Track.Source.ScreenShareAudio);
+    const out = streamAudioOutput(streamPrefs(s), p.identity, this.deafened());
+    this.setStreamTrackVolume(p, out.volume);
+    // Sessizken sunucu yayın sesini hiç göndermez: telefondaki iz seviyesi (yeniden abonelik,
+    // yeniden bağlanma) bir yerde kaybolsa bile sessizlik bozulmaz
+    for (const pub of p.trackPublications.values()) {
+      if (pub.source !== Track.Source.ScreenShareAudio || !pub.isDesired) continue;
+      if (pub.isEnabled !== out.enabled) pub.setEnabled(out.enabled);
+      else if (resend) pub.emitTrackUpdate();
+    }
+  }
+
+  /**
+   * Yayın sesi izinin seviyesi. LiveKit'in katılımcı seviyesi (yeni gelen ize uygulanır) ve o an
+   * bağlı olan her yayın sesi izi ayrı ayrı ayarlanır; yalnızca birine güvenilmez.
+   */
+  private setStreamTrackVolume(p: RemoteParticipant, volume: number): void {
+    p.setVolume(volume, Track.Source.ScreenShareAudio);
+    for (const pub of p.trackPublications.values()) {
+      if (pub.source === Track.Source.ScreenShareAudio && pub.track instanceof RemoteAudioTrack) {
+        pub.track.setVolume(volume);
+      }
+    }
   }
 
   private syncVoiceState(): void {
@@ -538,7 +601,10 @@ class MobileVoiceClient {
       if (useVoice.getState().watching === participant.identity) pub.setSubscribed(true);
     } else if (pub.source === Track.Source.ScreenShareAudio) {
       useVoice.setState((s) => ({ streamAudio: { ...s.streamAudio, [participant.identity]: true } }));
-      if (useVoice.getState().watching === participant.identity) pub.setSubscribed(true);
+      if (useVoice.getState().watching === participant.identity) {
+        pub.setSubscribed(true);
+        this.applyVolume(participant, true);
+      }
     }
   }
 
@@ -561,10 +627,14 @@ class MobileVoiceClient {
       })
       .on(RoomEvent.TrackSubscribed, (track, _pub, p) => {
         // Kaydedilmiş ses seviyesi (kişi ya da yayın sesi)
-        if (track.kind === Track.Kind.Audio) this.applyVolume(p);
+        if (track.kind === Track.Kind.Audio) this.applyVolume(p, true);
         bump();
       })
       .on(RoomEvent.TrackUnsubscribed, bump)
+      // Yayıncı yayın sesini kapatıp açtı: iz yeniden etkinleşince tercih tekrar uygulanır
+      .on(RoomEvent.TrackUnmuted, (pub, p) => {
+        if (pub.source === Track.Source.ScreenShareAudio && !p.isLocal) this.applyVolumes();
+      })
       .on(RoomEvent.ParticipantConnected, () => {
         if (this.room === room) soundCue('userJoin');
       })
@@ -595,6 +665,9 @@ class MobileVoiceClient {
         this.duplicates.noteReconnect();
         useVoice.setState({ status: 'connected' });
         this.syncVoiceState();
+        // Yeniden bağlanınca (ör. ping zaman aşımı) izler değişmiş olabilir: seviyeler ve yayın sesi
+        // tercihi yeniden uygulanır
+        this.applyVolumes(true);
       })
       .on(RoomEvent.Disconnected, (reason) => {
         // Kendi başlattığımız ayrılma değilse: sunucu çıkardı, başka cihaza geçildi ya da bağlantı koptu
