@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Headphones, HeadphoneOff, Mic, MicOff, Settings } from 'lucide-react';
 import { voice } from '../../features/voice/voiceClient';
+import { useMountedRef } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { useSession } from '@diskort/client-core';
 import { useSettings } from '../../stores/settings';
@@ -45,7 +46,7 @@ export function UserPanel() {
       <PanelButton
         title="Kullanıcı Ayarları"
         onClick={() => openModal({ type: 'settings' })}
-        icon={<Settings size={20} />}
+        icon={<Settings size={20} className="transition-transform duration-300 group-hover:rotate-90" />}
       />
     </div>
   );
@@ -62,17 +63,22 @@ function PanelButton({
   onClick: () => void;
   active?: boolean;
 }) {
+  // Simge değişince (sustur ↔ sesi aç) kısa bir dönüşle yenisine geçer; ilk açılışta oynamaz
+  const mounted = useMountedRef();
   return (
     <button
-      title={title}
+      data-tooltip={title}
       aria-label={title}
+      aria-pressed={active}
       onClick={onClick}
       className={cn(
-        'flex h-8 w-8 items-center justify-center rounded transition-colors hover:bg-bg-hover',
+        'press-icon group flex h-8 w-8 items-center justify-center rounded hover:bg-bg-hover',
         active ? 'text-danger' : 'text-text-normal hover:text-text-head',
       )}
     >
-      {icon}
+      <span key={title} className={mounted.current ? 'anim-icon-swap' : 'inline-flex'}>
+        {icon}
+      </span>
     </button>
   );
 }

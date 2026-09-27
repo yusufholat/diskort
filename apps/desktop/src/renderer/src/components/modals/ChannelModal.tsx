@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { Hash, Volume2 } from 'lucide-react';
 import type { Channel, ChannelType } from '@diskort/shared';
 import { CHANNEL_NAME_MAX_LENGTH } from '@diskort/shared';
@@ -6,7 +6,8 @@ import { api, errorMessage } from '@diskort/client-core';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
 import { Modal } from '../ui/Modal';
-import { Button, Field, TextInput } from '../ui/controls';
+import { Button, TextInput } from '../ui/controls';
+import { FormField, REQUIRED, focusFirstInvalid, useFormErrors } from '../ui/FormField';
 
 const TYPES: { type: ChannelType; label: string; hint: string; icon: typeof Hash }[] = [
   { type: 'text', label: 'Metin', hint: 'Mesajlar, bağlantılar, fikirler', icon: Hash },
@@ -22,15 +23,19 @@ export function ChannelModal({ channel, channelType }: { channel?: Channel; chan
   const setView = useUi((s) => s.setView);
   const [type, setType] = useState<ChannelType>(channel?.type ?? channelType ?? 'text');
   const [name, setName] = useState(channel?.name ?? '');
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const form = useFormErrors<'name'>();
+  const formRef = useRef<HTMLFormElement>(null);
 
   const finalName = (type === 'text' ? textChannelName(name) : name).trim();
 
   const submit = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
+    if (!form.validate({ name: !finalName && REQUIRED })) {
+      focusFirstInvalid(formRef.current);
+      return;
+    }
     setBusy(true);
-    setError(null);
     try {
       if (channel) {
         await api.updateChannel(channel.id, { name: finalName });
@@ -40,7 +45,9 @@ export function ChannelModal({ channel, channelType }: { channel?: Channel; chan
       }
       close();
     } catch (err) {
-      setError(errorMessage(err));
+      // Sunucunun reddi (ör. geçersiz ad) alanın altında gösterilir
+      form.validate({ name: errorMessage(err) });
+      focusFirstInvalid(formRef.current);
     } finally {
       setBusy(false);
     }
@@ -50,7 +57,7 @@ export function ChannelModal({ channel, channelType }: { channel?: Channel; chan
 
   return (
     <Modal title={channel ? 'Kanalı Düzenle' : 'Kanal Oluştur'} onClose={close}>
-      <form onSubmit={submit}>
+      <form ref={formRef} onSubmit={submit} noValidate>
         {!channel && (
           <div className="mb-4">
             <div className="mb-2 text-xs font-bold text-text-muted uppercase">Kanal türü</div>
@@ -61,7 +68,7 @@ export function ChannelModal({ channel, channelType }: { channel?: Channel; chan
                   type="button"
                   onClick={() => setType(t.type)}
                   className={cn(
-                    'flex items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors',
+                    'press flex items-center gap-3 rounded-md px-3 py-2.5 text-left',
                     type === t.type ? 'bg-bg-active text-text-head' : 'bg-bg-side text-text-normal hover:bg-bg-hover',
                   )}
                 >
@@ -72,7 +79,7 @@ export function ChannelModal({ channel, channelType }: { channel?: Channel; chan
                   </div>
                   <span
                     className={cn(
-                      'h-5 w-5 shrink-0 rounded-full border-2',
+                      'h-5 w-5 shrink-0 rounded-full border-2 transition-[border-width,border-color] duration-150',
                       type === t.type ? 'border-[6px] border-white' : 'border-text-muted',
                     )}
                   />
@@ -81,25 +88,27 @@ export function ChannelModal({ channel, channelType }: { channel?: Channel; chan
             </div>
           </div>
         )}
-        <Field label="Kanal adı" error={error ?? undefined}>
+        <FormField label="Kanal adı" error={form.errors.name} shakeKey={form.attempt}>
           <div className="relative">
             <Icon size={18} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-text-muted" />
             <TextInput
               value={type === 'text' ? textChannelName(name) : name}
               maxLength={CHANNEL_NAME_MAX_LENGTH}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                form.clear('name');
+              }}
               placeholder={type === 'text' ? 'yeni-kanal' : 'Yeni Kanal'}
               className="pl-9"
               autoFocus
-              required
             />
           </div>
-        </Field>
+        </FormField>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={close}>
             Vazgeç
           </Button>
-          <Button type="submit" disabled={busy || !finalName}>
+          <Button type="submit" disabled={busy}>
             {channel ? 'Kaydet' : 'Kanal Oluştur'}
           </Button>
         </div>

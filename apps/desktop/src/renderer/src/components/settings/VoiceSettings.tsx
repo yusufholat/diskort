@@ -6,6 +6,7 @@ import { cn, clamp } from '../../lib/utils';
 import { useSettings, type NoiseMode } from '../../stores/settings';
 import { useVoice } from '../../stores/voice';
 import { Button, Divider, RadioCards, SectionTitle, Select, Toggle } from '../ui/controls';
+import { Slider } from '../ui/Slider';
 import { KeybindInput } from './KeybindInput';
 
 interface Device {
@@ -141,6 +142,7 @@ export function VoiceSettings() {
         <div>
           <div className="mb-2 text-xs font-bold text-text-muted uppercase">Giriş Aygıtı</div>
           <Select
+            aria-label="Giriş aygıtı"
             value={s.inputDeviceId}
             onChange={(inputDeviceId) => s.set({ inputDeviceId })}
             options={inputs.length ? inputs.map((d) => ({ value: d.deviceId, label: d.label })) : [{ value: 'default', label: 'Varsayılan' }]}
@@ -149,6 +151,7 @@ export function VoiceSettings() {
         <div>
           <div className="mb-2 text-xs font-bold text-text-muted uppercase">Çıkış Aygıtı</div>
           <Select
+            aria-label="Çıkış aygıtı"
             value={s.outputDeviceId}
             onChange={(outputDeviceId) => s.set({ outputDeviceId })}
             options={outputs.length ? outputs.map((d) => ({ value: d.deviceId, label: d.label })) : [{ value: 'default', label: 'Varsayılan' }]}
@@ -198,14 +201,14 @@ export function VoiceSettings() {
             <p className="mt-2 text-xs text-warn">Global kısayollar bu sistemde kullanılamıyor.</p>
           ) : null}
           <SectionTitle>Bırakma Gecikmesi — {s.pttReleaseMs} ms</SectionTitle>
-          <input
-            type="range"
-            className="slider w-full"
+          <Slider
+            className="w-full"
+            aria-label="Bırakma gecikmesi"
             min={0}
             max={1000}
             step={10}
             value={s.pttReleaseMs}
-            onChange={(e) => s.set({ pttReleaseMs: Number(e.target.value) })}
+            onValueChange={(pttReleaseMs) => s.set({ pttReleaseMs })}
           />
         </>
       )}
@@ -243,6 +246,7 @@ export function VoiceSettings() {
 
       <SectionTitle>Ses Kalitesi</SectionTitle>
       <Select
+        aria-label="Ses kalitesi"
         value={s.audioBitrateKbps}
         onChange={(audioBitrateKbps) => s.set({ audioBitrateKbps })}
         options={[

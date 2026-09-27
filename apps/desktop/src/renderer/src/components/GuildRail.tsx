@@ -7,10 +7,12 @@ export function GuildRail() {
   return (
     <nav className="flex w-[72px] shrink-0 flex-col items-center gap-2 bg-bg-rail py-3">
       <div className="relative flex items-center">
-        <span className="absolute -left-4 h-10 w-1 rounded-r bg-white" />
+        <span className="anim-indicator-in absolute -left-4 h-10 w-1 origin-left rounded-r bg-white" />
         <div
           className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand text-base font-semibold text-white"
-          title={guild?.name}
+          data-tooltip={guild?.name}
+          data-tooltip-side="right"
+          aria-label={guild?.name}
         >
           {initials(guild?.name ?? 'D')}
         </div>

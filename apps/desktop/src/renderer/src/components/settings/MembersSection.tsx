@@ -162,7 +162,7 @@ function IconAction({
 }) {
   return (
     <button
-      title={title}
+      data-tooltip={title}
       aria-label={title}
       onClick={onClick}
       className={cn(

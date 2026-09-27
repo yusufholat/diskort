@@ -3,6 +3,7 @@ import { Eye, HeadphoneOff, Headphones, Mic, MicOff, Monitor, MonitorOff, PhoneO
 import type { VoiceState } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
 import { adminVoiceItems } from '../../lib/adminMenu';
+import { useMountedRef, usePresenceList, type PresenceEntry, type PresencePhase } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { membersOf, useGuild, useSession } from '@diskort/client-core';
 import { useSettings } from '../../stores/settings';
@@ -39,6 +40,8 @@ export function VoiceStage() {
   }, [members, streams, sharing, selfId]);
 
   const focusedVisible = focused && (watching[focused] || (focused === selfId && sharing)) ? focused : null;
+  // Katılan kutucuk büyüyerek belirir, ayrılan küçülerek kaybolur
+  const entries = usePresenceList(tiles, tileKey, 180);
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col bg-bg-deep">
@@ -60,17 +63,17 @@ export function VoiceStage() {
               <StreamView userId={focusedVisible} large />
             </div>
             <div className="flex h-28 shrink-0 gap-3 overflow-x-auto">
-              {tiles
-                .filter((t) => !(t.kind === 'stream' && t.userId === focusedVisible))
-                .map((t) => (
-                  <div key={tileKey(t)} className="aspect-video h-full shrink-0">
+              {entries
+                .filter(({ item: t }) => !(t.kind === 'stream' && t.userId === focusedVisible))
+                .map(({ key, item: t, phase }) => (
+                  <div key={key} className={cn('aspect-video h-full shrink-0', tileAnimation(phase))}>
                     <TileView tile={t} compact />
                   </div>
                 ))}
             </div>
           </div>
         ) : (
-          <TileGrid tiles={tiles} />
+          <TileGrid entries={entries} />
         )}
       </div>
 
@@ -83,15 +86,21 @@ function tileKey(t: Tile): string {
   return t.kind === 'user' ? `u:${t.state.userId}` : `s:${t.userId}`;
 }
 
-function TileGrid({ tiles }: { tiles: Tile[] }) {
-  const cols = tiles.length <= 1 ? 1 : tiles.length <= 4 ? 2 : tiles.length <= 9 ? 3 : 4;
+function tileAnimation(phase: PresencePhase): string | undefined {
+  return phase === 'enter' ? 'anim-tile-in' : phase === 'exit' ? 'anim-tile-out' : undefined;
+}
+
+function TileGrid({ entries }: { entries: PresenceEntry<Tile>[] }) {
+  // Kapanmakta olanlar sütun sayısını etkilemesin
+  const count = entries.filter((e) => e.phase !== 'exit').length;
+  const cols = count <= 1 ? 1 : count <= 4 ? 2 : count <= 9 ? 3 : 4;
   return (
     <div
       className="grid h-full content-center gap-3"
       style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
     >
-      {tiles.map((t) => (
-        <div key={tileKey(t)} className="mx-auto aspect-video w-full max-w-[720px]">
+      {entries.map(({ key, item: t, phase }) => (
+        <div key={key} className={cn('mx-auto aspect-video w-full max-w-[720px]', tileAnimation(phase))}>
           <TileView tile={t} />
         </div>
       ))}
@@ -117,7 +126,7 @@ function ParticipantTile({ state, compact }: { state: VoiceState; compact?: bool
   return (
     <div
       className={cn(
-        'relative flex h-full w-full items-center justify-center overflow-hidden rounded-lg transition-shadow duration-75',
+        'tile-ring relative flex h-full w-full items-center justify-center overflow-hidden rounded-lg',
         speaking && 'tile-speaking',
       )}
       style={{ background: `color-mix(in srgb, ${user?.avatarColor ?? '#5865f2'} 35%, #1e1f22)` }}
@@ -160,7 +169,7 @@ function StreamTile({ userId, compact }: { userId: string; compact?: boolean }) 
       </div>
       {!compact && <div className="text-sm text-text-muted">{user?.displayName} ekranını paylaşıyor</div>}
       <button
-        className="flex items-center gap-2 rounded bg-[#4e5058] px-4 py-2 text-sm font-medium text-white hover:bg-[#6d6f78]"
+        className="press flex items-center gap-2 rounded bg-[#4e5058] px-4 py-2 text-sm font-medium text-white hover:bg-[#6d6f78]"
         onClick={() => voice.watchStream(userId)}
       >
         <Eye size={16} /> Yayını İzle
@@ -225,14 +234,16 @@ function RoundButton({
   hangup?: boolean;
   disabled?: boolean;
 }) {
+  const mounted = useMountedRef();
   return (
     <button
-      title={title}
+      data-tooltip={title}
       aria-label={title}
+      aria-pressed={hangup ? undefined : Boolean(danger || active)}
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        'flex h-12 w-12 items-center justify-center rounded-full text-white transition-colors disabled:opacity-40',
+        'press-icon flex h-12 w-12 items-center justify-center rounded-full text-white disabled:opacity-40',
         hangup
           ? 'w-16 bg-danger hover:bg-danger-hover'
           : danger
@@ -242,7 +253,10 @@ function RoundButton({
               : 'bg-[#2b2d31] hover:bg-[#404249]',
       )}
     >
-      {children}
+      {/* Simge değişince kısa bir dönüşle yenisine geçer */}
+      <span key={title} className={mounted.current ? 'anim-icon-swap' : 'inline-flex'}>
+        {children}
+      </span>
     </button>
   );
 }

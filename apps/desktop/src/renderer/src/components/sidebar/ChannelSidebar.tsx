@@ -72,8 +72,9 @@ function SectionHeader({ title, type, canCreate }: { title: string; type: Channe
       </span>
       {canCreate && (
         <button
-          className="text-text-muted hover:text-text-head"
-          title="Kanal Oluştur"
+          className="press-icon text-text-muted hover:text-text-head"
+          data-tooltip="Kanal Oluştur"
+          aria-label="Kanal Oluştur"
           onClick={() => openModal({ type: 'channel', channelType: type })}
         >
           <Plus size={16} />

@@ -2,22 +2,30 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useGuild } from '@diskort/client-core';
 import { useSettings } from '../stores/settings';
 import { useUi } from '../stores/ui';
+import { useEscapeLayer } from '../lib/escape';
+import { usePresence } from '../lib/motion';
 import { cn } from '../lib/utils';
+import { Slider } from './ui/Slider';
+
+const MARGIN = 8;
 
 /** Sağ tık menüsü: basit öğeler veya kullanıcı ses ayarları (seviye + yerel susturma). */
 export function ContextMenu() {
   const menu = useUi((s) => s.contextMenu);
   const close = useUi((s) => s.closeContextMenu);
+  const { value: shown, closing } = usePresence(menu, 100);
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [pos, setPos] = useState({ x: 0, y: 0, origin: 'top left' });
+  // Esc yalnızca menüyü kapatır (altındaki ayarlar/pencere açık kalır)
+  useEscapeLayer(close, Boolean(menu));
 
+  // Sığmıyorsa imlecin soluna/üstüne açılır; animasyon imlecin olduğu noktadan büyür
   useLayoutEffect(() => {
     if (!menu || !ref.current) return;
-    const rect = ref.current.getBoundingClientRect();
-    setPos({
-      x: Math.min(menu.x, window.innerWidth - rect.width - 8),
-      y: Math.min(menu.y, window.innerHeight - rect.height - 8),
-    });
+    const { offsetWidth: width, offsetHeight: height } = ref.current;
+    const x = menu.x + width > window.innerWidth - MARGIN ? Math.max(MARGIN, menu.x - width) : menu.x;
+    const y = Math.max(MARGIN, Math.min(menu.y, window.innerHeight - height - MARGIN));
+    setPos({ x, y, origin: `${menu.x - x}px ${menu.y - y}px` });
   }, [menu]);
 
   useEffect(() => {
@@ -26,7 +34,15 @@ export function ContextMenu() {
       if (!ref.current?.contains(e.target as Node)) close();
     };
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') close();
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        // Klavyeyle öğeler arasında gezinme
+        const items = [...(ref.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [])];
+        if (!items.length) return;
+        e.preventDefault();
+        const index = items.indexOf(document.activeElement as HTMLButtonElement);
+        const next = e.key === 'ArrowDown' ? (index + 1) % items.length : (index - 1 + items.length) % items.length;
+        items[next]!.focus();
+      }
     };
     window.addEventListener('mousedown', onDown);
     window.addEventListener('keydown', onKey);
@@ -38,29 +54,41 @@ export function ContextMenu() {
     };
   }, [menu, close]);
 
-  if (!menu) return null;
+  if (!shown) return null;
 
   return (
     <div
       ref={ref}
-      className="animate-pop fixed z-50 min-w-[200px] rounded-md bg-bg-float p-1.5 shadow-xl"
-      style={{ left: pos.x, top: pos.y }}
+      role="menu"
+      className={cn(
+        'fixed z-50 min-w-[200px] rounded-md border border-black/30 bg-bg-float p-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
+        closing ? 'anim-pop-out pointer-events-none' : 'anim-pop-in',
+      )}
+      style={{ left: pos.x, top: pos.y, transformOrigin: pos.origin }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {menu.userId && <UserAudioControls userId={menu.userId} />}
-      {menu.items?.map((item) => (
+      {shown.userId && <UserAudioControls userId={shown.userId} />}
+      {shown.userId && shown.items?.length ? <div className="mx-1 my-1 h-px bg-line/70" /> : null}
+      {shown.items?.map((item) => (
         <button
           key={item.label}
+          role="menuitem"
+          disabled={item.disabled}
           className={cn(
-            'block w-full rounded-[3px] px-2 py-1.5 text-left text-sm',
-            item.danger ? 'text-danger hover:bg-danger hover:text-white' : 'hover:bg-brand hover:text-white',
+            'flex w-full items-center gap-4 rounded-[3px] px-2 py-1.5 text-left text-sm transition-colors duration-75 outline-none disabled:cursor-default disabled:opacity-40',
+            item.danger
+              ? 'text-danger enabled:hover:bg-danger enabled:hover:text-white enabled:focus-visible:bg-danger enabled:focus-visible:text-white'
+              : 'enabled:hover:bg-brand enabled:hover:text-white enabled:focus-visible:bg-brand enabled:focus-visible:text-white',
           )}
+          // Odak olduğu yerde kalsın (ör. sağ tıklanan metin kutusunda "Yapıştır" için)
+          onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
             close();
             item.onClick();
           }}
         >
-          {item.label}
+          <span className="flex-1">{item.label}</span>
+          {item.hint && <span className="text-xs opacity-60">{item.hint}</span>}
         </button>
       ))}
     </div>
@@ -78,24 +106,23 @@ function UserAudioControls({ userId }: { userId: string }) {
       <div className="mb-2 truncate text-sm font-semibold text-text-head">{user?.displayName}</div>
       <div className="mb-1 flex justify-between text-xs font-bold text-text-muted uppercase">
         <span>Kullanıcı Ses Seviyesi</span>
-        <span>{Math.round(volume * 100)}%</span>
+        <span className="tabular-nums">{Math.round(volume * 100)}%</span>
       </div>
-      <input
-        type="range"
-        className="slider w-full"
+      <Slider
+        className="w-full"
+        aria-label="Kullanıcı ses seviyesi"
         min={0}
         max={200}
         value={Math.round(volume * 100)}
-        onChange={(e) => {
-          const userVolumes = { ...useSettings.getState().userVolumes, [userId]: Number(e.target.value) / 100 };
+        onValueChange={(v) => {
+          const userVolumes = { ...useSettings.getState().userVolumes, [userId]: v / 100 };
           set({ userVolumes });
         }}
       />
-      <label className="mt-2 flex cursor-pointer items-center justify-between rounded-[3px] px-1 py-1.5 text-sm hover:bg-bg-hover">
+      <label className="mt-2 flex cursor-pointer items-center justify-between rounded-[3px] px-1 py-1.5 text-sm transition-colors hover:bg-bg-hover">
         <span>Sustur (yalnızca senin için)</span>
         <input
           type="checkbox"
-          className="h-4 w-4 accent-brand"
           checked={muted}
           onChange={(e) => {
             const localMutes = { ...useSettings.getState().localMutes };
