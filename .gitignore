@@ -16,3 +16,6 @@ apps/web/test/
 
 # Sunucu gizli anahtarları (Firebase hizmet hesabı vb.)
 infra/secrets/
+
+# Paralel çalışma kopyaları (git worktree)
+.claude/worktrees/
