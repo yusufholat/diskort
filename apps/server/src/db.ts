@@ -588,7 +588,12 @@ export class Store {
       if (status === 'member') return { ok: false, reason: 'username', message: 'Bu kullanıcı adı alınmış.' };
       const check = this.checkInvite(code);
       if (!check.ok) return { ok: false, reason: 'invite', message: check.reason };
-      this.run('UPDATE users SET removed_at = NULL WHERE id = ?', userId);
+      // Atıldığı saniye içinde dönse de yeni oturum jetonu geçerli olsun (jetonlar saniye hassasiyetinde)
+      this.run(
+        'UPDATE users SET removed_at = NULL, sessions_valid_after = MIN(sessions_valid_after, ?) WHERE id = ?',
+        Math.floor(Date.now() / 1000) * 1000,
+        userId,
+      );
       this.run('UPDATE invites SET uses = uses + 1 WHERE code = ?', check.invite.code);
       return { ok: true, user: this.getUser(userId)!, rejoined: true };
     });

@@ -77,7 +77,7 @@ export function canAssignRole(ctx: AppContext, actorId: string, targetId: string
   if (role.id === ctx.guild.id) return '@everyone rolü verilip alınamaz.';
   if (!permissions.roleIsBelow(actorId, role)) return `"${role.name}" rolü senin en üst rolünden aşağıda değil.`;
   if (targetId !== actorId && !permissions.outranks(actorId, targetId)) {
-    return 'Rolü seninkinden yukarıda olan birinin rollerini değiştiremezsin.';
+    return 'En üst rolü seninkinden aşağıda olmayan birinin rollerini değiştiremezsin.';
   }
   if (lackingBits(ctx, actorId, role.permissions) !== 0) return 'Kendinde olmayan yetkileri içeren bir rolü veremezsin.';
   return null;
@@ -163,11 +163,15 @@ export function registerRoleRoutes(app: FastifyInstance, ctx: AppContext): void 
       return forbidden(reply, 'Yalnızca senin en üst rolünden aşağıdaki rolleri silebilirsin.');
     }
     const members = store.listUsers().filter((u) => u.roles.includes(role.id));
+    // Rolün kanal izinleri de silinir: o kanalları görmeye devam edenler güncel hâlini almalı
+    const channels = [...store.permissionData().channels.values()]
+      .filter((c) => c.overwrites.some((o) => o.roleId === role.id))
+      .map((c) => c.id);
     const before = gateway.visibility();
     store.deleteRole(guild.id, role.id);
     broadcastRoles();
     for (const member of members) gateway.broadcast({ t: 'USER_UPDATE', d: store.getUser(member.id)! });
-    await afterPermissionChange(ctx, before);
+    await afterPermissionChange(ctx, before, channels);
     return reply.code(204).send();
   });
 
@@ -267,7 +271,7 @@ export function registerRoleRoutes(app: FastifyInstance, ctx: AppContext): void 
     if (!ban && target.removed) return sendError(reply, 400, 'not_member', 'Bu kullanıcı zaten üye değil.');
     if (store.membership(target.id) === 'banned') return sendError(reply, 400, 'already_banned', 'Bu kullanıcı zaten yasaklı.');
     if (!permissions.outranks(actorId, target.id)) {
-      return forbidden(reply, 'Rolü seninkinden yukarıda olan birini atamaz ya da yasaklayamazsın.');
+      return forbidden(reply, 'En üst rolü seninkinden aşağıda olmayan birini atamaz ya da yasaklayamazsın.');
     }
     const user = store.removeMember(target.id, ban)!;
     gateway.broadcast({ t: 'USER_UPDATE', d: user });
@@ -316,7 +320,7 @@ export function registerRoleRoutes(app: FastifyInstance, ctx: AppContext): void 
     const target = store.getUser(req.params.id);
     if (!target || target.removed) return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
     if (target.id !== actorId && !permissions.outranks(actorId, target.id)) {
-      return forbidden(reply, 'Rolü seninkinden yukarıda olan birini yönetemezsin.');
+      return forbidden(reply, 'En üst rolü seninkinden aşağıda olmayan birini yönetemezsin.');
     }
     const state = voice.get(target.id);
     const can = (flag: number, channelId = state?.channelId): boolean =>

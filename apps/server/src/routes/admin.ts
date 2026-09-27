@@ -81,7 +81,7 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void
       const target = store.getUser(req.params.id);
       if (!target || target.removed) return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
       if (target.id !== req.user.id && !permissions.outranks(req.user.id, target.id)) {
-        return forbidden(reply, 'Rolü seninkinden yukarıda olan birinin şifresini sıfırlayamazsın.');
+        return forbidden(reply, 'En üst rolü seninkinden aşağıda olmayan birinin şifresini sıfırlayamazsın.');
       }
       return store.createResetCode(target.id, req.user.id, RESET_CODE_TTL_MS);
     },
@@ -128,7 +128,7 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void
       if (!state) return sendError(reply, 404, 'not_in_voice', 'Kullanıcı bir ses kanalında değil.');
       if (!permissions.can(req.user.id, Permission.MOVE_MEMBERS, state.channelId)) return forbidden(reply);
       if (req.params.id !== req.user.id && !permissions.outranks(req.user.id, req.params.id)) {
-        return forbidden(reply, 'Rolü seninkinden yukarıda olan birini sesten çıkaramazsın.');
+        return forbidden(reply, 'En üst rolü seninkinden aşağıda olmayan birini sesten çıkaramazsın.');
       }
       await moderation.disconnect(req.params.id);
       return reply.code(204).send();
@@ -140,7 +140,7 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void
     if (id === req.user.id) return sendError(reply, 400, 'self_delete', 'Kendi hesabını buradan silemezsin.');
     if (!store.getUser(id)) return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
     if (!permissions.outranks(req.user.id, id)) {
-      return forbidden(reply, 'Rolü seninkinden yukarıda olan birinin hesabını silemezsin.');
+      return forbidden(reply, 'En üst rolü seninkinden aşağıda olmayan birinin hesabını silemezsin.');
     }
     await removeAccount(ctx, id, 'Hesabın bir yönetici tarafından silindi.');
     return reply.code(204).send();
