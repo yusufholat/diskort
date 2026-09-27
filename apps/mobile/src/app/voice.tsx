@@ -1,17 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Animated, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, BackHandler, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { VideoTrack } from '@livekit/react-native';
-import { Track } from 'livekit-client';
 import { membersOf, useCan, useGuild, useMemberColor, useSession } from '@diskort/client-core';
 import { Permission, type VoiceState } from '@diskort/shared';
 import { Avatar } from '../components/Avatar';
 import { MemberSheet } from '../components/MemberSheet';
 import { SpeakingRing } from '../components/SpeakingRing';
+import { StreamViewer } from '../components/StreamViewer';
 import { IconButton } from '../components/VoiceBar';
 import { VoiceStateIcon } from '../components/VoiceStateIcon';
+import { UserVolume } from '../components/VolumeControl';
 import { useAppear, useLayoutAnimationOn } from '../motion';
 import { toast } from '../stores/ui';
 import { useSettings } from '../stores/settings';
@@ -27,23 +26,26 @@ export default function VoiceScreen() {
   const voiceStates = useGuild((s) => s.voiceStates);
   const members = useMemo(() => (channelId ? membersOf(voiceStates, channelId) : []), [voiceStates, channelId]);
   const watching = useVoice((s) => s.watching);
+  // İzlenen ya da az önce biten yayın ("sona erdi" bilgisi gösterilirken görüntüleyici kalır)
+  const viewing = useVoice((s) => s.watching ?? s.streamEnded);
+  const selfId = useSession((s) => s.user?.id);
   const selfMute = useSettings((s) => s.selfMute);
   const selfDeaf = useSettings((s) => s.selfDeaf);
   const speaker = useSettings((s) => s.speaker);
   const sharing = useVoice((s) => s.sharing);
   const micAllowed = useVoice((s) => s.micAllowed);
   const canStream = useCan(Permission.STREAM, channelId ?? undefined);
-  const [fullscreen, setFullscreen] = useState(false);
-  // Uzun basılan (yönetilecek) üye
+  // Uzun basılan (yönetilecek / sesi ayarlanacak) üye
   const [member, setMember] = useState<string | null>(null);
   // Katılan/ayrılan kutucukta diğerleri yumuşakça yer değiştirir
   // (yeni kutucuğun kendisi Animated ile büyür; LayoutAnimation yalnızca kaymayı ve çıkışı yapar)
   useLayoutAnimationOn(members.map((m) => m.userId).join(','), 220, false);
+  const { fullscreen, setFullscreen, rotate, screenOptions } = useStreamFullscreen(viewing, watching);
 
   if (status === 'idle' || !channelId) {
     return (
       <View style={[styles.page, styles.center]}>
-        <Stack.Screen options={{ title: 'Ses' }} />
+        <Stack.Screen options={{ ...screenOptions, title: 'Ses' }} />
         <Text style={styles.muted}>Bir ses kanalına bağlı değilsin.</Text>
         <Pressable onPress={() => router.back()} style={{ marginTop: 12 }}>
           <Text style={{ color: colors.link, fontSize: 15 }}>Kanallara dön</Text>
@@ -54,7 +56,7 @@ export default function VoiceScreen() {
 
   return (
     <SafeAreaView style={styles.page} edges={['bottom']}>
-      <Stack.Screen options={{ title: channel?.name ?? 'Ses' }} />
+      <Stack.Screen options={{ ...screenOptions, title: channel?.name ?? 'Ses' }} />
       {status !== 'connected' && (
         <View style={styles.banner}>
           <Text style={styles.bannerText}>{status === 'connecting' ? 'Bağlanıyor…' : 'Bağlantı koptu, yeniden bağlanılıyor…'}</Text>
@@ -80,13 +82,9 @@ export default function VoiceScreen() {
         </View>
       )}
 
-      {watching && (
-        <Pressable onPress={() => setFullscreen(true)} style={styles.stream}>
-          <StreamVideo userId={watching} />
-          <View style={styles.streamHint}>
-            <Ionicons name="expand" size={16} color="#fff" />
-          </View>
-        </Pressable>
+      {/* Tam ekranda da aynı bileşen kalır (yalnızca yerleşimi değişir): video yeniden bağlanmaz */}
+      {viewing && (
+        <StreamViewer key={viewing} userId={viewing} fullscreen={fullscreen} onFullscreen={setFullscreen} onRotate={rotate} />
       )}
 
       <ScrollView contentContainerStyle={styles.grid}>
@@ -125,16 +123,80 @@ export default function VoiceScreen() {
         />
       </View>
 
-      <MemberSheet userId={member} onClose={() => setMember(null)} />
-
-      <Modal visible={fullscreen && Boolean(watching)} animationType="fade" supportedOrientations={['portrait', 'landscape']} onRequestClose={() => setFullscreen(false)}>
-        <StatusBar hidden />
-        <Pressable style={styles.fullscreen} onPress={() => setFullscreen(false)}>
-          {watching && <StreamVideo userId={watching} />}
-        </Pressable>
-      </Modal>
+      <MemberSheet
+        userId={member}
+        onClose={() => setMember(null)}
+        // Seste başka biri: sesini yalnızca kendin için ayarla
+        renderExtra={(userId) => (userId !== selfId && voiceStates[userId]?.channelId === channelId ? <UserVolume userId={userId} /> : null)}
+      />
     </SafeAreaView>
   );
+}
+
+/**
+ * Yayın tam ekranı. Ayrı bir Modal yerine ses ekranının kendisi kullanılır: başlık, durum çubuğu ve
+ * gezinme çubuğu react-native-screens'in ekran seçenekleriyle gizlenir (sürükleyince geçici görünür),
+ * yatay çevirme de aynı yolla (ekran yönü seçeneği) yapılır. Hepsi uygulamada zaten olan yerel
+ * kütüphanelerle; yeni APK gerekmez.
+ *
+ * Eskiden Modal + <StatusBar hidden> kullanılıyordu: gizlenen durum çubuğu Modal'ın değil alttaki
+ * ekranın penceresine uygulandığından Modal kapanınca çubuk geri gelip bütün ses ekranı aşağı
+ * kayıyordu; ekrana tek dokunuş da tam ekranı kapatıyordu.
+ */
+function useStreamFullscreen(viewing: string | null, watching: string | null) {
+  const [requested, setRequested] = useState(false);
+  // Kullanıcının döndür düğmesiyle zorladığı yön (tam ekrandan çıkınca bırakılır)
+  const [orientation, setOrientation] = useState<'landscape' | 'portrait' | null>(null);
+  const fullscreen = requested && viewing !== null;
+  const { width, height } = useWindowDimensions();
+  const landscape = width > height;
+
+  // Tam ekrandan yeni çıkıldıysa (zorlanan yön bırakılıp telefon kendiliğinden döndüyse) yeniden girilmez
+  const exitedAt = useRef(0);
+  const setFullscreen = useCallback((on: boolean) => {
+    setRequested(on);
+    if (!on) {
+      setOrientation(null);
+      exitedAt.current = Date.now();
+    }
+  }, []);
+
+  // Yayın kapanınca tam ekran ve zorlanan yön sıfırlanır
+  useEffect(() => {
+    if (!viewing) setFullscreen(false);
+  }, [viewing, setFullscreen]);
+
+  // Telefon yan çevrilince izlenen yayın kendiliğinden tam ekrana geçer (YouTube gibi)
+  const wasLandscape = useRef(landscape);
+  useEffect(() => {
+    if (landscape && !wasLandscape.current && watching && Date.now() - exitedAt.current > 1500) setRequested(true);
+    wasLandscape.current = landscape;
+  }, [landscape, watching]);
+
+  // Geri tuşu / geri hareketi önce tam ekrandan çıkar
+  useEffect(() => {
+    if (!fullscreen) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setFullscreen(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [fullscreen, setFullscreen]);
+
+  const rotate = useCallback(() => setOrientation(landscape ? 'portrait' : 'landscape'), [landscape]);
+
+  return {
+    fullscreen,
+    setFullscreen,
+    rotate,
+    screenOptions: {
+      headerShown: !fullscreen,
+      statusBarHidden: fullscreen,
+      navigationBarHidden: fullscreen,
+      // 'default' açıkça verilmeli: seçenek kaldırılınca react-native-screens yönü geri bırakmıyor
+      orientation: orientation ?? ('default' as const),
+    },
+  };
 }
 
 /** Yayının gerçekte nasıl gittiği: çözünürlük, kare hızı, bit hızı, kodlayıcı ve varsa darboğaz */
@@ -167,26 +229,6 @@ function ShareStatsLine() {
     <Text style={styles.statsText} selectable>
       {parts.filter(Boolean).join(' · ')}
     </Text>
-  );
-}
-
-function StreamVideo({ userId }: { userId: string }) {
-  // Abonelik değişince yeniden çiz
-  useVoice((s) => s.tracksVersion);
-  const found = voice.getScreenPublication(userId);
-  if (!found?.publication.track) {
-    return (
-      <View style={[styles.center, { flex: 1 }]}>
-        <Text style={styles.muted}>Yayın yükleniyor…</Text>
-      </View>
-    );
-  }
-  return (
-    <VideoTrack
-      trackRef={{ participant: found.participant, publication: found.publication, source: Track.Source.ScreenShare }}
-      objectFit="contain"
-      style={{ flex: 1 }}
-    />
   );
 }
 
@@ -245,8 +287,6 @@ const styles = StyleSheet.create({
   banner: { backgroundColor: colors.warn, paddingVertical: 6, paddingHorizontal: 12 },
   bannerText: { color: '#000', fontSize: 13, fontWeight: '600', textAlign: 'center' },
   statsText: { color: 'rgba(255,255,255,0.85)', fontSize: 11.5, textAlign: 'center', marginTop: 2 },
-  stream: { aspectRatio: 16 / 9, backgroundColor: '#000' },
-  streamHint: { position: 'absolute', right: 8, bottom: 8, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 12, padding: 5 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', padding: 12, gap: 12 },
   member: {
     width: 150,
@@ -270,5 +310,4 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     backgroundColor: colors.rail,
   },
-  fullscreen: { flex: 1, backgroundColor: '#000' },
 });
