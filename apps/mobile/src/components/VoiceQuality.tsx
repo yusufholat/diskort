@@ -68,7 +68,7 @@ export function ConnectionQualityBadge() {
         style={styles.badge}
         onPress={() => setOpen(true)}
         hitSlop={8}
-        android_ripple={{ color: 'rgba(255,255,255,0.12)', borderless: true, radius: 36 }}
+        android_ripple={{ color: tint(0.12), borderless: true, radius: 36 }}
         accessibilityRole="button"
         accessibilityLabel={`Bağlantı: ${label}. Bağlantı bilgisini aç`}
       >
