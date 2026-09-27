@@ -9,6 +9,7 @@ COPY packages/client-core/package.json packages/client-core/package.json
 COPY apps/server/package.json apps/server/package.json
 COPY apps/desktop/package.json apps/desktop/package.json
 COPY apps/mobile/package.json apps/mobile/package.json
+COPY patches patches
 RUN pnpm install --frozen-lockfile --filter "@diskort/server..."
 COPY packages/shared packages/shared
 COPY apps/server apps/server
