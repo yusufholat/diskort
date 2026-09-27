@@ -23,6 +23,19 @@ export interface ContextMenuState {
   items?: ContextMenuItem[];
 }
 
+export interface EmojiPickerAnchor {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** Emoji seçici: açıldığı öğenin ekrandaki konumu ve seçilince ne yapılacağı */
+export interface EmojiPickerState {
+  anchor: EmojiPickerAnchor;
+  onPick: (emoji: string) => void;
+}
+
 export interface Toast {
   id: number;
   text: string;
@@ -39,11 +52,14 @@ interface UiStore {
   setView: (view: View) => void;
   modal: Modal;
   contextMenu: ContextMenuState | null;
+  emojiPicker: EmojiPickerState | null;
   toasts: Toast[];
   openModal: (modal: Modal) => void;
   closeModal: () => void;
   openContextMenu: (menu: ContextMenuState) => void;
   closeContextMenu: () => void;
+  openEmojiPicker: (picker: EmojiPickerState) => void;
+  closeEmojiPicker: () => void;
   toast: (text: string, kind?: Toast['kind']) => void;
   dismissToast: (id: number) => void;
 }
@@ -79,11 +95,14 @@ export const useUi = create<UiStore>()((set, get) => ({
   },
   modal: null,
   contextMenu: null,
+  emojiPicker: null,
   toasts: [],
-  openModal: (modal) => set({ modal, contextMenu: null }),
+  openModal: (modal) => set({ modal, contextMenu: null, emojiPicker: null }),
   closeModal: () => set({ modal: null }),
-  openContextMenu: (contextMenu) => set({ contextMenu }),
+  openContextMenu: (contextMenu) => set({ contextMenu, emojiPicker: null }),
   closeContextMenu: () => set({ contextMenu: null }),
+  openEmojiPicker: (emojiPicker) => set({ emojiPicker, contextMenu: null }),
+  closeEmojiPicker: () => set({ emojiPicker: null }),
   toast: (text, kind = 'info') => {
     const id = ++toastId;
     set({ toasts: [...get().toasts, { id, text, kind }].slice(-4) });

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { AuthScreen } from './components/AuthScreen';
 import { ContextMenu } from './components/ContextMenu';
+import { EmojiPicker } from './components/EmojiPicker';
 import { MainLayout } from './components/MainLayout';
 import { TitleBar } from './components/TitleBar';
 import { Toasts } from './components/Toasts';
@@ -41,6 +42,7 @@ export function App() {
         )}
       </div>
       <ContextMenu />
+      <EmojiPicker />
       <Toasts />
     </div>
   );

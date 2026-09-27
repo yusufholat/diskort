@@ -29,7 +29,7 @@ export const EMOJI_CATEGORIES: EmojiCategory[] = [
     id: 'people',
     label: 'Eller ve insanlar',
     emojis: list(`
-      👍 👎 👌 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 👋 👏 🙌 👐 🤲 🙏 💪 🤝 ✍️ 🤳
+      👋 👍 👎 👌 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 👏 🙌 👐 🤲 🙏 💪 🤝 ✍️ 🤳
       👀 🧠 👑 🙈 🙉 🙊 🤷 🤦 🙋 🙇 💃 🕺
     `),
   },
