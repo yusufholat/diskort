@@ -1,13 +1,15 @@
 import { Fragment, useState, type ReactNode } from 'react';
 import { Linking, StyleSheet, Text, View } from 'react-native';
-import { parseMarkdown, type MdInline } from '@diskort/client-core';
-import type { User } from '@diskort/shared';
+import { broadcastMention, parseMarkdown, type MdInline } from '@diskort/client-core';
+import type { Message, User } from '@diskort/shared';
 import { colors } from '../theme';
 
 /** Ortak çekirdeğin ayrıştırdığı biçimlendirmeyi React Native metnine çizer. */
 export interface MarkdownContext {
   usersByName: Record<string, User>;
   selfId: string | undefined;
+  /** Çizilen mesajın @everyone / @here bayrakları: yalnızca bildirim olduysa vurgulanır (yoksa düz metin) */
+  flags?: Pick<Message, 'mentionEveryone' | 'mentionHere'>;
 }
 
 function Spoiler({ children }: { children: ReactNode }) {
@@ -42,6 +44,14 @@ function inline(nodes: MdInline[], ctx: MarkdownContext, key: string): ReactNode
           </Text>
         );
       case 'mention': {
+        const broadcast = broadcastMention(node.username, ctx.flags);
+        if (broadcast) {
+          return (
+            <Text key={k} style={styles.mention}>
+              @{broadcast}
+            </Text>
+          );
+        }
         const user = ctx.usersByName[node.username];
         if (!user) return <Fragment key={k}>{node.raw}</Fragment>;
         return (

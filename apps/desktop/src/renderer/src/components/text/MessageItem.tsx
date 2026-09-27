@@ -232,7 +232,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
                 message.status === 'failed' && 'text-danger',
               )}
             >
-              {renderMarkdown(message.content, md)}
+              {renderMarkdown(message.content, { ...md, flags: message })}
               {message.editedAt && (
                 <span className="ml-1 text-[10px] text-text-faint select-none" data-tooltip={formatFull(message.editedAt)}>
                   (düzenlendi)

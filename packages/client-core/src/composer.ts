@@ -64,3 +64,24 @@ export function insertText(
   const head = before + pad + text;
   return { value: head + after, caret: head.length };
 }
+
+/** Yazma kutusunda önerilen toplu bahsetme: @everyone ya da @here */
+export interface BroadcastMention {
+  name: 'everyone' | 'here';
+  description: string;
+}
+
+export const BROADCAST_MENTIONS: readonly BroadcastMention[] = [
+  { name: 'everyone', description: 'Bu kanalı görebilen herkese bildirim gönderir.' },
+  { name: 'here', description: 'Bu kanalı görebilen ve şu an çevrimiçi olan herkese bildirim gönderir.' },
+];
+
+/**
+ * "@…" yazılırken önerilecek @everyone / @here. Yalnızca kanalda MENTION_EVERYONE yetkisi varsa (`allowed`);
+ * yetkisi olmayanın yazdığı @everyone düz metin kalır. Direkt mesajlarda bu yetki hiç yoktur.
+ */
+export function broadcastSuggestions(query: string, allowed: boolean): BroadcastMention[] {
+  if (!allowed) return [];
+  const q = query.toLowerCase();
+  return BROADCAST_MENTIONS.filter((m) => m.name.startsWith(q));
+}

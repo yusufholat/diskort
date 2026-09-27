@@ -180,6 +180,12 @@ export interface Message {
   /** Yazarın yetkisi olan bir @everyone bahsetmesi: kanalı gören herkese bildirim gider */
   mentionEveryone: boolean;
   /**
+   * Yazarın yetkisi olan (MENTION_EVERYONE) bir @here bahsetmesi: kanalı gören ve mesaj gönderildiğinde
+   * çevrimiçi olan (gateway'e bağlı) herkese bildirim gider; çevrimdışı olanlar sayılmaz. Bunu bilmeyen
+   * eski sunucularda hiç gelmez. İstemci vurgularken bunu @everyone gibi sayar (Discord gibi).
+   */
+  mentionHere?: boolean;
+  /**
    * Yanıt verilen mesajın kimliği (Discord'daki "message_reference"); yanıt değilse null. Asıl mesaj
    * silinse de kalır. Yanıtları bilmeyen eski sunucularda hiç gelmez.
    */
@@ -594,9 +600,25 @@ export const GIF_SNIPPET = 'GIF';
 export const isGifMessage = (message: { embeds?: readonly Embed[] | null }): boolean =>
   message.embeds?.some((e) => e.type === 'gif') ?? false;
 
-/** Metinde @everyone bahsetmesi var mı (yazarın yetkisi ayrıca denetlenir) */
+/**
+ * Kod blokları (```…```) ve satır içi kod (`…`): içlerindeki @everyone / @here bahsetme sayılmaz
+ * (istemcilerdeki biçimlendirme de bunları kod olarak gösterir).
+ */
+const CODE_SPANS = /```(?:[a-z0-9+#.-]+\n)?\n?[\s\S]*?\n?```|`[^`\n]+`/gi;
+
+const withoutCode = (content: string): string => content.replace(CODE_SPANS, ' ');
+
+/** Metinde kod dışında @everyone bahsetmesi var mı (yazarın yetkisi ayrıca denetlenir) */
 export function mentionsEveryone(content: string): boolean {
-  return /(?<![a-z0-9_.@])@everyone(?![a-z0-9_])/i.test(content);
+  return /(?<![a-z0-9_.@])@everyone(?![a-z0-9_])/i.test(withoutCode(content));
+}
+
+/**
+ * Metinde kod dışında @here bahsetmesi var mı. @here, @everyone ile aynı yetkiyi (MENTION_EVERYONE)
+ * ister ama yalnızca o an çevrimiçi olanlara (gateway'e bağlı) bildirim gider.
+ */
+export function mentionsHere(content: string): boolean {
+  return /(?<![a-z0-9_.@])@here(?![a-z0-9_])/i.test(withoutCode(content));
 }
 
 /** "1.2.3" biçimindeki sürümleri karşılaştırır (ön ek "v" ve "-beta" gibi ekler yok sayılır). */

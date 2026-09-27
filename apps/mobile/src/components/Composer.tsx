@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { MESSAGE_MAX_LENGTH, Permission, type Channel, type User } from '@diskort/shared';
 import {
   addFiles,
+  broadcastSuggestions,
   editMessage,
   formatBytes,
   insertText,
@@ -65,6 +66,8 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
   const files = useMessages((s) => s.pendingFiles[channel.id] ?? NO_FILES);
   const canSend = useCan(Permission.SEND_MESSAGES, channel.id);
   const canAttach = useCan(Permission.ATTACH_FILES, channel.id);
+  // @everyone / @here yalnızca yetkisi olana önerilir (direkt mesajda bu yetki yoktur)
+  const canMentionEveryone = useCan(Permission.MENTION_EVERYONE, channel.id);
 
   // Düzenleme kipine geçince mesaj metniyle başla
   const text = editing ? (editText ?? editing.content) : value;
@@ -89,8 +92,12 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
       .sort((a, b) => Number(!!online[b.id]) - Number(!!online[a.id]) || a.username.localeCompare(b.username))
       .slice(0, 5);
   }, [query, users, online, mentionable]);
+  const broadcasts = useMemo(
+    () => (query === undefined ? [] : broadcastSuggestions(query, canMentionEveryone)),
+    [query, canMentionEveryone],
+  );
 
-  const pick = (user: User): void => {
+  const pick = (user: Pick<User, 'username'>): void => {
     const before = text.slice(0, selection.start).replace(/@[a-z0-9_.]*$/i, `@${user.username} `);
     setText(before + text.slice(selection.start));
     setSelection({ start: before.length, end: before.length });
@@ -169,13 +176,26 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
 
   return (
     <View>
-      {suggestions.length > 0 && (
+      {suggestions.length + broadcasts.length > 0 && (
         <Suggestions>
           {suggestions.map((u) => (
             <Pressable key={u.id} style={({ pressed }) => [styles.suggestion, pressed && { backgroundColor: colors.active }]} onPress={() => pick(u)}>
               <Avatar user={u} size={26} online={!!online[u.id]} />
               <Text style={styles.suggestionName}>{u.displayName}</Text>
               <Text style={styles.suggestionUser}>{u.username}</Text>
+            </Pressable>
+          ))}
+          {broadcasts.map((b) => (
+            <Pressable
+              key={b.name}
+              style={({ pressed }) => [styles.suggestion, pressed && { backgroundColor: colors.active }]}
+              onPress={() => pick({ username: b.name })}
+            >
+              <Ionicons name="at" size={22} color={colors.muted} style={{ width: 26, textAlign: 'center' }} />
+              <Text style={styles.suggestionName}>@{b.name}</Text>
+              <Text style={[styles.suggestionUser, { flexShrink: 1 }]} numberOfLines={1}>
+                {b.description}
+              </Text>
             </Pressable>
           ))}
         </Suggestions>

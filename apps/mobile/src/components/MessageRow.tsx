@@ -133,7 +133,7 @@ export const MessageRow = memo(function MessageRow({
               <Text style={styles.time}>{stamp(message.createdAt)}</Text>
             </View>
           )}
-          {message.content && !gif ? <Markdown content={message.content} ctx={md} dim={message.status === 'pending'} /> : null}
+          {message.content && !gif ? <Markdown content={message.content} ctx={{ ...md, flags: message }} dim={message.status === 'pending'} /> : null}
           {gif ? <GifEmbed embed={gif} dim={message.status === 'pending'} /> : null}
           {message.editedAt ? <Text style={styles.edited}>(düzenlendi)</Text> : null}
           {message.uploads ? (
