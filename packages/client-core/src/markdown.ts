@@ -5,10 +5,14 @@
  * HTML hiçbir zaman yorumlanmaz.
  */
 
+import { splitEmoji } from './emoji';
+
 export type MdStyle = 'bold' | 'italic' | 'underline' | 'strike' | 'spoiler';
 
 export type MdInline =
   | { type: 'text'; text: string }
+  /** Metindeki tek bir emoji (çiziciler metinden büyük gösterir; kod içindekiler düz metin kalır) */
+  | { type: 'emoji'; text: string }
   | { type: 'code'; text: string }
   | { type: 'link'; url: string }
   /** Kullanıcı adı küçük harfle; böyle bir kullanıcı yoksa çizici `raw` metni gösterir */
@@ -37,9 +41,12 @@ const INLINE: InlineRule[] = [
 export function parseInline(text: string): MdInline[] {
   const out: MdInline[] = [];
   const pushText = (t: string): void => {
-    const last = out.at(-1);
-    if (last?.type === 'text') last.text += t;
-    else out.push({ type: 'text', text: t });
+    for (const part of splitEmoji(t)) {
+      const last = out.at(-1);
+      if (part.emoji) out.push({ type: 'emoji', text: part.text });
+      else if (last?.type === 'text') last.text += part.text;
+      else out.push({ type: 'text', text: part.text });
+    }
   };
   let rest = text;
   while (rest) {
@@ -109,6 +116,7 @@ export function plainText(content: string, displayNameOf: (username: string) => 
       .map((node) => {
         switch (node.type) {
           case 'text':
+          case 'emoji':
           case 'code':
             return node.text;
           case 'link':

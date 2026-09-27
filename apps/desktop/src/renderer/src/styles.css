@@ -127,6 +127,24 @@
   .emoji {
     font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
   }
+  /*
+   * Mesaj metnindeki emoji (Discord gibi 22px). Yüksekliği sabit, satırın altına hizalı bir kutu:
+   * 22px'lik satır yüksekliğini aşmaz, emojili satırlar düz satırlardan uzun olmaz.
+   */
+  .emoji-inline {
+    display: inline-block;
+    font-size: 1.375em;
+    line-height: 1;
+    height: 1em;
+    vertical-align: bottom;
+    font-style: normal;
+  }
+  /* Yalnızca emojiden oluşan mesaj: 48px'lik dev emojiler */
+  .emoji-jumbo .emoji-inline {
+    font-size: 3rem;
+    margin-top: 0.125rem;
+    margin-right: 0.125rem;
+  }
 }
 
 /* Konuşan kullanıcı yeşil halkası: yumuşak açılır, konuşma bitince biraz daha yavaş söner */

@@ -13,6 +13,7 @@ import {
   discardMessage,
   editMessage,
   gifOf,
+  isJumboEmoji,
   isMentioned,
   mentionInComposer,
   useGuild,
@@ -74,6 +75,7 @@ const HOVER_REACTIONS = QUICK_REACTIONS.slice(0, 3);
 export const MessageItem = memo(function MessageItem({ message, author, compact, editing, self, md }: Props) {
   const openContextMenu = useUi((s) => s.openContextMenu);
   const openEmojiPicker = useUi((s) => s.openEmojiPicker);
+  const openModal = useUi((s) => s.openModal);
   // Mesaj ekrandayken eklenen tepkiler animasyonla belirir
   const mounted = useMountedRef();
   const own = message.authorId === self.id;
@@ -86,6 +88,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
   const canDelete = own || canManage;
   const confirmed = !message.status;
   const mentioned = isMentioned(message, self);
+  const jumbo = isJumboEmoji(message.content);
   // Metni yalnızca GIPHY bağlantısı olan mesaj: bağlantı yerine GIF gösterilir
   const gif = gifOf(message);
   // Yazma kutusunun üstünde bu mesaja yanıt veriliyor
@@ -113,6 +116,8 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
   const react = (emoji: string): void => void toggleReaction(message.channelId, message.id, emoji);
   const pickReaction = (anchor: EmojiPickerAnchor): void => openEmojiPicker({ anchor, onPick: react });
   const reply = (): void => startReply(message);
+  const showReactions = (emoji?: string): void =>
+    openModal({ type: 'reactions', channelId: message.channelId, messageId: message.id, emoji });
   const showProfile = (el: HTMLElement): void => {
     if (!author) return;
     openProfile({ userId: author.id, channelId: message.channelId, anchor: el.getBoundingClientRect(), side: 'right' });
@@ -136,6 +141,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
       y: e.clientY,
       items: [
         ...(canReact ? [{ label: 'Tepki Ekle', onClick: () => pickReaction(point) }] : []),
+        ...(message.reactions.length > 0 ? [{ label: 'Tepkiler', onClick: () => showReactions() }] : []),
         ...(canReply ? [{ label: 'Yanıtla', onClick: reply }] : []),
         ...(canMessageAuthor && author ? [{ label: 'Yazara Mesaj Gönder', onClick: () => void startDm(author.id) }] : []),
         ...(attachment
@@ -233,6 +239,8 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
             <div
               className={cn(
                 'leading-[1.375rem] break-words whitespace-pre-wrap text-text-normal select-text',
+                // Yalnızca emojiden oluşan mesaj: dev emojiler (Discord gibi)
+                jumbo && 'emoji-jumbo',
                 message.status === 'pending' && 'opacity-50',
                 message.status === 'failed' && 'text-danger',
               )}
@@ -277,11 +285,13 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
             {message.reactions.map((r) => (
               <ReactionPill
                 key={r.emoji}
+                messageId={message.id}
                 emoji={r.emoji}
                 count={r.count}
                 me={r.me}
                 animateIn={mounted.current}
                 onToggle={() => react(r.emoji)}
+                onShowAll={() => showReactions(r.emoji)}
               />
             ))}
             {canReact && message.reactions.length < MESSAGE_MAX_REACTIONS && (

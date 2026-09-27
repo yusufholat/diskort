@@ -9,6 +9,8 @@ import {
   MESSAGE_MAX_REACTIONS,
   MESSAGE_PAGE_SIZE,
   Permission,
+  REACTION_USERS_MAX_PAGE_SIZE,
+  REACTION_USERS_PAGE_SIZE,
   type Channel,
   type Embed,
   type Message,
@@ -47,6 +49,14 @@ const ackSchema = z.object({ messageId: z.string().regex(/^\d+$/) });
 const listQuery = z.object({
   before: z.string().regex(/^\d+$/).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+
+const reactionUsersQuery = z.object({
+  after: z
+    .string()
+    .regex(/^\d{1,15}_[^\s]{1,64}$/)
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(REACTION_USERS_MAX_PAGE_SIZE).optional(),
 });
 
 /** Gateway'e giden güncelleme: tepkilerin `me` alanı kişiye özel olduğundan çıkarılır. */
@@ -265,6 +275,25 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
       exists: message.reactions.some((r) => r.emoji === emoji),
     };
   };
+
+  // Bu emojiyle tepki verenler (Discord'daki "Tepkiler" penceresi). Mesajın kanalını gören herkes
+  // görebilir; göremeyen için mesaj yokmuş gibi 404 (sunucular ve DM'ler birbirinden yalıtılır).
+  app.get<{ Params: { id: string; emoji: string }; Querystring: Record<string, string> }>(
+    '/api/messages/:id/reactions/:emoji',
+    { preHandler: auth.requireUser },
+    async (req, reply) => {
+      const message = visibleMessage(req.params.id, req.user.id, reply);
+      if (!message) return reply;
+      const emoji = normalizeEmoji(req.params.emoji);
+      if (!emoji) return sendError(reply, 400, 'invalid_emoji', 'Tepki olarak yalnızca tek bir emoji kullanılabilir.');
+      const query = reactionUsersQuery.safeParse(req.query);
+      if (!query.success) return sendError(reply, 400, 'invalid_query', 'Geçersiz sorgu.');
+      const cursor = query.data.after;
+      const split = cursor ? cursor.indexOf('_') : -1;
+      const after = cursor ? { at: Number(cursor.slice(0, split)), userId: cursor.slice(split + 1) } : null;
+      return store.reactionUsers(Number(message.id), emoji, query.data.limit ?? REACTION_USERS_PAGE_SIZE, after);
+    },
+  );
 
   app.put<{ Params: { id: string; emoji: string } }>(
     '/api/messages/:id/reactions/:emoji',

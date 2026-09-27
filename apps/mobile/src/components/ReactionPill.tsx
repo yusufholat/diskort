@@ -5,7 +5,7 @@ import { colors, createStyles } from '../theme';
 
 /**
  * Mesajın altındaki tepki: mesaj ekrandayken eklenince büyüyerek belirir, sayı ya da benim
- * tepkim değişince zıplar; basınca hafifçe içe göçer.
+ * tepkim değişince zıplar; basınca hafifçe içe göçer. Uzun basınca kimlerin tepki verdiği açılır.
  */
 export function ReactionPill({
   emoji,
@@ -13,12 +13,14 @@ export function ReactionPill({
   me,
   animateIn,
   onPress,
+  onLongPress,
 }: {
   emoji: string;
   count: number;
   me: boolean;
   animateIn: boolean;
   onPress: () => void;
+  onLongPress: () => void;
 }) {
   // İlk çizimdeki değer: geçmişle gelen tepkiler animasyonsuz görünür
   const popIn = useRef(animateIn).current;
@@ -38,10 +40,13 @@ export function ReactionPill({
       <Pressable
         hitSlop={3}
         onPress={onPress}
+        onLongPress={onLongPress}
+        delayLongPress={300}
         onPressIn={() => Animated.spring(press, { toValue: 0.9, useNativeDriver: true, speed: 40, bounciness: 0 }).start()}
         onPressOut={() => Animated.spring(press, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 10 }).start()}
         style={[styles.pill, me && styles.pillMine]}
         accessibilityLabel={`${emoji} ${count}`}
+        accessibilityHint="Tepki verenleri görmek için uzun bas"
         accessibilityState={{ selected: me }}
       >
         <Text style={styles.emoji}>{emoji}</Text>
@@ -56,7 +61,7 @@ const styles = createStyles(() => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    height: 30,
+    height: 32,
     paddingHorizontal: 9,
     borderRadius: 9,
     borderWidth: 1,
@@ -64,7 +69,7 @@ const styles = createStyles(() => ({
     backgroundColor: colors.side,
   },
   pillMine: { borderColor: colors.brand, backgroundColor: 'rgba(88,101,242,0.22)' },
-  emoji: { fontSize: 16 },
+  emoji: { fontSize: 19, lineHeight: 23 },
   count: { color: colors.muted, fontSize: 13.5, fontWeight: '600' },
   countMine: { color: colors.head },
 }));

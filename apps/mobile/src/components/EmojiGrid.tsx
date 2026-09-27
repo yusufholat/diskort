@@ -43,5 +43,5 @@ const styles = createStyles(() => ({
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   cell: { alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
   pressed: { backgroundColor: colors.hover },
-  emoji: { fontSize: 26 },
+  emoji: { fontSize: 30 },
 }));

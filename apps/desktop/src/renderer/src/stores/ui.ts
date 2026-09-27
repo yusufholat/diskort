@@ -20,6 +20,8 @@ export type Modal =
   | { type: 'addGuild'; tab?: 'create' | 'join'; code?: string }
   /** Seçili sunucuya arkadaş davet et (bağlantı oluşturup gösterir) */
   | { type: 'invite' }
+  /** Mesajdaki tepkiler ve tepki verenler; `emoji` verilirse o sekme açılır */
+  | { type: 'reactions'; channelId: string; messageId: string; emoji?: string }
   | null;
 
 export type SettingsSection = 'account' | 'appearance' | 'voice' | 'stream' | 'keybinds' | 'app' | 'feedback' | 'whatsNew';

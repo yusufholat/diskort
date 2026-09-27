@@ -25,6 +25,7 @@ import { AttachmentList, UploadList } from './Attachments';
 import { GifEmbed } from './GifEmbed';
 import { Markdown, type MarkdownContext } from './Markdown';
 import { ReactionPill } from './ReactionPill';
+import { openReactionsSheet } from './ReactionsSheet';
 import { REPLY_PREVIEW_HEIGHT, ReplyPreview } from './ReplyPreview';
 
 const time = new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' });
@@ -227,6 +228,7 @@ export const MessageRow = memo(function MessageRow({
                         me={r.me}
                         animateIn={mounted.current}
                         onPress={() => void toggleReaction(message.channelId, message.id, r.emoji)}
+                        onLongPress={() => openReactionsSheet({ channelId: message.channelId, messageId: message.id, emoji: r.emoji })}
                       />
                     ))}
                   </View>
