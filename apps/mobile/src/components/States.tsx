@@ -28,7 +28,7 @@ export function EmptyState({
 }) {
   const appear = useAppear(true, 260);
   const bg = tone === 'brand' ? colors.brand : tone === 'danger' ? colors.dangerSoft : colors.active;
-  const fg = tone === 'danger' ? colors.danger : '#fff';
+  const fg = tone === 'danger' ? colors.danger : tone === 'brand' ? '#fff' : colors.head;
   return (
     <Animated.View
       style={[
@@ -88,7 +88,7 @@ export function Notice({
   const palette = {
     warn: { bg: colors.warnSoft, fg: colors.warn },
     muted: { bg: colors.side, fg: colors.text },
-    ok: { bg: colors.okSoft, fg: '#2dc770' },
+    ok: { bg: colors.okSoft, fg: colors.okText },
     danger: { bg: colors.dangerSoft, fg: colors.dangerText },
   }[tone];
   return (

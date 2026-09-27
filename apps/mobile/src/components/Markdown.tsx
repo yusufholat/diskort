@@ -2,7 +2,7 @@ import { Fragment, useState, type ReactNode } from 'react';
 import { Linking, Text, View } from 'react-native';
 import { broadcastMention, isJumboEmoji, parseMarkdown, type MdInline } from '@diskort/client-core';
 import type { Message, User } from '@diskort/shared';
-import { colors, createStyles } from '../theme';
+import { brandTint, colors, createStyles, tint } from '../theme';
 
 /** Ortak çekirdeğin ayrıştırdığı biçimlendirmeyi React Native metnine çizer. */
 export interface MarkdownContext {
@@ -150,10 +150,10 @@ const styles = createStyles(() => ({
   strike: { textDecorationLine: 'line-through' },
   code: { fontFamily: mono, fontSize: 13.5, backgroundColor: colors.code },
   link: { color: colors.link },
-  mention: { color: '#c9cdfb', backgroundColor: 'rgba(88,101,242,0.3)', fontWeight: '500' },
-  mentionSelf: { color: '#fff', backgroundColor: 'rgba(88,101,242,0.55)' },
+  mention: { color: colors.mention, backgroundColor: brandTint(0.3), fontWeight: '500' },
+  mentionSelf: { color: colors.head, backgroundColor: brandTint(0.45) },
   spoilerHidden: { backgroundColor: colors.code, color: colors.code },
-  spoilerShown: { backgroundColor: 'rgba(255,255,255,0.1)' },
+  spoilerShown: { backgroundColor: tint(0.1) },
   quote: { borderLeftWidth: 4, borderLeftColor: colors.faint, paddingLeft: 10, marginVertical: 2 },
   codeBlock: {
     backgroundColor: colors.side,

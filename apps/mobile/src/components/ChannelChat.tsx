@@ -59,7 +59,7 @@ import { useKeyboardInset } from '../keyboard';
 import { animateNextLayout, useSpringTo, useTimingTo } from '../motion';
 import { useNav } from '../stores/nav';
 import { toast, useUi } from '../stores/ui';
-import { colors, createStyles, font, radius, space } from '../theme';
+import { colors, createStyles, font, radius, space, tint } from '../theme';
 import { useVoice } from '../voice/voice';
 
 const GROUP_WINDOW_MS = 7 * 60_000;
@@ -549,7 +549,7 @@ function Intro({
       ) : (
         <>
           <View style={styles.introIcon}>
-            <Feather name="hash" size={38} color="#fff" />
+            <Feather name="hash" size={38} color={colors.onControl} />
           </View>
           <Text style={styles.introTitle}>{label} kanalına hoş geldin!</Text>
           <Text style={styles.introText}>Bu, {label} kanalının başlangıcı.</Text>
@@ -630,7 +630,7 @@ function JumpToBottom({ visible, count, onPress }: { visible: boolean; count: nu
       <PressableScale
         scaleTo={0.88}
         onPress={onPress}
-        ripple={{ color: 'rgba(255,255,255,0.15)', borderless: true, radius: 22 }}
+        ripple={{ color: tint(0.15), borderless: true, radius: 22 }}
         style={styles.jumpButton}
         accessibilityRole="button"
         accessibilityLabel={count > 0 ? `En alta in, ${count} yeni mesaj` : 'En alta in'}

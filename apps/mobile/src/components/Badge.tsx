@@ -69,6 +69,6 @@ const styles = createStyles(() => ({
     marginTop: -5,
     borderTopRightRadius: 3,
     borderBottomRightRadius: 3,
-    backgroundColor: colors.white,
+    backgroundColor: colors.head,
   },
 }));

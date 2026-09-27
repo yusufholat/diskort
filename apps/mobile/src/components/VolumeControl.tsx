@@ -32,6 +32,7 @@ export function VolumeControl({
   onToggleMute,
   label,
   style,
+  themed,
 }: {
   value: number;
   /** Ayrı tutulan sessize alma durumu (verilmezse seviye 0 sessiz sayılır) */
@@ -43,6 +44,8 @@ export function VolumeControl({
   onInteract?: () => void;
   label: string;
   style?: StyleProp<ViewStyle>;
+  /** Temanın zemininde (sayfada); verilmezse video üstünde: beyaz simge ve yazı */
+  themed?: boolean;
 }) {
   const [preview, setPreview] = useState<number | null>(null);
   const shown = preview ?? value;
@@ -65,10 +68,11 @@ export function VolumeControl({
         accessibilityRole="button"
         accessibilityLabel={muted ? `${label}: sesi aç` : `${label}: sessize al`}
       >
-        <Ionicons name={volumeIcon(muted ? 0 : shown)} size={20} color={muted ? colors.danger : '#fff'} />
+        <Ionicons name={volumeIcon(muted ? 0 : shown)} size={20} color={muted ? colors.danger : themed ? colors.head : '#fff'} />
       </Pressable>
       <Slider
         style={styles.slider}
+        trackColor={themed ? undefined : 'rgba(255,255,255,0.18)'}
         value={shown}
         min={0}
         max={MAX}
@@ -86,7 +90,7 @@ export function VolumeControl({
           onCommit(v);
         }}
       />
-      <Text style={styles.percent}>{Math.round(shown * 100)}%</Text>
+      <Text style={[styles.percent, themed && { color: colors.head }]}>{Math.round(shown * 100)}%</Text>
     </View>
   );
 }
@@ -99,6 +103,7 @@ export function UserVolume({ userId }: { userId: string }) {
       <Text style={styles.sectionTitle}>Kullanıcı ses seviyesi</Text>
       <VolumeControl
         label="Kullanıcı ses seviyesi"
+        themed
         value={volume}
         onPreview={(v) => voice.setVolume(userId, 'voice', v, false)}
         onCommit={(v) => voice.setVolume(userId, 'voice', v)}

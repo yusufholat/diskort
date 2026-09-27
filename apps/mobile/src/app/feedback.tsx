@@ -31,7 +31,7 @@ import { TextSkeleton } from '../components/Skeleton';
 import { Button, FadeIn, Field, SectionTitle, ui } from '../components/ui';
 import { animateNextLayout } from '../motion';
 import { toast } from '../stores/ui';
-import { colors, createStyles, radius, ripple } from '../theme';
+import { brandTint, colors, createStyles, radius, ripple, tint } from '../theme';
 import { NATIVE_VERSION } from '../version';
 import { useVoice } from '../voice/voice';
 
@@ -41,13 +41,14 @@ const TYPE_ICONS: Record<FeedbackType, keyof typeof Ionicons.glyphMap> = {
   diger: 'chatbubble-outline',
 };
 
-const STATUS_COLORS: Record<FeedbackStatus, { bg: string; fg: string }> = {
-  yeni: { bg: 'rgba(88,101,242,0.2)', fg: '#949cf7' },
+/** Durum etiketinin renkleri (çizim sırasında okunur: tema değişince güncel) */
+const statusColors = (): Record<FeedbackStatus, { bg: string; fg: string }> => ({
+  yeni: { bg: brandTint(0.2), fg: colors.brandText },
   incelendi: { bg: 'rgba(0,168,252,0.15)', fg: colors.link },
-  planlandi: { bg: 'rgba(240,178,50,0.15)', fg: colors.warn },
-  tamamlandi: { bg: 'rgba(35,165,90,0.15)', fg: '#2dc770' },
-  reddedildi: { bg: 'rgba(255,255,255,0.08)', fg: colors.muted },
-};
+  planlandi: { bg: colors.warnSoft, fg: colors.warn },
+  tamamlandi: { bg: colors.okSoft, fg: colors.okText },
+  reddedildi: { bg: tint(0.08), fg: colors.muted },
+});
 
 const dateFormat = new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -266,7 +267,7 @@ export default function FeedbackScreen() {
                   <Text style={[styles.contextValue, { color: colors.faint }]}>Yok</Text>
                 ) : (
                   context.recentErrors!.map((e, i) => (
-                    <Text key={i} style={[styles.contextValue, { color: '#fa777c', fontSize: 12 }]} selectable>
+                    <Text key={i} style={[styles.contextValue, { color: colors.dangerText, fontSize: 12 }]} selectable>
                       {e}
                     </Text>
                   ))
@@ -342,7 +343,7 @@ function MyFeedback() {
 }
 
 function MyFeedbackItem({ item, open, onToggle }: { item: Feedback; open: boolean; onToggle: () => void }) {
-  const status = STATUS_COLORS[item.status];
+  const status = statusColors()[item.status];
   const headers = feedbackImageHeaders();
   return (
     <View style={styles.item}>

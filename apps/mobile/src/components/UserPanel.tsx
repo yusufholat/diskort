@@ -5,7 +5,7 @@ import { STATUS_LABELS } from '@diskort/shared';
 import { useCustomStatus, useSession, useStatus } from '@diskort/client-core';
 import { useBump } from '../motion';
 import { useSettings } from '../stores/settings';
-import { colors, createStyles, font, space } from '../theme';
+import { colors, createStyles, font, space, tint } from '../theme';
 import { toggleDeafen, toggleMute } from '../voice/actions';
 import { useVoice } from '../voice/voice';
 import { Avatar } from './Avatar';
@@ -93,7 +93,7 @@ function PanelButton({
   return (
     <PressableScale
       scaleTo={0.84}
-      ripple={{ color: 'rgba(255,255,255,0.12)', borderless: true, radius: 20 }}
+      ripple={{ color: tint(0.12), borderless: true, radius: 20 }}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}

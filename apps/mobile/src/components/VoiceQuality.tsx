@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
-import { colors, createStyles } from '../theme';
+import { colors, createStyles, tint } from '../theme';
 import { useVoice, voice, type VoiceQuality } from '../voice/voice';
 
 const PING_INTERVAL_MS = 3000;
@@ -55,7 +55,7 @@ export function SignalBars({ bars, color, size = 16 }: { bars: number; color: st
             width,
             height: Math.round(size * h),
             borderRadius: width / 2,
-            backgroundColor: i < bars ? color : 'rgba(255,255,255,0.18)',
+            backgroundColor: i < bars ? color : tint(0.18),
           }}
         />
       ))}

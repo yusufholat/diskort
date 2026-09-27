@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Animated, PanResponder, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { spring } from '../motion';
-import { colors, createStyles } from '../theme';
+import { colors, createStyles, tint } from '../theme';
 
 const THUMB = 18;
 /** Dokunma alanı yüksekliği (görünen çizgi 4 piksel; parmakla tutmak kolay olsun) */
@@ -44,7 +44,7 @@ export function Slider({
   onChangeEnd,
   disabled,
   color = colors.brand,
-  trackColor = 'rgba(255,255,255,0.18)',
+  trackColor = tint(0.18),
   style,
   accessibilityLabel,
   accessibilityText,
@@ -150,7 +150,7 @@ const styles = createStyles(() => ({
     width: 2,
     height: 10,
     borderRadius: 1,
-    backgroundColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: tint(0.35),
   },
   thumb: {
     position: 'absolute',

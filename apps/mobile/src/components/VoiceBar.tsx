@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { channelById, useGuild } from '@diskort/client-core';
 import { useAppear, useBump } from '../motion';
 import { useSettings } from '../stores/settings';
-import { colors, createStyles, font, radius, space } from '../theme';
+import { colors, createStyles, font, radius, ripple, space, tint } from '../theme';
 import { leaveVoice, toggleDeafen, toggleMute } from '../voice/actions';
 import { useVoice } from '../voice/voice';
 import { PressableScale } from './PressableScale';
@@ -59,7 +59,7 @@ function VoiceBarInner({ bottomInset, onSettings }: { bottomInset: number; onSet
       <View style={styles.bar}>
         <Pressable
           style={styles.info}
-          android_ripple={{ color: 'rgba(255,255,255,0.07)', foreground: true }}
+          android_ripple={ripple.row}
           onPress={() => router.push('/voice')}
           accessibilityRole="button"
           accessibilityLabel={`${channel?.name ?? 'Ses kanalı'}, ${STATUS[status]}${count > 0 ? `, ${count} kişi` : ''}. Ses ekranını aç`}
@@ -131,7 +131,7 @@ export function VoiceControl({
         scaleTo={0.86}
         onPress={onPress}
         hitSlop={4}
-        ripple={{ color: 'rgba(255,255,255,0.16)', borderless: true, radius: size / 2 }}
+        ripple={{ color: tint(0.16), borderless: true, radius: size / 2 }}
         accessibilityRole="button"
         accessibilityLabel={label}
         accessibilityState={{ selected: Boolean(off || on) }}

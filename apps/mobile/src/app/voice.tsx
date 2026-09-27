@@ -344,8 +344,8 @@ const MemberTile = memo(function MemberTile({
             style={[styles.watch, watching && { backgroundColor: colors.control }]}
             accessibilityRole="button"
           >
-            <Ionicons name={watching ? 'eye-off' : 'eye'} size={14} color="#fff" />
-            <Text style={styles.watchText}>{watching ? 'İzlemeyi bırak' : 'Yayını izle'}</Text>
+            <Ionicons name={watching ? 'eye-off' : 'eye'} size={14} color={watching ? colors.onControl : '#fff'} />
+            <Text style={[styles.watchText, watching && { color: colors.onControl }]}>{watching ? 'İzlemeyi bırak' : 'Yayını izle'}</Text>
           </Pressable>
         )}
       </Animated.View>
@@ -365,7 +365,7 @@ const styles = createStyles(() => ({
   },
   sharingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.ok },
-  sharingText: { color: '#2dc770', fontSize: font.small, fontWeight: '700' },
+  sharingText: { color: colors.okText, fontSize: font.small, fontWeight: '700' },
   statsText: { color: colors.muted, fontSize: 11.5, textAlign: 'center', marginTop: 2 },
   grid: {
     flexDirection: 'row',
