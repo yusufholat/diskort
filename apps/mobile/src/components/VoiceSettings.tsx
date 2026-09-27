@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { feedback, useHapticsAvailable } from '../haptics';
 import { useSettings } from '../stores/settings';
 import { colors } from '../theme';
 import { useVoice, voice } from '../voice/voice';
@@ -23,6 +24,8 @@ export function VoiceSettings() {
   const threshold = useSettings((s) => s.vadThresholdDb);
   const set = useSettings((s) => s.set);
   const inVoice = useVoice((s) => s.status !== 'idle');
+  const haptics = useSettings((s) => s.haptics);
+  const hapticsAvailable = useHapticsAvailable((s) => s.available);
   // Eşik sürüklenirken göstergedeki çizgi anında kayar; bırakınca kaydedilir
   const [preview, setPreview] = useState<number | null>(null);
 
@@ -30,6 +33,19 @@ export function VoiceSettings() {
     <View>
       <SectionTitle>Ses</SectionTitle>
       <Card style={styles.card}>
+        <ToggleRow
+          label="Dokunma titreşimi"
+          description={
+            hapticsAvailable === false
+              ? 'Bu telefonda titreşim kullanılamıyor.'
+              : 'Sustur, sağırlaştır, hoparlör, ekran paylaşımı, katıl ve ayrıl düğmelerine basınca kısa titreşim. Susturunca çift, açınca tek tık.'
+          }
+          value={haptics && hapticsAvailable !== false}
+          onChange={(v) => {
+            set({ haptics: v });
+            if (v) feedback('unmute');
+          }}
+        />
         <ToggleRow
           label="Gürültü engelleme"
           description="Fan, trafik, klima gibi sürekli arka plan seslerini azaltır."

@@ -5,7 +5,8 @@ import { useGuild } from '@diskort/client-core';
 import { useAppear, useBump } from '../motion';
 import { useSettings } from '../stores/settings';
 import { colors, font, radius, space } from '../theme';
-import { useVoice, voice } from '../voice/voice';
+import { leaveVoice, toggleDeafen, toggleMute } from '../voice/actions';
+import { useVoice } from '../voice/voice';
 import { PressableScale } from './PressableScale';
 import { qualityLevel, SignalBars } from './VoiceQuality';
 
@@ -15,13 +16,14 @@ const STATUS = { connecting: 'Bağlanıyor…', reconnecting: 'Yeniden bağlanı
  * Ekranın altında: bağlı olunan ses kanalı, bağlantı kalitesi ve hızlı sustur/sağırlaştır/ayrıl
  * düğmeleri. Sese katılınca aşağıdan yükselerek belirir; dokununca ses ekranı açılır.
  */
-export function VoiceBar() {
+export function VoiceBar({ bottomInset = 0 }: { bottomInset?: number }) {
   const status = useVoice((s) => s.status);
   if (status === 'idle') return null;
-  return <VoiceBarInner />;
+  return <VoiceBarInner bottomInset={bottomInset} />;
 }
 
-function VoiceBarInner() {
+/** `bottomInset`: ekranın en altındaysa gezinme çubuğunun arkası da panel renginde olsun diye boşluk */
+function VoiceBarInner({ bottomInset }: { bottomInset: number }) {
   const router = useRouter();
   const status = useVoice((s) => s.status);
   const quality = useVoice((s) => s.quality);
@@ -45,6 +47,7 @@ function VoiceBarInner() {
     <Animated.View
       style={[
         styles.wrap,
+        { paddingBottom: bottomInset },
         { opacity: appear, transform: [{ translateY: appear.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }] },
       ]}
     >
@@ -65,14 +68,14 @@ function VoiceBarInner() {
             {count > 0 ? ` · ${count} kişi` : ''}
           </Text>
         </View>
-        <VoiceControl icon={muted ? 'mic-off' : 'mic'} off={muted} label={muted ? 'Mikrofonu aç' : 'Sustur'} onPress={() => voice.toggleMute()} />
+        <VoiceControl icon={muted ? 'mic-off' : 'mic'} off={muted} label={muted ? 'Mikrofonu aç' : 'Sustur'} onPress={toggleMute} />
         <VoiceControl
           icon={selfDeaf ? 'volume-mute' : 'headset'}
           off={selfDeaf}
           label={selfDeaf ? 'Sağırlaştırmayı kaldır' : 'Sağırlaştır'}
-          onPress={() => voice.toggleDeafen()}
+          onPress={toggleDeafen}
         />
-        <VoiceControl icon="call" danger label="Bağlantıyı kes" onPress={() => void voice.leave()} />
+        <VoiceControl icon="call" danger label="Bağlantıyı kes" onPress={leaveVoice} />
       </Pressable>
     </Animated.View>
   );

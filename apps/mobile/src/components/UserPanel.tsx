@@ -1,10 +1,12 @@
 import { Animated, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useSession } from '@diskort/client-core';
 import { useBump } from '../motion';
 import { useSettings } from '../stores/settings';
 import { colors, font, space } from '../theme';
-import { useVoice, voice } from '../voice/voice';
+import { toggleDeafen, toggleMute } from '../voice/actions';
+import { useVoice } from '../voice/voice';
 import { Avatar } from './Avatar';
 import { PressableScale } from './PressableScale';
 
@@ -18,9 +20,11 @@ export function UserPanel({ onSettings }: { onSettings: () => void }) {
   const selfDeaf = useSettings((s) => s.selfDeaf);
   const micAllowed = useVoice((s) => s.micAllowed || s.status === 'idle');
   const muted = selfMute || selfDeaf || !micAllowed;
+  // Ekranın en altında: gezinme çubuğunun arkası da panel renginde olsun
+  const insets = useSafeAreaInsets();
   if (!user) return null;
   return (
-    <View style={styles.panel}>
+    <View style={[styles.panel, { paddingBottom: styles.panel.paddingVertical + insets.bottom }]}>
       <PressableScale
         scaleTo={0.97}
         onPress={onSettings}
@@ -43,13 +47,13 @@ export function UserPanel({ onSettings }: { onSettings: () => void }) {
         icon={muted ? 'mic-off' : 'mic'}
         off={muted}
         label={muted ? 'Mikrofonu aç' : 'Sustur'}
-        onPress={() => voice.toggleMute()}
+        onPress={toggleMute}
       />
       <PanelButton
         icon={selfDeaf ? 'volume-mute' : 'headset'}
         off={selfDeaf}
         label={selfDeaf ? 'Sağırlaştırmayı kaldır' : 'Sağırlaştır'}
-        onPress={() => voice.toggleDeafen()}
+        onPress={toggleDeafen}
       />
       <PanelButton icon="settings-sharp" label="Ayarlar" onPress={onSettings} />
     </View>

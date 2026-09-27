@@ -15,9 +15,9 @@ import { ConnectionQualityBadge } from '../components/VoiceQuality';
 import { VoiceStateIcon } from '../components/VoiceStateIcon';
 import { UserVolume } from '../components/VolumeControl';
 import { useAppear, useLayoutAnimationOn, useTimingTo } from '../motion';
-import { toast } from '../stores/ui';
 import { useSettings } from '../stores/settings';
 import { colors, font, radius, space } from '../theme';
+import { leaveVoice, toggleDeafen, toggleMute, toggleScreenShare, toggleSpeaker } from '../voice/actions';
 import { useVoice, voice, type ScreenShareStats } from '../voice/voice';
 
 const GRID_PADDING = space.md;
@@ -129,7 +129,7 @@ export default function VoiceScreen() {
           caption={speaker ? 'Hoparlör' : 'Kulaklık'}
           label={speaker ? 'Hoparlör açık, kulaklığa geç' : 'Ahize, hoparlöre geç'}
           size={52}
-          onPress={() => void voice.setSpeaker(!speaker)}
+          onPress={toggleSpeaker}
         />
         <VoiceControl
           icon={sharing ? 'stop-circle-outline' : 'phone-portrait-outline'}
@@ -137,9 +137,7 @@ export default function VoiceScreen() {
           label={sharing ? 'Ekran paylaşımını durdur' : 'Ekranını paylaş'}
           on={sharing}
           size={52}
-          onPress={() =>
-            sharing || canStream ? void voice.toggleScreenShare() : toast('Bu kanalda ekran paylaşma iznin yok.', 'error')
-          }
+          onPress={() => toggleScreenShare(canStream)}
         />
         <VoiceControl
           icon={micOff ? 'mic-off' : 'mic'}
@@ -147,7 +145,7 @@ export default function VoiceScreen() {
           label={micOff ? 'Mikrofonu aç' : 'Sustur'}
           off={micOff}
           size={52}
-          onPress={() => voice.toggleMute()}
+          onPress={toggleMute}
         />
         <VoiceControl
           icon={selfDeaf ? 'volume-mute' : 'headset'}
@@ -155,7 +153,7 @@ export default function VoiceScreen() {
           label={selfDeaf ? 'Sağırlaştırmayı kaldır' : 'Sağırlaştır'}
           off={selfDeaf}
           size={52}
-          onPress={() => voice.toggleDeafen()}
+          onPress={toggleDeafen}
         />
         <VoiceControl
           icon="call"
@@ -164,7 +162,7 @@ export default function VoiceScreen() {
           label="Bağlantıyı kes"
           size={52}
           onPress={() => {
-            void voice.leave();
+            leaveVoice();
             router.back();
           }}
         />

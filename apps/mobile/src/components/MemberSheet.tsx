@@ -10,6 +10,7 @@ import {
   useGuild,
   useSession,
 } from '@diskort/client-core';
+import { feedback } from '../haptics';
 import { animateNextLayout } from '../motion';
 import { toast } from '../stores/ui';
 import { colors, font, radius, space } from '../theme';
@@ -64,6 +65,7 @@ export function MemberSheet({
   const actions = userId && user && !user.removed ? memberActions(userId) : null;
   const targets = moving && user ? moveTargets(user) : [];
   const done = (ok: boolean, message: string): void => {
+    feedback(ok ? 'moderate' : 'error');
     if (ok) toast(message);
     close();
   };

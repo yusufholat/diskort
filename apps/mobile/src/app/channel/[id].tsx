@@ -53,6 +53,7 @@ import { useKeyboardInset } from '../../keyboard';
 import { animateNextLayout, useSpringTo, useTimingTo } from '../../motion';
 import { toast, useUi } from '../../stores/ui';
 import { colors, font, radius, space } from '../../theme';
+import { useVoice } from '../../voice/voice';
 
 const GROUP_WINDOW_MS = 7 * 60_000;
 const EMPTY: LocalMessage[] = [];
@@ -114,6 +115,7 @@ export default function TextChannelScreen() {
   const [failed, setFailed] = useState(false);
   const list = useRef<FlatList<Row>>(null);
   const keyboard = useKeyboardInset();
+  const inVoice = useVoice((s) => s.status !== 'idle');
 
   const load = useCallback(() => {
     if (!id) return;
@@ -335,7 +337,8 @@ export default function TextChannelScreen() {
     <View
       ref={keyboard.ref}
       onLayout={keyboard.onLayout}
-      style={[styles.page, { paddingBottom: keyboard.open ? keyboard.inset : insets.bottom }]}
+      // Klavye açıkken boşluk klavye kadar; kapalıyken gezinme çubuğu kadar (ses çubuğu varsa o üstlenir)
+      style={[styles.page, { paddingBottom: keyboard.open ? keyboard.inset : inVoice ? 0 : insets.bottom }]}
     >
       <Stack.Screen options={screenOptions} />
       <ConnectionBanner />
@@ -415,7 +418,7 @@ export default function TextChannelScreen() {
         }}
       />
       {/* Klavye açıkken ses çubuğu yer kaplamasın */}
-      {!keyboard.open && <VoiceBar />}
+      {!keyboard.open && <VoiceBar bottomInset={insets.bottom} />}
 
       <MessageMenu
         message={menuFor}

@@ -29,7 +29,8 @@ import { VoiceStateIcon } from '../components/VoiceStateIcon';
 import { animateNextLayout, useLayoutAnimationOn, useTimingTo } from '../motion';
 import { toast } from '../stores/ui';
 import { colors, font, radius, ripple, space } from '../theme';
-import { useVoice, voice } from '../voice/voice';
+import { joinVoice } from '../voice/actions';
+import { useVoice } from '../voice/voice';
 
 type SectionKey = 'text' | 'voice';
 
@@ -99,9 +100,7 @@ export default function HomeScreen() {
   const openText = useCallback((id: string) => router.push(`/channel/${id}`), [router]);
   const openVoice = useCallback(
     (id: string) => {
-      if (useVoice.getState().channelId !== id) {
-        voice.join(id).catch((err: Error) => toast(err.message, 'error'));
-      }
+      joinVoice(id);
       router.push('/voice');
     },
     [router],
@@ -110,7 +109,7 @@ export default function HomeScreen() {
   const loading = channels.length === 0 && status !== 'ready';
 
   return (
-    <SafeAreaView style={styles.page} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.page} edges={['top']}>
       <View style={styles.header}>
         <View style={styles.guildIcon}>
           <Text style={styles.guildIconText}>{(guild?.name ?? 'D').slice(0, 1).toLocaleUpperCase('tr')}</Text>
