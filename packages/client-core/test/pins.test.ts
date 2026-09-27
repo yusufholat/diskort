@@ -87,13 +87,20 @@ describe('sabitlenmiş mesajlar', () => {
     close();
   });
 
-  it('liste kapalıyken başkasının sabitlemesi nokta yakar; açınca söner', async () => {
-    receive({ t: 'CHANNEL_PINS_UPDATE', d: { channelId: 'c1', lastPinAt: 30 } });
-    expect(usePins.getState().unseen.c1).toBe(true);
+  it('liste kapalıyken başkasının yeni sabitlemesi nokta yakar (kaldırması yakmaz); açınca söner', async () => {
+    const now = Date.now();
+    receive({ t: 'CHANNEL_PINS_UPDATE', d: { channelId: 'c2', lastPinAt: now } });
+    expect(usePins.getState().unseen.c2).toBe(true);
     vi.stubGlobal('fetch', vi.fn(async () => json([])));
-    const close = openPins('c1');
-    expect(usePins.getState().unseen.c1).toBeUndefined();
+    const close = openPins('c2');
+    expect(usePins.getState().unseen.c2).toBeUndefined();
     close();
+    // Başka bir sabitleme kaldırıldı: son sabitleme zamanı aynı kaldı ya da geriledi
+    receive({ t: 'CHANNEL_PINS_UPDATE', d: { channelId: 'c2', lastPinAt: now } });
+    receive({ t: 'CHANNEL_PINS_UPDATE', d: { channelId: 'c2', lastPinAt: now - 5000 } });
+    expect(usePins.getState().unseen.c2).toBeUndefined();
+    receive({ t: 'CHANNEL_PINS_UPDATE', d: { channelId: 'c2', lastPinAt: now + 1 } });
+    expect(usePins.getState().unseen.c2).toBe(true);
   });
 
   it('kendi sabitlememiz mesajı işaretler ve nokta yakmaz; kaldırma hemen listeden çıkarır, hata olursa geri alır', async () => {

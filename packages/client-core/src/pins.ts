@@ -34,7 +34,10 @@ const initialState = (): PinsStore => ({ channels: {}, unseen: {} });
 export const usePins = create<PinsStore>()(initialState);
 
 useSession.subscribe((s, prev) => {
-  if (s.token !== prev.token) usePins.setState(initialState());
+  if (s.token === prev.token) return;
+  usePins.setState(initialState());
+  ownChanges.clear();
+  lastPins.clear();
 });
 
 const EMPTY: ChannelPins = { items: [], loading: false, loaded: false, stale: false };
@@ -88,9 +91,30 @@ export function markPinsSeen(channelId: string): void {
   });
 }
 
-/** Kendi yaptığımız değişikliğin duyurusu yeni sabitleme noktası yakmasın (kanal → zaman) */
-const ownChanges = new Map<string, number>();
+/**
+ * Kendi yaptığımız değişikliklerin duyurusu yeni sabitleme noktası yakmasın: kanal → bekleyen duyuruların
+ * zamanları (her duyuru birini tüketir; gelmeyenler bir süre sonra düşer)
+ */
+const ownChanges = new Map<string, number[]>();
 const OWN_CHANGE_WINDOW_MS = 10_000;
+
+function expectOwnChange(channelId: string): void {
+  const now = Date.now();
+  ownChanges.set(channelId, [...(ownChanges.get(channelId) ?? []).filter((t) => now - t < OWN_CHANGE_WINDOW_MS), now]);
+}
+
+function consumeOwnChange(channelId: string): boolean {
+  const now = Date.now();
+  const pending = (ownChanges.get(channelId) ?? []).filter((t) => now - t < OWN_CHANGE_WINDOW_MS);
+  if (pending.length > 1) ownChanges.set(channelId, pending.slice(1));
+  else ownChanges.delete(channelId);
+  return pending.length > 0;
+}
+
+/** Kanal → bilinen en son sabitleme zamanı (yeni sabitleme mi, kaldırma mı ayırt etmek için) */
+const lastPins = new Map<string, number | null>();
+/** Önceki durum bilinmiyorsa bu kadar yeni bir sabitleme "yeni" sayılır */
+const FRESH_PIN_MS = 60_000;
 
 /** Ekrandaki mesajın sabitli işaretini değiştirir */
 function setPinnedLocal(channelId: string, messageId: string, pinned: boolean): void {
@@ -110,7 +134,7 @@ function setPinnedLocal(channelId: string, messageId: string, pinned: boolean): 
 
 /** Mesajı kanala sabitler (onay penceresinden sonra çağrılır) */
 export async function pinMessage(message: Pick<Message, 'id' | 'channelId'>): Promise<boolean> {
-  ownChanges.set(message.channelId, Date.now());
+  expectOwnChange(message.channelId);
   try {
     await api.pinMessage(message.channelId, message.id);
     setPinnedLocal(message.channelId, message.id, true);
@@ -118,6 +142,7 @@ export async function pinMessage(message: Pick<Message, 'id' | 'channelId'>): Pr
     markPinsSeen(message.channelId);
     return true;
   } catch (err) {
+    consumeOwnChange(message.channelId);
     env().notifyError(errorMessage(err));
     return false;
   }
@@ -126,7 +151,7 @@ export async function pinMessage(message: Pick<Message, 'id' | 'channelId'>): Pr
 /** Mesajın sabitlemesini kaldırır; liste hemen güncellenir (sunucu reddederse geri gelir) */
 export async function unpinMessage(message: Pick<Message, 'id' | 'channelId'>): Promise<boolean> {
   const { channelId, id } = message;
-  ownChanges.set(channelId, Date.now());
+  expectOwnChange(channelId);
   const before = usePins.getState().channels[channelId]?.items;
   if (before) patch(channelId, (c) => ({ items: c.items.filter((m) => m.id !== id) }));
   try {
@@ -134,6 +159,7 @@ export async function unpinMessage(message: Pick<Message, 'id' | 'channelId'>): 
     setPinnedLocal(channelId, id, false);
     return true;
   } catch (err) {
+    consumeOwnChange(channelId);
     if (before) patch(channelId, () => ({ items: before }));
     env().notifyError(errorMessage(err));
     return false;
@@ -171,8 +197,15 @@ gateway.on((msg: GatewayServerMessage) => {
         patch(channelId, () => ({ stale: true }));
         if (openLists.has(channelId)) void loadPins(channelId);
       }
-      const own = Date.now() - (ownChanges.get(channelId) ?? 0) < OWN_CHANGE_WINDOW_MS;
-      if (lastPinAt !== null && !own && !openLists.has(channelId)) {
+      // Yalnızca başkasının yeni sabitlemesi nokta yakar (kaldırmalar ve kendi değişikliklerimiz yakmaz)
+      const own = consumeOwnChange(channelId);
+      const known = lastPins.has(channelId)
+        ? lastPins.get(channelId)
+        : usePins.getState().channels[channelId]?.items[0]?.pinnedAt;
+      const added =
+        lastPinAt !== null && (known === undefined ? Date.now() - lastPinAt < FRESH_PIN_MS : lastPinAt > (known ?? 0));
+      lastPins.set(channelId, lastPinAt);
+      if (added && !own && !openLists.has(channelId)) {
         usePins.setState((s) => ({ unseen: { ...s.unseen, [channelId]: true } }));
       } else if (lastPinAt === null) {
         markPinsSeen(channelId);
