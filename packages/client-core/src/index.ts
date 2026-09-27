@@ -253,9 +253,13 @@ export {
   jumpToSearchResult,
   loadMoreSearch,
   onlineViewerCount,
+  replaceLastWord,
   runSearch,
+  SEARCH_OPTIONS,
   searchScopeKey,
+  searchSuggestions,
   useOnlineViewerCount,
   useSearch,
   type SearchState,
+  type SearchSuggestion,
 } from './search';

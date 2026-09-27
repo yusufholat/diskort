@@ -1,7 +1,10 @@
 import { create } from 'zustand';
 import {
+  foldSearchText,
   hasPermission,
   Permission,
+  SEARCH_HAS_LABELS,
+  SEARCH_HAS_VALUES,
   SEARCH_PAGE_SIZE,
   type SearchResult,
   type SearchScope,
@@ -167,4 +170,66 @@ export function onlineViewerCount(
 /** Seçili sunucudaki kanalı görebilen çevrimiçi üye sayısı */
 export function useOnlineViewerCount(channelId: string | undefined): number {
   return useGuild((s) => (channelId ? onlineViewerCount(s, channelId) : 0));
+}
+
+// ---------- Sorgu yazarken öneriler ----------
+
+/** Kutunun altındaki arama seçenekleri (işleçler); `dm`: konuşmada da geçerli */
+export const SEARCH_OPTIONS: readonly { op: string; label: string; hint: string; dm: boolean }[] = [
+  { op: 'from:', label: 'Kimden', hint: 'kullanıcı', dm: true },
+  { op: 'in:', label: 'Kanal', hint: 'kanal', dm: false },
+  { op: 'has:', label: 'İçerir', hint: 'bağlantı, resim, video ya da dosya', dm: true },
+  { op: 'önce:', label: 'Önce', hint: 'GG.AA.YYYY', dm: true },
+  { op: 'sonra:', label: 'Sonra', hint: 'GG.AA.YYYY', dm: true },
+  { op: 'tarih:', label: 'Tarih', hint: 'GG.AA.YYYY, bugün, dün', dm: true },
+];
+
+export interface SearchSuggestion {
+  key: string;
+  /** Son sözcüğün yerine yazılacak (sonunda boşlukla) */
+  insert: string;
+  label: string;
+  detail?: string;
+  user?: User;
+}
+
+/** Son sözcük bir işleç değeriyse öneriler: from: → üyeler, in: → metin kanalları, has: → türler */
+export function searchSuggestions(
+  text: string,
+  s: Pick<GuildStore, 'users' | 'channels'>,
+  dm: boolean,
+  limit = 8,
+): SearchSuggestion[] {
+  const last = text.split(/\s/).at(-1) ?? '';
+  const m = last.match(/^([^:\s]+):(.*)$/);
+  if (!m) return [];
+  const key = foldSearchText(m[1]!);
+  const value = foldSearchText(m[2]!.replace(/^[@#]/, ''));
+  if (key === 'from' || key === 'kimden') {
+    return Object.values(s.users)
+      .filter((u) => !u.removed)
+      .filter((u) => foldSearchText(u.username).startsWith(value) || foldSearchText(u.displayName).startsWith(value))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'tr'))
+      .slice(0, limit)
+      .map((u) => ({ key: u.id, insert: `${m[1]}:${u.username} `, label: u.displayName, detail: u.username, user: u }));
+  }
+  if (!dm && (key === 'in' || key === 'kanal')) {
+    return s.channels
+      .filter((c) => c.type === 'text' && foldSearchText(c.name).startsWith(value))
+      .slice(0, limit)
+      .map((c) => ({ key: c.id, insert: `${m[1]}:${c.name} `, label: `#${c.name}` }));
+  }
+  if (key === 'has' || key === 'iceren' || key === 'icerir') {
+    return SEARCH_HAS_VALUES.map((h) => SEARCH_HAS_LABELS[h])
+      .filter((label) => foldSearchText(label).startsWith(value))
+      .map((label) => ({ key: label, insert: `${m[1]}:${label} `, label }));
+  }
+  return [];
+}
+
+/** Metnin son sözcüğünü değiştirir (öneri seçilince) */
+export function replaceLastWord(text: string, insert: string): string {
+  const parts = text.split(/(\s)/);
+  parts[parts.length - 1] = insert;
+  return parts.join('');
 }

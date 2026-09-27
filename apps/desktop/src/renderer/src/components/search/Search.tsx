@@ -1,21 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type UIEvent } from 'react';
 import { Hash, Loader2, Paperclip, Search, SearchX, X } from 'lucide-react';
-import {
-  foldSearchText,
-  SEARCH_HAS_LABELS,
-  SEARCH_HAS_VALUES,
-  type SearchResult,
-  type SearchScope,
-  type SearchSnippet,
-  type User,
-} from '@diskort/shared';
+import type { SearchResult, SearchScope, SearchSnippet } from '@diskort/shared';
 import {
   clearSearchResults,
   dmTitle,
   jumpToSearchResult,
   loadMoreSearch,
+  replaceLastWord,
   runSearch,
+  SEARCH_OPTIONS,
   searchScopeKey,
+  searchSuggestions,
   useGuild,
   useMemberColor,
   useSearch,
@@ -29,60 +24,6 @@ import { formatFull, formatStamp } from '../text/format';
 // Discord'daki gibi mesaj araması: kanal başlığının sağında arama kutusu (Ctrl+F), sonuçlar sağdaki panelde.
 // Kapsam seçili sunucu ya da açık direkt mesaj konuşmasıdır. İşleçler: from:, in:, has:, önce:, sonra:, tarih:.
 
-/** Kutunun altındaki arama seçenekleri (boşken) */
-const OPTIONS: { op: string; hint: string; dm?: boolean }[] = [
-  { op: 'from:', hint: 'kullanıcı', dm: true },
-  { op: 'in:', hint: 'kanal' },
-  { op: 'has:', hint: 'bağlantı, resim, video ya da dosya', dm: true },
-  { op: 'önce:', hint: 'GG.AA.YYYY', dm: true },
-  { op: 'sonra:', hint: 'GG.AA.YYYY', dm: true },
-  { op: 'tarih:', hint: 'GG.AA.YYYY, bugün, dün', dm: true },
-];
-
-interface Suggestion {
-  key: string;
-  /** Son sözcüğün yerine yazılacak */
-  insert: string;
-  label: string;
-  detail?: string;
-  user?: User;
-}
-
-const SUGGESTION_LIMIT = 8;
-
-/** Son sözcük bir işleç değeriyse öneriler (kullanıcılar, kanallar, has: değerleri) */
-function useSuggestions(text: string, dm: boolean): Suggestion[] {
-  const users = useGuild((s) => s.users);
-  const channels = useGuild((s) => s.channels);
-  return useMemo(() => {
-    const last = text.split(/\s/).at(-1) ?? '';
-    const m = last.match(/^([^:\s]+):(.*)$/);
-    if (!m) return [];
-    const key = foldSearchText(m[1]!);
-    const value = foldSearchText(m[2]!.replace(/^[@#]/, ''));
-    if (key === 'from' || key === 'kimden') {
-      return Object.values(users)
-        .filter((u) => !u.removed)
-        .filter((u) => foldSearchText(u.username).startsWith(value) || foldSearchText(u.displayName).startsWith(value))
-        .sort((a, b) => a.displayName.localeCompare(b.displayName, 'tr'))
-        .slice(0, SUGGESTION_LIMIT)
-        .map((u) => ({ key: u.id, insert: `${m[1]}:${u.username} `, label: u.displayName, detail: u.username, user: u }));
-    }
-    if (!dm && (key === 'in' || key === 'kanal')) {
-      return channels
-        .filter((c) => c.type === 'text' && foldSearchText(c.name).startsWith(value))
-        .slice(0, SUGGESTION_LIMIT)
-        .map((c) => ({ key: c.id, insert: `${m[1]}:${c.name} `, label: `#${c.name}` }));
-    }
-    if (key === 'has' || key === 'iceren' || key === 'icerir') {
-      return SEARCH_HAS_VALUES.map((h) => SEARCH_HAS_LABELS[h])
-        .filter((label) => foldSearchText(label).startsWith(value))
-        .map((label) => ({ key: label, insert: `${m[1]}:${label} `, label }));
-    }
-    return [];
-  }, [text, dm, users, channels]);
-}
-
 /** Kanal başlığındaki arama kutusu */
 export function SearchBox({ scope, placeholder }: { scope: SearchScope; placeholder: string }) {
   const key = searchScopeKey(scope);
@@ -92,7 +33,9 @@ export function SearchBox({ scope, placeholder }: { scope: SearchScope; placehol
   const [selected, setSelected] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const dm = 'dmId' in scope;
-  const suggestions = useSuggestions(text, dm);
+  const users = useGuild((s) => s.users);
+  const channels = useGuild((s) => s.channels);
+  const suggestions = useMemo(() => searchSuggestions(text, { users, channels }, dm), [text, users, channels, dm]);
   const showOptions = focused && (text === '' || /\s$/.test(text)) && suggestions.length === 0;
   const showSuggestions = focused && suggestions.length > 0;
 
@@ -116,9 +59,7 @@ export function SearchBox({ scope, placeholder }: { scope: SearchScope; placehol
   }, []);
 
   const replaceLast = (insert: string): void => {
-    const parts = text.split(/(\s)/);
-    parts[parts.length - 1] = insert;
-    setText(parts.join(''));
+    setText(replaceLastWord(text, insert));
     input.current?.focus();
   };
 
@@ -218,7 +159,7 @@ export function SearchBox({ scope, placeholder }: { scope: SearchScope; placehol
           ) : (
             <>
               <div className="px-3 pb-1 text-xs font-bold text-text-muted uppercase">Arama seçenekleri</div>
-              {OPTIONS.filter((o) => !dm || o.dm).map((o) => (
+              {SEARCH_OPTIONS.filter((o) => !dm || o.dm).map((o) => (
                 <button
                   key={o.op}
                   className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-sm hover:bg-bg-hover"
