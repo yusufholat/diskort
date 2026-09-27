@@ -19,6 +19,7 @@ import {
   type Guild,
   type GuildMember,
   type Invite,
+  type LinkEmbed,
   type Message,
   type PermissionContext,
   type PermissionOverwrite,
@@ -311,6 +312,19 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX user_status_status_expiry ON user_status(status_expires_at) WHERE status_expires_at IS NOT NULL;
   CREATE INDEX user_status_custom_expiry ON user_status(custom_expires_at) WHERE custom_expires_at IS NOT NULL;
   `,
+  // 16: bağlantı önizlemeleri. Önizlemeler mesajın embeds sütununa (GIF'lerle birlikte) yazılır;
+  // suppress_embeds: yazar ya da yönetici önizlemeyi kaldırdı (düzenlense de yeniden eklenmez).
+  // link_previews: adres başına önbellek (embed boşsa önizleme yok / alınamadı); süresi dolanlar silinir.
+  `
+  ALTER TABLE messages ADD COLUMN suppress_embeds INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE link_previews (
+    url        TEXT PRIMARY KEY,
+    embed      TEXT,
+    fetched_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+  ) WITHOUT ROWID;
+  CREATE INDEX link_previews_expiry ON link_previews(expires_at);
+  `,
 ];
 
 type Param = string | number | null;
@@ -482,6 +496,7 @@ interface MessageRow {
   reply_to_id: number | null;
   reply_mention_user_id: string | null;
   embeds: string | null;
+  suppress_embeds: number;
 }
 
 /** Saklanan gömülü içerik (sunucunun kendi yazdığı JSON); okunamazsa boş */
@@ -507,6 +522,7 @@ const toMessage = (r: MessageRow): Message => ({
   mentionEveryone: r.mention_everyone === 1,
   mentionHere: r.mention_here === 1,
   embeds: parseEmbeds(r.embeds),
+  suppressEmbeds: r.suppress_embeds === 1,
   replyToId: r.reply_to_id === null ? null : String(r.reply_to_id),
   referencedMessage: null,
   replyMentionUserId: r.reply_mention_user_id,
@@ -1523,6 +1539,15 @@ export class Store {
     return this.getChannel(id);
   }
 
+  /** Sunucunun kanallarını verilen sıraya göre 0'dan başlayarak yeniden numaralar. */
+  setChannelOrder(guildId: string, channelIds: readonly string[]): void {
+    this.tx(() => {
+      channelIds.forEach((id, i) =>
+        this.run("UPDATE channels SET position = ? WHERE id = ? AND guild_id = ? AND type != 'dm'", i, id, guildId),
+      );
+    });
+  }
+
   deleteChannel(id: string): boolean {
     return this.run("DELETE FROM channels WHERE id = ? AND type != 'dm'", id) > 0;
   }
@@ -2049,6 +2074,55 @@ export class Store {
   /** Mesajın gömülü içeriğini (GIF) değiştirir; boş dizi hepsini kaldırır. */
   setMessageEmbeds(id: number, embeds: Embed[]): void {
     this.run('UPDATE messages SET embeds = ? WHERE id = ?', embeds.length ? JSON.stringify(embeds) : null, id);
+  }
+
+  /**
+   * Bağlantı önizlemelerini kaldırır ve bir daha eklenmemesini işaretler (GIF kalır). Mesaj yoksa false.
+   */
+  suppressEmbeds(id: number): boolean {
+    const row = this.one<{ embeds: string | null }>('SELECT embeds FROM messages WHERE id = ?', id);
+    if (!row) return false;
+    const kept = parseEmbeds(row.embeds).filter((e) => e.type !== 'link');
+    this.run(
+      'UPDATE messages SET suppress_embeds = 1, embeds = ? WHERE id = ?',
+      kept.length ? JSON.stringify(kept) : null,
+      id,
+    );
+    return true;
+  }
+
+  // ---------- Bağlantı önizleme önbelleği ----------
+
+  /** Önbellekteki önizleme: yoksa ya da süresi geçtiyse undefined, "önizleme yok" kaydıysa null */
+  getLinkPreview(url: string, now = Date.now()): LinkEmbed | null | undefined {
+    const row = this.one<{ embed: string | null; expires_at: number }>(
+      'SELECT embed, expires_at FROM link_previews WHERE url = ?',
+      url,
+    );
+    if (!row || row.expires_at <= now) return undefined;
+    if (!row.embed) return null;
+    try {
+      const embed = JSON.parse(row.embed) as LinkEmbed;
+      return embed?.type === 'link' ? embed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  setLinkPreview(url: string, embed: LinkEmbed | null, expiresAt: number, now = Date.now()): void {
+    this.run(
+      `INSERT INTO link_previews (url, embed, fetched_at, expires_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(url) DO UPDATE SET embed = excluded.embed, fetched_at = excluded.fetched_at, expires_at = excluded.expires_at`,
+      url,
+      embed ? JSON.stringify(embed) : null,
+      now,
+      expiresAt,
+    );
+  }
+
+  /** Süresi geçmiş önizlemeleri siler */
+  sweepLinkPreviews(now = Date.now()): void {
+    this.run('DELETE FROM link_previews WHERE expires_at <= ?', now);
   }
 
   updateMessage(id: number, content: string, viewerId: string | null = null): Message | null {

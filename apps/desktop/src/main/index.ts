@@ -83,6 +83,25 @@ const ALLOWED_PERMISSIONS = new Set([
   'fullscreen',
 ]);
 
+/**
+ * Uygulamada açılabilen tek dış çerçeve: bağlantı önizlemesindeki YouTube oynatıcısı (çerezsiz alan adı).
+ * Renderer CSP'si de yalnızca buna izin verir (frame-src). Çerçeve yalnızca tam ekran isteyebilir.
+ */
+const YOUTUBE_EMBED_ORIGIN = 'https://www.youtube-nocookie.com';
+/**
+ * YouTube oynatıcısı gömüldüğü sayfayı Referer'dan tanımak ister (yoksa "hata 153"); paketlenmiş uygulama
+ * file:// üzerinden açıldığından Referer gitmez. Bu yüzden yalnızca oynatıcı isteklerine eklenir.
+ */
+const YOUTUBE_EMBED_REFERER = 'https://diskort.ziroo.net/';
+
+const isYoutubeEmbed = (url: string | undefined): boolean => {
+  try {
+    return url !== undefined && new URL(url).origin === YOUTUBE_EMBED_ORIGIN;
+  } catch {
+    return false;
+  }
+};
+
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let splash: Splash | null = null;
@@ -204,6 +223,10 @@ function createWindow(launch: LaunchMode = 'normal'): void {
   });
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (url !== mainWindow?.webContents.getURL()) event.preventDefault();
+  });
+  // Alt çerçeveler (yalnızca YouTube oynatıcısı) kendi alan adları dışına gidemez; ana çerçeve yukarıda
+  mainWindow.webContents.on('will-frame-navigate', (event) => {
+    if (!event.isMainFrame && !isYoutubeEmbed(event.url)) event.preventDefault();
   });
 
   const devUrl = process.env.ELECTRON_RENDERER_URL;
@@ -374,10 +397,19 @@ void app.whenReady().then(async () => {
   if (isWindows) app.setAppUserModelId('com.diskort.app');
   Menu.setApplicationMenu(null);
 
-  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-    callback(ALLOWED_PERMISSIONS.has(permission));
+  // YouTube çerçevesi yalnızca tam ekran isteyebilir; diğer izinler yalnızca uygulamanın kendisine
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => {
+    if (isYoutubeEmbed(details.requestingUrl)) callback(permission === 'fullscreen');
+    else callback(ALLOWED_PERMISSIONS.has(permission));
   });
-  session.defaultSession.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission));
+  session.defaultSession.setPermissionCheckHandler((_wc, permission, requestingOrigin) =>
+    isYoutubeEmbed(requestingOrigin) ? permission === 'fullscreen' : ALLOWED_PERMISSIONS.has(permission),
+  );
+  session.defaultSession.webRequest.onBeforeSendHeaders({ urls: [`${YOUTUBE_EMBED_ORIGIN}/*`] }, (details, callback) => {
+    const headers = details.requestHeaders;
+    if (!headers.Referer && !headers.referer) headers.Referer = YOUTUBE_EMBED_REFERER;
+    callback({ requestHeaders: headers });
+  });
   session.defaultSession.on('will-download', (_e, item) => {
     item.once('done', (_ev, state) => {
       if (state === 'cancelled') return; // kaydetme penceresinde vazgeçildi

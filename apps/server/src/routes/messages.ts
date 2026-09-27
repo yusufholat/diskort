@@ -1,7 +1,9 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import {
+  extractEmbedUrls,
   hasPermission,
+  linkEmbedsOf,
   mentionsEveryone,
   mentionsHere,
   MESSAGE_MAX_ATTACHMENTS,
@@ -13,6 +15,7 @@ import {
   REACTION_USERS_PAGE_SIZE,
   type Channel,
   type Embed,
+  type LinkEmbed,
   type Message,
   type MessageUpdate,
 } from '@diskort/shared';
@@ -79,7 +82,7 @@ export function createRateLimiter(max = 10, windowMs = 10_000) {
 }
 
 export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const { store, auth, gateway, push, attachments, permissions, gifs } = ctx;
+  const { store, auth, gateway, push, attachments, permissions, gifs, linkPreviews } = ctx;
   const allowMessage = createRateLimiter();
   const allowReaction = createRateLimiter(30);
 
@@ -87,6 +90,44 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
   const withEmbeds = (message: Message, embeds: Embed[]): Message => {
     store.setMessageEmbeds(Number(message.id), embeds);
     return { ...message, embeds };
+  };
+
+  /** Önizlenecek bağlantılar: önizleme kapalıysa, kaldırıldıysa ya da mesaj bir GIF ise yok */
+  const previewUrls = (content: string, suppressed: boolean | undefined, embeds: Embed[]): string[] =>
+    linkPreviews && !suppressed && !embeds.some((e) => e.type === 'gif') ? extractEmbedUrls(content) : [];
+
+  /**
+   * Hemen eklenebilecek önizlemeler: önbellekte olanlar, yoksa mesajda zaten olanlar (düzenlemede, yenisi
+   * hazırlanana kadar). Metinden çıkarılan bağlantıların önizlemeleri böylece hemen kalkar.
+   */
+  const knownLinks = (urls: string[], current: LinkEmbed[] = []): LinkEmbed[] =>
+    urls
+      .map((url) => {
+        const cached = linkPreviews?.cached(url);
+        return cached === undefined ? current.find((e) => e.url === url) : cached;
+      })
+      .filter((e): e is LinkEmbed => Boolean(e));
+
+  /**
+   * Bağlantı önizlemelerini arka planda hazırlar; hazır olunca (mesaj bu arada değişmediyse) mesaja yazar
+   * ve kanalı görenlere MESSAGE_UPDATE gönderir. Önbellekte olanlar hemen gelir.
+   */
+  const scheduleLinkEmbeds = (message: Message): void => {
+    const urls = previewUrls(message.content, message.suppressEmbeds, message.embeds ?? []);
+    if (!linkPreviews || urls.length === 0) return;
+    linkPreviews.track(
+      (async () => {
+        const links = await linkPreviews.embedsFor(urls);
+        const current = store.getMessage(Number(message.id));
+        // Silindi, düzenlendi (yeni metnin önizlemesi ayrıca hazırlanır) ya da önizleme kaldırıldı
+        if (!current || current.content !== message.content || current.suppressEmbeds) return;
+        const next = [...(current.embeds ?? []).filter((e) => e.type !== 'link'), ...links];
+        if (JSON.stringify(next) === JSON.stringify(current.embeds ?? [])) return;
+        store.setMessageEmbeds(Number(current.id), next);
+        const updated = store.getMessage(Number(current.id))!;
+        gateway.dispatchChannel(updated.channelId, { t: 'MESSAGE_UPDATE', d: toUpdate(updated) });
+      })(),
+    );
   };
 
   /**
@@ -163,7 +204,8 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
       }
       const content = body.content ?? '';
       // Metin yalnızca bir GIPHY bağlantısıysa GIF gömülür (seçiciden gönderilen GIF önbellekte hazırdır)
-      const embeds = await gifs.embedsFor(content);
+      const gifEmbeds = await gifs.embedsFor(content);
+      const embeds = [...gifEmbeds, ...knownLinks(previewUrls(content, false, gifEmbeds))];
       // @everyone ve @here yalnızca kanalda MENTION_EVERYONE yetkisi olan yazarda bildirim olur (kod içindekiler
       // sayılmaz): @everyone kanalı gören herkese, @here kanalı gören ve şu an çevrimiçi olanlara (gateway'e
       // bağlı; çevrimdışı olanların okunmamış sayısı artmaz, telefonlarına da bildirim gitmez). Bahsedilenlerden
@@ -210,6 +252,7 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
         if (reopened.length > 0) gateway.sendDm(reopened, { t: 'DM_CHANNEL_CREATE', d: store.getDm(target.id)! });
       }
       gateway.dispatchChannel(target.id, { t: 'MESSAGE_CREATE', d: message });
+      scheduleLinkEmbeds(message);
       // Telefonlara bildirim yanıtı bekletmez. Rahatsız Etmeyin'dekilere ve o an masaüstünde etkin olanlara
       // (mesajı zaten canlı görüyorlar) gitmez; okunmamış/bahsetme sayıları yine de artar.
       const pushTo = gateway.pushRecipients(mentioned);
@@ -229,11 +272,15 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
     if (!body) return reply;
     if (!body.content && existing.attachments.length === 0) return sendError(reply, 400, 'invalid_body', EMPTY_MESSAGE);
     if (body.content === existing.content) return store.getMessage(Number(existing.id), req.user.id);
-    // Metin değişince GIF de yeniden belirlenir (bağlantı silindiyse GIF kalkar)
-    const embeds = await gifs.embedsFor(body.content);
+    // Metin değişince GIF de yeniden belirlenir (bağlantı silindiyse GIF kalkar). Metinde kalan bağlantıların
+    // önizlemeleri yenileri hazırlanana kadar durur; çıkarılan bağlantılarınki hemen kalkar.
+    const gifEmbeds = await gifs.embedsFor(body.content);
+    const urls = previewUrls(body.content, existing.suppressEmbeds, gifEmbeds);
+    const embeds = [...gifEmbeds, ...knownLinks(urls, linkEmbedsOf(existing))];
     if (embeds.length || existing.embeds?.length) store.setMessageEmbeds(Number(existing.id), embeds);
     const message = store.updateMessage(Number(existing.id), body.content, req.user.id)!;
     gateway.dispatchChannel(message.channelId, { t: 'MESSAGE_UPDATE', d: toUpdate(message) });
+    scheduleLinkEmbeds(message);
     return message;
   });
 
@@ -248,6 +295,21 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
     await attachments.remove(files);
     gateway.dispatchChannel(existing.channelId, { t: 'MESSAGE_DELETE', d: { id: existing.id, channelId: existing.channelId } });
     return reply.code(204).send();
+  });
+
+  // Bağlantı önizlemelerini kaldırır ("Önizlemeyi kaldır"): kendi mesajında herkes, başkasınınkinde
+  // kanalda MANAGE_MESSAGES yetkisi olan. Mesaj düzenlense de önizleme yeniden eklenmez. GIF kalır.
+  app.delete<{ Params: { id: string } }>('/api/messages/:id/embeds', { preHandler: auth.requireUser }, async (req, reply) => {
+    const existing = visibleMessage(req.params.id, req.user.id, reply);
+    if (!existing) return reply;
+    if (existing.authorId !== req.user.id && !permissions.can(req.user.id, Permission.MANAGE_MESSAGES, existing.channelId)) {
+      return forbidden(reply, 'Bu mesajın önizlemesini kaldıramazsın.');
+    }
+    if (existing.suppressEmbeds) return existing;
+    store.suppressEmbeds(Number(existing.id));
+    const message = store.getMessage(Number(existing.id), req.user.id)!;
+    gateway.dispatchChannel(message.channelId, { t: 'MESSAGE_UPDATE', d: toUpdate(message) });
+    return message;
   });
 
   // ---------- Tepkiler ----------

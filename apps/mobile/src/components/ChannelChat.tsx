@@ -29,6 +29,7 @@ import {
   loadOlder,
   QUICK_REACTIONS,
   startReply,
+  suppressEmbeds,
   toggleReaction,
   useCan,
   useCustomStatus,
@@ -36,6 +37,7 @@ import {
   useMessages,
   useSession,
   useStatus,
+  visibleLinkEmbeds,
   type LocalMessage,
 } from '@diskort/client-core';
 import { CountBadge } from './Badge';
@@ -764,6 +766,17 @@ function MessageMenu({
                   close();
                   // Menü kapandıktan sonra açılır (iki sayfa üst üste açılmasın)
                   if (target) setTimeout(() => openReactionsSheet(target), 230);
+                }}
+              />
+            ) : null}
+            {canDelete && shown && visibleLinkEmbeds(shown).length > 0 ? (
+              <SheetItem
+                key="suppress"
+                icon="eye-off-outline"
+                label="Önizlemeyi kaldır"
+                onPress={() => {
+                  void suppressEmbeds(shown);
+                  close();
                 }}
               />
             ) : null}

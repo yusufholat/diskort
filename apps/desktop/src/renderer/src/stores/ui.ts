@@ -10,7 +10,8 @@ export type Modal =
   | { type: 'serverSettings'; section?: ServerSettingsSection }
   | { type: 'screenPicker' }
   | { type: 'channel'; channel?: Channel; channelType?: ChannelType }
-  | { type: 'image'; attachment: Attachment }
+  /** Resim görüntüleyici; `source` bağlantı önizlemesindeki resmin asıl sayfası ("Tarayıcıda aç") */
+  | { type: 'image'; attachment: Attachment; source?: string }
   /** Direkt mesaj başlatmak için kişi seçimi; `addTo` verilirse o gruba kişi eklenir */
   | { type: 'newDm'; addTo?: string }
   /** Grup konuşmasının adını değiştirmek */

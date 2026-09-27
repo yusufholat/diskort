@@ -51,6 +51,8 @@ export interface Settings {
   sounds: boolean;
   /** Arayüz teması: koyu (varsayılan) ya da OLED ekranlar için simsiyah */
   theme: ThemeId;
+  /** Mesajlardaki bağlantıların önizlemeleri (kart, YouTube, resim) gösterilsin mi */
+  linkPreviews: boolean;
 
   selfMute: boolean;
   selfDeaf: boolean;
@@ -70,7 +72,7 @@ const defaults: Settings = {
   vadAuto: true,
   vadThresholdDb: -50,
   pttReleaseMs: 150,
-  noise: 'deepfilter',
+  noise: 'standard',
   noiseStrengthDb: 24,
   echoCancellation: true,
   autoGainControl: true,
@@ -87,6 +89,7 @@ const defaults: Settings = {
   openAtLogin: false,
   sounds: true,
   theme: 'dark',
+  linkPreviews: true,
   selfMute: false,
   selfDeaf: false,
 };
@@ -121,14 +124,17 @@ export const useSettings = create<SettingsStore>()(
     }),
     {
       name: 'diskort-settings',
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() => localStorage),
       partialize: ({ set: _set, ...rest }) => rest,
       // Sürüm 1 → 2: gürültü engelleme RNNoise → DeepFilterNet 3 (sanitize içinde)
       // Sürüm 2 → 3: DeepFilterNet sınırsız bastırıyordu (100 dB, robotik ses); herkes yeni varsayılana (Dengeli) geçer.
+      // Sürüm 3 → 4: DeepFilterNet çıkan seste çatırtı yapıyordu (karesi ses iş parçacığının süresini aşabiliyor);
+      // düzeltilene kadar herkes standart gürültü engellemeye geçer, isteyen yeniden seçebilir.
       migrate: (saved, version) => {
         const s = { ...(saved as Partial<Settings>) };
         if (version < 3) s.noiseStrengthDb = defaults.noiseStrengthDb;
+        if (version < 4 && s.noise === 'deepfilter') s.noise = 'standard';
         return s as Settings;
       },
       merge: (saved, current) => ({ ...current, ...sanitize((saved ?? {}) as Partial<Settings>) }),

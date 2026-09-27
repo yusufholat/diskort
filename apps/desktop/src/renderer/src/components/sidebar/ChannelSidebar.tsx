@@ -5,6 +5,7 @@ import { canManageFeedback, isGuildOwner, leaveGuild, useCan, useFeedback, useGu
 import { confirmDialog } from '../../lib/dialog';
 import { toast, useUi, type ContextMenuItem } from '../../stores/ui';
 import { CountBadge, useServerSettingsSections } from '../serverSettings/ServerSettingsModal';
+import { DragGhost } from './DragGhost';
 import { TextChannelItem } from './TextChannelItem';
 import { UserPanel } from './UserPanel';
 import { VoiceChannelItem } from './VoiceChannelItem';
@@ -82,7 +83,7 @@ export function ChannelSidebar() {
         </span>
       </button>
 
-      <div className="flex-1 overflow-y-auto px-2 pt-4 pb-2">
+      <div className="flex-1 overflow-y-auto px-2 pt-4 pb-2" data-drag-scroll>
         <SectionHeader title="Metin Kanalları" type="text" canCreate={canManageChannels} />
         {textChannels.map((channel) => (
           <TextChannelItem
@@ -99,6 +100,7 @@ export function ChannelSidebar() {
         ))}
       </div>
 
+      <DragGhost />
       <VoiceConnectionPanel />
       <UserPanel />
     </aside>

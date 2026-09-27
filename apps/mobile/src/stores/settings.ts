@@ -29,6 +29,8 @@ interface MobileSettings {
   haptics: boolean;
   /** Sesli sohbet sesleri: katıl/ayrıl, sustur, sağırlaştır, yayın, biri girdi/çıktı (bkz. sounds.ts) */
   sounds: boolean;
+  /** Mesajlardaki bağlantıların önizlemeleri (kart, YouTube, resim) gösterilsin mi */
+  linkPreviews: boolean;
   set: (patch: Partial<Omit<MobileSettings, 'set'>>) => void;
 }
 
@@ -50,6 +52,7 @@ export const useSettings = create<MobileSettings>()(
       vadThresholdDb: -50,
       haptics: true,
       sounds: true,
+      linkPreviews: true,
       set: (patch) => set(patch),
     }),
     {
