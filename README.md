@@ -8,7 +8,8 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
 ## Özellikler
 
 - **Ses:** Opus 64 kbps (32–128 ayarlanabilir), DTX + RED (paket kaybına dayanıklı), ~30 ms jitter buffer
-- **Gürültü engelleme:** DeepFilterNet 3 (yapay zekâ, Krisp benzeri; uygulamanın içinde, sunucusuz) / standart / kapalı;
+- **Gürültü engelleme:** standart (varsayılan) / yapay zekâ: DeepFilterNet 3 ya da daha kaliteli DPDFNet-2 48 kHz
+  (uygulamanın içinde, sunucusuz; model ayrı gerçek zamanlı iş parçacığında) / kapalı;
   yankı engelleme, otomatik kazanç
 - **Ses aktivitesi** (otomatik veya elle eşik) ve **bas-konuş** (global kısayol, fare yan tuşları, bırakma gecikmesi)
 - **Sustur / sağırlaştır**, kişi başı ses seviyesi (0–200%) ve yerel susturma (sağ tık)
@@ -206,9 +207,12 @@ Masaüstü (Electron + React) ──HTTPS/WSS──► Caddy :443 ──► API 
 
 - `apps/desktop` — Electron uygulaması (`src/main` ana süreç, `src/preload` köprü, `src/renderer` arayüz)
   - Ses motoru: `src/renderer/src/features/voice/voiceClient.ts`
-  - Mikrofon zinciri (DeepFilterNet 3 + ses kapısı): `micProcessor.ts`, `deepfilter/`, `gate-worklet.js`.
+  - Mikrofon zinciri (gürültü engelleyici + ses kapısı): `micProcessor.ts`, `gate-worklet.js`, `denoise/`
+    (köprü worklet'i ⇄ paylaşımlı halka tamponlar ⇄ ayrı, sessiz AudioContext'te hesap worklet'i; yedek: Web Worker),
+    `deepfilter/` (DeepFilterNet 3), `dpdfnet/` (DPDFNet-2 48 kHz, onnxruntime-web).
     `deepfilter/df.wasm` kaynaktan `node scripts/build-deepfilter-wasm.mjs` ile üretilir (Rust gerekir;
-    sarmalayıcı: `apps/desktop/deepfilter-wasm`)
+    sarmalayıcı: `apps/desktop/deepfilter-wasm`). Çevrimdışı karşılaştırma (WAV + DNSMOS + kare süreleri):
+    `apps/desktop/scripts/gurultu-degerlendir.mjs`
   - TURN/TLS portu güvencesi (olası 5349 bildirimini 443'e çevirir): `turnPort.ts`
   - Metin kanalları: `features/messages` (mesaj deposu, biçimlendirme), `components/text` (görünüm)
 - `apps/mobile` — Android uygulaması (Expo SDK 57 + React Native, `src/app` ekranlar, `src/voice` sesli sohbet).

@@ -385,7 +385,11 @@ function MicProcessingSection() {
         <div className="col-span-2 text-text-muted">Yapay zekâ gürültü engelleme çalışmıyor</div>
       ) : (
         <>
-          <Row label="Model" value={`${stats.model} (${stats.thread === 'audio' ? 'ses iş parçacığı' : 'ayrı iş parçacığı'})`} />
+          <Row
+            label="Model"
+            value={`${stats.model} · ${stats.host === 'realtime' ? 'gerçek zamanlı iş parçacığı' : 'işçi (yedek)'}`}
+            tip="Model mikrofonun ses iş parçacığında değil, ayrı bir iş parçacığında çalışır; ses iş parçacığı yalnızca örnek kopyalar."
+          />
           <Row label="Ortalama yük" value={formatPercent(stats.load * 100)} tip="Tek bir işlemci çekirdeğinin oranı" />
           <Row label="Kare süresi (ort. / p99)" value={`${fmtMs(stats.avgFrameMs)} / ${fmtMs(stats.p99FrameMs)}`} />
           <Row
@@ -395,14 +399,14 @@ function MicProcessingSection() {
           />
           <Row
             label="Geç kareler"
-            value={`${stats.over2ms} > 2 ms · ${stats.overQuantum} > 2,67 ms (toplam ${stats.totalOverQuantum})`}
-            tip={
-              stats.thread === 'audio'
-                ? 'Son 2 saniyede. 2,67 ms bir ses bloğunun süresi: bunu aşan kare ses iş parçacığını geciktirir, cızırtı yapabilir.'
-                : 'Son 2 saniyede. Model ayrı iş parçacığında çalıştığından ses bloğunu bekletmez; 10 ms tampon payı vardır.'
-            }
+            value={`${stats.over2ms} > 2 ms · ${stats.overQuantum} > 2,67 ms · ${stats.overHop} > 10 ms`}
+            tip="Son 2 saniyede. Model ayrı iş parçacığında çalıştığından ses bloğunu (2,67 ms) bekletmez; 10 ms'yi aşan kareler tampon payından yenir."
           />
-          <Row label="Boşluk (underrun)" value={stats.underruns} />
+          <Row
+            label="Ses boşluğu"
+            value={`${stats.underruns}${stats.droppedSamples ? ` · atılan ${Math.round(stats.droppedSamples / 48)} ms` : ''}`}
+            tip="Bağlantı boyunca köprü tamponunun boşaldığı an sayısı (duyulabilir kısa kesinti)"
+          />
           <Row label="Ek gecikme" value={`${Math.round(stats.latencyMs)} ms`} tip="Modelin algoritmik gecikmesi + tamponlama" />
         </>
       )}

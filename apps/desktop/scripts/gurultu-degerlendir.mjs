@@ -1,7 +1,7 @@
-// Gürültü engelleyicileri çevrimdışı karşılaştırır: DeepFilterNet 3 (uygulamadaki worklet + df.wasm, aynen)
+// Gürültü engelleyicileri çevrimdışı karşılaştırır: DeepFilterNet 3 (uygulamadaki dfn-engine.js + df.wasm, aynen)
 // ve DPDFNet (uygulamadaki dsp.js + onnxruntime-web wasm, aynen). Temiz konuşmaya gürültü karıştırır,
 // her iki engelleyiciden geçirir, WAV'ları yazar ve ölçer:
-//   - RTF: 10 ms'lik kare başına işleme süresi / 10 ms (tek çekirdek, wasm SIMD)
+//   - Kare süresi: 10 ms'lik kare başına işleme süresi (ortalama, p99, en uzun; tek çekirdek, wasm SIMD)
 //   - SI-SDR (dB): temiz sese göre bozulma+kalan gürültü (yüksek = iyi)
 //   - Duraklama gürültüsü (dBFS): konuşma başlamadan önceki kısımda kalan gürültü (düşük = iyi)
 //   - DNSMOS P.835 SIG/BAK/OVRL (isteğe bağlı, --dnsmos sig_bak_ovr.onnx; Microsoft DNS-Challenge deposundan)
@@ -13,9 +13,10 @@
 // herhangi bir örnekleme hızı (48 kHz'e yüksek kaliteli yeniden örneklenir).
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import * as ort from 'onnxruntime-web/wasm';
 import { DpdfnetDenoiser, HOP, readOnnxMetadata } from '../src/renderer/src/features/voice/dpdfnet/dsp.js';
+import { DeepFilterEngine } from '../src/renderer/src/features/voice/deepfilter/dfn-engine.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const voiceDir = path.join(here, '..', 'src', 'renderer', 'src', 'features', 'voice');
@@ -248,40 +249,38 @@ async function dnsmos(sessionPromise, x48) {
 }
 
 // ---------- Engelleyiciler ----------
-/** Uygulamadaki DeepFilterNet worklet'ini sahte bir AudioWorklet ortamında aynen çalıştırır. */
+/** Uygulamadaki DeepFilterNet motoru (işçide çalışan dfn-engine.js + df.wasm), aynen. */
 async function makeDeepFilter(attenLimDb) {
-  const registry = {};
-  globalThis.currentTime = 0;
-  globalThis.AudioWorkletProcessor = class {
-    constructor() {
-      this.port = { messages: [], postMessage: (m) => this.port.messages.push(m), onmessage: null };
-    }
-  };
-  globalThis.registerProcessor = (name, cls) => (registry[name] = cls);
-  await import(pathToFileURL(path.join(voiceDir, 'deepfilter', 'deepfilter-worklet.js')).href + `?t=${Date.now()}`);
   const wasmModule = await WebAssembly.compile(readFileSync(path.join(voiceDir, 'deepfilter', 'df.wasm')));
   const modelBytes = readFileSync(path.join(voiceDir, 'deepfilter', 'DeepFilterNet3_onnx.bin'));
-  const proc = new registry['diskort-deepfilter']({
-    processorOptions: { wasmModule, modelBytes: modelBytes.buffer.slice(modelBytes.byteOffset, modelBytes.byteOffset + modelBytes.length), attenLimDb, postFilterBeta: 0 },
-  });
-  const ready = proc.port.messages.find((m) => m.type === 'ready');
-  if (!ready) throw new Error(`DeepFilterNet kurulamadı: ${JSON.stringify(proc.port.messages)}`);
   return {
-    name: `DeepFilterNet 3 (${attenLimDb} dB)`,
+    name: `DeepFilterNet 3 (${attenLimDb >= 100 ? 'sınırsız' : `${attenLimDb} dB`})`,
     async run(x) {
-      const y = new Float32Array(x.length);
-      const inB = new Float32Array(128);
-      const outB = new Float32Array(128);
-      let busy = 0;
-      for (let i = 0; i + 128 <= x.length; i += 128) {
-        inB.set(x.subarray(i, i + 128));
-        const t0 = performance.now();
-        proc.process([[inB]], [[outB]]);
-        busy += performance.now() - t0;
-        y.set(outB, i);
-      }
-      return { y, ms: busy / (x.length / HOP) };
+      const engine = new DeepFilterEngine(wasmModule, modelBytes, attenLimDb, 0);
+      return runFrames(x, (hop, out) => engine.processHop(hop, out));
     },
+  };
+}
+
+/** Kare kare işler; kare başına süreleri ölçer (ilk 50 kare ısınma sayılmaz). */
+async function runFrames(x, step) {
+  const y = new Float32Array(x.length);
+  const hop = new Float32Array(HOP);
+  const out = new Float32Array(HOP);
+  const times = [];
+  for (let i = 0; i + HOP <= x.length; i += HOP) {
+    hop.set(x.subarray(i, i + HOP));
+    const t0 = performance.now();
+    await step(hop, out);
+    times.push(performance.now() - t0);
+    y.set(out, i);
+  }
+  const sorted = times.slice(50).sort((a, b) => a - b);
+  return {
+    y,
+    ms: sorted.reduce((a, b) => a + b, 0) / sorted.length,
+    p99: sorted[Math.floor(sorted.length * 0.99)],
+    max: sorted[sorted.length - 1],
   };
 }
 
@@ -293,22 +292,7 @@ async function makeDpdfnet(modelFile, attenLimDb) {
     name: `DPDFNet ${path.basename(modelFile, '.onnx')} (${attenLimDb >= 100 ? 'sınırsız' : `${attenLimDb} dB`})`,
     async run(x) {
       const den = new DpdfnetDenoiser(ort, session, meta, attenLimDb);
-      const y = new Float32Array(x.length);
-      const out = new Float32Array(HOP);
-      const times = [];
-      for (let i = 0; i + HOP <= x.length; i += HOP) {
-        const t0 = performance.now();
-        await den.processHop(x.subarray(i, i + HOP), out);
-        times.push(performance.now() - t0);
-        y.set(out, i);
-      }
-      const sorted = times.slice(50).sort((a, b) => a - b);
-      return {
-        y,
-        ms: sorted.reduce((a, b) => a + b, 0) / sorted.length,
-        p99: sorted[Math.floor(sorted.length * 0.99)],
-        max: sorted[sorted.length - 1],
-      };
+      return runFrames(x, (hop, out) => den.processHop(hop, out));
     },
   };
 }
@@ -394,7 +378,7 @@ async function main() {
       const delay = findDelay(clean, r.y);
       writeWav(path.join(args.out, `${noise.name}_${idx++}_${key}.wav`), r.y);
       const m = await measure(clean, r.y, delay, lead, dnsmosSession);
-      rows.push({ scene: noise.name, proc: p.name, delayMs: (delay / 48).toFixed(1), msPerFrame: r.ms.toFixed(3), p99: r.p99?.toFixed(3), ...m });
+      rows.push({ scene: noise.name, proc: p.name, delayMs: (delay / 48).toFixed(1), msPerFrame: r.ms.toFixed(3), p99: r.p99.toFixed(3), maxMs: r.max.toFixed(3), ...m });
     }
   }
   console.table(rows);

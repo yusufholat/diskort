@@ -238,7 +238,7 @@ export function VoiceSettings() {
             value: 'dpdfnet',
             label: 'Gelişmiş yapay zekâ (DPDFNet)',
             description:
-              'En temiz ses: klavye, fan, arkadaki konuşmalar ve TV sesini daha iyi ayırır. DeepFilterNet’ten yaklaşık 3 kat fazla işlemci kullanır; işlemci yetmezse DeepFilterNet’e geçilir.',
+              'En temiz ses: klavye, fan, arkadaki konuşmalar ve TV sesini daha iyi ayırır. DeepFilterNet’ten yaklaşık 3 kat fazla işlemci kullanır ve ~20 ms daha gecikmelidir; işlemci yetmezse DeepFilterNet’e geçilir.',
           },
           {
             value: 'deepfilter',

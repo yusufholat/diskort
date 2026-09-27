@@ -1,14 +1,17 @@
 import type { AudioProcessorOptions, Track, TrackProcessor } from 'livekit-client';
 import gateWorkletUrl from './gate-worklet.js?url';
-import deepFilterWorkletUrl from './deepfilter/deepfilter-worklet.js?url';
+import bridgeWorkletUrl from './denoise/bridge-worklet.js?url';
+// Hesap worklet'i onnxruntime-web ile birlikte tek ES modülü olarak paketlenir (worklet'ler içe aktarma çözemez)
+import computeWorkletUrl from './denoise/compute.worklet.ts?worker&url';
 import deepFilterWasmUrl from './deepfilter/df.wasm?url';
 // Model arşivi .bin uzantılı: .gz uzantısını geliştirme sunucusu 'Content-Encoding: gzip' ile açıp bozuyor.
 import deepFilterModelUrl from './deepfilter/DeepFilterNet3_onnx.bin?url';
-import dpdfnetWorkletUrl from './dpdfnet/dpdfnet-worklet.js?url';
 import dpdfnetModelUrl from './dpdfnet/dpdfnet2_48khz_hr.onnx?url';
 import ortWasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
 import { ALGORITHMIC_DELAY_SAMPLES as DPDFNET_DELAY_SAMPLES } from './dpdfnet/dsp.js';
-import type { DpdfnetWorkerInit, DpdfnetWorkerMessage } from './dpdfnet/dpdfnet.worker';
+import { createRing, HOP } from './denoise/ring';
+import type { EngineInit, HostMessage, HostStats } from './denoise/engine';
+import type { WorkerInit } from './denoise/denoise.worker';
 import type { MicLevel } from '../../stores/voice';
 
 export interface GateConfig {
@@ -18,39 +21,49 @@ export interface GateConfig {
   ptt: boolean;
 }
 
-/** Zincirdeki yapay zekâ gürültü engelleyicisi (null: yok, tarayıcınınki veya kapalı) */
+/** Zincirdeki yapay zekâ gürültü engelleyicisi */
 export type Denoiser = 'deepfilter' | 'dpdfnet';
 
-const DENOISER_NAMES: Record<Denoiser, string> = {
-  deepfilter: 'DeepFilterNet 3',
-  dpdfnet: 'DPDFNet-2 48 kHz',
+interface DenoiserSpec {
+  name: string;
+  /** Modelin algoritmik gecikmesi (örnek) */
+  delaySamples: number;
+  /** Tek çekirdeğin bu oranını art arda DENOISER_MAX_LOAD_REPORTS rapor aşarsa işlemci yetersiz sayılır */
+  maxLoad: number;
+  /** Isınmada kare başına bundan uzun sürerse hiç başlatılmaz (işlemci yetersiz) */
+  maxWarmupFrameMs: number;
+}
+
+const DENOISERS: Record<Denoiser, DenoiserSpec> = {
+  // Ryzen 5 7500F'te kare başına ~1,2 ms (tek çekirdeğin ~%12'si). Gecikme: pencere + 2 kare ileri bakış.
+  deepfilter: { name: 'DeepFilterNet 3', delaySamples: 3 * HOP, maxLoad: 0.5, maxWarmupFrameMs: 8 },
+  // ~3 kat ağır: kare başına ~3 ms (~%30). Gecikme: pencere + 4 kare model gecikmesi.
+  dpdfnet: { name: 'DPDFNet-2 48 kHz', delaySamples: DPDFNET_DELAY_SAMPLES, maxLoad: 0.6, maxWarmupFrameMs: 6 },
 };
 
 /** Son filtre kapalı (konuşmayı daha doğal bırakır). Bastırma sınırı ayarlardan gelir (gürültü engelleme gücü). */
 const DF_POST_FILTER_BETA = 0;
-/** Model ses iş parçacığında kurulur (~0,2–1 sn); takılırsa standart engellemeye dönülür. */
-const DF_READY_TIMEOUT_MS = 10_000;
+/** Model kurulumu + ısınma (~0,3–1 sn); takılırsa bir alt seçeneğe dönülür. */
+const DENOISER_READY_TIMEOUT_MS = 15_000;
+const DENOISER_MAX_LOAD_REPORTS = 3;
+/** Art arda 3 raporda (~6 sn) ses boşluğu olursa da vazgeçilir (kareler zamanında bitirilemiyor). */
+const DENOISER_MAX_UNDERRUN_REPORTS = 3;
 /**
- * İşlemci yetmiyorsa (ses iş parçacığının yarısından fazlası art arda ~6 sn) standart engellemeye geçilir;
- * aksi halde sesin tamamı cızırdar. Ryzen 5 7500F'te normal yük tek çekirdeğin ~%11–13'ü.
+ * Köprüdeki ek pay (2 kare = 20 ms): hesap bağlamının kendi ses bloğu takvimi (10 ms'lik çağrılar) ve kare
+ * süresi bu payın içinde kalır. Boşluk olursa köprü payı bir blok artırır (en fazla 4 kare).
  */
-const DF_MAX_LOAD = 0.5;
-const DF_MAX_LOAD_REPORTS = 3;
+const BRIDGE_EXTRA_SAMPLES = 2 * HOP;
+const BRIDGE_MAX_EXTRA_SAMPLES = 4 * HOP;
 
-/** DPDFNet Worker'da kurulur (model + ~20 kare ısınma, ~1 sn). */
-const DPDFNET_READY_TIMEOUT_MS = 15_000;
-/**
- * DPDFNet kendi iş parçacığında çalışır; tek çekirdeğin %60'ını art arda ~6 sn aşarsa (ya da ısınmada kare
- * başına 6 ms'den uzun sürerse) işlemci yetersiz sayılıp DeepFilterNet'e geçilir. Ryzen 5 7500F'te ~%30.
- */
-const DPDFNET_MAX_LOAD = 0.6;
-const DPDFNET_MAX_WARMUP_FRAME_MS = 6;
-const DPDFNET_MAX_LOAD_REPORTS = 3;
-/** Art arda 3 raporda (6 sn) boşluk olursa da vazgeçilir (Worker kareleri zamanında döndüremiyor) */
-const DPDFNET_MAX_UNDERRUN_REPORTS = 3;
+export type DenoiseHostKind = 'realtime' | 'worker';
 
-/** DeepFilterNet'in algoritmik gecikmesi: pencere (10 ms) + 2 kare ileri bakış */
-const DF_DELAY_SAMPLES = 480 * 3;
+/** Modeli barındıran iş parçacığıyla (hesap worklet'i ya da işçi) ortak arayüz */
+interface DenoiseHost {
+  kind: DenoiseHostKind;
+  send(msg: { type: 'atten'; db: number }): void;
+  listen(onMessage: (m: HostMessage) => void, onCrash: (err: Error) => void): void;
+  close(): void;
+}
 
 interface DeepFilterAssets {
   module: WebAssembly.Module;
@@ -65,8 +78,11 @@ interface DpdfnetAssets {
 /** Mikrofon işleme ölçümleri (bağlantı panelindeki "Hata ayıklama" ve tanılama bilgisi için) */
 export interface MicProcessingStats {
   model: string;
-  /** Model ses iş parçacığında mı çalışıyor (DeepFilterNet) yoksa ayrı Worker'da mı (DPDFNet) */
-  thread: 'audio' | 'worker';
+  /**
+   * Modelin çalıştığı yer: ayrı, sessiz bir AudioContext'in gerçek zamanlı ses iş parçacığı (birincil) ya da
+   * Web Worker (yedek). Mikrofonun ses iş parçacığı her iki durumda da yalnızca örnek kopyalar.
+   */
+  host: DenoiseHostKind;
   /** Ortalama işlemci yükü (işleme süresi / gerçek süre, tek çekirdek oranı) */
   load: number;
   /** Son aralıktaki (2 sn) kare sayısı ve kare (10 ms) başına işleme süreleri */
@@ -74,12 +90,15 @@ export interface MicProcessingStats {
   avgFrameMs: number;
   p99FrameMs: number;
   maxFrameMs: number;
-  /** Son aralıkta 2 ms'yi / bir ses bloğunu (2,67 ms) aşan kareler. Ses iş parçacığındaysa cızırtı riski. */
+  /** Son aralıkta 2 ms'yi / bir ses bloğunu (2,67 ms) / bir kareyi (10 ms) aşan kareler */
   over2ms: number;
   overQuantum: number;
-  /** Başından beri toplam: DeepFilterNet için bu aralıktaki geç blokların etkisi, DPDFNet için boş tampon */
+  overHop: number;
+  /** Başından beri: köprünün çıkış tamponu boşaldı (duyulabilir kısa boşluk) */
   underruns: number;
-  /** Ses yolu gecikmesi: modelin algoritmik gecikmesi + tamponlama (ms) */
+  /** Başından beri model takıldığı için atılan örnekler */
+  droppedSamples: number;
+  /** Ses yolu gecikmesi: modelin algoritmik gecikmesi + köprü tamponu (ms) */
   latencyMs: number;
   /** Tüm oturum boyunca en kötü kare (ms) ve 2,67 ms'yi aşan toplam kare */
   worstFrameMs: number;
@@ -87,9 +106,8 @@ export interface MicProcessingStats {
 }
 
 let deepFilterAssets: Promise<DeepFilterAssets> | null = null;
-let deepFilterBroken = false;
 let dpdfnetAssets: Promise<DpdfnetAssets> | null = null;
-let dpdfnetBroken = false;
+const broken = new Set<Denoiser>();
 
 async function fetchBuffer(url: string): Promise<ArrayBuffer> {
   const res = await fetch(url);
@@ -97,8 +115,14 @@ async function fetchBuffer(url: string): Promise<ArrayBuffer> {
   return res.arrayBuffer();
 }
 
+/** Model işçide, ses iş parçacığıyla paylaşımlı bellek üzerinden konuşur (bkz. ana süreçteki anahtar). */
+function assertSharedMemory(): void {
+  if (typeof SharedArrayBuffer === 'undefined') throw new Error('SharedArrayBuffer kullanılamıyor');
+}
+
 function loadDeepFilterAssets(): Promise<DeepFilterAssets> {
   deepFilterAssets ??= (async () => {
+    assertSharedMemory();
     const [wasm, model] = await Promise.all([fetchBuffer(deepFilterWasmUrl), fetchBuffer(deepFilterModelUrl)]);
     const magic = new Uint8Array(model, 0, 2);
     if (magic[0] !== 0x1f || magic[1] !== 0x8b) throw new Error('DeepFilterNet model dosyası bozuk (gzip değil)');
@@ -109,6 +133,7 @@ function loadDeepFilterAssets(): Promise<DeepFilterAssets> {
 
 function loadDpdfnetAssets(): Promise<DpdfnetAssets> {
   dpdfnetAssets ??= (async () => {
+    assertSharedMemory();
     const [wasm, model] = await Promise.all([fetchBuffer(ortWasmUrl), fetchBuffer(dpdfnetModelUrl)]);
     const magic = new Uint8Array(wasm, 0, Math.min(4, wasm.byteLength));
     if (magic[0] !== 0 || magic[1] !== 0x61 || magic[2] !== 0x73 || magic[3] !== 0x6d) {
@@ -120,14 +145,20 @@ function loadDpdfnetAssets(): Promise<DpdfnetAssets> {
 }
 
 function markBroken(which: Denoiser, err: unknown): void {
-  if (which === 'deepfilter') {
-    if (!deepFilterBroken) console.warn('DeepFilterNet kullanılamıyor, standart gürültü engellemeye dönülüyor', err);
-    deepFilterBroken = true;
-    deepFilterAssets = null;
-  } else {
-    if (!dpdfnetBroken) console.warn('DPDFNet kullanılamıyor, DeepFilterNet’e dönülüyor', err);
-    dpdfnetBroken = true;
-    dpdfnetAssets = null;
+  if (!broken.has(which)) console.warn(`${DENOISERS[which].name} kullanılamıyor, bir alt seçeneğe dönülüyor`, err);
+  broken.add(which);
+  if (which === 'deepfilter') deepFilterAssets = null;
+  else dpdfnetAssets = null;
+}
+
+async function available(which: Denoiser, load: () => Promise<unknown>): Promise<boolean> {
+  if (broken.has(which)) return false;
+  try {
+    await load();
+    return true;
+  } catch (err) {
+    markBroken(which, err);
+    return false;
   }
 }
 
@@ -135,54 +166,34 @@ function markBroken(which: Denoiser, err: unknown): void {
  * DeepFilterNet dosyalarını (uygulamayla birlikte gelir, indirme yok) bir kez yükleyip derler.
  * Bu oturumda yüklenemediyse veya çalışırken hata verdiyse false döner.
  */
-export async function deepFilterAvailable(): Promise<boolean> {
-  if (deepFilterBroken) return false;
-  try {
-    await loadDeepFilterAssets();
-    return true;
-  } catch (err) {
-    markBroken('deepfilter', err);
-    return false;
-  }
+export function deepFilterAvailable(): Promise<boolean> {
+  return available('deepfilter', loadDeepFilterAssets);
 }
 
 /** DPDFNet dosyalarını (uygulamayla birlikte gelir) bir kez yükler; bu oturumda başarısız olduysa false. */
-export async function dpdfnetAvailable(): Promise<boolean> {
-  if (dpdfnetBroken) return false;
-  try {
-    await loadDpdfnetAssets();
-    return true;
-  } catch (err) {
-    markBroken('dpdfnet', err);
-    return false;
-  }
-}
-
-interface FrameStats {
-  load: number;
-  frames?: number;
-  avgFrameMs?: number;
-  p99FrameMs?: number;
-  maxFrameMs?: number;
-  over2ms?: number;
-  overQuantum?: number;
+export function dpdfnetAvailable(): Promise<boolean> {
+  return available('dpdfnet', loadDpdfnetAssets);
 }
 
 /**
- * Mikrofon işleme zinciri: [DeepFilterNet 3 | DPDFNet] → ses kapısı (VAD / bas-konuş) → LiveKit'e giden track.
+ * Mikrofon işleme zinciri: [köprü ⇄ model: DeepFilterNet 3 | DPDFNet] → ses kapısı (VAD / bas-konuş) → LiveKit.
+ * Gürültü engelleyici mikrofonun ses iş parçacığında çalışmaz: oradaki köprü (bridge-worklet.js) yalnızca
+ * paylaşımlı halka tamponlara örnek kopyalar. Model, ayrı ve sessiz ikinci bir AudioContext'in gerçek zamanlı
+ * ses iş parçacığında (compute.worklet.ts) çalışır; o kurulamazsa bir Web Worker'da (denoise.worker.ts).
+ * Böylece yavaş bir kare çıkan sesi cızırdatmaz, işlemci yoğunken de model bekletilmez.
  * Kapı kapalıyken sessizlik gönderilir; Opus DTX sayesinde neredeyse hiç bant harcamaz ve
  * diğerleri seni "susturulmuş" görmez (Discord'daki ses aktivitesi/bas-konuş davranışı).
  */
 export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProcessorOptions> {
   readonly name = 'diskort-mic';
   processedTrack?: MediaStreamTrack;
-  /** Son ölçülen gürültü engelleyici istatistikleri (geliştirme/tanılama için) */
+  /** Son ölçülen gürültü engelleyici istatistikleri (tanılama için) */
   stats: MicProcessingStats | null = null;
 
   private ctx: AudioContext | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private denoiserNode: AudioWorkletNode | null = null;
-  private worker: Worker | null = null;
+  private host: DenoiseHost | null = null;
   private gate: AudioWorkletNode | null = null;
   private building: Promise<void> | null = null;
 
@@ -209,8 +220,7 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
   async restart(opts: AudioProcessorOptions): Promise<void> {
     await this.teardown();
     // Bir kez başarısız olduysa yeniden denenmez; track bir alt seçenekle yeniden açılmıştır.
-    if (this.denoiser === 'deepfilter' && deepFilterBroken) this.denoiser = null;
-    if (this.denoiser === 'dpdfnet' && dpdfnetBroken) this.denoiser = null;
+    if (this.denoiser && broken.has(this.denoiser)) this.denoiser = null;
     await this.init(opts);
   }
 
@@ -226,8 +236,7 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
   /** Gürültü engelleme gücünü yeniden bağlanmadan değiştirir. */
   setAttenLimit(db: number): void {
     this.attenLimDb = db;
-    this.denoiserNode?.port.postMessage({ attenLimDb: db });
-    this.worker?.postMessage({ type: 'atten', db });
+    this.host?.send({ type: 'atten', db });
   }
 
   private async build(track: MediaStreamTrack): Promise<void> {
@@ -243,14 +252,14 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
     const which = this.denoiser;
     if (which) {
       try {
-        this.denoiserNode = which === 'deepfilter' ? await this.createDeepFilter(ctx) : await this.createDpdfnet(ctx);
+        this.denoiserNode = await this.createDenoiser(ctx, which);
         node.connect(this.denoiserNode);
         node = this.denoiserNode;
       } catch (err) {
         this.denoiserNode?.disconnect();
         this.denoiserNode = null;
-        this.worker?.terminate();
-        this.worker = null;
+        this.host?.close();
+        this.host = null;
         markBroken(which, err);
       }
     }
@@ -270,164 +279,182 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
     if (ctx.state === 'suspended') await ctx.resume();
   }
 
-  /** Kurulduktan sonraki hatalar: işlemci sesi geçirir, çağıran bir alt seçenekle yeniden başlatır. */
-  private failer(which: Denoiser, node: AudioWorkletNode): (err: unknown) => void {
-    let failed = false;
-    return (err) => {
-      if (failed || this.denoiserNode !== node) return;
-      failed = true;
-      markBroken(which, err);
-      this.onDenoiserFailed?.();
-    };
-  }
-
-  private updateStats(model: Denoiser, s: FrameStats, extra: { underruns: number; latencyMs: number }): void {
-    const prev = this.stats;
-    const maxFrameMs = s.maxFrameMs ?? 0;
-    this.stats = {
-      model: DENOISER_NAMES[model],
-      thread: model === 'deepfilter' ? 'audio' : 'worker',
-      load: s.load,
-      frames: s.frames ?? 0,
-      avgFrameMs: s.avgFrameMs ?? 0,
-      p99FrameMs: s.p99FrameMs ?? 0,
-      maxFrameMs,
-      over2ms: s.over2ms ?? 0,
-      overQuantum: s.overQuantum ?? 0,
-      underruns: extra.underruns,
-      latencyMs: extra.latencyMs,
-      worstFrameMs: Math.max(prev?.worstFrameMs ?? 0, maxFrameMs),
-      totalOverQuantum: (prev?.totalOverQuantum ?? 0) + (s.overQuantum ?? 0),
-    };
-  }
-
-  private async createDeepFilter(ctx: AudioContext): Promise<AudioWorkletNode> {
-    const assets = await loadDeepFilterAssets();
-    await ctx.audioWorklet.addModule(deepFilterWorkletUrl);
-    const node = new AudioWorkletNode(ctx, 'diskort-deepfilter', {
-      numberOfInputs: 1,
-      numberOfOutputs: 1,
-      channelCount: 1,
-      channelCountMode: 'explicit',
-      outputChannelCount: [1],
-      processorOptions: {
-        wasmModule: assets.module,
-        modelBytes: assets.model,
+  /** Model dosyaları (önbellekteki kopyalar korunur; yeniden kurulumda tekrar indirme olmaz) */
+  private async engineInit(which: Denoiser): Promise<EngineInit> {
+    if (which === 'deepfilter') {
+      const a = await loadDeepFilterAssets();
+      return {
+        kind: 'deepfilter',
         attenLimDb: this.attenLimDb,
+        wasmModule: a.module,
+        model: a.model.slice(0),
         postFilterBeta: DF_POST_FILTER_BETA,
-      },
-    });
-    this.denoiserNode = node;
-    let bufferSamples = 448;
-    await new Promise<void>((resolve, reject) => {
-      const timer = window.setTimeout(() => reject(new Error('DeepFilterNet zaman aşımı')), DF_READY_TIMEOUT_MS);
-      node.onprocessorerror = () => {
-        window.clearTimeout(timer);
-        reject(new Error('DeepFilterNet işlemcisi çöktü'));
       };
-      node.port.onmessage = (e: MessageEvent<{ type: string; message?: string; bufferSamples?: number }>) => {
-        if (e.data.type === 'ready') {
-          window.clearTimeout(timer);
-          bufferSamples = e.data.bufferSamples ?? bufferSamples;
-          resolve();
-        } else if (e.data.type === 'error') {
-          window.clearTimeout(timer);
-          reject(new Error(e.data.message));
-        }
-      };
-    });
-    const fail = this.failer('deepfilter', node);
-    node.onprocessorerror = () => fail(new Error('DeepFilterNet işlemcisi çöktü'));
-    let overloaded = 0;
-    const latencyMs = ((DF_DELAY_SAMPLES + bufferSamples) / 48000) * 1000;
-    node.port.onmessage = (e: MessageEvent<{ type: string; message?: string; underruns: number } & FrameStats>) => {
-      if (e.data.type === 'stats') {
-        this.updateStats('deepfilter', e.data, { underruns: e.data.underruns, latencyMs });
-        overloaded = e.data.load > DF_MAX_LOAD ? overloaded + 1 : 0;
-        if (overloaded >= DF_MAX_LOAD_REPORTS) fail(new Error(`işlemci yetersiz (yük ${Math.round(e.data.load * 100)}%)`));
-      } else if (e.data.type === 'error') {
-        fail(new Error(e.data.message));
-      }
-    };
-    return node;
+    }
+    const a = await loadDpdfnetAssets();
+    return { kind: 'dpdfnet', attenLimDb: this.attenLimDb, ortWasm: a.wasm.slice(0), model: a.model.slice(0) };
   }
 
-  private async createDpdfnet(ctx: AudioContext): Promise<AudioWorkletNode> {
-    const assets = await loadDpdfnetAssets();
-    await ctx.audioWorklet.addModule(dpdfnetWorkletUrl);
-    const worker = new Worker(new URL('./dpdfnet/dpdfnet.worker.ts', import.meta.url), {
-      type: 'module',
-      name: 'diskort-dpdfnet',
-    });
-    this.worker = worker;
-    const node = new AudioWorkletNode(ctx, 'diskort-dpdfnet', {
-      numberOfInputs: 1,
-      numberOfOutputs: 1,
-      channelCount: 1,
-      channelCountMode: 'explicit',
-      outputChannelCount: [1],
-    });
-    this.denoiserNode = node;
+  /**
+   * Birincil barındırıcı: ayrı, sessiz bir AudioContext'in AudioWorklet'i. Chromium her bağlama kendi gerçek
+   * zamanlı öncelikli ses iş parçacığını verir; bu bağlamın çıkışı sessizdir, geç kalması duyulmaz.
+   */
+  private async startRealtimeHost(sab: SharedArrayBuffer, init: EngineInit): Promise<DenoiseHost> {
+    const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
+    try {
+      await ctx.audioWorklet.addModule(computeWorkletUrl);
+      const node = new AudioWorkletNode(ctx, 'diskort-denoise-compute', {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+        processorOptions: { sab, ...init },
+      });
+      const mute = ctx.createGain();
+      mute.gain.value = 0;
+      node.connect(mute).connect(ctx.destination);
+      await ctx.resume();
+      return {
+        kind: 'realtime',
+        send: (msg) => node.port.postMessage(msg),
+        listen: (onMessage, onCrash) => {
+          node.port.onmessage = (e: MessageEvent<HostMessage>) => onMessage(e.data);
+          node.onprocessorerror = () => onCrash(new Error('hesap worklet’i çöktü'));
+        },
+        close: () => {
+          node.port.onmessage = null;
+          node.disconnect();
+          void ctx.close().catch(() => undefined);
+        },
+      };
+    } catch (err) {
+      void ctx.close().catch(() => undefined);
+      throw err;
+    }
+  }
 
-    // Worklet ile Worker doğrudan konuşur (ana iş parçacığı ses yolunda değil)
-    const channel = new MessageChannel();
-    const init: DpdfnetWorkerInit = {
-      type: 'init',
-      // Önbellekteki kopyalar korunur (Worker'a kopyalanır); yeniden kurulumda tekrar indirme olmaz
-      wasm: assets.wasm.slice(0),
-      model: assets.model.slice(0),
-      attenLimDb: this.attenLimDb,
-      port: channel.port1,
+  /** Yedek barındırıcı: Web Worker (normal öncelikli; işlemci çok yoğunken bekletilebilir). */
+  private startWorkerHost(sab: SharedArrayBuffer, init: EngineInit): DenoiseHost {
+    const worker = new Worker(new URL('./denoise/denoise.worker.ts', import.meta.url), {
+      type: 'module',
+      name: 'diskort-denoise',
+    });
+    const msg: WorkerInit = { type: 'init', sab, ...init };
+    worker.postMessage(msg, [init.model, ...(init.kind === 'dpdfnet' ? [init.ortWasm] : [])]);
+    return {
+      kind: 'worker',
+      send: (m) => worker.postMessage(m),
+      listen: (onMessage, onCrash) => {
+        worker.onmessage = (e: MessageEvent<HostMessage>) => onMessage(e.data);
+        worker.onerror = (e) => onCrash(new Error(`işçi çöktü: ${e.message}`));
+      },
+      close: () => worker.terminate(),
     };
-    await new Promise<void>((resolve, reject) => {
-      const timer = window.setTimeout(() => reject(new Error('DPDFNet zaman aşımı')), DPDFNET_READY_TIMEOUT_MS);
+  }
+
+  /** Barındırıcı modeli kurup ısıtana kadar bekler; işlemci yetmiyorsa reddeder. */
+  private waitReady(host: DenoiseHost, spec: DenoiserSpec): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error(`${spec.name} zaman aşımı`)), DENOISER_READY_TIMEOUT_MS);
       const done = (err?: Error): void => {
         window.clearTimeout(timer);
         if (err) reject(err);
         else resolve();
       };
-      worker.onerror = (e) => done(new Error(`DPDFNet işçisi başlatılamadı: ${e.message}`));
-      node.onprocessorerror = () => done(new Error('DPDFNet worklet çöktü'));
-      worker.onmessage = (e: MessageEvent<DpdfnetWorkerMessage>) => {
-        const m = e.data;
-        if (m.type === 'ready') {
-          if (m.warmupFrameMs > DPDFNET_MAX_WARMUP_FRAME_MS) {
-            done(new Error(`işlemci yetersiz (kare başına ${m.warmupFrameMs.toFixed(1)} ms)`));
-          } else done();
-        } else if (m.type === 'error') done(new Error(m.message));
-      };
-      worker.postMessage(init, [init.wasm, init.model, channel.port1]);
+      host.listen(
+        (m) => {
+          if (m.type === 'ready') {
+            if (m.warmupFrameMs > spec.maxWarmupFrameMs) {
+              done(new Error(`işlemci yetersiz (kare başına ${m.warmupFrameMs.toFixed(1)} ms)`));
+            } else done();
+          } else if (m.type === 'error') done(new Error(m.message));
+        },
+        (err) => done(err),
+      );
     });
-    node.port.postMessage({ type: 'connect', port: channel.port2 }, [channel.port2]);
+  }
 
-    const fail = this.failer('dpdfnet', node);
-    node.onprocessorerror = () => fail(new Error('DPDFNet worklet çöktü'));
-    worker.onerror = (e) => fail(new Error(`DPDFNet işçisi çöktü: ${e.message}`));
+  private async createDenoiser(ctx: AudioContext, which: Denoiser): Promise<AudioWorkletNode> {
+    const spec = DENOISERS[which];
+    assertSharedMemory();
+    await ctx.audioWorklet.addModule(bridgeWorkletUrl);
+
+    let sab = createRing();
+    let host: DenoiseHost;
+    try {
+      host = await this.startRealtimeHost(sab, await this.engineInit(which));
+      this.host = host;
+      await this.waitReady(host, spec);
+    } catch (err) {
+      // İşlemci yetmiyorsa işçide de yetmez; başka bir hata (ör. worklet kurulamadı) ise işçi denenir.
+      if (err instanceof Error && err.message.startsWith('işlemci yetersiz')) throw err;
+      console.warn(`${spec.name}: gerçek zamanlı hesap bağlamı kurulamadı, işçiye geçiliyor`, err);
+      this.host?.close();
+      sab = createRing();
+      host = this.startWorkerHost(sab, await this.engineInit(which));
+      this.host = host;
+      await this.waitReady(host, spec);
+    }
+
+    const node = new AudioWorkletNode(ctx, 'diskort-denoise-bridge', {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      channelCount: 1,
+      channelCountMode: 'explicit',
+      outputChannelCount: [1],
+      processorOptions: { sab, extraSamples: BRIDGE_EXTRA_SAMPLES, maxExtraSamples: BRIDGE_MAX_EXTRA_SAMPLES },
+    });
+    this.denoiserNode = node;
+
+    // Kurulduktan sonraki hatalar: çağıran bir alt seçenekle (DPDFNet → DeepFilterNet → standart) yeniden başlatır.
+    let failed = false;
+    const fail = (err: unknown): void => {
+      if (failed || this.denoiserNode !== node) return;
+      failed = true;
+      markBroken(which, err);
+      this.onDenoiserFailed?.();
+    };
+    node.onprocessorerror = () => fail(new Error(`${spec.name} köprüsü çöktü`));
     let overloaded = 0;
     let starved = 0;
-    let underruns = 0;
     let lastUnderruns = 0;
-    let latencyMs = ((DPDFNET_DELAY_SAMPLES + 448 + 480) / 48000) * 1000;
-    worker.onmessage = (e: MessageEvent<DpdfnetWorkerMessage>) => {
-      const m = e.data;
-      if (m.type === 'stats') {
-        this.updateStats('dpdfnet', m, { underruns, latencyMs });
-        overloaded = m.load > DPDFNET_MAX_LOAD ? overloaded + 1 : 0;
-        if (overloaded >= DPDFNET_MAX_LOAD_REPORTS) fail(new Error(`işlemci yetersiz (yük ${Math.round(m.load * 100)}%)`));
-      } else if (m.type === 'error') {
-        fail(new Error(m.message));
-      }
-    };
-    node.port.onmessage = (e: MessageEvent<{ type: string; underruns: number; bufferMs: number }>) => {
-      if (e.data.type !== 'stats') return;
-      underruns = e.data.underruns;
-      latencyMs = (DPDFNET_DELAY_SAMPLES / 48000) * 1000 + e.data.bufferMs;
-      if (this.stats) this.stats = { ...this.stats, underruns, latencyMs };
-      starved = underruns > lastUnderruns ? starved + 1 : 0;
-      lastUnderruns = underruns;
-      if (starved >= DPDFNET_MAX_UNDERRUN_REPORTS) fail(new Error('DPDFNet kareleri zamanında işlenemiyor'));
-    };
+    const hostKind = host.kind;
+    host.listen(
+      (m) => {
+        if (m.type === 'stats') {
+          this.updateStats(spec, hostKind, m);
+          overloaded = m.load > spec.maxLoad ? overloaded + 1 : 0;
+          starved = m.underruns > lastUnderruns ? starved + 1 : 0;
+          lastUnderruns = m.underruns;
+          if (overloaded >= DENOISER_MAX_LOAD_REPORTS) fail(new Error(`işlemci yetersiz (yük ${Math.round(m.load * 100)}%)`));
+          else if (starved >= DENOISER_MAX_UNDERRUN_REPORTS) fail(new Error('kareler zamanında işlenemiyor'));
+        } else if (m.type === 'error') {
+          fail(new Error(m.message));
+        }
+      },
+      (err) => fail(err),
+    );
     return node;
+  }
+
+  private updateStats(spec: DenoiserSpec, host: DenoiseHostKind, s: HostStats): void {
+    const prev = this.stats;
+    this.stats = {
+      model: spec.name,
+      host,
+      load: s.load,
+      frames: s.frames,
+      avgFrameMs: s.avgFrameMs,
+      p99FrameMs: s.p99FrameMs,
+      maxFrameMs: s.maxFrameMs,
+      over2ms: s.over2ms,
+      overQuantum: s.overQuantum,
+      overHop: s.overHop,
+      underruns: s.underruns,
+      droppedSamples: s.droppedSamples,
+      latencyMs: (spec.delaySamples / 48000) * 1000 + s.bufferMs,
+      worstFrameMs: Math.max(prev?.worstFrameMs ?? 0, s.maxFrameMs),
+      totalOverQuantum: (prev?.totalOverQuantum ?? 0) + s.overQuantum,
+    };
   }
 
   private async teardown(): Promise<void> {
@@ -435,15 +462,14 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
     this.building = null;
     this.gate?.port.close();
     this.gate?.disconnect();
-    this.denoiserNode?.port.close();
     this.denoiserNode?.disconnect();
-    this.worker?.terminate();
+    this.host?.close();
     this.source?.disconnect();
     this.processedTrack?.stop();
     await this.ctx?.close().catch(() => undefined);
     this.gate = null;
     this.denoiserNode = null;
-    this.worker = null;
+    this.host = null;
     this.source = null;
     this.ctx = null;
     this.processedTrack = undefined;
