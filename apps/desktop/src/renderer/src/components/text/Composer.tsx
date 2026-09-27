@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -28,6 +29,7 @@ import { cn } from '../../lib/utils';
 import { toast } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 import { FileIcon } from './Attachments';
+import { ComposerToolbar } from './ComposerToolbar';
 
 /** Kanal değiştirince yarım kalan mesaj kaybolmasın */
 const drafts = new Map<string, string>();
@@ -132,6 +134,20 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
     if (next) drafts.set(channel.id, next);
     else drafts.delete(channel.id);
   };
+
+  /** Emoji panelinden: metni imlecin olduğu yere (seçiliyse yerine) ekler */
+  const insert = (text: string): void => {
+    const el = ref.current;
+    const start = el?.selectionStart ?? value.length;
+    const end = el?.selectionEnd ?? start;
+    const next = value.slice(0, start) + text + value.slice(end);
+    update(next, start + text.length);
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(start + text.length, start + text.length);
+    });
+  };
+  const focusInput = useCallback(() => ref.current?.focus(), []);
 
   const pick = (user: User): void => {
     const before = value.slice(0, caret).replace(/@[a-z0-9_.]*$/i, `@${user.username} `);
@@ -287,6 +303,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
               {remaining}
             </span>
           )}
+          <ComposerToolbar channelId={channel.id} onEmoji={insert} onClosed={focusInput} onSent={onSend} />
         </div>
       </div>
     </div>

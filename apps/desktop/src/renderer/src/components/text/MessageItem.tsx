@@ -1,10 +1,18 @@
 import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { Pencil, SmilePlus, Trash2 } from 'lucide-react';
-import { isImageAttachment, MESSAGE_MAX_LENGTH, MESSAGE_MAX_REACTIONS, Permission, type User } from '@diskort/shared';
+import {
+  isImageAttachment,
+  isVideoAttachment,
+  MESSAGE_MAX_LENGTH,
+  MESSAGE_MAX_REACTIONS,
+  Permission,
+  type User,
+} from '@diskort/shared';
 import {
   deleteMessage,
   discardMessage,
   editMessage,
+  gifOf,
   isMentioned,
   QUICK_REACTIONS,
   retryMessage,
@@ -23,6 +31,7 @@ import { Avatar } from '../ui/Avatar';
 import { downloadAttachment } from '../../features/messages/files';
 import { AttachmentList, UploadList } from './Attachments';
 import { formatFull, formatStamp, formatTime } from './format';
+import { GifEmbed } from './GifEmbed';
 import { ReactionPill } from './ReactionPill';
 
 interface Props {
@@ -67,6 +76,8 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
   const canDelete = own || canManage;
   const confirmed = !message.status;
   const mentioned = isMentioned(message, self);
+  // Metni yalnızca GIPHY bağlantısı olan mesaj: bağlantı yerine GIF gösterilir
+  const gif = gifOf(message);
   const react = (emoji: string): void => void toggleReaction(message.channelId, message.id, emoji);
   const pickReaction = (anchor: EmojiPickerAnchor): void => openEmojiPicker({ anchor, onPick: react });
 
@@ -86,7 +97,11 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
         ...(attachment
           ? [
               {
-                label: isImageAttachment(attachment) ? 'Resmi Kaydet' : 'Dosyayı İndir',
+                label: isImageAttachment(attachment)
+                  ? 'Resmi Kaydet'
+                  : isVideoAttachment(attachment)
+                    ? 'Videoyu Kaydet'
+                    : 'Dosyayı İndir',
                 onClick: () => downloadAttachment(attachment),
               },
             ]
@@ -149,6 +164,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
         {editing ? (
           <EditBox message={message} />
         ) : (
+          !gif &&
           (message.content || message.editedAt) && (
             <div
               className={cn(
@@ -165,6 +181,12 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
               )}
             </div>
           )
+        )}
+
+        {gif && !editing && (
+          <div className={cn(message.status === 'pending' && 'opacity-60')}>
+            <GifEmbed embed={gif} />
+          </div>
         )}
 
         {message.uploads ? (

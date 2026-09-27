@@ -1,12 +1,13 @@
 import { Download, File, FileArchive, FileAudio, FileImage, FileText, FileVideo, X } from 'lucide-react';
-import { isImageAttachment, type Attachment } from '@diskort/shared';
+import { isImageAttachment, isVideoAttachment, type Attachment } from '@diskort/shared';
 import { attachmentUrl, discardMessage, formatBytes, type LocalMessage } from '@diskort/client-core';
 import { downloadAttachment } from '../../features/messages/files';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
+import { VideoAttachment } from './VideoAttachment';
 
-/** Mesajın içindeki resimlerin sığdırıldığı en büyük kutu */
-const IMAGE_MAX = { width: 480, height: 360 };
+/** Mesajın içindeki resimlerin (ve video/GIF'lerin) sığdırıldığı en büyük kutu */
+export const IMAGE_MAX = { width: 480, height: 360 };
 
 export function FileIcon({ type, size = 30, className }: { type: string; size?: number; className?: string }) {
   const Icon = type.startsWith('image/')
@@ -29,11 +30,12 @@ function fit(width: number | null, height: number | null): { width: number; heig
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
 
-/** Onaylanmış mesajın dosyaları: resimler satır içinde, diğerleri indirme kartı olarak. */
+/** Onaylanmış mesajın dosyaları: resimler ve videolar satır içinde, diğerleri indirme kartı olarak. */
 export function AttachmentList({ attachments }: { attachments: Attachment[] }) {
   const openModal = useUi((s) => s.openModal);
   const images = attachments.filter(isImageAttachment);
-  const files = attachments.filter((a) => !isImageAttachment(a));
+  const videos = attachments.filter(isVideoAttachment);
+  const files = attachments.filter((a) => !isImageAttachment(a) && !isVideoAttachment(a));
   return (
     <div className="mt-1 flex flex-col gap-1.5">
       {images.length > 0 && (
@@ -61,33 +63,42 @@ export function AttachmentList({ attachments }: { attachments: Attachment[] }) {
           })}
         </div>
       )}
-      {files.map((a) => (
-        <div
-          key={a.id}
-          data-attachment-id={a.id}
-          className="flex w-[min(440px,100%)] items-center gap-3 rounded-lg border border-black/20 bg-bg-side px-3 py-2.5"
-        >
-          <FileIcon type={a.contentType} className="shrink-0 text-[#00a8fc]" />
-          <div className="min-w-0 flex-1">
-            <button
-              className="block max-w-full truncate text-left text-[#00a8fc] hover:underline"
-              data-tooltip={a.name}
-              onClick={() => downloadAttachment(a)}
-            >
-              {a.name}
-            </button>
-            <div className="text-xs text-text-muted">{formatBytes(a.size)}</div>
-          </div>
-          <button
-            className="shrink-0 rounded p-1 text-text-muted hover:text-text-head"
-            data-tooltip="İndir"
-            aria-label="İndir"
-            onClick={() => downloadAttachment(a)}
-          >
-            <Download size={22} />
-          </button>
-        </div>
+      {videos.map((a) => (
+        <VideoAttachment key={a.id} attachment={a} />
       ))}
+      {files.map((a) => (
+        <FileCard key={a.id} attachment={a} />
+      ))}
+    </div>
+  );
+}
+
+/** İndirilebilir dosya kartı (tarayıcının açamadığı videolar da böyle gösterilir) */
+export function FileCard({ attachment }: { attachment: Attachment }) {
+  return (
+    <div
+      data-attachment-id={attachment.id}
+      className="flex w-[min(440px,100%)] items-center gap-3 rounded-lg border border-black/20 bg-bg-side px-3 py-2.5"
+    >
+      <FileIcon type={attachment.contentType} className="shrink-0 text-[#00a8fc]" />
+      <div className="min-w-0 flex-1">
+        <button
+          className="block max-w-full truncate text-left text-[#00a8fc] hover:underline"
+          data-tooltip={attachment.name}
+          onClick={() => downloadAttachment(attachment)}
+        >
+          {attachment.name}
+        </button>
+        <div className="text-xs text-text-muted">{formatBytes(attachment.size)}</div>
+      </div>
+      <button
+        className="shrink-0 rounded p-1 text-text-muted hover:text-text-head"
+        data-tooltip="İndir"
+        aria-label="İndir"
+        onClick={() => downloadAttachment(attachment)}
+      >
+        <Download size={22} />
+      </button>
     </div>
   );
 }
