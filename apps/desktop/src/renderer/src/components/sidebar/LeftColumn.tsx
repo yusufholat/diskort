@@ -68,8 +68,8 @@ export function LeftColumn({ children }: { children: ReactNode }) {
       style={{ '--footer-h': '68px', '--sidebar-w': `${width}px` } as CSSProperties}
     >
       {children}
-      <div ref={footerRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-2 pb-2">
-        <div className="pointer-events-auto">
+      <div ref={footerRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-1.5 pb-1.5">
+        <div className="pointer-events-auto overflow-hidden rounded-lg border border-float-edge bg-bg-card shadow-lg">
           <VoiceConnectionPanel />
           <UserPanel />
         </div>

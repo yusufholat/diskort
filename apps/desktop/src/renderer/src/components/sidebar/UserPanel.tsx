@@ -74,21 +74,20 @@ export function UserPanel() {
   return (
     <div
       className={cn(
-        'flex h-[52px] shrink-0 items-center gap-1 border border-divider bg-bg-panel px-1.5',
-        inVoice ? 'rounded-b-lg' : 'rounded-lg',
+        'flex h-[52px] shrink-0 items-center gap-1 px-1.5',
       )}
     >
       {/* Tıklayınca kendi profil kartın: durum ve özel durum buradan değişir */}
       <button
         type="button"
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 pr-1 pl-0.5 text-left transition-colors hover:bg-bg-hover"
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 pr-1 pl-0.5 text-left transition-colors hover:bg-bg-active"
         aria-label="Profilin ve durumun"
         onClick={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           toggleSelfProfile({ left: rect.left, top: rect.top });
         }}
       >
-        <Avatar user={user ?? undefined} size={32} speaking={speaking} status={status} />
+        <Avatar user={user ?? undefined} size={32} speaking={speaking} status={status} ringClassName="bg-bg-card" />
         <div className="min-w-0 leading-tight">
           <div className="truncate text-sm font-semibold text-text-head">{user?.displayName}</div>
           <div className="truncate text-xs text-text-muted">{subtitle}</div>
@@ -154,7 +153,7 @@ function SplitButton({
   const mounted = useMountedRef();
   const part = cn(
     'press-icon flex h-8 items-center justify-center transition-colors',
-    active ? 'text-danger hover:bg-danger/25' : 'text-text-normal hover:bg-bg-hover hover:text-text-head',
+    active ? 'text-danger hover:bg-danger/25' : 'text-text-normal hover:bg-bg-active hover:text-text-head',
   );
   return (
     <div className={cn('flex shrink-0 items-center rounded-md transition-colors', active && 'bg-danger/15')}>
@@ -178,7 +177,7 @@ function SplitButton({
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         onClick={onMenu}
-        className={cn(part, 'w-4 rounded-r-md', menuOpen && !active && 'bg-bg-hover text-text-head')}
+        className={cn(part, 'w-4 rounded-r-md', menuOpen && !active && 'bg-bg-active text-text-head')}
       >
         <ChevronDown
           size={14}
@@ -213,7 +212,7 @@ function PanelButton({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        'press-icon group relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-bg-hover',
+        'press-icon group relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-bg-active',
         active ? 'text-danger' : 'text-text-normal hover:text-text-head',
       )}
     >
@@ -223,7 +222,7 @@ function PanelButton({
       {badge > 0 && (
         <span
           key={badge}
-          className="anim-pill-in pointer-events-none absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] leading-none font-bold text-white ring-2 ring-bg-panel"
+          className="anim-pill-in pointer-events-none absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] leading-none font-bold text-white ring-2 ring-bg-card"
           aria-hidden
         >
           {badge > 99 ? '99+' : badge}

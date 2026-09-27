@@ -94,7 +94,7 @@ export function VoiceConnectionPanel() {
   const shareBlocked = !sharing && !canStream;
 
   return (
-    <div className="anim-rise-in rounded-t-lg border border-b-0 border-divider bg-bg-panel px-2 pt-2 pb-2">
+    <div className="anim-rise-in px-2 pt-2 pb-1.5">
       <div className="flex items-center gap-2">
         <span
           className={cn(
@@ -151,7 +151,7 @@ export function VoiceConnectionPanel() {
           <span className="truncate">Mikrofon testi: odada susturuldun</span>
         </div>
       )}
-      <div className="mt-2 grid grid-cols-4 gap-2">
+      <div className="mt-2 grid grid-cols-4 gap-1.5">
         <ActionButton label="Kamera · Yakında" disabled>
           <Video size={20} />
         </ActionButton>
@@ -208,7 +208,7 @@ function IconButton({
           ? 'text-text-normal hover:bg-danger hover:text-white'
           : active
             ? 'bg-bg-active text-text-head'
-            : 'text-text-normal hover:bg-bg-hover hover:text-text-head',
+            : 'text-text-normal hover:bg-bg-active hover:text-text-head',
       )}
       onClick={onClick}
       {...aria}
@@ -244,10 +244,10 @@ function ActionButton({
       className={cn(
         'flex h-8 items-center justify-center rounded-md transition-colors',
         disabled
-          ? 'cursor-not-allowed bg-bg-hover text-text-muted opacity-50'
+          ? 'cursor-not-allowed bg-bg-active text-text-muted opacity-50'
           : active
             ? 'press bg-ok/20 text-ok hover:bg-ok/30'
-            : 'press bg-bg-hover text-text-normal hover:bg-bg-active hover:text-text-head',
+            : 'press bg-bg-active text-text-normal hover:bg-control hover:text-text-head',
       )}
       onClick={disabled ? undefined : onClick}
     >
