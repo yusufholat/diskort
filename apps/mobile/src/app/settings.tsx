@@ -5,6 +5,7 @@ import { pickAvatar } from '../attachments';
 import { Avatar } from '../components/Avatar';
 import { PressableScale } from '../components/PressableScale';
 import { Button, FadeIn, Field, SectionTitle, ui } from '../components/ui';
+import { VoiceSettings } from '../components/VoiceSettings';
 import { animateNextLayout } from '../motion';
 import { registerForPush, unregisterPush, usePushState } from '../notifications';
 import { APP_VERSION, NATIVE_VERSION } from '../version';
@@ -84,6 +85,8 @@ export default function SettingsScreen() {
       ) : null}
 
       <NotificationSettings />
+
+      <VoiceSettings />
 
       <SectionTitle>Uygulama</SectionTitle>
       <Info label="Sürüm" value={APP_VERSION === NATIVE_VERSION ? APP_VERSION : `${APP_VERSION} (APK ${NATIVE_VERSION})`} />

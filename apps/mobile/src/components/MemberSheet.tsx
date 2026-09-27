@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { memberActions, memberColorOf, moderation, moveTargets, useGuild } from '@diskort/client-core';
@@ -13,7 +13,16 @@ type Confirm = 'kick' | 'ban' | 'disconnect' | null;
  * Bir üyeye uzun basınca açılan yönetim menüsü (yetkiye ve hiyerarşiye göre): seste sunucuda susturma,
  * sağırlaştırma, başka kanala taşıma, sesten çıkarma; atma ve yasaklama. Rol düzenleme masaüstünde.
  */
-export function MemberSheet({ userId: requested, onClose }: { userId: string | null; onClose: () => void }) {
+export function MemberSheet({
+  userId: requested,
+  onClose,
+  renderExtra,
+}: {
+  userId: string | null;
+  onClose: () => void;
+  /** Başlığın altında gösterilecek ek bölüm (ör. ses ekranında kişinin ses seviyesi) */
+  renderExtra?: (userId: string) => ReactNode;
+}) {
   // Kapanış animasyonu sürerken içerik kaybolmasın: son üye tutulur
   const last = useRef(requested);
   if (requested) last.current = requested;
@@ -55,8 +64,9 @@ export function MemberSheet({ userId: requested, onClose }: { userId: string | n
   };
 
   const name = user?.displayName ?? '';
+  const extra = userId ? renderExtra?.(userId) : null;
   const nothing =
-    actions && !(voice && (actions.mute || actions.deafen || actions.move)) && !actions.kick && !actions.ban;
+    !extra && actions && !(voice && (actions.mute || actions.deafen || actions.move)) && !actions.kick && !actions.ban;
 
   return (
     <BottomSheet visible={Boolean(requested && user)} onClose={close}>
@@ -72,6 +82,7 @@ export function MemberSheet({ userId: requested, onClose }: { userId: string | n
           </Text>
         </View>
       </View>
+      {!moving && extra}
       <ScrollView style={{ maxHeight: 420 }}>
         {moving ? (
           <>
