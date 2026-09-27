@@ -58,8 +58,8 @@ export interface MemberActions {
 }
 
 /**
- * Yetkilere ve hiyerarşiye göre yapılabilecekler (sunucudaki kuralların aynısı). Kendine: yalnızca
- * sesteki yönetim ve alttaki rolleri.
+ * Yetkilere ve hiyerarşiye göre yapılabilecekler (sunucudaki kuralların aynısı). Atma/yasaklama/rol
+ * hiyerarşiye bağlı; sesteki yönetim (susturma, sağırlaştırma, taşıma) Discord'daki gibi değil.
  */
 export function memberActions(targetId: string): MemberActions {
   const s = useGuild.getState();
@@ -68,7 +68,7 @@ export function memberActions(targetId: string): MemberActions {
   const above = self || outranksUser(s, selfId, targetId);
   const voice: VoiceState | undefined = s.voiceStates[targetId];
   const inChannel = (flag: number): boolean =>
-    above && (voice ? can(s, selfId, flag, voice.channelId) : can(s, selfId, flag));
+    voice ? can(s, selfId, flag, voice.channelId) : can(s, selfId, flag);
   return {
     kick: !self && above && can(s, selfId, Permission.KICK_MEMBERS),
     ban: !self && above && can(s, selfId, Permission.BAN_MEMBERS),

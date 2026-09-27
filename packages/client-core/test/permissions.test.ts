@@ -279,22 +279,22 @@ describe('üye yönetimi', () => {
     const ali = memberActions('ali');
     expect(ali).toMatchObject({ kick: true, ban: false, mute: true, deafen: false, move: true });
     expect(ali.roles.map((r) => r.id)).toEqual(['dj']);
-    // Üstündeki sahibe hiçbir şey yapamaz
-    expect(memberActions('sahip')).toMatchObject({ kick: false, mute: false, move: false, roles: [] });
+    // Sahip atılamaz, rolü değiştirilemez; sesteki yönetim (susturma, taşıma) Discord'daki gibi hiyerarşiye bakmaz
+    expect(memberActions('sahip')).toMatchObject({ kick: false, ban: false, roles: [] });
     // Kendini atamaz ama sesteyse kendini yönetebilir
     expect(memberActions('mod').kick).toBe(false);
     // Taşıma hedefleri: bulunduğu kanal ve üyenin bağlanamadığı kanal hariç
     expect(moveTargets(user('ali', ['dj'])).map((c) => c.id)).toEqual([]);
     receive({ t: 'CHANNEL_CREATE', d: channel('muzik', 'voice') });
     expect(moveTargets(user('ali', ['dj'])).map((c) => c.id)).toEqual(['muzik']);
-    // Sürükle-bırak hedefleri: başkası için taşıma hedefleri; seste olmayan ve üstteki için hiçbiri
+    // Sürükle-bırak hedefleri: başkası için taşıma hedefleri; seste olmayan için hiçbiri, üstteki (sahip) de taşınabilir
     expect([...voiceDropTargets('ali')]).toEqual(['muzik']);
     expect(voiceDropTargets('sahip').size).toBe(0);
     receive({
       t: 'VOICE_STATE_UPDATE',
       d: { userId: 'sahip', channelId: 'ses', selfMute: false, selfDeaf: false, serverMute: false, serverDeaf: false, streaming: false, joinedAt: 2 },
     });
-    expect(voiceDropTargets('sahip').size).toBe(0);
+    expect(voiceDropTargets('sahip').size).toBeGreaterThan(0);
     // Kendini: bağlanabildiği her kanala (taşıma yetkisi aranmaz)
     receive({
       t: 'VOICE_STATE_UPDATE',

@@ -372,8 +372,8 @@ export function registerGuildRoutes(app: FastifyInstance, ctx: AppContext): void
 
   // ---------- Sesli sohbette yönetim ----------
   // Sunucuda susturma/sağırlaştırma (o sunucuda kalıcı), başka kanala taşıma, sesten çıkarma. Yetkiler
-  // üyenin bulunduğu kanalda aranır (bu sunucuda seste değilse sunucu genelinde); kendinden yukarıdakilere
-  // yapılamaz. Taşıma yalnızca aynı sunucunun kanalları arasında.
+  // üyenin bulunduğu kanalda aranır (bu sunucuda seste değilse sunucu genelinde). Discord'daki gibi rol
+  // hiyerarşisine bakılmaz (aynı roldekiler birbirini taşıyabilir). Taşıma yalnızca aynı sunucunun kanalları arasında.
 
   app.patch<{ Params: GuildParams & { userId: string } }>(
     '/api/guilds/:guildId/members/:userId/voice',
@@ -385,9 +385,6 @@ export function registerGuildRoutes(app: FastifyInstance, ctx: AppContext): void
       const actorId = req.user.id;
       const targetId = req.params.userId;
       if (!permissions.isMember(guildId, targetId)) return sendError(reply, 404, 'not_found', 'Üye bulunamadı.');
-      if (targetId !== actorId && !permissions.outranks(guildId, actorId, targetId)) {
-        return forbidden(reply, 'En üst rolü seninkinden aşağıda olmayan birini yönetemezsin.');
-      }
       const current = voice.get(targetId);
       const state = current && permissions.guildOf(current.channelId) === guildId ? current : undefined;
       const can = (flag: number, channelId = state?.channelId): boolean =>

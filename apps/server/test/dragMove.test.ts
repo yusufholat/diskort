@@ -67,8 +67,8 @@ describe('seste taşıma yetkileri', () => {
 
     const plain = await s.member('sade');
     expect((await moveReq(plain.token, low.user.id, b!.id)).statusCode).toBe(403);
-    // Alt rol üsttekini taşıyamaz, üst rol alttakini taşıyabilir
-    expect((await moveReq(low.token, high.user.id, b!.id)).statusCode).toBe(403);
+    // Discord gibi: seste taşımada rol hiyerarşisine bakılmaz (alt rol de üsttekini taşıyabilir)
+    expect((await moveReq(low.token, high.user.id, b!.id)).statusCode).toBe(204);
 
     await s.app.listen({ port: 0, host: '127.0.0.1' });
     const client = await connectGateway(s.app, low.token);
