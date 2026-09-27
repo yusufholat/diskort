@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { api, errorMessage, gateway, useSession } from '@diskort/client-core';
+import { api, errorMessage, gateway, removeAvatar, uploadAvatar, useSession } from '@diskort/client-core';
+import { pickAvatar } from '../attachments';
 import { Avatar } from '../components/Avatar';
 import { Button, Field, SectionTitle, ui } from '../components/ui';
 import { registerForPush, unregisterPush, usePushState } from '../notifications';
@@ -15,6 +16,7 @@ export default function SettingsScreen() {
   const serverUrl = useSettings((s) => s.serverUrl);
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [savingName, setSavingName] = useState(false);
+  const photo = useProfilePhoto();
 
   const saveName = async (): Promise<void> => {
     setSavingName(true);
@@ -41,7 +43,9 @@ export default function SettingsScreen() {
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.profile}>
-        <Avatar user={user} size={64} />
+        <Pressable onPress={() => void photo.change()} disabled={photo.busy !== null} accessibilityLabel="Profil fotoğrafını değiştir">
+          <Avatar user={user} size={64} />
+        </Pressable>
         <View style={{ flex: 1 }}>
           <Text style={styles.name}>{user.displayName}</Text>
           <Text style={styles.username}>@{user.username}</Text>
@@ -56,6 +60,26 @@ export default function SettingsScreen() {
         disabled={!displayName.trim() || displayName.trim() === user.displayName}
         onPress={() => void saveName()}
       />
+
+      <SectionTitle>Profil Fotoğrafı</SectionTitle>
+      <Button
+        title={user.avatarUrl ? 'Fotoğrafı Değiştir' : 'Fotoğraf Seç'}
+        variant="secondary"
+        busy={photo.busy === 'upload'}
+        disabled={photo.busy !== null}
+        onPress={() => void photo.change()}
+      />
+      {user.avatarUrl ? (
+        <View style={{ marginTop: 8 }}>
+          <Button
+            title={photo.confirmRemove ? 'Emin misin? Fotoğrafı kaldır' : 'Fotoğrafı Kaldır'}
+            variant={photo.confirmRemove ? 'danger' : 'ghost'}
+            busy={photo.busy === 'remove'}
+            disabled={photo.busy !== null}
+            onPress={() => void photo.remove()}
+          />
+        </View>
+      ) : null}
 
       <NotificationSettings />
 
@@ -73,6 +97,49 @@ export default function SettingsScreen() {
       <DeleteAccount onDeleted={() => void logout()} />
     </ScrollView>
   );
+}
+
+/** Profil fotoğrafı: galeriden seçilip kare kırpılır, sunucu küçültür. Kaldırmak iki dokunuş ister. */
+function useProfilePhoto() {
+  const [busy, setBusy] = useState<'upload' | 'remove' | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+
+  const change = async (): Promise<void> => {
+    setConfirmRemove(false);
+    const file = await pickAvatar().catch((err: unknown) => {
+      toast(errorMessage(err), 'error');
+      return null;
+    });
+    if (!file) return;
+    setBusy('upload');
+    try {
+      await uploadAvatar(file);
+      toast('Profil fotoğrafı güncellendi.');
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const remove = async (): Promise<void> => {
+    if (!confirmRemove) {
+      setConfirmRemove(true);
+      return;
+    }
+    setConfirmRemove(false);
+    setBusy('remove');
+    try {
+      await removeAvatar();
+      toast('Profil fotoğrafı kaldırıldı.');
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return { busy, confirmRemove, change, remove };
 }
 
 function NotificationSettings() {

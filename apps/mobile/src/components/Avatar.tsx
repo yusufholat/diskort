@@ -1,5 +1,7 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Image, StyleSheet, Text, View } from 'react-native';
 import type { User } from '@diskort/shared';
+import { avatarUrl } from '@diskort/client-core';
 import { colors } from '../theme';
 
 function initials(name: string): string {
@@ -10,7 +12,7 @@ function initials(name: string): string {
 }
 
 interface Props {
-  user: Pick<User, 'displayName' | 'avatarColor'> | undefined;
+  user: Pick<User, 'displayName' | 'avatarColor' | 'avatarUrl'> | undefined;
   size?: number;
   speaking?: boolean;
   online?: boolean;
@@ -18,6 +20,9 @@ interface Props {
 
 export function Avatar({ user, size = 40, speaking, online }: Props) {
   const ring = speaking ? 3 : 0;
+  const src = avatarUrl(user);
+  // Yüklenemeyen fotoğrafın yerine baş harfler (adres değişince yeniden denenir)
+  const [failed, setFailed] = useState<string | null>(null);
   return (
     <View style={{ width: size, height: size }}>
       <View
@@ -33,7 +38,16 @@ export function Avatar({ user, size = 40, speaking, online }: Props) {
           },
         ]}
       >
-        <Text style={[styles.text, { fontSize: Math.max(10, size * 0.38) }]}>{initials(user?.displayName ?? '?')}</Text>
+        {src && failed !== src ? (
+          <Image
+            source={{ uri: src }}
+            style={[styles.photo, { borderRadius: size / 2 }]}
+            onError={() => setFailed(src)}
+            accessibilityIgnoresInvertColors
+          />
+        ) : (
+          <Text style={[styles.text, { fontSize: Math.max(10, size * 0.38) }]}>{initials(user?.displayName ?? '?')}</Text>
+        )}
       </View>
       {online !== undefined && (
         <View
@@ -53,7 +67,8 @@ export function Avatar({ user, size = 40, speaking, online }: Props) {
 }
 
 const styles = StyleSheet.create({
-  circle: { alignItems: 'center', justifyContent: 'center' },
+  circle: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  photo: { width: '100%', height: '100%' },
   text: { color: '#fff', fontWeight: '600' },
   dot: { position: 'absolute', right: -1, bottom: -1, borderWidth: 3, borderColor: colors.side },
 });
