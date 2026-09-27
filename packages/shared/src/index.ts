@@ -7,6 +7,7 @@ import type { Presence, SelfStatus } from './presence';
 export * from './permissions';
 export * from './feedback';
 export * from './presence';
+export * from './search';
 
 // ---------- Modeller ----------
 
