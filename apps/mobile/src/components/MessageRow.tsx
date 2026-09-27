@@ -4,6 +4,7 @@ import { discardMessage, mentions, retryMessage, toggleReaction, type LocalMessa
 import type { User } from '@diskort/shared';
 import { colors } from '../theme';
 import { Avatar } from './Avatar';
+import { AttachmentList, UploadList } from './Attachments';
 import { Markdown, type MarkdownContext } from './Markdown';
 
 const time = new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' });
@@ -66,8 +67,13 @@ export const MessageRow = memo(function MessageRow({ message, author, compact, d
               <Text style={styles.time}>{stamp(message.createdAt)}</Text>
             </View>
           )}
-          <Markdown content={message.content} ctx={md} dim={message.status === 'pending'} />
+          {message.content ? <Markdown content={message.content} ctx={md} dim={message.status === 'pending'} /> : null}
           {message.editedAt ? <Text style={styles.edited}>(düzenlendi)</Text> : null}
+          {message.uploads ? (
+            <UploadList message={message} />
+          ) : message.attachments.length > 0 ? (
+            <AttachmentList attachments={message.attachments} />
+          ) : null}
           {message.status === 'failed' && message.nonce && (
             <Text style={styles.failed}>
               Gönderilemedi.{' '}

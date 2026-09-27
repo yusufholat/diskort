@@ -3,6 +3,7 @@ import { registerGlobals } from '@livekit/react-native';
 import { configureClient, useGuild } from '@diskort/client-core';
 import * as SecureStore from 'expo-secure-store';
 import { AppState, Vibration } from 'react-native';
+import { uploadFromDevice } from './attachments';
 import { getSettings } from './stores/settings';
 import { toast, useUi } from './stores/ui';
 import { checkForUpdate } from './update/updater';
@@ -40,4 +41,5 @@ export const clientReady = configureClient({
   // Yeni sürüm yayınlandı: hemen denetle. Arayüz güncellemesi arka planda iner, uygulamaya dönünce
   // uygulanır; yeni APK gerekiyorsa güncelleme ekranı çıkar (sesteyse sesten çıkınca)
   onUpdateAvailable: () => void checkForUpdate(true),
+  upload: uploadFromDevice,
 });

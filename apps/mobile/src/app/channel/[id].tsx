@@ -270,13 +270,15 @@ function MessageMenuItems({
 }) {
   return (
     <>
-      <MenuItem
-        label="Metni kopyala"
-        onPress={() => {
-          if (message) void Clipboard.setStringAsync(message.content).then(() => toast('Kopyalandı'));
-          close();
-        }}
-      />
+      {message?.content ? (
+        <MenuItem
+          label="Metni kopyala"
+          onPress={() => {
+            void Clipboard.setStringAsync(message.content).then(() => toast('Kopyalandı'));
+            close();
+          }}
+        />
+      ) : null}
       {canEdit && (
         <MenuItem
           label="Düzenle"
