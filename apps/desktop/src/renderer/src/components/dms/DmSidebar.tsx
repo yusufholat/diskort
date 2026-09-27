@@ -14,8 +14,6 @@ import { closeOrLeaveDm, dmMenuItems } from '../../lib/dm';
 import { useMainView } from '../../lib/mainView';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
-import { UserPanel } from '../sidebar/UserPanel';
-import { VoiceConnectionPanel } from '../sidebar/VoiceConnectionPanel';
 import { formatAgo, formatFull } from '../text/format';
 import { CustomStatusLine } from '../status/CustomStatusLine';
 import { DmAvatar } from './DmAvatar';
@@ -50,7 +48,7 @@ export function DmSidebar() {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-2 pt-3 pb-2">
+      <div className="flex-1 overflow-y-auto px-2 pt-3 pb-[calc(var(--footer-h,0px)+8px)]">
         <div className="mb-1 px-2 text-xs font-bold tracking-wide text-text-muted uppercase">Konuşmalar</div>
         {dms.length === 0 ? (
           <p className="anim-fade-in px-2 pt-2 text-sm leading-snug text-text-muted">
@@ -62,8 +60,6 @@ export function DmSidebar() {
         )}
       </div>
 
-      <VoiceConnectionPanel />
-      <UserPanel />
     </aside>
   );
 }

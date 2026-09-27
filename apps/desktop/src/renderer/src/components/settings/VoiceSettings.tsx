@@ -6,7 +6,7 @@ import { MIC_TEST_RECORD_MS, type MicTest, type MicTestPhase } from '../../featu
 import { bridge } from '../../lib/bridge';
 import { playSound } from '../../lib/sfx';
 import { cn, clamp } from '../../lib/utils';
-import { useSettings, type NoiseMode, type NoiseStrengthDb } from '../../stores/settings';
+import { MAX_VOLUME, useSettings, type NoiseMode, type NoiseStrengthDb } from '../../stores/settings';
 import { useVoice } from '../../stores/voice';
 import { Button, Divider, RadioCards, SectionTitle, Segmented, Select, Toggle } from '../ui/controls';
 import { Slider } from '../ui/Slider';
@@ -187,6 +187,27 @@ function MicTestControls() {
   );
 }
 
+/** Giriş/çıkış ses seviyesi (%0–200; alt paneldeki mikrofon/kulaklık menülerindekiyle aynı ayar) */
+function VolumeSlider({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  const percent = Math.round(value * 100);
+  return (
+    <div>
+      <div className="mb-2 flex justify-between text-xs font-bold text-text-muted uppercase">
+        <span>{label}</span>
+        <span className="tabular-nums">%{percent}</span>
+      </div>
+      <Slider
+        className="w-full"
+        aria-label={label}
+        min={0}
+        max={MAX_VOLUME * 100}
+        value={percent}
+        onValueChange={(v) => onChange(v / 100)}
+      />
+    </div>
+  );
+}
+
 export function VoiceSettings() {
   const s = useSettings();
   const { inputs, outputs } = useDevices();
@@ -218,6 +239,10 @@ export function VoiceSettings() {
             options={outputs.length ? outputs.map((d) => ({ value: d.deviceId, label: d.label })) : [{ value: 'default', label: 'Varsayılan' }]}
           />
         </div>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-4">
+        <VolumeSlider label="Giriş ses seviyesi" value={s.inputVolume} onChange={(inputVolume) => s.set({ inputVolume })} />
+        <VolumeSlider label="Çıkış ses seviyesi" value={s.outputVolume} onChange={(outputVolume) => s.set({ outputVolume })} />
       </div>
 
       <SectionTitle>Mikrofon Testi</SectionTitle>
