@@ -615,3 +615,11 @@ export function compareVersions(a: string, b: string): number {
   }
   return 0;
 }
+
+/** Uygulama içi "Yenilikler" sayfasındaki bir sürüm (GET /api/releases) */
+export interface ReleaseNotes {
+  version: string;
+  publishedAt: string;
+  /** Sürüm notları (Markdown: başlıklar, madde işaretleri, kalın yazı) */
+  notes: string;
+}

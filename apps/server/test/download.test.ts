@@ -93,3 +93,23 @@ describe('indirme uçları', () => {
     expect((await app.inject({ method: 'GET', url: '/api/download/latest' })).statusCode).toBe(503);
   });
 });
+
+describe('sürüm notları', () => {
+  it('yayınlanmış sürümlerin notlarını yeniden eskiye verir, taslakları atlar', async () => {
+    const fake = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => [
+          { tag_name: 'v0.5.1', published_at: null, body: 'taslak', draft: true, prerelease: false },
+          { tag_name: 'v0.5.0', published_at: '2026-09-27T10:00:00Z', body: '## Diskort 0.5.0\n- **DM**', draft: false, prerelease: false },
+          { tag_name: 'v0.4.3', published_at: '2026-09-27T09:00:00Z', body: null, draft: false, prerelease: false },
+        ],
+      }) as Response) as unknown as typeof fetch;
+    const notes = await new ReleaseService('x/y', fake).recentNotes();
+    expect(notes).toEqual([
+      { version: '0.5.0', publishedAt: '2026-09-27T10:00:00Z', notes: '## Diskort 0.5.0\n- **DM**' },
+      { version: '0.4.3', publishedAt: '2026-09-27T09:00:00Z', notes: '' },
+    ]);
+  });
+});

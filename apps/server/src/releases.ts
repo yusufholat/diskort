@@ -73,7 +73,19 @@ const CACHE_TTL_MS = 5 * 60_000;
 
 type ReleaseListener = (release: LatestRelease) => void;
 
+/** Uygulama içi "Yenilikler" sayfası için bir sürümün notları */
+export interface ReleaseNotes {
+  version: string;
+  publishedAt: string;
+  /** Sürüm notları (Markdown: başlıklar, madde işaretleri, kalın yazı) */
+  notes: string;
+}
+
+const NOTES_LIMIT = 30;
+
 export class ReleaseService {
+  private notesCache: { at: number; value: ReleaseNotes[] } | null = null;
+  private notesInflight: Promise<ReleaseNotes[]> | null = null;
   private cache: { at: number; value: LatestRelease } | null = null;
   private inflight: Promise<LatestRelease | null> | null = null;
   private readonly listeners = new Set<ReleaseListener>();
@@ -88,6 +100,41 @@ export class ReleaseService {
   latest(): Promise<LatestRelease | null> {
     if (this.cache && Date.now() - this.cache.at < CACHE_TTL_MS) return Promise.resolve(this.cache.value);
     return this.refresh();
+  }
+
+  /** Yayınlanmış son sürümlerin notları, yeniden eskiye (önbellekli; GitHub'a ulaşılamazsa son bilinen). */
+  recentNotes(): Promise<ReleaseNotes[]> {
+    if (this.notesCache && Date.now() - this.notesCache.at < CACHE_TTL_MS) {
+      return Promise.resolve(this.notesCache.value);
+    }
+    this.notesInflight ??= this.fetchNotes().finally(() => {
+      this.notesInflight = null;
+    });
+    return this.notesInflight;
+  }
+
+  private async fetchNotes(): Promise<ReleaseNotes[]> {
+    try {
+      const res = await this.fetchImpl(`https://api.github.com/repos/${this.repo}/releases?per_page=${NOTES_LIMIT}`, {
+        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'diskort-server' },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) throw new Error(`GitHub ${res.status}`);
+      const body = (await res.json()) as {
+        tag_name: string;
+        published_at: string | null;
+        body: string | null;
+        draft: boolean;
+        prerelease: boolean;
+      }[];
+      const value = body
+        .filter((r) => !r.draft && !r.prerelease && r.published_at)
+        .map((r) => ({ version: r.tag_name.replace(/^v/, ''), publishedAt: r.published_at!, notes: r.body ?? '' }));
+      this.notesCache = { at: Date.now(), value };
+      return value;
+    } catch {
+      return this.notesCache?.value ?? [];
+    }
   }
 
   /** Yeni bir sürüm yayınlandığında (sürüm numarası değişince) çağrılır. */

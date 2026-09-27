@@ -5,6 +5,7 @@ export { configureClient } from './configure';
 export type { ClientEnvironment, KeyValueStorage, LocalFile, UploadRequest, UploadResponse } from './env';
 export { api, ApiError, errorMessage, normalizeServerUrl } from './api';
 export { recentClientErrors, reportClientError } from './errors';
+export { parseReleaseNotes, type NoteBlock, type NotePart } from './releaseNotes';
 export {
   baseFeedbackContext,
   canManageFeedback,

@@ -29,6 +29,12 @@ export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): v
     return { version: latest.version, publishedAt: latest.publishedAt, platforms };
   });
 
+  // Uygulama içi "Yenilikler" sayfası: son sürümlerin notları (giriş gerekmez, herkese açık bilgi)
+  app.get('/api/releases', async (_req, reply) => {
+    void reply.header('Cache-Control', 'public, max-age=300');
+    return { releases: await releases.recentNotes() };
+  });
+
   // Kullanıcıyı GitHub sayfası göstermeden doğrudan dosyaya yönlendirir.
   app.get<{ Params: { platform: string } }>('/download/:platform', async (req, reply) => {
     const key = req.params.platform.toLowerCase();

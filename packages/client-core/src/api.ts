@@ -17,6 +17,7 @@ import type {
   RegisterRequest,
   ResetCodeResponse,
   ResetPasswordRequest,
+  ReleaseNotes,
   Role,
   UpdateChannelRequest,
   UpdateGuildRequest,
@@ -75,6 +76,7 @@ export async function request<T>(method: string, path: string, body?: unknown): 
 
 export const api = {
   login: (body: LoginRequest) => request<AuthResponse>('POST', '/api/auth/login', body),
+  releaseNotes: () => request<{ releases: ReleaseNotes[] }>('GET', '/api/releases').then((r) => r.releases),
   register: (body: RegisterRequest) => request<AuthResponse>('POST', '/api/auth/register', body),
   resetPassword: (body: ResetPasswordRequest) => request<AuthResponse>('POST', '/api/auth/reset', body),
   me: () => request<User>('GET', '/api/me'),

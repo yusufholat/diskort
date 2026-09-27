@@ -19,6 +19,7 @@ import { KeybindInput } from './KeybindInput';
 import { ProfilePhoto } from './ProfilePhoto';
 import { VoiceSettings } from './VoiceSettings';
 import { MyFeedback } from '../feedback/MyFeedback';
+import { WhatsNewSection } from './WhatsNewSection';
 
 // Üyeler ve davetler Sunucu Ayarları'na taşındı (sunucu adının yanındaki menü)
 const SECTIONS: { id: SettingsSection; label: string }[] = [
@@ -28,6 +29,7 @@ const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'keybinds', label: 'Kısayollar' },
   { id: 'app', label: 'Uygulama' },
   { id: 'feedback', label: 'Geri Bildirimlerim' },
+  { id: 'whatsNew', label: 'Yenilikler' },
 ];
 
 export function SettingsModal({ initial }: { initial?: SettingsSection }) {
@@ -76,6 +78,7 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
           {section === 'keybinds' && <KeybindsSection />}
           {section === 'app' && <AppSection />}
           {section === 'feedback' && <MyFeedback />}
+          {section === 'whatsNew' && <WhatsNewSection />}
         </div>
         <button
           onClick={close}

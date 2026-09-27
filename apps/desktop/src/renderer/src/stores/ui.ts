@@ -14,7 +14,7 @@ export type Modal =
   | { type: 'feedback' }
   | null;
 
-export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app' | 'feedback';
+export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app' | 'feedback' | 'whatsNew';
 
 export type ServerSettingsSection = 'overview' | 'roles' | 'members' | 'invites' | 'bans' | 'feedback';
 
