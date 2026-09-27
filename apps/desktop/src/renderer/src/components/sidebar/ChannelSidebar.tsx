@@ -1,10 +1,10 @@
 import { ChevronDown, Plus } from 'lucide-react';
 import { Permission, type ChannelType } from '@diskort/shared';
 import { useMainView } from '../../lib/mainView';
-import { canManageFeedback, isGuildOwner, leaveGuild, useCan, useFeedback, useGuild } from '@diskort/client-core';
+import { isGuildOwner, leaveGuild, useCan, useGuild } from '@diskort/client-core';
 import { confirmDialog } from '../../lib/dialog';
 import { toast, useUi, type ContextMenuItem } from '../../stores/ui';
-import { CountBadge, useServerSettingsSections } from '../serverSettings/ServerSettingsModal';
+import { useServerSettingsSections } from '../serverSettings/ServerSettingsModal';
 import { DragGhost } from './DragGhost';
 import { TextChannelItem } from './TextChannelItem';
 import { UserPanel } from './UserPanel';
@@ -19,9 +19,6 @@ export function ChannelSidebar() {
   const canManageInvites = useCan(Permission.MANAGE_INVITES);
   const canInvite = canCreateInvite || canManageInvites;
   const owner = useGuild((s) => isGuildOwner(s, s.activeGuildId));
-  // Geri bildirimler ana sunucunun yöneticilerine, ana sunucunun menüsünde
-  const feedbackHere = useGuild((s) => s.activeGuildId === s.primaryGuildId) && canManageFeedback();
-  const newFeedback = useFeedback((s) => (feedbackHere ? s.newCount : 0));
   const settingsSections = useServerSettingsSections();
   const openModal = useUi((s) => s.openModal);
   const openContextMenu = useUi((s) => s.openContextMenu);
@@ -37,15 +34,6 @@ export function ChannelSidebar() {
       : []),
     ...(canInvite ? [{ label: 'Arkadaşlarını Davet Et', onClick: () => openModal({ type: 'invite' }) }] : []),
     ...(canManageChannels ? [{ label: 'Kanal Oluştur', onClick: () => openModal({ type: 'channel' }) }] : []),
-    ...(feedbackHere
-      ? [
-          {
-            label: 'Geri Bildirimler',
-            hint: newFeedback > 0 ? `${newFeedback} yeni` : undefined,
-            onClick: () => openModal({ type: 'serverSettings', section: 'feedback' }),
-          },
-        ]
-      : []),
     // Sahip ayrılamaz (önce sahipliği devretmeli ya da sunucuyu silmeli)
     ...(!owner && guild
       ? [
@@ -77,10 +65,7 @@ export function ChannelSidebar() {
         }}
       >
         <span className="truncate">{guild?.name}</span>
-        <span className="flex shrink-0 items-center">
-          {newFeedback > 0 && <CountBadge count={newFeedback} className="mr-1.5" />}
-          {menu.length > 0 && <ChevronDown size={18} />}
-        </span>
+        {menu.length > 0 && <ChevronDown size={18} className="shrink-0" />}
       </button>
 
       <div className="flex-1 overflow-y-auto px-2 pt-4 pb-2" data-drag-scroll>
