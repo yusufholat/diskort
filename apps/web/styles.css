@@ -782,3 +782,69 @@ h3 {
   font-size: 0.9rem;
   opacity: 0.7;
 }
+
+/* Davet bağlantısı kartı (/davet/<kod>) */
+.invite-card {
+  margin-bottom: 28px;
+  padding: 18px 20px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.invite-card.invalid .invite-code {
+  display: none;
+}
+.invite-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.invite-icon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #5865f2;
+  color: #fff;
+  font-weight: 800;
+  font-size: 20px;
+}
+.invite-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.invite-label,
+.invite-meta {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.75;
+}
+.invite-name {
+  margin: 2px 0;
+  font-size: 22px;
+  font-weight: 800;
+}
+.invite-steps {
+  margin: 14px 0 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  opacity: 0.9;
+}
+.invite-code {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.invite-code code {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 18px;
+  letter-spacing: 2px;
+}

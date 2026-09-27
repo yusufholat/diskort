@@ -28,13 +28,14 @@ export function DmAvatar({
 }) {
   const selfId = useSession((s) => s.user?.id);
   const partner = useGuild((s) => dmPartner(dm, s.users, selfId));
+  const reachable = useGuild((s) => (partner ? Boolean(s.reachable[partner.id]) : false));
   const online = useGuild((s) => (partner ? Boolean(s.online[partner.id]) : false));
   if (!dm.group) {
     return (
       <Avatar
         user={partner}
         size={size}
-        online={status && partner && !partner.removed ? online : undefined}
+        online={status && partner && reachable ? online : undefined}
         surface={surfaceColor}
       />
     );

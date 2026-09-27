@@ -3,7 +3,7 @@ import { Animated, BackHandler, Pressable, ScrollView, StyleSheet, Text, View, u
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { membersOf, useCan, useGuild, useMemberColor, useSession } from '@diskort/client-core';
+import { channelById, membersOf, useCan, useGuild, useMemberColor, useSession } from '@diskort/client-core';
 import { Permission, type VoiceState } from '@diskort/shared';
 import { Avatar } from '../components/Avatar';
 import { MemberSheet } from '../components/MemberSheet';
@@ -28,7 +28,7 @@ export default function VoiceScreen() {
   const channelId = useVoice((s) => s.channelId);
   const status = useVoice((s) => s.status);
   const listenOnly = useVoice((s) => s.listenOnly);
-  const channel = useGuild((s) => s.channels.find((c) => c.id === channelId));
+  const channel = useGuild((s) => channelById(s, channelId));
   const voiceStates = useGuild((s) => s.voiceStates);
   const members = useMemo(() => (channelId ? membersOf(voiceStates, channelId) : []), [voiceStates, channelId]);
   const watching = useVoice((s) => s.watching);

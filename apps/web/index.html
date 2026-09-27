@@ -52,6 +52,26 @@
       <main>
         <section class="hero">
           <div class="hero-copy">
+            <!-- Davet bağlantısı (/davet/<kod>) açılınca: hangi sunucuya davet edildiğin ve nasıl katılacağın -->
+            <div class="invite-card" id="invite-card" hidden>
+              <div class="invite-head">
+                <span class="invite-icon" id="invite-icon"></span>
+                <div>
+                  <p class="invite-label" id="invite-label">Bir sunucuya davet edildin</p>
+                  <p class="invite-name" id="invite-name"></p>
+                  <p class="invite-meta" id="invite-meta"></p>
+                </div>
+              </div>
+              <p class="invite-steps" id="invite-steps">
+                Diskort'u indirip kur. Hesabın yoksa giriş ekranında <b>Davet koduyla kaydol</b> seçeneğine bu kodu yaz;
+                hesabın varsa uygulamada soldaki <b>+</b> düğmesiyle <b>Sunucuya katıl</b> ekranına yapıştır.
+              </p>
+              <div class="invite-code">
+                <code id="invite-code"></code>
+                <button class="btn btn-ghost" type="button" id="invite-copy">Kopyala</button>
+                <a class="btn btn-primary" id="invite-open" hidden>Uygulamada aç</a>
+              </div>
+            </div>
             <h1>Arkadaşlarınla konuşmanın en kolay yolu</h1>
             <p class="lead">
               Kristal netliğinde ses, akıllı gürültü engelleme ve tek tıkla ekran paylaşımı. Davetle katılınan, tamamen
