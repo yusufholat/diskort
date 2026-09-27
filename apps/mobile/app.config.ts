@@ -21,7 +21,8 @@ const config: ExpoConfig = {
   // Yayın izlerken yatay ekran için döndürmeye izin verilir
   orientation: 'default',
   icon: './assets/icon.png',
-  userInterfaceStyle: 'dark',
+  // Sistem pencereleri (izin soruları, klavye) telefonun açık/koyu ayarını izler; uygulama kendi temasını çizer
+  userInterfaceStyle: 'automatic',
   backgroundColor: '#313338',
   // iOS: Apple Developer hesabıyla "Ad Hoc" imzalanıp kendi sitemizden kurulur (bkz. docs/ios.md).
   // Paket kimliği Android'deki ile aynı.

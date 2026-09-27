@@ -411,6 +411,13 @@ taşınır (adlarında eski sürüm numarası kalır); böylece yalnızca arayü
   teslimat yapar. Sunucuda `infra/secrets/fcm.json` (Firebase → Proje ayarları → Service accounts →
   Generate new private key, `chmod 600`) ve `.env`'de `FCM_SERVICE_ACCOUNT_FILE=/run/secrets/fcm.json`.
   Uygulama tarafı `google-services.json` GitHub gizli değişkeni `GOOGLE_SERVICES_JSON`'dan (base64) derlemede yazılır.
+
+### iOS (hazırlık)
+
+iPhone uygulaması App Store'suz, Ad Hoc imzayla kendi sitemizden kurulacak (kayıtlı cihazlar). Derleme ve kod
+hazır; Apple Developer hesabı ve imza anahtarları bekleniyor. Adımlar, iOS'a özgü farklar ve eksikler:
+[docs/ios.md](docs/ios.md). Actions → **iOS** iş akışı simülatör için imzasız derler; imza gizli değişkenleri
+varsa Ad Hoc IPA da üretir ve sürüm iş akışı bunu (iOS OTA paketiyle) sürüme yükler.
 - **GIF araması (GIPHY):** sunucu `.env`'de `GIPHY_API_KEY` (developers.giphy.com → Create an App → **API**)
   tanımlıysa mesaj kutusunda GIF düğmesi çıkar; yoksa gizlenir. İstemciler GIPHY'ye değil sunucuya sorar
   (`/api/gifs/search`, `/api/gifs/trending`; anahtar sunucuda kalır, sonuçlar 5 dk önbellekte, kişi başı dakikada
