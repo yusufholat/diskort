@@ -185,6 +185,7 @@ export default function RootLayout() {
                 <Stack.Screen name="dm-rename" options={{ title: 'Grubun adı', animation: 'fade_from_bottom' }} />
                 <Stack.Screen name="settings" options={{ title: 'Ayarlar' }} />
                 <Stack.Screen name="feedback" options={{ title: 'Geri bildirim' }} />
+                <Stack.Screen name="feedback-admin" options={{ title: 'Geri bildirimler (yönetim)' }} />
                 <Stack.Screen name="whats-new" options={{ title: 'Yenilikler' }} />
                 <Stack.Screen name="sunucu-ekle" options={{ title: 'Sunucu ekle', animation: 'fade_from_bottom' }} />
               </Stack.Protected>

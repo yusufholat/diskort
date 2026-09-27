@@ -40,18 +40,14 @@ const updateChannelSchema = z.object({
 });
 
 /**
- * Hesap yönetimi (hesap yöneticilerine: ana sunucunun sahibi ve yöneticileri) ve kanallar. Hesaplar tüm
+ * Hesap yönetimi (hesap yöneticilerine: users.is_admin) ve kanallar. Hesaplar ve hesap yöneticiliği tüm
  * sunuculardan bağımsızdır: hesap daveti yalnızca hesap açtırır, şifre sıfırlama ve hesap silme hesabın
- * kendisine dokunur.
+ * kendisine dokunur. Bir hesap yöneticisi başka bir hesap yöneticisinin şifresini sıfırlayamaz, hesabını
+ * silemez (önce yöneticiliği alınmalı).
  */
 export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void {
   const { store, auth, gateway, attachments, permissions } = ctx;
-  const primaryOutranks = (actorId: string, targetId: string): boolean => {
-    const primary = permissions.primaryGuildId;
-    // Ana sunucuda olmayan hesabı her hesap yöneticisi yönetebilir; ana sunucudaysa hiyerarşi geçerli
-    if (!primary || !permissions.isMember(primary, targetId)) return !permissions.isInstanceAdmin(targetId);
-    return permissions.outranks(primary, actorId, targetId);
-  };
+  const canManageAccount = (targetId: string): boolean => !permissions.isInstanceAdmin(targetId);
 
   // ---------- Hesap davetleri (sunucuya katılmadan yalnızca hesap açtırır) ----------
 
@@ -86,8 +82,8 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void
     async (req, reply) => {
       const target = store.getUser(req.params.id);
       if (!target) return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
-      if (target.id !== req.user.id && !primaryOutranks(req.user.id, target.id)) {
-        return forbidden(reply, 'En üst rolü seninkinden aşağıda olmayan birinin şifresini sıfırlayamazsın.');
+      if (target.id !== req.user.id && !canManageAccount(target.id)) {
+        return forbidden(reply, 'Başka bir hesap yöneticisinin şifresini sıfırlayamazsın.');
       }
       return store.createResetCode(target.id, req.user.id, RESET_CODE_TTL_MS);
     },
@@ -97,13 +93,38 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void
     const id = req.params.id;
     if (id === req.user.id) return sendError(reply, 400, 'self_delete', 'Kendi hesabını buradan silemezsin.');
     if (!store.getUser(id)) return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
-    if (!primaryOutranks(req.user.id, id)) {
-      return forbidden(reply, 'En üst rolü seninkinden aşağıda olmayan birinin hesabını silemezsin.');
+    if (!canManageAccount(id)) {
+      return forbidden(reply, 'Başka bir hesap yöneticisinin hesabını silemezsin; önce yöneticiliğini al.');
     }
     if (store.ownedGuildIds(id).length > 0) {
       return sendError(reply, 400, 'owner', 'Bu kişi bir sunucunun sahibi; önce sahipliği devretmeli ya da sunucuyu silmeli.');
     }
     await removeAccount(ctx, id, 'Hesabın bir yönetici tarafından silindi.');
+    return reply.code(204).send();
+  });
+
+  /** Tüm hesaplar (sıfırlama kodu, hesap silme ve yönetici ekleme için) */
+  app.get('/api/users', { preHandler: auth.requireInstanceAdmin }, async () => store.listUsers());
+
+  // ---------- Hesap yöneticileri ----------
+
+  app.get('/api/admins', { preHandler: auth.requireInstanceAdmin }, async () => store.listAdmins());
+
+  app.put<{ Params: { id: string } }>('/api/admins/:id', { preHandler: auth.requireInstanceAdmin }, async (req, reply) => {
+    const result = store.setAdmin(req.params.id, true);
+    if (result === 'not_found') return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
+    const user = store.getUser(req.params.id)!;
+    if (result === 'ok') gateway.sendUserUpdate(user);
+    return user;
+  });
+
+  app.delete<{ Params: { id: string } }>('/api/admins/:id', { preHandler: auth.requireInstanceAdmin }, async (req, reply) => {
+    const result = store.setAdmin(req.params.id, false);
+    if (result === 'not_found') return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
+    if (result === 'last_admin') {
+      return sendError(reply, 400, 'last_admin', 'Son hesap yöneticisinin yöneticiliği alınamaz.');
+    }
+    if (result === 'ok') gateway.sendUserUpdate(store.getUser(req.params.id)!);
     return reply.code(204).send();
   });
 

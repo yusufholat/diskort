@@ -2,12 +2,13 @@ import { useCallback, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { channelById, useGuild } from '@diskort/client-core';
+import { channelById, useFeedback, useGuild, useSession } from '@diskort/client-core';
 import { useAppear, useBump } from '../motion';
 import { useSettings } from '../stores/settings';
 import { colors, createStyles, font, radius, ripple, space, tint } from '../theme';
 import { leaveVoice, toggleDeafen, toggleMute } from '../voice/actions';
 import { useVoice } from '../voice/voice';
+import { CountBadge } from './Badge';
 import { PressableScale } from './PressableScale';
 import { ConnectionSheet } from './ConnectionSheet';
 import { SignalBars, useVoiceLevel } from './VoiceQuality';
@@ -42,6 +43,9 @@ function VoiceBarInner({ bottomInset, onSettings }: { bottomInset: number; onSet
   });
   const selfMute = useSettings((s) => s.selfMute);
   const selfDeaf = useSettings((s) => s.selfDeaf);
+  // Hesap yöneticisine yeni geri bildirim sayısı (ayarlar düğmesinde)
+  const isAdmin = useSession((s) => s.user?.isAdmin === true);
+  const newFeedback = useFeedback((s) => (isAdmin ? s.newCount : 0));
   // Konuşma izni yoksa (yetki ya da sunucuda susturma) mikrofon kapalı görünür
   const micAllowed = useVoice((s) => s.micAllowed);
   const appear = useAppear(true, 220);
@@ -93,7 +97,9 @@ function VoiceBarInner({ bottomInset, onSettings }: { bottomInset: number; onSet
           </View>
         </Pressable>
         <ConnectionSheet visible={infoOpen} onClose={closeInfo} />
-        {onSettings ? <VoiceControl icon="settings-sharp" size={BUTTON} label="Ayarlar" onPress={onSettings} /> : null}
+        {onSettings ? (
+          <VoiceControl icon="settings-sharp" size={BUTTON} label="Ayarlar" onPress={onSettings} badge={newFeedback} />
+        ) : null}
         <VoiceControl
           icon={muted ? 'mic-off' : 'mic'}
           off={muted}
@@ -127,6 +133,7 @@ export function VoiceControl({
   danger,
   size = 40,
   caption,
+  badge = 0,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -139,6 +146,8 @@ export function VoiceControl({
   size?: number;
   /** Düğmenin altındaki kısa ad (ses ekranında) */
   caption?: string;
+  /** Sağ üst köşede kırmızı sayı (ör. yeni geri bildirimler) */
+  badge?: number;
 }) {
   const bump = useBump(icon);
   const bg = danger ? colors.danger : off ? colors.dangerSoft : on ? colors.okSoft : caption ? colors.active : 'transparent';
@@ -163,6 +172,11 @@ export function VoiceControl({
             style={danger && icon === 'call' ? { transform: [{ rotate: '135deg' }] } : undefined}
           />
         </Animated.View>
+        {badge > 0 && (
+          <View pointerEvents="none" style={{ position: 'absolute', top: -4, right: -6 }}>
+            <CountBadge count={badge} ring={colors.panel} />
+          </View>
+        )}
       </PressableScale>
       {caption ? (
         <Text style={[styles.caption, (off || danger) && { color: colors.dangerText }, on && { color: colors.ok }]} numberOfLines={1}>

@@ -77,15 +77,16 @@ describe('roller', () => {
     expect((await s.req(s.owner.token, 'DELETE', `/api/guilds/${s.guildId}/roles/${s.ctx.guild.id}`)).statusCode).toBe(400);
   });
 
-  it('ana sunucuda Yönetici rolü verilen hesap yöneticisi olur (isAdmin), rol alınınca olmaz', async () => {
+  it('ana sunucuda Yönetici rolü hesap yöneticiliği vermez (isAdmin hesabın kendi bayrağı)', async () => {
     const member = await s.member('uye');
     const admin = (await s.req(s.owner.token, 'GET', `/api/guilds/${s.guildId}/roles`)).json()[0] as Role;
     expect(await s.giveRole(s.owner.token, member.user.id, admin.id)).toBe(200);
-    expect(s.ctx.store.getUser(member.user.id)!.isAdmin).toBe(true);
+    expect(s.ctx.store.getUser(member.user.id)!.isAdmin).toBe(false);
     // Yönetici, sahibin rollerine dokunamaz
     expect((await s.req(member.token, 'DELETE', `/api/guilds/${s.guildId}/members/${s.owner.user.id}/roles/${admin.id}`)).statusCode).toBe(403);
     expect((await s.req(s.owner.token, 'DELETE', `/api/guilds/${s.guildId}/members/${member.user.id}/roles/${admin.id}`)).statusCode).toBe(200);
     expect(s.ctx.store.getUser(member.user.id)!.isAdmin).toBe(false);
+    expect(s.ctx.store.getUser(s.owner.user.id)!.isAdmin).toBe(true);
   });
 
   it('sunucu adı MANAGE_GUILD ister; sahipliği yalnızca sahip devreder', async () => {
@@ -99,8 +100,9 @@ describe('roller', () => {
     const transfer = await s.req(s.owner.token, 'PATCH', `/api/guilds/${s.guildId}`, { ownerId: member.user.id });
     expect(transfer.json().ownerId).toBe(member.user.id);
     expect(s.ctx.permissions.isOwner(s.guildId, member.user.id)).toBe(true);
-    // Eski sahip Yönetici rolüyle yönetici kalır, yeni sahip de yönetici sayılır
-    expect(s.ctx.store.getUser(member.user.id)!.isAdmin).toBe(true);
+    // Sahiplik hesap yöneticiliğini değiştirmez: ilk hesap yönetici kalır, yeni sahip yönetici olmaz
+    expect(s.ctx.store.getUser(member.user.id)!.isAdmin).toBe(false);
+    expect(s.ctx.store.getUser(s.owner.user.id)!.isAdmin).toBe(true);
   });
 });
 

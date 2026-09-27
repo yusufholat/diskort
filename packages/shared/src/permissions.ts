@@ -41,11 +41,17 @@ export const Permission = {
   MOVE_MEMBERS: 1 << 18,
   /** Sunucuya davet kodu oluşturmak (kendi davetlerini görmek ve silmek); tümünü yönetmek MANAGE_INVITES */
   CREATE_INVITE: 1 << 19,
+  /**
+   * Mesajları kanala sabitlemek ve sabitlemeyi kaldırmak (Discord'da MANAGE_MESSAGES'in parçasıydı; burada
+   * ayrı bir yetki). Varsayılan olarak @everyone'da kapalıdır; göç 18 MANAGE_MESSAGES yetkili rollere verir.
+   * Direkt mesajlarda her katılımcı sabitleyebilir.
+   */
+  PIN_MESSAGES: 1 << 20,
 } as const;
 
 export type PermissionName = keyof typeof Permission;
 
-export const ALL_PERMISSIONS = (1 << 20) - 1;
+export const ALL_PERMISSIONS = (1 << 21) - 1;
 
 /** Kanal izinleriyle değiştirilebilen metin kanalı yetkileri */
 export const TEXT_CHANNEL_PERMISSIONS =
@@ -54,6 +60,7 @@ export const TEXT_CHANNEL_PERMISSIONS =
   Permission.ATTACH_FILES |
   Permission.ADD_REACTIONS |
   Permission.MANAGE_MESSAGES |
+  Permission.PIN_MESSAGES |
   Permission.MENTION_EVERYONE;
 
 /** Kanal izinleriyle değiştirilebilen ses kanalı yetkileri */
@@ -173,9 +180,16 @@ export function channelPermissions(
   return permissions;
 }
 
-/** Direkt mesaj katılımcılarının yetkileri (başkalarının mesajlarını silmek ve @everyone yok) */
+/**
+ * Direkt mesaj katılımcılarının yetkileri (başkalarının mesajlarını silmek ve @everyone yok). Her katılımcı
+ * mesaj sabitleyebilir (Discord gibi).
+ */
 export const DM_PERMISSIONS =
-  Permission.VIEW_CHANNEL | Permission.SEND_MESSAGES | Permission.ATTACH_FILES | Permission.ADD_REACTIONS;
+  Permission.VIEW_CHANNEL |
+  Permission.SEND_MESSAGES |
+  Permission.ATTACH_FILES |
+  Permission.ADD_REACTIONS |
+  Permission.PIN_MESSAGES;
 
 /**
  * Direkt mesaj konuşmasındaki yetkiler. Roller, kanal izinleri, sahiplik ve ADMINISTRATOR uygulanmaz:

@@ -1,8 +1,9 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  // İkinci giriş: sunucuda geri bildirimleri okuma aracı (docker compose exec api node dist/feedback-cli.js)
-  entry: ['src/index.ts', 'src/feedback-cli.ts'],
+  // Diğer girişler: sunucuda geri bildirimleri okuma (dist/feedback-cli.js) ve hesap yöneticilerini
+  // yönetme (dist/admin-cli.js) araçları (docker compose exec api node dist/...)
+  entry: ['src/index.ts', 'src/feedback-cli.ts', 'src/admin-cli.ts'],
   format: ['esm'],
   platform: 'node',
   target: 'node22',

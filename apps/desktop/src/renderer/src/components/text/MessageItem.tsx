@@ -1,5 +1,5 @@
 import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
-import { Pencil, Reply, SmilePlus, Trash2 } from 'lucide-react';
+import { Pencil, Pin, Reply, SmilePlus, Trash2 } from 'lucide-react';
 import {
   isImageAttachment,
   isVideoAttachment,
@@ -45,6 +45,7 @@ import { AttachmentList, UploadList } from './Attachments';
 import { formatFull, formatStamp, formatTime } from './format';
 import { GifEmbed } from './GifEmbed';
 import { LinkEmbeds } from './LinkEmbeds';
+import { confirmPin, confirmUnpin } from './Pins';
 import { ReactionPill } from './ReactionPill';
 import { ReplyPreview } from './ReplyPreview';
 
@@ -88,6 +89,8 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
   // Yeni tepki eklemek yetki ister; var olan tepkiye katılmak serbest
   const canReact = useCan(Permission.ADD_REACTIONS, message.channelId);
   const canReply = useCan(Permission.SEND_MESSAGES, message.channelId);
+  // Metin kanalında PIN_MESSAGES yetkisi olan, direkt mesajda her katılımcı sabitler
+  const canPin = useCan(Permission.PIN_MESSAGES, message.channelId);
   const authorColor = useMemberColor(message.authorId);
   const canDelete = own || canManage;
   const confirmed = !message.status;
@@ -172,6 +175,13 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
             ]
           : []),
         ...(own ? [{ label: 'Mesajı Düzenle', onClick: () => setEditing(message.id) }] : []),
+        ...(canPin
+          ? [
+              message.pinned
+                ? { label: 'Sabitlemeyi Kaldır', onClick: () => void confirmUnpin(message) }
+                : { label: 'Mesajı Sabitle', onClick: () => void confirmPin(message) },
+            ]
+          : []),
         ...(canDelete && linkEmbeds.length > 0
           ? [{ label: 'Önizlemeyi Kaldır', onClick: () => void suppressEmbeds(message) }]
           : []),
@@ -196,11 +206,21 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
     >
       <div className="w-14 shrink-0">
         {compact ? (
-          <span
-            className="block pt-[3px] pr-2 text-right text-[11px] text-text-faint opacity-0 transition-opacity duration-100 group-hover:opacity-100"
-            data-tooltip={formatFull(message.createdAt)}
-          >
-            {formatTime(message.createdAt)}
+          <span className="relative block">
+            <span
+              className="block pt-[3px] pr-2 text-right text-[11px] text-text-faint opacity-0 transition-opacity duration-100 group-hover:opacity-100"
+              data-tooltip={formatFull(message.createdAt)}
+            >
+              {formatTime(message.createdAt)}
+            </span>
+            {message.pinned && (
+              // Sabitli mesaj: saat görünmezken gutter'da küçük raptiye
+              <Pin
+                size={12}
+                aria-label="Sabitlendi"
+                className="absolute top-[6px] right-2 text-text-faint transition-opacity duration-100 group-hover:opacity-0"
+              />
+            )}
           </span>
         ) : author ? (
           // Avatara tıklayınca profil kartı; yanıtlarda üstteki alıntının altına iner
@@ -238,6 +258,11 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
             <span className="text-xs text-text-faint" data-tooltip={formatFull(message.createdAt)}>
               {formatStamp(message.createdAt)}
             </span>
+            {message.pinned && (
+              <span className="self-center text-text-faint" data-tooltip="Sabitlenmiş mesaj">
+                <Pin size={12} aria-label="Sabitlendi" />
+              </span>
+            )}
           </div>
         )}
 

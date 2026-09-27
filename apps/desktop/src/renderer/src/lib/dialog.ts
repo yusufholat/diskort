@@ -4,6 +4,8 @@ import { create } from 'zustand';
 export interface ConfirmOptions {
   title: string;
   message?: ReactNode;
+  /** Metnin altında gösterilen önizleme (ör. sabitlenecek mesaj) */
+  preview?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   /** Geri alınamaz işlem: onay düğmesi kırmızı */

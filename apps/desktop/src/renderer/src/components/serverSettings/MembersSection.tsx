@@ -1,33 +1,31 @@
 import { useMemo, useState, type MouseEvent } from 'react';
-import { ChevronDown, Copy, Crown, MoreHorizontal, Plus, ShieldCheck, X } from 'lucide-react';
-import { Permission, type User } from '@diskort/shared';
+import { ChevronDown, Crown, MoreHorizontal, Plus, ShieldCheck, X } from 'lucide-react';
+import { Permission } from '@diskort/shared';
 import {
-  api,
   canAssignRole,
   effectivePermissions,
-  errorMessage,
   memberColorOf,
   moderation,
-  outranksUser,
   PERMISSION_GROUPS,
   useCan,
   useGuild,
   useSession,
   type MemberUser,
 } from '@diskort/client-core';
-import { confirmDialog } from '../../lib/dialog';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
 import { toast, useUi, type ContextMenuItem } from '../../stores/ui';
 import { PresenceAvatar } from '../ui/Avatar';
 import { TextInput } from '../ui/controls';
 
-/** Üyeler: roller, şifre sıfırlama kodu, atma, yasaklama, hesap silme (yetkiye göre). */
+/**
+ * Üyeler: roller, sesli sohbet, atma, yasaklama (yetkiye göre). Hesaplarla ilgili işler (şifre sıfırlama
+ * kodu, hesap silme) sunucuya bağlı değildir: Kullanıcı Ayarları > Yönetim.
+ */
 export function MembersSection() {
   const users = useGuild((s) => s.users);
   const online = useGuild((s) => s.online);
   const [query, setQuery] = useState('');
-  const [resetCode, setResetCode] = useState<{ user: User; code: string; expiresAt: number } | null>(null);
 
   const list = useMemo(() => {
     const q = query.trim().toLocaleLowerCase('tr');
@@ -52,45 +50,16 @@ export function MembersSection() {
       </p>
       <TextInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Üye ara" className="mb-4" />
 
-      {resetCode && <ResetCodeCard {...resetCode} />}
-
       <div className="flex flex-col gap-1">
         {list.map((u) => (
-          <MemberRow key={u.id} user={u} onResetCode={(code, expiresAt) => setResetCode({ user: u, code, expiresAt })} />
+          <MemberRow key={u.id} user={u} />
         ))}
       </div>
     </div>
   );
 }
 
-function ResetCodeCard({ user, code, expiresAt }: { user: User; code: string; expiresAt: number }) {
-  return (
-    <div className="mb-4 rounded-md border border-brand/60 bg-brand/10 p-4">
-      <div className="text-sm text-text-muted">
-        <strong className="text-text-head">{user.displayName}</strong> için şifre sıfırlama kodu (tek kullanımlık,{' '}
-        {new Date(expiresAt).toLocaleString('tr-TR')} tarihine kadar geçerli):
-      </div>
-      <div className="mt-2 flex items-center gap-3">
-        <code className="font-mono text-2xl tracking-widest text-text-head">{code}</code>
-        <button
-          className="flex items-center gap-1.5 rounded bg-bg-hover px-2.5 py-1.5 text-sm hover:bg-bg-active"
-          onClick={() => {
-            void navigator.clipboard.writeText(code);
-            toast('Kopyalandı.');
-          }}
-        >
-          <Copy size={14} /> Kopyala
-        </button>
-      </div>
-      <div className="mt-2 text-xs text-text-muted">
-        Kullanıcı adı: <strong>@{user.username}</strong> — ikisini birlikte gönder. Üye giriş ekranında “Sıfırlama
-        koduyla yenile” ile yeni şifre belirler.
-      </div>
-    </div>
-  );
-}
-
-function MemberRow({ user, onResetCode }: { user: MemberUser; onResetCode: (code: string, expiresAt: number) => void }) {
+function MemberRow({ user }: { user: MemberUser }) {
   const selfId = useSession((s) => s.user?.id);
   const isSelf = user.id === selfId;
   const color = useGuild((s) => memberColorOf(s, user.id));
@@ -100,52 +69,13 @@ function MemberRow({ user, onResetCode }: { user: MemberUser; onResetCode: (code
     const state = s.voiceStates[user.id];
     return state ? s.channels.find((c) => c.id === state.channelId)?.name : undefined;
   });
-  // Hesap yöneticisi (ana sunucunun yöneticisi) hesaplarla ilgili işleri ana sunucunun ayarlarından yapar
-  const instanceAdmin = useSession((s) => s.user?.isAdmin === true);
-  const inPrimary = useGuild((s) => s.activeGuildId === s.primaryGuildId);
-  const isAdmin = instanceAdmin && inPrimary;
   const openContextMenu = useUi((s) => s.openContextMenu);
   const [showPermissions, setShowPermissions] = useState(false);
 
   const held = user.roles.map((id) => roles[id]).filter((r) => r !== undefined).sort((a, b) => b.position - a.position);
 
-  /** Yönetim menüsü: seste yönetim, roller, atma/yasaklama + yöneticiye şifre kodu ve hesap silme */
-  const menuItems = (): ContextMenuItem[] => {
-    const items = memberMenuItems(user.id);
-    const s = useGuild.getState();
-    const above = isSelf || outranksUser(s, selfId, user.id);
-    if (isAdmin && above) {
-      items.push({ label: 'Hesap', heading: true });
-      items.push({
-        label: 'Şifre sıfırlama kodu üret',
-        onClick: () =>
-          void api
-            .createResetCode(user.id)
-            .then((r) => onResetCode(r.code, r.expiresAt))
-            .catch((err) => toast(errorMessage(err), 'error')),
-      });
-      if (!isSelf) {
-        items.push({
-          label: 'Hesabı kalıcı olarak sil',
-          danger: true,
-          onClick: async () => {
-            const ok = await confirmDialog({
-              title: 'Hesap silinsin mi?',
-              message: `${user.displayName} (@${user.username}) hesabı kalıcı olarak silinir; mesajları "Silinmiş Kullanıcı" adıyla kalır. Geri dönmesini istiyorsan atman yeterli.`,
-              confirmLabel: 'Hesabı Sil',
-              danger: true,
-            });
-            if (!ok) return;
-            api
-              .deleteUser(user.id)
-              .then(() => toast(`${user.displayName} silindi.`, 'success'))
-              .catch((err) => toast(errorMessage(err), 'error'));
-          },
-        });
-      }
-    }
-    return items;
-  };
+  /** Yönetim menüsü: seste yönetim, roller, atma/yasaklama */
+  const menuItems = (): ContextMenuItem[] => memberMenuItems(user.id);
 
   const openMenu = (e: MouseEvent, x: number, y: number): void => {
     e.preventDefault();

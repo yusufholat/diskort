@@ -11,6 +11,7 @@ import type {
   Guild,
   PushTokenRequest,
   Message,
+  PinnedMessage,
   ReactionUsersPage,
   CreateChannelRequest,
   CreateGuildRequest,
@@ -94,7 +95,13 @@ export const api = {
   unregisterPushToken: (token: string) => request<void>('DELETE', '/api/me/push-tokens', { token }),
   sendTestPush: () => request<{ devices: number }>('POST', '/api/me/push-test'),
 
-  // Hesaplar (hesap yöneticileri: ana sunucunun sahibi ve yöneticileri)
+  // Hesaplar (hesap yöneticileri: hesabın kendi bayrağı, sunuculardan bağımsız)
+  /** Tüm hesaplar */
+  listUsers: () => request<User[]>('GET', '/api/users'),
+  listAdmins: () => request<User[]>('GET', '/api/admins'),
+  grantAdmin: (userId: string) => request<User>('PUT', `/api/admins/${userId}`),
+  /** Son yönetici alınamaz (400 last_admin) */
+  revokeAdmin: (userId: string) => request<void>('DELETE', `/api/admins/${userId}`),
   createResetCode: (userId: string) => request<ResetCodeResponse>('POST', `/api/users/${userId}/reset-code`),
   deleteUser: (userId: string) => request<void>('DELETE', `/api/users/${userId}`),
   /** Yalnızca hesap açtıran davetler (sunucuya katılmaz) */
@@ -177,6 +184,12 @@ export const api = {
   deleteMessage: (id: string) => request<void>('DELETE', `/api/messages/${id}`),
   /** Bağlantı önizlemelerini kaldırır (yazar ya da MANAGE_MESSAGES) */
   suppressEmbeds: (id: string) => request<Message>('DELETE', `/api/messages/${id}/embeds`),
+  /** Kanalın sabitlenmiş mesajları, en son sabitlenen önce */
+  listPins: (channelId: string) => request<PinnedMessage[]>('GET', `/api/channels/${channelId}/pins`),
+  pinMessage: (channelId: string, messageId: string) =>
+    request<void>('PUT', `/api/channels/${channelId}/pins/${messageId}`),
+  unpinMessage: (channelId: string, messageId: string) =>
+    request<void>('DELETE', `/api/channels/${channelId}/pins/${messageId}`),
   addReaction: (messageId: string, emoji: string) =>
     request<void>('PUT', `/api/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`),
   removeReaction: (messageId: string, emoji: string) =>

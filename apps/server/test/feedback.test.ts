@@ -37,10 +37,10 @@ const uploadShot = (token: string | null, body: Buffer, contentType = 'image/png
 const getShot = (token: string | null, id: string) =>
   s.app.inject({ method: 'GET', url: `/api/feedback/screenshots/${id}`, headers: token ? auth(token) : {} });
 
+/** Hesap yöneticisi yapılan (sunucuda hiçbir yetkisi olmayan) üye */
 async function manager(): Promise<Account> {
   const account = await s.member('yonetici');
-  const role = await s.createRole(s.owner.token, { name: 'Sunucu Yöneticisi', permissions: P.MANAGE_GUILD });
-  expect(await s.giveRole(s.owner.token, account.user.id, role.id)).toBe(200);
+  expect((await s.req(s.owner.token, 'PUT', `/api/admins/${account.user.id}`)).statusCode).toBe(200);
   return account;
 }
 
@@ -121,10 +121,13 @@ describe('geri bildirim gönderme', () => {
 });
 
 describe('yönetim yetkileri', () => {
-  it('liste, durum, not ve silme yalnızca Sunucuyu Yönet (ya da Yönetici) yetkisiyle', async () => {
+  it('liste, durum, not ve silme yalnızca hesap yöneticilerine; sunucu yetkileri yetmez', async () => {
     const member = await s.member('uye');
     const other = await s.member('diger');
     const mod = await manager();
+    // Ana sunucuda Sunucuyu Yönet ve Yönetici yetkisi hesap yöneticiliği değildir
+    const role = await s.createRole(s.owner.token, { name: 'Sunucu Yöneticisi', permissions: P.MANAGE_GUILD | P.ADMINISTRATOR });
+    expect(await s.giveRole(s.owner.token, other.user.id, role.id)).toBe(200);
     const created = (await send(member.token, { type: 'hata', body: 'Çöküyor' })).json() as Feedback;
     await send(other.token, { type: 'oneri', body: 'Tema' });
 
@@ -141,7 +144,7 @@ describe('yönetim yetkileri', () => {
       'Tema',
     ]);
 
-    // Sahip (Yönetici) ve Sunucuyu Yönet yetkilisi hepsini görür; süzme ve sıralama
+    // İlk hesap ve sonradan hesap yöneticisi yapılan hepsini görür; süzme ve sıralama
     for (const token of [s.owner.token, mod.token]) {
       const all = (await s.req(token, 'GET', '/api/feedback')).json() as Feedback[];
       expect(all.map((f) => f.body)).toEqual(['Tema', 'Çöküyor']);

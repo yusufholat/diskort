@@ -115,9 +115,34 @@ bağlıdır: davet kodu olmadan kimse yeni hesap açamadığı için ona yeni da
 
 **Rollerden önceki sürümlerden geçiş (şema 8):** yöneticiler "Yönetici" rolüne (Yönetici yetkisi) geçer, en eski
 yönetici sahip olur; diğer herkesin bugünkü yetkileri @everyone'da kalır ve hiçbir kanalın izni olmadığından
-herkes her kanalı görmeye devam eder. `users.is_admin` artık rollerden hesaplanır ve eski sürüme dönülürse diye
-güncel tutulur. Rollerden önceki istemciler çalışmaya devam eder (`isAdmin` alanı ve "yönetici yap" isteği
+herkes her kanalı görmeye devam eder. (Şema 8–16 arasında `users.is_admin` rollerden hesaplanıyordu; şema 17'den
+beri hesabın kendi bayrağıdır, bkz. "Hesap yöneticileri".) Rollerden önceki istemciler çalışmaya devam eder (`isAdmin` alanı ve "yönetici yap" isteği
 yönetici rolünü verir/alır; yeni olayları tanımadan geçerler).
+
+## Hesap yöneticileri
+
+Hesap yöneticiliği **hesabın kendi bayrağıdır** (`users.is_admin`), hiçbir sunucuya bağlı değildir: hiçbir
+sunucunun sahipliği ya da Yönetici rolü bunu vermez, alınması da onları etkilemez. Hesap yöneticileri geri
+bildirimleri yönetir, yalnızca hesap açtıran davetler oluşturur, şifre sıfırlama kodu üretir ve hesap siler (başka
+bir hesap yöneticisininkini değil: önce yöneticiliği alınmalı). İlk hesap (ve yönetici davetiyle açılan hesap)
+yöneticidir.
+
+- **Göç (şema 17):** o güne kadar hesap yöneticisi sayılanlar (ana sunucunun sahibi ve orada Yönetici yetkisi
+  olan üyeler) yönetici kalır, diğer herkesin bayrağı sıfırlanır.
+- **Uygulamada:** Kullanıcı Ayarları > Hesap Yönetimi (yalnızca yöneticilere): "Geri bildirimler (yönetim)" ve
+  "Yönetim" (hesap yöneticileri ekle/çıkar, hesap davetleri, hesaplar: sıfırlama kodu, silme). Son yönetici
+  çıkarılamaz. Android'de Ayarlar > Hesap yönetimi > Geri bildirimler (yönetim).
+- **API:** `GET /api/users` (tüm hesaplar), `GET /api/admins`, `PUT /api/admins/:id`, `DELETE /api/admins/:id`
+  (son yönetici: 400 `last_admin`); hepsi hesap yöneticisi ister.
+- **Komut satırı** (API imajında `dist/admin-cli.js`; veritabanını doğrudan açar, değişiklik hemen geçerlidir,
+  açık uygulamaların arayüzü yeniden bağlanınca güncellenir):
+
+```bash
+cd /opt/diskort/infra
+docker compose exec api node dist/admin-cli.js list            # hesap yöneticileri (--json)
+docker compose exec api node dist/admin-cli.js grant <kullanıcı>
+docker compose exec api node dist/admin-cli.js revoke <kullanıcı>   # son yönetici alınamaz
+```
 
 ## Direkt mesajlar
 
@@ -159,14 +184,15 @@ Arkadaşlar uygulamanın içinden hata ve öneri gönderir; sahip/yöneticiler i
 - **Sınırlar:** kullanıcı başına saatte 5 geri bildirim; resimler en fazla 12 MB, sunucuda WebP'ye çevrilir (en
   uzun kenar 2560 px, EXIF/konum dahil hiçbir üst veri kalmaz) ve `/data/feedback/` altında durur.
 - **Ekran görüntüleri herkese açık değildir:** `GET /api/feedback/screenshots/<id>` oturum jetonu ister ve yalnızca
-  Sunucuyu Yönet (ya da Yönetici) yetkililerine ve gönderene verir (masaüstü jetonla indirip blob adresiyle,
+  hesap yöneticilerine ve gönderene verir (masaüstü jetonla indirip blob adresiyle,
   Android başlıklı `<Image>` ile gösterir).
 - **Durumlar:** `yeni` → `incelendi` / `planlandi` / `tamamlandi` / `reddedildi`. Yöneticinin notunu gönderen de
   görür ("Yanıt"). Durum değişince gönderenin uygulamasında bildirim çıkar; yeni geri bildirimler yetkililerde
-  kırmızı rozetle görünür (sunucu adı, menüde "Geri Bildirimler", Sunucu Ayarları > Geri Bildirimler).
+  kırmızı rozetle görünür (Ayarlar dişlisi ve Kullanıcı Ayarları > Geri bildirimler (yönetim); hiçbir sunucuya
+  bağlı değil).
 - **API:** `POST /api/feedback/screenshots` (ham resim) → `POST /api/feedback` (herkes), `GET /api/feedback/mine`,
   `GET /api/feedback/:id` (gönderen ya da yetkili); `GET /api/feedback?status=&type=`, `GET /api/feedback/stats`,
-  `PATCH /api/feedback/:id` (`status`, `adminNote`), `DELETE /api/feedback/:id` (Sunucuyu Yönet ya da Yönetici).
+  `PATCH /api/feedback/:id` (`status`, `adminNote`), `DELETE /api/feedback/:id` (hesap yöneticileri).
 
 ### Geri bildirimleri sunucuda okumak (komut satırı)
 

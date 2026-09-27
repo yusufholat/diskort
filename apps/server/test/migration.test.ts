@@ -80,7 +80,7 @@ describe('göç 8: roller', () => {
     }
   });
 
-  it('göç tekrar açılışta yeniden çalışmaz; is_admin sütunu rollerle güncel kalır', () => {
+  it('göç tekrar açılışta yeniden çalışmaz; is_admin (göç 17 ile) rollerden bağımsızdır', () => {
     const file = legacyDatabase();
     new Store(file).close();
     const store = new Store(file);
@@ -91,7 +91,7 @@ describe('göç 8: roller', () => {
       store.removeMemberRole('ikinci', adminRole.id);
       const flags = store.db.prepare('SELECT id, is_admin FROM users ORDER BY id').all();
       expect(flags).toEqual([
-        { id: 'ikinci', is_admin: 0 },
+        { id: 'ikinci', is_admin: 1 },
         { id: 'kurucu', is_admin: 1 },
         { id: 'uye', is_admin: 0 },
       ]);
@@ -433,8 +433,12 @@ describe('göç 14: çoklu sunucu', () => {
       expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
       expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
       for (const t of tables) expect([t, count(db, t)]).toEqual([t, counts[t]]);
-      // Eski sütunlar olduğu gibi durur (eski sürüme dönülürse diye)
-      expect(db.prepare('SELECT * FROM users ORDER BY id').all()).toEqual(legacyUsers);
+      // Eski sütunlar olduğu gibi durur (eski sürüme dönülürse diye). is_admin'i göç 17 bugünkü hesap
+      // yöneticilerine (ana sunucunun sahibi u1 ve Yönetici rolündeki u5) göre yazar.
+      const admins = new Set(['u1', 'u5']);
+      expect(db.prepare('SELECT * FROM users ORDER BY id').all()).toEqual(
+        (legacyUsers as { id: string }[]).map((u) => ({ ...u, is_admin: admins.has(u.id) ? 1 : 0 })),
+      );
 
       // Üyelikler: herkes ana sunucuda; atılan ve yasaklanan eski üye
       expect(store.primaryGuildId()).toBe('g1');

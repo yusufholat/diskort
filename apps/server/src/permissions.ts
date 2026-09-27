@@ -9,7 +9,7 @@ import {
   type Channel,
   type Role,
 } from '@diskort/shared';
-import { isInstanceAdmin, type GuildPermissionData, type Store } from './db.js';
+import type { GuildPermissionData, Store } from './db.js';
 
 /**
  * Sunucudaki yetki denetimleri. Hesaplama istemcilerle ortak koddur (@diskort/shared); veriler
@@ -63,9 +63,9 @@ export class PermissionService {
     return result;
   }
 
-  /** Hesap yöneticisi (ana sunucunun sahibi ya da yöneticisi) */
+  /** Hesap yöneticisi: hesabın kendi bayrağı (users.is_admin), hiçbir sunucunun rollerine bağlı değil */
   isInstanceAdmin(userId: string): boolean {
-    return isInstanceAdmin(this.data, userId);
+    return this.store.isAdmin(userId);
   }
 
   /** Ana sunucu (hesap yöneticilerinin sunucusu) */

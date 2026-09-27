@@ -16,7 +16,6 @@ import { UploadError } from '../attachments.js';
 import { AVATAR_HASH } from '../avatars.js';
 import { afterPermissionChange, forbidden, parseBody, sendError, type AppContext } from '../context.js';
 import { createRateLimiter } from './messages.js';
-import { adminFlags, announceAdminChanges } from './roles.js';
 
 const guildName = z
   .string()
@@ -103,12 +102,10 @@ export function registerGuildRoutes(app: FastifyInstance, ctx: AppContext): void
       if (!permissions.isMember(guildId, body.ownerId)) return sendError(reply, 404, 'not_found', 'Üye bulunamadı.');
     }
     const before = gateway.visibility();
-    const admins = adminFlags(ctx);
     const guild = store.updateGuild(guildId, body)!;
     refreshPrimary(guildId);
     gateway.sendToGuild(guildId, { t: 'GUILD_UPDATE', d: guild });
     if (guild.ownerId !== previousOwner) {
-      announceAdminChanges(ctx, admins);
       await afterPermissionChange(ctx, before);
     }
     return guild;
@@ -151,11 +148,9 @@ export function registerGuildRoutes(app: FastifyInstance, ctx: AppContext): void
           'Sunucunun sahibi ayrılamaz. Önce sahipliği başka birine devret ya da sunucuyu sil.',
         );
       }
-      const admins = adminFlags(ctx);
       await moderation.disconnectFromGuild(guildId, req.user.id);
       store.removeMember(guildId, req.user.id);
       gateway.announceLeave(guildId, req.user.id);
-      announceAdminChanges(ctx, admins);
       return reply.code(204).send();
     },
   );
@@ -301,10 +296,6 @@ export function registerGuildRoutes(app: FastifyInstance, ctx: AppContext): void
     }
     if (!result.alreadyMember) {
       gateway.announceJoin(result.guildId, req.user.id);
-      if (result.guildId === permissions.primaryGuildId) {
-        const user = store.getUser(req.user.id);
-        if (user?.isAdmin) gateway.sendUserUpdate(user);
-      }
     }
     const response: AcceptInviteResponse = { guild: store.getGuild(result.guildId)!, alreadyMember: result.alreadyMember };
     return response;
@@ -333,7 +324,6 @@ export function registerGuildRoutes(app: FastifyInstance, ctx: AppContext): void
     if (!permissions.outranks(guildId, actorId, targetId)) {
       return forbidden(reply, 'En üst rolü seninkinden aşağıda olmayan birini atamaz ya da yasaklayamazsın.');
     }
-    const admins = adminFlags(ctx);
     await moderation.disconnectFromGuild(guildId, targetId);
     store.removeMember(guildId, targetId, ban);
     if (status === 'member') {
@@ -344,7 +334,6 @@ export function registerGuildRoutes(app: FastifyInstance, ctx: AppContext): void
         ban ? `"${guildName}" sunucusundan yasaklandın.` : `"${guildName}" sunucusundan çıkarıldın.`,
       );
     }
-    announceAdminChanges(ctx, admins);
     return reply.code(204).send();
   };
 

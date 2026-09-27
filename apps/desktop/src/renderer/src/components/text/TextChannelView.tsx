@@ -20,6 +20,7 @@ import { MemberList } from '../members/MemberList';
 import { toLocalFiles } from '../../features/messages/files';
 import { Composer, type ComposerHandle } from './Composer';
 import { MessageList } from './MessageList';
+import { PinsButton } from './Pins';
 
 const hasFiles = (e: DragEvent): boolean => e.dataTransfer.types.includes('Files');
 
@@ -171,6 +172,7 @@ export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' |
               <UserPlus size={22} />
             </button>
           )}
+          <PinsButton key={channel.id} channelId={channel.id} />
           <button
             data-tooltip={memberListOpen ? 'Üye listesini gizle' : 'Üye listesini göster'}
             aria-label={memberListOpen ? 'Üye listesini gizle' : 'Üye listesini göster'}

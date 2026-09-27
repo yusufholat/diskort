@@ -305,6 +305,25 @@ export interface Message {
    * (bildirim gider, mesaj vurgulanır). Asıl mesaj sonradan silinse de kalır.
    */
   replyMentionUserId?: string | null;
+  /**
+   * Mesaj kanala sabitlenmiş ("Sabitlenmiş mesajlar" listesinde). Sabitleme değişince MESSAGE_UPDATE ile
+   * gelir. Bunu bilmeyen eski sunucularda hiç gelmez.
+   */
+  pinned?: boolean;
+}
+
+/** Sabitlenmiş mesajlar listesindeki mesaj (GET /api/channels/:id/pins): ne zaman ve kimin sabitlediği */
+export interface PinnedMessage extends Message {
+  pinned: true;
+  pinnedAt: number;
+  /** Sabitleyen (hesabı silindiyse null) */
+  pinnedBy: string | null;
+}
+
+/** Bir kanalın sabitlenmiş mesajları değişti; son sabitlemenin zamanı (hiç kalmadıysa null) */
+export interface ChannelPinsUpdate {
+  channelId: string;
+  lastPinAt: number | null;
 }
 
 /** Yanıtın üstünde gösterilen, yanıt verilen mesajın özeti */
@@ -623,6 +642,11 @@ export type GatewayServerMessage =
   | { t: 'MESSAGE_CREATE'; d: Message }
   | { t: 'MESSAGE_UPDATE'; d: MessageUpdate }
   | { t: 'MESSAGE_DELETE'; d: { id: string; channelId: string } }
+  /**
+   * Kanalın sabitlenmiş mesajları değişti (sabitlendi, sabitleme kaldırıldı ya da sabitli mesaj silindi).
+   * Mesajın kendisi ayrıca MESSAGE_UPDATE (pinned) / MESSAGE_DELETE ile gelir. Eski istemciler yok sayar.
+   */
+  | { t: 'CHANNEL_PINS_UPDATE'; d: ChannelPinsUpdate }
   | { t: 'MESSAGE_REACTION_ADD'; d: ReactionEvent }
   | { t: 'MESSAGE_REACTION_REMOVE'; d: ReactionEvent }
   | { t: 'TYPING_START'; d: { channelId: string; userId: string } }
@@ -704,6 +728,8 @@ export const MESSAGE_PAGE_SIZE = 50;
 export const REPLY_EXCERPT_LENGTH = 200;
 /** Bir mesajdaki en fazla farklı emoji tepkisi sayısı */
 export const MESSAGE_MAX_REACTIONS = 20;
+/** Bir kanalda (ya da direkt mesaj konuşmasında) en fazla sabitlenmiş mesaj sayısı */
+export const MAX_PINS_PER_CHANNEL = 50;
 /** Tepki verenler listesinin varsayılan ve en büyük sayfa boyutu */
 export const REACTION_USERS_PAGE_SIZE = 50;
 export const REACTION_USERS_MAX_PAGE_SIZE = 100;

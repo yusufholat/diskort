@@ -29,6 +29,7 @@ export {
   submitFeedback,
   updateFeedback,
   useFeedback,
+  useFeedbackAuthor,
   type FeedbackDraft,
 } from './feedback';
 export { reportVoiceLog, SpuriousDuplicateGuard } from './voiceDiagnostics';
@@ -167,6 +168,16 @@ export {
   type LocalUpload,
   type ReplyDraft,
 } from './messages';
+export {
+  jumpToPinned,
+  loadPins,
+  markPinsSeen,
+  openPins,
+  pinMessage,
+  unpinMessage,
+  usePins,
+  type ChannelPins,
+} from './pins';
 export {
   cancelReply,
   clearJump,

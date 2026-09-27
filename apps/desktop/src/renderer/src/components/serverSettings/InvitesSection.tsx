@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Copy, Link2, Trash2 } from 'lucide-react';
 import { Permission, type Invite } from '@diskort/shared';
-import { api, errorMessage, guildInvites, inviteLink, useCan, useGuild, useSession } from '@diskort/client-core';
+import { errorMessage, guildInvites, inviteLink, useCan, useGuild } from '@diskort/client-core';
 import { confirmDialog } from '../../lib/dialog';
 import { cn } from '../../lib/utils';
 import { toast } from '../../stores/ui';
-import { Button, Field, SectionTitle, Select, Toggle } from '../ui/controls';
+import { Button, Field, SectionTitle, Select } from '../ui/controls';
 
 /** Davet bağlantısını ya da kodunu panoya kopyalar */
 export async function copyInvite(code: string, asLink = true): Promise<void> {
@@ -15,34 +15,32 @@ export async function copyInvite(code: string, asLink = true): Promise<void> {
 
 /**
  * Sunucunun davetleri. Davet oluşturma yetkisi olan (varsayılan: herkes) kendi davetlerini, Davetleri
- * Yönet yetkisi olan hepsini görür ve siler. Hesap yöneticisi ana sunucuda ayrıca yalnızca hesap açtıran
- * (sunucuya katılmayan) davet de oluşturabilir.
+ * Yönet yetkisi olan hepsini görür ve siler. Yalnızca hesap açtıran (sunucuya katılmayan) davetler sunucuya
+ * bağlı değildir: Kullanıcı Ayarları > Yönetim.
  */
 export function InvitesSection() {
   const guildId = useGuild((s) => s.activeGuildId) ?? '';
-  const isPrimary = useGuild((s) => s.activeGuildId !== null && s.activeGuildId === s.primaryGuildId);
-  const instanceAdmin = useSession((s) => s.user?.isAdmin === true) && isPrimary;
   const canManage = useCan(Permission.MANAGE_INVITES);
   const users = useGuild((s) => s.users);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [maxUses, setMaxUses] = useState<number>(0);
   const [expires, setExpires] = useState<number>(168);
-  const [accountOnly, setAccountOnly] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = (): void => {
-    Promise.all([guildInvites.list(guildId), instanceAdmin ? api.listAccountInvites() : Promise.resolve([])])
-      .then(([own, account]) => setInvites([...own, ...account].sort((a, b) => b.createdAt - a.createdAt)))
+    guildInvites
+      .list(guildId)
+      .then((list) => setInvites(list.sort((a, b) => b.createdAt - a.createdAt)))
       .catch((err) => toast(errorMessage(err), 'error'));
   };
-  useEffect(load, [guildId, instanceAdmin]);
+  useEffect(load, [guildId]);
 
   const create = async (): Promise<void> => {
     setBusy(true);
     try {
       const body = { maxUses: maxUses === 0 ? null : maxUses, expiresInHours: expires === 0 ? null : expires };
-      const invite = accountOnly ? await api.createAccountInvite(body) : await guildInvites.create(guildId, body);
-      await copyInvite(invite.code, !accountOnly);
+      const invite = await guildInvites.create(guildId, body);
+      await copyInvite(invite.code);
       load();
     } catch (err) {
       toast(errorMessage(err), 'error');
@@ -59,8 +57,10 @@ export function InvitesSection() {
       danger: true,
     });
     if (!ok) return;
-    const request = inv.guildId ? guildInvites.remove(guildId, inv.code) : api.deleteAccountInvite(inv.code);
-    request.then(load).catch((err) => toast(errorMessage(err), 'error'));
+    guildInvites
+      .remove(guildId, inv.code)
+      .then(load)
+      .catch((err) => toast(errorMessage(err), 'error'));
   };
 
   return (
@@ -103,14 +103,6 @@ export function InvitesSection() {
           </Button>
         </div>
       </div>
-      {instanceAdmin && (
-        <Toggle
-          checked={accountOnly}
-          onChange={setAccountOnly}
-          label="Yalnızca hesap daveti"
-          description="Kişi hesap açar ama hiçbir sunucuya katılmaz; kendi sunucusunu kurabilir ya da davetle katılır. Bunu yalnızca hesap yöneticileri oluşturabilir."
-        />
-      )}
 
       <SectionTitle>{canManage ? 'Aktif Davetler' : 'Oluşturduğun Davetler'}</SectionTitle>
       <div className="flex flex-col gap-1">
@@ -125,21 +117,18 @@ export function InvitesSection() {
                 {inv.code}
               </code>
               <span className="flex-1 text-xs text-text-muted">
-                {inv.guildId === null && <span className="mr-1 rounded bg-warn/20 px-1 text-warn">Hesap daveti</span>}
                 {inv.uses}/{inv.maxUses ?? '∞'} kullanım ·{' '}
                 {inv.expiresAt ? `${new Date(inv.expiresAt).toLocaleString('tr-TR')} tarihine kadar` : 'süresiz'}
                 {canManage && creator ? ` · ${creator}` : ''}
               </span>
-              {inv.guildId !== null && (
-                <button
-                  data-tooltip="Bağlantıyı kopyala"
-                  aria-label="Bağlantıyı kopyala"
-                  className="press-icon rounded p-1.5 text-text-muted hover:bg-bg-hover hover:text-text-head"
-                  onClick={() => void copyInvite(inv.code)}
-                >
-                  <Link2 size={16} />
-                </button>
-              )}
+              <button
+                data-tooltip="Bağlantıyı kopyala"
+                aria-label="Bağlantıyı kopyala"
+                className="press-icon rounded p-1.5 text-text-muted hover:bg-bg-hover hover:text-text-head"
+                onClick={() => void copyInvite(inv.code)}
+              >
+                <Link2 size={16} />
+              </button>
               <button
                 data-tooltip="Kodu kopyala"
                 aria-label="Kodu kopyala"
