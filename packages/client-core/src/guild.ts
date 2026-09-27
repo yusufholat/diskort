@@ -1,5 +1,13 @@
 import { create } from 'zustand';
-import type { Channel, GatewayServerMessage, Guild, ReadyPayload, User, VoiceState } from '@diskort/shared';
+import {
+  DEFAULT_ATTACHMENT_MAX_BYTES,
+  type Channel,
+  type GatewayServerMessage,
+  type Guild,
+  type ReadyPayload,
+  type User,
+  type VoiceState,
+} from '@diskort/shared';
 
 export type GatewayStatus = 'idle' | 'connecting' | 'ready' | 'reconnecting';
 
@@ -14,6 +22,8 @@ interface GuildStore {
   lastMessageIds: Record<string, string>;
   /** Metin kanalı → bu kullanıcının okuduğu son mesaj */
   readStates: Record<string, string>;
+  /** Sunucunun kabul ettiği en büyük dosya (bayt) */
+  attachmentMaxBytes: number;
   markRead: (channelId: string, messageId: string) => void;
   setLastMessageId: (channelId: string, messageId: string | null) => void;
   setStatus: (status: GatewayStatus) => void;
@@ -34,6 +44,7 @@ const initial = {
   online: {},
   lastMessageIds: {},
   readStates: {},
+  attachmentMaxBytes: DEFAULT_ATTACHMENT_MAX_BYTES,
 };
 
 /** Gateway'den gelen topluluk durumu: kanallar, kullanıcılar, kim hangi ses kanalında. */
@@ -50,6 +61,7 @@ export const useGuild = create<GuildStore>()((set) => ({
       online: Object.fromEntries(p.online.map((id) => [id, true as const])),
       lastMessageIds: p.lastMessageIds,
       readStates: p.readStates,
+      attachmentMaxBytes: p.attachmentMaxBytes ?? DEFAULT_ATTACHMENT_MAX_BYTES,
     }),
   markRead: (channelId, messageId) =>
     set((s) =>

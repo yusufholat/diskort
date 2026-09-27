@@ -20,6 +20,10 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
   **kalın**/*italik*/~~çizik~~/`kod`/kod bloğu/alıntı/sürpriz (`||metin||`) biçimlendirme, bağlantılar,
   “yazıyor…” göstergesi, okunmamış kanal ve **@bahsetme** rozetleri (sunucuda tutulur, çevrimdışıyken gelenler de
   görünür), bahsetmede bildirim + görev çubuğu uyarısı, “YENİ” ayracı
+- **Emoji tepkileri:** mesajın altında tepki hapları, hızlı tepkiler ve kategorili seçici (canlı güncellenir)
+- **Dosya ve resim paylaşımı:** düğme, sürükle-bırak, panodan yapıştırma (Android'de galeri/dosya seçici);
+  yükleme ilerlemesi, resimler mesajın içinde, tam boyut görüntüleyici; dosya başına varsayılan en fazla 25 MB.
+  JPEG'lerdeki konum (GPS) bilgisi sunucuda silinir
 - **Davet kodu + hesap** sistemi; **şifre sıfırlama** (yöneticinin verdiği tek kullanımlık kodla) ve şifre değiştirme
 - **Yönetici paneli:** davetler, kanallar, üyeler (sıfırlama kodu, yöneticilik, sesten atma, hesap silme)
 - **Yedek bağlantı:** doğrudan UDP kurulamayan ağlarda TURN/UDP 3478, yalnızca 443'e izin veren ağlarda
@@ -30,6 +34,7 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
 |---|---|---|---|---|
 | Ses, mute/deafen | ✅ | ✅ | ✅ | ✅ (hoparlör/ahize, ekran kilitliyken de) |
 | Metin kanalları | ✅ | ✅ | ✅ | ✅ |
+| Tepkiler, dosya/resim paylaşımı | ✅ | ✅ | ✅ | ✅ |
 | Ekran/pencere paylaşımı | ✅ | ✅ (Wayland'da sistem seçicisi) | ✅ (sistem seçicisi) | yalnızca izleme (paylaşma planlı) |
 | Yayına sistem sesi | ✅ | ❌ (planlı) | ❌ (planlı) | — |
 | Global kısayollar / bas-konuş | ✅ | ✅ X11 · ⚠️ Wayland | ✅ (Erişilebilirlik izni) | — |
@@ -162,6 +167,12 @@ Açık olması gereken portlar: `80/tcp`, `443/tcp`, `7881/tcp`, `3478/udp`, `50
 - **Sunucu dışında:** `scripts/pull-db-backups.ps1`, Windows Görev Zamanlayıcı'daki "Diskort veritabanı yedeği"
   göreviyle her gün 12:00'de en son yedeği `OneDrive\Yedekler\Diskort` klasörüne indirir (60 gün saklanır,
   sonuçlar `yedek-gunlugu.txt` dosyasına yazılır).
+- **Dosya ekleri yedeğe dahil değil:** gece yedeği yalnızca veritabanını (dosyaların adı, boyutu, hangi mesajda
+  olduğu) kapsar; dosyaların kendisi `diskort-data` biriminde `/data/attachments/` altında durur. Elle kopya:
+  `cd /opt/diskort/infra && docker compose cp api:/data/attachments /var/backups/diskort/ekler-$(date +%F)`.
+  Eski bir veritabanı yedeği geri yüklenirse, yedekte karşılığı olmayan dosyalar bir saat içinde kendiliğinden
+  silinir; yedekte olup diskte olmayan dosyaların adresi "bulunamadı" döner. Disk dolmasın diye sunucuda 1 GB'tan
+  az yer kalınca yükleme reddedilir (tek dosya sınırı: `.env`'de `ATTACHMENT_MAX_MB`, varsayılan 25).
 - **Geri yükleme** (önce mevcut veritabanının güvenlik kopyasını alır):
   ```bash
   bash /opt/diskort/infra/restore-db.sh /var/backups/diskort/diskort-2026-09-27_0400.db.gz
@@ -263,7 +274,7 @@ Yalnızca Windows paketini kendi bilgisayarından yüklemek için: `pnpm release
 ## Yol haritası
 
 - Kod imzalama (Windows: Certum Open Source veya SignPath Foundation; macOS: Apple Developer ID)
-- Emoji/tepkiler, dosya ve resim paylaşımı, mesaj arama
+- Mesaj arama, özel (sunucuya ait) emojiler, satır içi video oynatma
 - Roller ve yetkiler, özel mesajlar (DM)
 - Kamera, Linux/macOS'ta yayın sesi, mobil uygulama
 - Birden çok topluluk (sunucu) desteği — veri modeli hazır (`guilds` tablosu)

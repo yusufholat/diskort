@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
-import { Hash } from 'lucide-react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { Hash, Upload } from 'lucide-react';
 import type { Channel } from '@diskort/shared';
-import { ackChannel, loadInitial, useMessages, useGuild, useSession } from '@diskort/client-core';
+import { ackChannel, addFiles, loadInitial, useMessages, useGuild, useSession } from '@diskort/client-core';
 import { useUi } from '../../stores/ui';
+import { toLocalFiles } from '../../features/messages/files';
 import { Composer, type ComposerHandle } from './Composer';
 import { MessageList } from './MessageList';
+
+const hasFiles = (e: DragEvent): boolean => e.dataTransfer.types.includes('Files');
 
 /** Metin kanalı: başlık, mesaj listesi, yazma kutusu ve "yazıyor" göstergesi. */
 export function TextChannelView({ channel }: { channel: Channel }) {
@@ -76,8 +79,47 @@ export function TextChannelView({ channel }: { channel: Channel }) {
 
   const unreadBelow = !atBottom && lastId !== undefined && Number(lastId) > Number(readId ?? 0);
 
+  // Dosya sürükleyip bırakma: alt öğelere girip çıkarken titremesin diye derinlik sayılır
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
+  const dropHandlers = {
+    onDragEnter: (e: DragEvent): void => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current++;
+      setDragging(true);
+    },
+    onDragOver: (e: DragEvent): void => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    },
+    onDragLeave: (e: DragEvent): void => {
+      if (!hasFiles(e)) return;
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (dragDepth.current === 0) setDragging(false);
+    },
+    onDrop: (e: DragEvent): void => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current = 0;
+      setDragging(false);
+      addFiles(channel.id, toLocalFiles(e.dataTransfer.files));
+      composer.current?.focus();
+    },
+  };
+
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col bg-bg-main">
+    <div className="relative flex h-full min-w-0 flex-1 flex-col bg-bg-main" {...dropHandlers}>
+      {dragging && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/60">
+          <div className="animate-pop flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-white/60 bg-brand px-10 py-8 text-white shadow-2xl">
+            <Upload size={40} />
+            <div className="text-lg font-bold">#{channel.name} kanalına yükle</div>
+            <div className="text-sm text-white/80">Göndermeden önce bir not ekleyebilirsin.</div>
+          </div>
+        </div>
+      )}
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-black/30 px-4 shadow-sm">
         <Hash size={22} className="text-text-muted" />
         <span className="font-semibold text-text-head">{channel.name}</span>

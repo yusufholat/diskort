@@ -1,18 +1,85 @@
-import { forwardRef, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent,
+} from 'react';
+import { CirclePlus, X } from 'lucide-react';
 import { MESSAGE_MAX_LENGTH, type Channel, type User } from '@diskort/shared';
-import { notifyTyping, sendMessage, setEditing, useMessages, useGuild } from '@diskort/client-core';
+import {
+  addFiles,
+  formatBytes,
+  notifyTyping,
+  removeFile,
+  sendMessage,
+  setEditing,
+  useMessages,
+  useGuild,
+  type LocalFile,
+} from '@diskort/client-core';
+import { toLocalFiles } from '../../features/messages/files';
 import { cn } from '../../lib/utils';
 import { toast } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
+import { FileIcon } from './Attachments';
 
 /** Kanal değiştirince yarım kalan mesaj kaybolmasın */
 const drafts = new Map<string, string>();
 
 const MENTION_QUERY = /(?:^|[\s(])@([a-z0-9_.]{0,32})$/i;
 const MAX_SUGGESTIONS = 8;
+const NO_FILES: LocalFile[] = [];
 
 export interface ComposerHandle {
   focus: () => void;
+}
+
+/** Yazma kutusunun üstündeki eklenmiş dosyalar (resimler küçük önizlemeyle) */
+function FileTray({ channelId, files }: { channelId: string; files: LocalFile[] }) {
+  return (
+    <div className="flex gap-2 overflow-x-auto border-b border-black/20 px-3 pt-3 pb-2">
+      {files.map((file, i) => (
+        <div key={`${file.name}-${i}`} className="group/file relative w-[132px] shrink-0 rounded-md bg-bg-side p-2">
+          <FilePreview file={file} />
+          <div className="mt-1.5 truncate text-xs text-text-normal" title={file.name}>
+            {file.name}
+          </div>
+          <div className="text-[11px] text-text-muted">{formatBytes(file.size)}</div>
+          <button
+            className="absolute -top-1.5 -right-1.5 rounded-full bg-bg-float p-1 text-text-muted shadow hover:text-danger"
+            title="Kaldır"
+            onClick={() => removeFile(channelId, i)}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FilePreview({ file }: { file: LocalFile }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!file.blob || !/^image\/(png|jpeg|gif|webp)$/.test(file.type)) return;
+    const objectUrl = URL.createObjectURL(file.blob);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+  return (
+    <div className="flex h-[84px] items-center justify-center overflow-hidden rounded bg-bg-main">
+      {url ? (
+        <img src={url} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <FileIcon type={file.type} size={36} className="text-text-muted" />
+      )}
+    </div>
+  );
 }
 
 interface Props {
@@ -27,6 +94,8 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
   const [selected, setSelected] = useState(0);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const files = useMessages((s) => s.pendingFiles[channel.id] ?? NO_FILES);
   const users = useGuild((s) => s.users);
   const online = useGuild((s) => s.online);
 
@@ -68,7 +137,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
 
   const send = (): void => {
     const content = value.trim();
-    if (!content) return;
+    if (!content && files.length === 0) return;
     if (content.length > MESSAGE_MAX_LENGTH) {
       toast(`Mesaj en fazla ${MESSAGE_MAX_LENGTH} karakter olabilir.`, 'error');
       return;
@@ -113,6 +182,13 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
     }
   };
 
+  // Panodaki resim ya da dosya yapıştırılınca eklenir
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>): void => {
+    if (e.clipboardData.files.length === 0) return;
+    e.preventDefault();
+    addFiles(channel.id, toLocalFiles(e.clipboardData.files));
+  };
+
   const remaining = MESSAGE_MAX_LENGTH - value.trim().length;
 
   return (
@@ -140,27 +216,49 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
           ))}
         </div>
       )}
-      <div className="flex items-end rounded-lg bg-bg-hover">
-        <textarea
-          ref={ref}
-          value={value}
-          rows={1}
-          autoFocus
-          maxLength={MESSAGE_MAX_LENGTH * 2}
-          placeholder={`#${channel.name} kanalına mesaj gönder`}
-          onChange={(e) => {
-            update(e.target.value, e.target.selectionStart);
-            if (e.target.value.trim()) notifyTyping(channel.id);
-          }}
-          onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
-          onKeyDown={onKeyDown}
-          className="block max-h-[50vh] min-h-11 w-full resize-none bg-transparent px-4 py-[11px] leading-[1.375rem] text-text-normal outline-none placeholder:text-text-faint"
-        />
-        {remaining < 200 && (
-          <span className={cn('shrink-0 px-3 py-3 text-xs', remaining < 0 ? 'text-danger' : 'text-text-muted')}>
-            {remaining}
-          </span>
-        )}
+      <div className="rounded-lg bg-bg-hover">
+        {files.length > 0 && <FileTray channelId={channel.id} files={files} />}
+        <div className="flex items-end">
+          <button
+            className="shrink-0 py-[11px] pr-1 pl-3.5 text-text-muted hover:text-text-head"
+            title="Dosya ekle"
+            onClick={() => fileInput.current?.click()}
+          >
+            <CirclePlus size={22} />
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              if (e.target.files?.length) addFiles(channel.id, toLocalFiles(e.target.files));
+              e.target.value = '';
+              ref.current?.focus();
+            }}
+          />
+          <textarea
+            ref={ref}
+            value={value}
+            rows={1}
+            autoFocus
+            maxLength={MESSAGE_MAX_LENGTH * 2}
+            placeholder={`#${channel.name} kanalına mesaj gönder`}
+            onChange={(e) => {
+              update(e.target.value, e.target.selectionStart);
+              if (e.target.value.trim()) notifyTyping(channel.id);
+            }}
+            onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+            className="block max-h-[50vh] min-h-11 w-full resize-none bg-transparent px-2.5 py-[11px] leading-[1.375rem] text-text-normal outline-none placeholder:text-text-faint"
+          />
+          {remaining < 200 && (
+            <span className={cn('shrink-0 px-3 py-3 text-xs', remaining < 0 ? 'text-danger' : 'text-text-muted')}>
+              {remaining}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );

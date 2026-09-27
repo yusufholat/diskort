@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { DiskortBridge, HotkeyEvent, TrayAction, UpdateState, UpdateSupport } from '../shared/bridge';
+import type {
+  DiskortBridge,
+  DownloadResult,
+  HotkeyEvent,
+  TrayAction,
+  UpdateState,
+  UpdateSupport,
+} from '../shared/bridge';
 
 function listen<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, payload: T): void => cb(payload);
@@ -16,6 +23,8 @@ const bridge: DiskortBridge = {
   onTrayAction: (cb) => listen<TrayAction>('tray-action', cb),
   showWindow: () => ipcRenderer.send('app:show-window'),
   requestAttention: () => ipcRenderer.send('app:request-attention'),
+  download: (url) => ipcRenderer.invoke('app:download', url),
+  onDownloadDone: (cb) => listen<DownloadResult>('download:done', cb),
 
   screen: {
     supportsAudio: process.platform === 'win32',

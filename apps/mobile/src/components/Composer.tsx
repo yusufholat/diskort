@@ -1,16 +1,30 @@
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { MESSAGE_MAX_LENGTH, type Channel, type User } from '@diskort/shared';
-import { editMessage, notifyTyping, sendMessage, useGuild, type LocalMessage } from '@diskort/client-core';
+import {
+  addFiles,
+  editMessage,
+  formatBytes,
+  notifyTyping,
+  removeFile,
+  sendMessage,
+  useGuild,
+  useMessages,
+  type LocalFile,
+  type LocalMessage,
+} from '@diskort/client-core';
+import { pickDocuments, pickMedia } from '../attachments';
 import { toast } from '../stores/ui';
 import { colors } from '../theme';
+import { fileIcon } from './Attachments';
 import { Avatar } from './Avatar';
 
 /** Kanal değiştirince yarım kalan mesaj kaybolmasın */
 const drafts = new Map<string, string>();
 
 const MENTION_QUERY = /(?:^|[\s(])@([a-z0-9_.]{0,32})$/i;
+const NO_FILES: LocalFile[] = [];
 
 interface Props {
   channel: Channel;
@@ -26,8 +40,10 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
   // İmleç yalnızca bahsetme seçilince bir kez ayarlanır (sürekli kontrol Android'de imleci zıplatır)
   const [forcedSelection, setForcedSelection] = useState<{ start: number; end: number } | undefined>();
   const [editText, setEditText] = useState<string | null>(null);
+  const [attachMenu, setAttachMenu] = useState(false);
   const users = useGuild((s) => s.users);
   const online = useGuild((s) => s.online);
+  const files = useMessages((s) => s.pendingFiles[channel.id] ?? NO_FILES);
 
   // Düzenleme kipine geçince mesaj metniyle başla
   const text = editing ? (editText ?? editing.content) : value;
@@ -59,9 +75,12 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
     setForcedSelection({ start: before.length, end: before.length });
   };
 
+  // Dosyalı mesajın metni boş olabilir
+  const canSubmit = Boolean(text.trim()) || (editing ? editing.attachments.length > 0 : files.length > 0);
+
   const submit = (): void => {
     const content = text.trim();
-    if (!content) return;
+    if (!canSubmit) return;
     if (content.length > MESSAGE_MAX_LENGTH) {
       toast(`Mesaj en fazla ${MESSAGE_MAX_LENGTH} karakter olabilir.`, 'error');
       return;
@@ -75,6 +94,16 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
     sendMessage(channel.id, content);
     setText('');
     onSent();
+  };
+
+  const attach = async (pick: () => Promise<LocalFile[]>): Promise<void> => {
+    setAttachMenu(false);
+    try {
+      const picked = await pick();
+      if (picked.length) addFiles(channel.id, picked);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Dosya seçilemedi.', 'error');
+    }
   };
 
   const remaining = MESSAGE_MAX_LENGTH - text.trim().length;
@@ -106,7 +135,44 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
           </Pressable>
         </View>
       )}
+      {!editing && files.length > 0 && (
+        <ScrollView horizontal style={styles.tray} contentContainerStyle={styles.trayContent} keyboardShouldPersistTaps="handled">
+          {files.map((file, i) => (
+            <View key={`${file.uri}-${i}`} style={styles.trayItem}>
+              {file.uri && /^image\/(png|jpeg|gif|webp)$/.test(file.type) ? (
+                <Image source={{ uri: file.uri }} style={styles.trayImage} />
+              ) : (
+                <View style={[styles.trayImage, styles.trayIcon]}>
+                  <Ionicons name={fileIcon(file.type)} size={30} color={colors.muted} />
+                </View>
+              )}
+              <Text style={styles.trayName} numberOfLines={1}>
+                {file.name}
+              </Text>
+              <Text style={styles.traySize}>{formatBytes(file.size)}</Text>
+              <Pressable
+                hitSlop={8}
+                style={styles.trayRemove}
+                onPress={() => removeFile(channel.id, i)}
+                accessibilityLabel="Kaldır"
+              >
+                <Ionicons name="close" size={14} color={colors.head} />
+              </Pressable>
+            </View>
+          ))}
+        </ScrollView>
+      )}
       <View style={styles.row}>
+        {!editing && (
+          <Pressable
+            onPress={() => setAttachMenu(true)}
+            hitSlop={6}
+            style={({ pressed }) => [styles.attach, pressed && { opacity: 0.6 }]}
+            accessibilityLabel="Dosya ekle"
+          >
+            <Ionicons name="add-circle" size={30} color={colors.muted} />
+          </Pressable>
+        )}
         <TextInput
           value={text}
           onChangeText={setText}
@@ -124,18 +190,68 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
         {remaining < 200 && <Text style={[styles.counter, remaining < 0 && { color: colors.danger }]}>{remaining}</Text>}
         <Pressable
           onPress={submit}
-          disabled={!text.trim()}
-          style={({ pressed }) => [styles.send, !text.trim() && { opacity: 0.4 }, pressed && { opacity: 0.7 }]}
+          disabled={!canSubmit}
+          style={({ pressed }) => [styles.send, !canSubmit && { opacity: 0.4 }, pressed && { opacity: 0.7 }]}
         >
           <Ionicons name={editing ? 'checkmark' : 'send'} size={20} color="#fff" />
         </Pressable>
       </View>
+
+      <Modal visible={attachMenu} transparent animationType="slide" onRequestClose={() => setAttachMenu(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setAttachMenu(false)}>
+          <Pressable style={styles.sheet}>
+            <AttachOption icon="images-outline" label="Fotoğraf veya video" onPress={() => void attach(pickMedia)} />
+            <AttachOption icon="document-outline" label="Dosya" onPress={() => void attach(pickDocuments)} />
+            <AttachOption icon="close" label="Vazgeç" onPress={() => setAttachMenu(false)} />
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
+  );
+}
+
+function AttachOption({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.option, pressed && { backgroundColor: colors.hover }]}>
+      <Ionicons name={icon} size={22} color={colors.text} />
+      <Text style={styles.optionText}>{label}</Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingVertical: 8 },
+  attach: { height: 44, justifyContent: 'center' },
+  tray: { flexGrow: 0, backgroundColor: colors.side },
+  trayContent: { gap: 10, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 8 },
+  trayItem: { width: 92 },
+  trayImage: { width: 92, height: 92, borderRadius: 8, backgroundColor: colors.main },
+  trayIcon: { alignItems: 'center', justifyContent: 'center' },
+  trayName: { color: colors.text, fontSize: 12, marginTop: 4 },
+  traySize: { color: colors.muted, fontSize: 11 },
+  trayRemove: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.deep,
+  },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: colors.side, borderTopLeftRadius: 14, borderTopRightRadius: 14, paddingVertical: 8, paddingBottom: 24 },
+  option: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 15 },
+  optionText: { color: colors.head, fontSize: 16 },
   input: {
     flex: 1,
     minHeight: 44,

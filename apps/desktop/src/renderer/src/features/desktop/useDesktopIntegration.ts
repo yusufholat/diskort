@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { bridge } from '../../lib/bridge';
 import { useSettings } from '../../stores/settings';
+import { toast } from '../../stores/ui';
 import { useUpdate } from '../../stores/update';
 import { useVoice } from '../../stores/voice';
 import { voice } from '../voice/voiceClient';
@@ -46,6 +47,14 @@ export function useDesktopIntegration(): void {
       else if (action === 'toggleDeafen') voice.toggleDeafen();
       else void voice.leave();
     });
+  }, []);
+
+  // Dosya indirmeleri
+  useEffect(() => {
+    if (!bridge) return;
+    return bridge.onDownloadDone(({ name, ok }) =>
+      toast(ok ? `İndirildi: ${name}` : `İndirilemedi: ${name}`, ok ? 'success' : 'error'),
+    );
   }, []);
 
   // Güncelleyici durumu (arka planda indirme, "hazır" şeridi, zorunlu güncelleme ekranı)

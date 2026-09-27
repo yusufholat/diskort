@@ -114,7 +114,7 @@ describe('telefon bildirimleri', () => {
     const google = fakeGoogle();
     const { admin, member, text, push } = await start(google);
     ctx.store.savePushToken(member.user.id, 'mehmetin-telefonu', 'android');
-    const message = ctx.store.createMessage(text.id, admin.user.id, '@mehmet bakar mısın?');
+    const message = ctx.store.createMessage(text.id, admin.user.id, '@mehmet bakar mısın?')!;
     await push.notifyMention(message, ctx.store.resolveMentions(message.content, admin.user.id), text.name);
 
     const token = google.requests.find((r) => r.url === 'https://oauth2.test/token')!;
@@ -138,7 +138,7 @@ describe('telefon bildirimleri', () => {
     const google = fakeGoogle(404, '{"error":{"status":"NOT_FOUND","details":[{"errorCode":"UNREGISTERED"}]}}');
     const { admin, member, text, push } = await start(google);
     ctx.store.savePushToken(member.user.id, 'eski-telefon-jetonu', 'android');
-    const m1 = ctx.store.createMessage(text.id, admin.user.id, '@mehmet bir');
+    const m1 = ctx.store.createMessage(text.id, admin.user.id, '@mehmet bir')!;
     await push.notifyMention(m1, [member.user.id], text.name);
     expect(ctx.store.pushTokens([member.user.id])).toHaveLength(0);
 
@@ -154,7 +154,7 @@ describe('telefon bildirimleri', () => {
     const push = new PushService(built.ctx.store, null, { warn: () => undefined, info: () => undefined }, google.fn);
     expect(push.enabled).toBe(false);
     await push.notifyMention(
-      { id: '1', channelId: 'c', authorId: null, content: '@x', createdAt: 0, editedAt: null },
+      { id: '1', channelId: 'c', authorId: null, content: '@x', createdAt: 0, editedAt: null, attachments: [], reactions: [] },
       ['u'],
       'genel',
     );

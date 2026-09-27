@@ -7,6 +7,34 @@ export interface KeyValueStorage {
   removeItem(key: string): void | Promise<void>;
 }
 
+/** Kullanıcının seçtiği, henüz yüklenmemiş dosya */
+export interface LocalFile {
+  name: string;
+  /** Bayt */
+  size: number;
+  /** MIME türü (bilinmiyorsa boş) */
+  type: string;
+  /** Masaüstü: dosyanın kendisi (File) */
+  blob?: Blob;
+  /** Mobil: dosyanın yerel adresi (file://); resimlerde önizleme için de kullanılır */
+  uri?: string;
+}
+
+export interface UploadRequest {
+  url: string;
+  headers: Record<string, string>;
+  file: LocalFile;
+  /** Şimdiye kadar gönderilen bayt */
+  onProgress(sent: number): void;
+  signal: AbortSignal;
+}
+
+/** status 0: sunucuya ulaşılamadı */
+export interface UploadResponse {
+  status: number;
+  body: string;
+}
+
 /**
  * Çekirdeğin platforma bıraktığı işler. Masaüstü ve mobil uygulama açılışta configureClient() ile
  * kendi karşılıklarını verir; çekirdek pencere, bildirim, ses gibi platform ayrıntılarını bilmez.
@@ -28,6 +56,8 @@ export interface ClientEnvironment {
   onUpdateRequired?(version: string): void;
   /** Yeni sürüm yayınlandı */
   onUpdateAvailable?(version: string): void;
+  /** Dosyayı ham gövde olarak gönderir (verilmezse XMLHttpRequest ile `blob` gönderilir) */
+  upload?(request: UploadRequest): Promise<UploadResponse>;
 }
 
 let current: ClientEnvironment | null = null;

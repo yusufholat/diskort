@@ -2,6 +2,7 @@ import path from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
+import { AttachmentService } from './attachments.js';
 import { AuthService } from './auth.js';
 import { ClientVersionPolicy } from './clientVersion.js';
 import type { Config } from './config.js';
@@ -14,6 +15,7 @@ import { PushService } from './push.js';
 import { ReleaseService } from './releases.js';
 import { VoiceStateStore } from './voiceState.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { registerAttachmentRoutes } from './routes/attachments.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerDownloadRoutes } from './routes/download.js';
 import { registerMessageRoutes } from './routes/messages.js';
@@ -29,7 +31,12 @@ export interface BuildOptions {
   push?: PushService;
   /** Testler için sahte GitHub indirmesi */
   otaFetch?: typeof fetch;
+  /** Dosya eklerinin klasörü (varsayılan: <DATA_DIR>/attachments) */
+  attachmentsDir?: string;
 }
+
+/** Süresi geçmiş yüklemelerin ve artık dosyaların temizlenme aralığı */
+const ATTACHMENT_SWEEP_INTERVAL_MS = 10 * 60_000;
 
 export async function buildApp(
   config: Config,
@@ -48,10 +55,36 @@ export async function buildApp(
   const livekit = opts.livekit ?? new LiveKitService(config);
   const releases = opts.releases ?? new ReleaseService(config.githubRepo);
   const clientVersions = new ClientVersionPolicy(releases, config.enforceClientVersion, config.minMobileVersions);
-  const gateway = new Gateway(store, auth, voice, guild, clientVersions);
+  const gateway = new Gateway(store, auth, voice, guild, clientVersions, config.attachmentMaxBytes);
   const push = opts.push ?? new PushService(store, config.fcmServiceAccountFile, app.log);
   const ota = new OtaService(releases, app.log, opts.otaFetch);
-  const ctx: AppContext = { config, store, auth, voice, livekit, gateway, releases, clientVersions, ota, push, guild };
+  const attachments = new AttachmentService(
+    store,
+    opts.attachmentsDir ?? path.join(config.dataDir, 'attachments'),
+    config.attachmentMaxBytes,
+    app.log,
+  );
+  const ctx: AppContext = {
+    config,
+    store,
+    auth,
+    voice,
+    livekit,
+    gateway,
+    releases,
+    clientVersions,
+    ota,
+    push,
+    attachments,
+    guild,
+  };
+
+  const sweep = (): void => {
+    attachments.sweep().catch((err: unknown) => app.log.warn({ err: String(err) }, 'dosya eki temizliği başarısız'));
+  };
+  const sweepTimers = [setTimeout(sweep, 60_000), setInterval(sweep, ATTACHMENT_SWEEP_INTERVAL_MS)];
+  for (const timer of sweepTimers) timer.unref();
+  app.addHook('onClose', async () => sweepTimers.forEach((timer) => clearTimeout(timer)));
 
   // Yeni sürüm yayınlanınca bağlı istemciler arka planda indirmeye başlasın
   releases.onNewRelease((release) => gateway.broadcast({ t: 'UPDATE_AVAILABLE', d: { version: release.version } }));
@@ -62,7 +95,7 @@ export async function buildApp(
   app.addHook('onClose', async () => store.close());
 
   // Masaüstü istemcisi file:// veya localhost kökeninden bağlanır; kimlik jetonla taşınır.
-  await app.register(cors, { origin: true, methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
+  await app.register(cors, { origin: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] });
   await app.register(websocket, { options: { maxPayload: 16 * 1024 } });
 
   app.get('/api/health', async () => ({ ok: true }));
@@ -72,6 +105,7 @@ export async function buildApp(
   registerVoiceRoutes(app, ctx);
   registerDownloadRoutes(app, ctx);
   registerMessageRoutes(app, ctx);
+  registerAttachmentRoutes(app, ctx);
   registerUpdateRoutes(app, ctx);
 
   return { app, ctx };

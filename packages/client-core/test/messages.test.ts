@@ -1,6 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { GatewayServerMessage, Message } from '@diskort/shared';
-import { configureClient, gateway, sendMessage, useGuild, useMessages, useSession, type KeyValueStorage } from '../src';
+import type { Attachment, GatewayServerMessage, Message } from '@diskort/shared';
+import {
+  addFiles,
+  configureClient,
+  discardMessage,
+  EMOJI_CATEGORIES,
+  gateway,
+  retryMessage,
+  sendMessage,
+  toggleReaction,
+  uploadProgress,
+  useGuild,
+  useMessages,
+  useSession,
+  type KeyValueStorage,
+  type LocalFile,
+  type UploadRequest,
+  type UploadResponse,
+} from '../src';
 
 const memory = new Map<string, string>();
 const storage: KeyValueStorage = {
@@ -12,6 +29,7 @@ const storage: KeyValueStorage = {
 const errors: string[] = [];
 const mentioned: Message[] = [];
 let viewing: string | null = null;
+let uploadImpl: (req: UploadRequest) => Promise<UploadResponse> = async () => ({ status: 0, body: '' });
 
 const me = { id: 'u1', username: 'ayse', displayName: 'Ayşe', avatarColor: '#fff', isAdmin: false };
 
@@ -22,6 +40,8 @@ const message = (id: string, content: string, authorId = 'u2'): Message => ({
   content,
   createdAt: Date.now(),
   editedAt: null,
+  attachments: [],
+  reactions: [],
 });
 
 /** Gateway'den mesaj gelmiş gibi yap */
@@ -41,9 +61,13 @@ beforeEach(async () => {
     notifyError: (m) => errors.push(m),
     isViewingChannel: (id) => id === viewing,
     onMention: (m) => mentioned.push(m),
+    upload: (req) => uploadImpl(req),
   });
   useSession.getState().setSession('jeton', me);
-  useMessages.setState({ channels: { c1: { messages: [], hasMore: false, loading: false, loaded: true } } });
+  useMessages.setState({
+    channels: { c1: { messages: [], hasMore: false, loading: false, loaded: true } },
+    pendingFiles: {},
+  });
 });
 
 describe('oturum', () => {
@@ -98,5 +122,177 @@ describe('gateway olayları', () => {
     expect(useMessages.getState().channels.c1!.messages[0]!.content).toBe('düzeltildi');
     receive({ t: 'MESSAGE_DELETE', d: { id: '20', channelId: 'c1' } });
     expect(useMessages.getState().channels.c1!.messages).toEqual([]);
+  });
+});
+
+describe('tepkiler', () => {
+  const reactions = () => useMessages.getState().channels.c1!.messages[0]!.reactions;
+  const event = (t: 'MESSAGE_REACTION_ADD' | 'MESSAGE_REACTION_REMOVE', userId: string, emoji = '👍') =>
+    receive({ t, d: { messageId: '30', channelId: 'c1', userId, emoji } });
+
+  beforeEach(() => receive({ t: 'MESSAGE_CREATE', d: message('30', 'tepki ver') }));
+
+  it('başkalarının tepkileri sayılır; sayı sıfıra inince tepki kalkar', () => {
+    event('MESSAGE_REACTION_ADD', 'u2');
+    event('MESSAGE_REACTION_ADD', 'u3');
+    event('MESSAGE_REACTION_ADD', 'u2', '🔥');
+    expect(reactions()).toEqual([
+      { emoji: '👍', count: 2, me: false },
+      { emoji: '🔥', count: 1, me: false },
+    ]);
+    event('MESSAGE_REACTION_REMOVE', 'u2');
+    event('MESSAGE_REACTION_REMOVE', 'u3');
+    expect(reactions()).toEqual([{ emoji: '🔥', count: 1, me: false }]);
+  });
+
+  it('kendi tepkimiz hemen görünür, gateway onayı iki kez saymaz; düzenleme tepkileri silmez', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 204 })));
+    event('MESSAGE_REACTION_ADD', 'u2');
+    await toggleReaction('c1', '30', '👍');
+    expect(reactions()).toEqual([{ emoji: '👍', count: 2, me: true }]);
+    event('MESSAGE_REACTION_ADD', 'u1'); // kendi olayımız
+    expect(reactions()).toEqual([{ emoji: '👍', count: 2, me: true }]);
+    const [url, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(url).toBe(`http://sunucu.test/api/messages/30/reactions/${encodeURIComponent('👍')}`);
+    expect(init!.method).toBe('PUT');
+
+    const { reactions: _omit, ...update } = { ...message('30', 'düzeltildi'), editedAt: 2 };
+    receive({ t: 'MESSAGE_UPDATE', d: update });
+    expect(reactions()).toEqual([{ emoji: '👍', count: 2, me: true }]);
+
+    await toggleReaction('c1', '30', '👍');
+    expect(reactions()).toEqual([{ emoji: '👍', count: 1, me: false }]);
+    expect(vi.mocked(fetch).mock.calls[1]![1]!.method).toBe('DELETE');
+  });
+
+  it('sunucu reddederse tepki geri alınır ve hata gösterilir', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ error: 'rate_limited', message: 'Yavaşla.' }), { status: 429 })),
+    );
+    await toggleReaction('c1', '30', '🎉');
+    expect(reactions()).toEqual([]);
+    expect(errors).toEqual(['Yavaşla.']);
+  });
+});
+
+describe('emoji listesi', () => {
+  it('her emoji sunucunun kabul ettiği tek bir tam emojidir; kategori içinde tekrar yoktur', () => {
+    const rgi = new RegExp('^\\p{RGI_Emoji}$', 'v');
+    for (const category of EMOJI_CATEGORIES) {
+      expect(category.emojis.filter((e) => !rgi.test(e))).toEqual([]);
+      expect(new Set(category.emojis).size).toBe(category.emojis.length);
+    }
+  });
+});
+
+describe('dosya ekleri', () => {
+  const file = (name: string, size: number, type = 'image/png'): LocalFile => ({ name, size, type, uri: `file:///${name}` });
+  const attachment = (id: string, name: string): Attachment => ({
+    id: id.repeat(32).slice(0, 32),
+    name,
+    size: 10,
+    contentType: 'image/png',
+    width: 1,
+    height: 1,
+    url: `/api/attachments/${id.repeat(32).slice(0, 32)}/${name}`,
+  });
+  const messages = () => useMessages.getState().channels.c1!.messages;
+
+  it('boş, çok büyük ve fazla dosyalar yazma kutusuna eklenmez', () => {
+    useGuild.setState({ attachmentMaxBytes: 1000 });
+    addFiles('c1', [file('bos.png', 0), file('buyuk.png', 1001), file('tamam.png', 1000)]);
+    expect(useMessages.getState().pendingFiles.c1!.map((f) => f.name)).toEqual(['tamam.png']);
+    expect(errors).toEqual(['"bos.png" boş bir dosya.', '"buyuk.png" çok büyük (en fazla 1000 B).']);
+    addFiles('c1', Array.from({ length: 12 }, (_, i) => file(`${i}.png`, 1)));
+    expect(useMessages.getState().pendingFiles.c1).toHaveLength(10);
+    expect(errors.at(-1)).toBe('Bir mesaja en fazla 10 dosya eklenebilir.');
+  });
+
+  it('dosyalar ilerlemeyle yüklenir, sonra mesaj dosya kimlikleriyle gönderilir', async () => {
+    useGuild.setState({ attachmentMaxBytes: 1_000_000 });
+    const requests: UploadRequest[] = [];
+    let finishSecond!: () => void;
+    uploadImpl = async (req) => {
+      requests.push(req);
+      req.onProgress(5);
+      if (requests.length === 2) await new Promise<void>((r) => (finishSecond = r));
+      const a = attachment(String(requests.length), req.file.name);
+      return { status: 201, body: JSON.stringify(a) };
+    };
+    const sent = { ...message('40', 'ikisi birden', 'u1'), attachments: [attachment('1', 'a.png'), attachment('2', 'b.png')] };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(sent), { status: 201 })));
+
+    addFiles('c1', [file('a.png', 10), file('b.png', 10, '')]);
+    sendMessage('c1', 'ikisi birden');
+    expect(useMessages.getState().pendingFiles.c1).toBeUndefined();
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(uploadProgress(messages()[0]!)).toEqual({ sent: 15, total: 20 });
+    expect(requests[0]!.url).toBe('http://sunucu.test/api/channels/c1/attachments?name=a.png');
+    expect(requests[0]!.headers).toEqual({ Authorization: 'Bearer jeton', 'Content-Type': 'image/png' });
+    // Türü bilinmeyen dosya
+    expect(requests[1]!.headers['Content-Type']).toBe('application/octet-stream');
+
+    finishSecond();
+    await vi.waitFor(() => expect(messages()[0]!.status).toBeUndefined());
+    expect(messages()).toMatchObject([{ id: '40', attachments: [{ name: 'a.png' }, { name: 'b.png' }] }]);
+    const [, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(JSON.parse(init!.body as string)).toEqual({
+      content: 'ikisi birden',
+      attachmentIds: [attachment('1', 'a.png').id, attachment('2', 'b.png').id],
+    });
+  });
+
+  it('yükleme başarısız olursa yeniden denemede yüklenmiş dosyalar tekrar yüklenmez', async () => {
+    let calls = 0;
+    uploadImpl = async (req) => {
+      calls++;
+      if (calls === 2) return { status: 413, body: JSON.stringify({ error: 'too_large', message: 'Dosya çok büyük.' }) };
+      return { status: 201, body: JSON.stringify(attachment(String(calls), req.file.name)) };
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(message('41', '', 'u1')), { status: 201 })));
+    addFiles('c1', [file('a.png', 10), file('b.png', 10)]);
+    sendMessage('c1', '');
+    await vi.waitFor(() => expect(messages()[0]!.status).toBe('failed'));
+    expect(errors).toEqual(['Dosya çok büyük.']);
+    expect(messages()[0]!.uploads!.map((u) => Boolean(u.attachment))).toEqual([true, false]);
+
+    retryMessage('c1', messages()[0]!.nonce!);
+    await vi.waitFor(() => expect(messages()[0]!.id).toBe('41'));
+    expect(calls).toBe(3);
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string).attachmentIds).toEqual([
+      attachment('1', 'a.png').id,
+      attachment('3', 'b.png').id,
+    ]);
+  });
+
+  it('yükleme sürerken vazgeçilirse istek iptal edilir ve mesaj kalkar', async () => {
+    let signal!: AbortSignal;
+    uploadImpl = (req) => {
+      signal = req.signal;
+      return new Promise((resolve) => req.signal.addEventListener('abort', () => resolve({ status: 0, body: '' })));
+    };
+    addFiles('c1', [file('a.png', 10)]);
+    sendMessage('c1', 'iptal');
+    await vi.waitFor(() => expect(signal).toBeDefined());
+    discardMessage('c1', messages()[0]!.nonce!);
+    expect(signal.aborted).toBe(true);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(messages()).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  it('onay gatewayden önce gelirse dosyaları yüklenmiş bekleyen mesajın yerine geçer', async () => {
+    const uploaded = attachment('7', 'a.png');
+    uploadImpl = async () => ({ status: 201, body: JSON.stringify(uploaded) });
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => undefined))); // yanıt hiç gelmez
+    addFiles('c1', [file('a.png', 10)]);
+    sendMessage('c1', '');
+    addFiles('c1', [file('b.png', 10)]);
+    await vi.waitFor(() => expect(messages()[0]!.uploads![0]!.attachment).toBeDefined());
+    receive({ t: 'MESSAGE_CREATE', d: { ...message('50', '', 'u1'), attachments: [uploaded] } });
+    expect(messages().map((m) => m.id)).toEqual(['50']);
+    // Yazma kutusuna sonradan eklenen dosya yerinde durur
+    expect(useMessages.getState().pendingFiles.c1!.map((f) => f.name)).toEqual(['b.png']);
   });
 });

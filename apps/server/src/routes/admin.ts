@@ -32,7 +32,7 @@ const updateChannelSchema = z.object({
 });
 
 export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const { store, auth, gateway, voice, livekit, guild } = ctx;
+  const { store, auth, gateway, voice, livekit, guild, attachments } = ctx;
 
   // ---------- Davetler ----------
 
@@ -134,7 +134,9 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void
     { preHandler: auth.requireAdmin },
     async (req, reply) => {
       const id = req.params.id;
+      const files = store.channelAttachmentIds(id);
       if (!store.deleteChannel(id)) return sendError(reply, 404, 'not_found', 'Kanal bulunamadı.');
+      await attachments.remove(files);
       voice.leaveChannel(id);
       await livekit.closeChannelRoom(id);
       gateway.broadcast({ t: 'CHANNEL_DELETE', d: { id } });

@@ -40,12 +40,16 @@ const config: ExpoConfig = {
       // Telefondan ekran paylaşımı (WebRTC'nin MediaProjection servisi)
       'android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION',
     ],
-    // Kamera henüz kullanılmıyor (WebRTC eklentisi varsayılan olarak ister)
+    // Kamera henüz kullanılmıyor (WebRTC eklentisi ve resim seçici varsayılan olarak ister).
+    // Dosya ve resim seçimi Android'in kendi seçicileriyle yapılır; depolama/medya izni gerekmez.
     blockedPermissions: [
       'android.permission.CAMERA',
       'android.permission.SYSTEM_ALERT_WINDOW',
       'android.permission.READ_EXTERNAL_STORAGE',
       'android.permission.WRITE_EXTERNAL_STORAGE',
+      'android.permission.READ_MEDIA_IMAGES',
+      'android.permission.READ_MEDIA_VIDEO',
+      'android.permission.READ_MEDIA_VISUAL_USER_SELECTED',
     ],
     predictiveBackGestureEnabled: false,
   },
@@ -77,6 +81,9 @@ const config: ExpoConfig = {
     // enableScreenShareService: telefondan ekran paylaşımı için MediaProjection ön plan servisi
     ['@livekit/react-native-expo-plugin', { android: { audioType: 'communication', enableScreenShareService: true } }],
     '@config-plugins/react-native-webrtc',
+    // Galeriden seçim (fotoğraf seçicisi). microphonePermission false VERİLMEMELİ: RECORD_AUDIO'yu
+    // engeller ve sesli sohbet çalışmaz.
+    ['expo-image-picker', { cameraPermission: false }],
     [
       'expo-splash-screen',
       { image: './assets/splash-icon.png', imageWidth: 120, backgroundColor: '#1e1f22', resizeMode: 'contain' },

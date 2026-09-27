@@ -44,6 +44,8 @@ services:
       MIN_IOS_VERSION: ${MIN_IOS_VERSION:-}
       # Telefon bildirimleri: Firebase hizmet hesabı anahtarı (infra/secrets/fcm.json, depoda değil)
       FCM_SERVICE_ACCOUNT_FILE: ${FCM_SERVICE_ACCOUNT_FILE:-}
+      # Tek dosya ekinin en büyük boyutu (MB); dosyalar diskort-data biriminde /data/attachments altında
+      ATTACHMENT_MAX_MB: ${ATTACHMENT_MAX_MB:-25}
     volumes:
       - diskort-data:/data
       - ./secrets:/run/secrets:ro

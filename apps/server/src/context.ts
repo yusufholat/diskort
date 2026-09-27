@@ -1,6 +1,7 @@
 import type { FastifyReply } from 'fastify';
 import type { ZodType } from 'zod';
 import type { Guild } from '@diskort/shared';
+import type { AttachmentService } from './attachments.js';
 import type { AuthService } from './auth.js';
 import type { ClientVersionPolicy } from './clientVersion.js';
 import type { Config } from './config.js';
@@ -23,6 +24,7 @@ export interface AppContext {
   clientVersions: ClientVersionPolicy;
   ota: OtaService;
   push: PushService;
+  attachments: AttachmentService;
   guild: Guild;
 }
 

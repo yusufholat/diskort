@@ -2,7 +2,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { nanoid, customAlphabet } from 'nanoid';
-import { extractMentions, type Channel, type ChannelType, type Guild, type Invite, type Message, type User } from '@diskort/shared';
+import {
+  extractMentions,
+  MESSAGE_MAX_REACTIONS,
+  type Attachment,
+  type Channel,
+  type ChannelType,
+  type Guild,
+  type Invite,
+  type Message,
+  type Reaction,
+  type User,
+} from '@diskort/shared';
 import { AVATAR_COLORS } from '@diskort/shared';
 
 const MIGRATIONS: string[] = [
@@ -83,6 +94,37 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX push_tokens_by_user ON push_tokens(user_id);
   `,
+  // 5: mesaj tepkileri — kullanıcı başına, emoji başına bir kayıt
+  `
+  CREATE TABLE reactions (
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    emoji      TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (message_id, emoji, user_id)
+  ) WITHOUT ROWID;
+  CREATE INDEX reactions_by_user ON reactions(user_id);
+  `,
+  // 6: dosya ekleri. Dosyanın kendisi <DATA_DIR>/attachments/<id>; message_id boşsa yüklenmiş ama
+  // henüz bir mesaja eklenmemiştir (bir saat içinde eklenmezse silinir).
+  `
+  CREATE TABLE attachments (
+    id           TEXT PRIMARY KEY,
+    message_id   INTEGER REFERENCES messages(id) ON DELETE CASCADE,
+    channel_id   TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    uploader_id  TEXT REFERENCES users(id) ON DELETE SET NULL,
+    name         TEXT NOT NULL,
+    size         INTEGER NOT NULL,
+    content_type TEXT NOT NULL,
+    width        INTEGER,
+    height       INTEGER,
+    position     INTEGER NOT NULL DEFAULT 0,
+    created_at   INTEGER NOT NULL
+  );
+  CREATE INDEX attachments_by_message ON attachments(message_id, position);
+  CREATE INDEX attachments_by_channel ON attachments(channel_id);
+  CREATE INDEX attachments_by_uploader ON attachments(uploader_id);
+  `,
 ];
 
 type Param = string | number | null;
@@ -148,7 +190,34 @@ const toMessage = (r: MessageRow): Message => ({
   content: r.content,
   createdAt: r.created_at,
   editedAt: r.edited_at,
+  attachments: [],
+  reactions: [],
 });
+
+interface AttachmentRow {
+  id: string;
+  message_id: number | null;
+  channel_id: string;
+  uploader_id: string | null;
+  name: string;
+  size: number;
+  content_type: string;
+  width: number | null;
+  height: number | null;
+}
+
+const toAttachment = (r: AttachmentRow): Attachment => ({
+  id: r.id,
+  name: r.name,
+  size: r.size,
+  contentType: r.content_type,
+  width: r.width,
+  height: r.height,
+  url: `/api/attachments/${r.id}/${encodeURIComponent(r.name)}`,
+});
+
+export type AddReactionResult = 'added' | 'exists' | 'limit';
+
 
 const toChannel = (r: ChannelRow): Channel => ({
   id: r.id,
@@ -488,8 +557,11 @@ export class Store {
 
   // ---------- Mesajlar ----------
 
-  /** En yeni mesajlardan geriye doğru bir sayfa; sonuç eskiden yeniye sıralıdır. */
-  listMessages(channelId: string, before: number | null, limit: number): Message[] {
+  /**
+   * En yeni mesajlardan geriye doğru bir sayfa; sonuç eskiden yeniye sıralıdır. Tepkilerdeki `me`
+   * alanı `viewerId` kullanıcısına göredir.
+   */
+  listMessages(channelId: string, before: number | null, limit: number, viewerId: string | null = null): Message[] {
     const rows = before
       ? this.all<MessageRow>(
           'SELECT * FROM messages WHERE channel_id = ? AND id < ? ORDER BY id DESC LIMIT ?',
@@ -498,30 +570,105 @@ export class Store {
           limit,
         )
       : this.all<MessageRow>('SELECT * FROM messages WHERE channel_id = ? ORDER BY id DESC LIMIT ?', channelId, limit);
-    return rows.reverse().map(toMessage);
+    return this.withDetails(rows.reverse().map(toMessage), viewerId);
   }
 
-  getMessage(id: number): Message | null {
+  getMessage(id: number, viewerId: string | null = null): Message | null {
     const row = this.one<MessageRow>('SELECT * FROM messages WHERE id = ?', id);
-    return row ? toMessage(row) : null;
+    return row ? this.withDetails([toMessage(row)], viewerId)[0]! : null;
   }
 
-  /** Mesajı kaydeder; bahsedilen kullanıcıların okunmamış bahsetme sayısını artırır. */
-  createMessage(channelId: string, authorId: string, content: string): Message {
-    const id = Number(
-      this.db
-        .prepare('INSERT INTO messages (channel_id, author_id, content, created_at) VALUES (?, ?, ?, ?)')
-        .run(channelId, authorId, content, Date.now()).lastInsertRowid,
-    );
-    for (const userId of this.resolveMentions(content, authorId)) {
-      this.run(
-        `INSERT INTO read_states (user_id, channel_id, last_read_id, mention_count) VALUES (?, ?, 0, 1)
-         ON CONFLICT (user_id, channel_id) DO UPDATE SET mention_count = mention_count + 1`,
-        userId,
-        channelId,
-      );
+  /** Mesajlara dosya eklerini ve tepkilerini ekler (her biri tek sorguda). */
+  private withDetails(messages: Message[], viewerId: string | null): Message[] {
+    if (messages.length === 0) return messages;
+    const ids = messages.map((m) => Number(m.id));
+    const marks = ids.map(() => '?').join(',');
+    const attachments = new Map<string, Attachment[]>();
+    for (const r of this.all<AttachmentRow>(
+      `SELECT * FROM attachments WHERE message_id IN (${marks}) ORDER BY message_id, position`,
+      ...ids,
+    )) {
+      const list = attachments.get(String(r.message_id)) ?? [];
+      list.push(toAttachment(r));
+      attachments.set(String(r.message_id), list);
     }
-    return this.getMessage(id)!;
+    const reactions = new Map<string, Reaction[]>();
+    for (const r of this.all<{ message_id: number; emoji: string; n: number; me: number }>(
+      `SELECT message_id, emoji, COUNT(*) AS n, MAX(user_id = ?) AS me, MIN(created_at) AS first
+       FROM reactions WHERE message_id IN (${marks})
+       GROUP BY message_id, emoji ORDER BY first, emoji`,
+      viewerId,
+      ...ids,
+    )) {
+      const list = reactions.get(String(r.message_id)) ?? [];
+      list.push({ emoji: r.emoji, count: r.n, me: r.me === 1 });
+      reactions.set(String(r.message_id), list);
+    }
+    return messages.map((m) => ({
+      ...m,
+      attachments: attachments.get(m.id) ?? [],
+      reactions: reactions.get(m.id) ?? [],
+    }));
+  }
+
+  /** Kullanıcının tepkisini ekler; mesajda en fazla MESSAGE_MAX_REACTIONS farklı emoji olabilir. */
+  addReaction(messageId: number, userId: string, emoji: string): AddReactionResult {
+    return this.tx((): AddReactionResult => {
+      const known = this.one('SELECT 1 FROM reactions WHERE message_id = ? AND emoji = ? LIMIT 1', messageId, emoji);
+      if (!known) {
+        const distinct = this.one<{ n: number }>(
+          'SELECT COUNT(DISTINCT emoji) AS n FROM reactions WHERE message_id = ?',
+          messageId,
+        )!.n;
+        if (distinct >= MESSAGE_MAX_REACTIONS) return 'limit';
+      }
+      const added = this.run(
+        'INSERT OR IGNORE INTO reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)',
+        messageId,
+        userId,
+        emoji,
+        Date.now(),
+      );
+      return added > 0 ? 'added' : 'exists';
+    });
+  }
+
+  /** Kullanıcının tepkisini kaldırır; yoksa false. */
+  removeReaction(messageId: number, userId: string, emoji: string): boolean {
+    return (
+      this.run('DELETE FROM reactions WHERE message_id = ? AND user_id = ? AND emoji = ?', messageId, userId, emoji) > 0
+    );
+  }
+
+  /**
+   * Mesajı kaydeder ve yüklenmiş dosyaları ona bağlar (dosyalar bu kullanıcının, bu kanala yüklediği ve
+   * henüz kullanılmamış dosyalar olmalı; değilse null döner). Bahsedilen kullanıcıların okunmamış
+   * bahsetme sayısını artırır.
+   */
+  createMessage(channelId: string, authorId: string, content: string, attachmentIds: string[] = []): Message | null {
+    return this.tx((): Message | null => {
+      for (const attachmentId of attachmentIds) {
+        const row = this.one<AttachmentRow>('SELECT * FROM attachments WHERE id = ?', attachmentId);
+        if (!row || row.uploader_id !== authorId || row.channel_id !== channelId || row.message_id !== null) return null;
+      }
+      const id = Number(
+        this.db
+          .prepare('INSERT INTO messages (channel_id, author_id, content, created_at) VALUES (?, ?, ?, ?)')
+          .run(channelId, authorId, content, Date.now()).lastInsertRowid,
+      );
+      attachmentIds.forEach((attachmentId, position) => {
+        this.run('UPDATE attachments SET message_id = ?, position = ? WHERE id = ?', id, position, attachmentId);
+      });
+      for (const userId of this.resolveMentions(content, authorId)) {
+        this.run(
+          `INSERT INTO read_states (user_id, channel_id, last_read_id, mention_count) VALUES (?, ?, 0, 1)
+           ON CONFLICT (user_id, channel_id) DO UPDATE SET mention_count = mention_count + 1`,
+          userId,
+          channelId,
+        );
+      }
+      return this.getMessage(id)!;
+    });
   }
 
   /** Metinde bahsedilen (var olan) kullanıcıların kimlikleri; yazar hariç. */
@@ -534,13 +681,73 @@ export class Store {
     return ids;
   }
 
-  updateMessage(id: number, content: string): Message | null {
+  updateMessage(id: number, content: string, viewerId: string | null = null): Message | null {
     this.run('UPDATE messages SET content = ?, edited_at = ? WHERE id = ?', content, Date.now(), id);
-    return this.getMessage(id);
+    return this.getMessage(id, viewerId);
   }
 
-  deleteMessage(id: number): boolean {
-    return this.run('DELETE FROM messages WHERE id = ?', id) > 0;
+  /** Mesajı siler; diskten de silinmesi gereken dosya eklerinin kimliklerini döner. */
+  deleteMessage(id: number): string[] {
+    return this.tx(() => {
+      const files = this.all<{ id: string }>('SELECT id FROM attachments WHERE message_id = ?', id).map((r) => r.id);
+      this.run('DELETE FROM messages WHERE id = ?', id);
+      return files;
+    });
+  }
+
+  // ---------- Dosya ekleri ----------
+
+  createAttachment(a: {
+    id: string;
+    channelId: string;
+    uploaderId: string;
+    name: string;
+    size: number;
+    contentType: string;
+    width: number | null;
+    height: number | null;
+  }): Attachment {
+    this.run(
+      `INSERT INTO attachments (id, channel_id, uploader_id, name, size, content_type, width, height, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      a.id,
+      a.channelId,
+      a.uploaderId,
+      a.name,
+      a.size,
+      a.contentType,
+      a.width,
+      a.height,
+      Date.now(),
+    );
+    return this.getAttachment(a.id)!.attachment;
+  }
+
+  /** Ek ve bağlı olduğu mesaj (henüz bir mesaja eklenmediyse null). */
+  getAttachment(id: string): { attachment: Attachment; messageId: number | null } | null {
+    const row = this.one<AttachmentRow>('SELECT * FROM attachments WHERE id = ?', id);
+    return row ? { attachment: toAttachment(row), messageId: row.message_id } : null;
+  }
+
+  attachmentExists(id: string): boolean {
+    return this.one('SELECT 1 FROM attachments WHERE id = ?', id) !== undefined;
+  }
+
+  /** Kanal silinmeden önce: diskten silinecek dosyalar */
+  channelAttachmentIds(channelId: string): string[] {
+    return this.all<{ id: string }>('SELECT id FROM attachments WHERE channel_id = ?', channelId).map((r) => r.id);
+  }
+
+  /** Belirtilen andan önce yüklenip hiçbir mesaja eklenmemiş dosyalar */
+  stalePendingAttachments(before: number): string[] {
+    return this.all<{ id: string }>(
+      'SELECT id FROM attachments WHERE message_id IS NULL AND created_at < ?',
+      before,
+    ).map((r) => r.id);
+  }
+
+  deleteAttachments(ids: string[]): void {
+    for (const id of ids) this.run('DELETE FROM attachments WHERE id = ?', id);
   }
 
   /** Kanal başına en son mesaj kimliği (okunmamış göstergesi için). */

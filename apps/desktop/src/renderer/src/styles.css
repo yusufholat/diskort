@@ -85,6 +85,10 @@
   .no-drag {
     -webkit-app-region: no-drag;
   }
+  /* Emojiler her zaman renkli yazı tipiyle çizilsin (metin yazı tipindeki tek renkli karşılıkları yerine) */
+  .emoji {
+    font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+  }
 }
 
 /* Konuşan kullanıcı yeşil halkası */
