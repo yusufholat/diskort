@@ -80,8 +80,9 @@ export function ExpressionSheet({ tab, gifs, onTab, onClose, onEmoji, onGif }: P
           </Pressable>
         ))}
       </View>
-      {/* Klavye açılınca alan daralır: içerik küçülebilir */}
-      <View style={{ flexBasis: Math.min(560, height * 0.62), flexShrink: 1, minHeight: 180 }}>
+      {/* Sabit yükseklik: yoksa GIF ızgarası tüm içeriği kadar uzar, sekmeler ve arama kutusu ekranın
+          üstünden taşar. Klavye açılınca alan daralır: içerik küçülebilir */}
+      <View style={{ height: Math.min(560, Math.round(height * 0.62)), flexShrink: 1, minHeight: 180 }}>
         {current === 'gif' ? <GifGrid onPick={onGif} /> : <EmojiGrid onPick={onEmoji} />}
       </View>
     </BottomSheet>
