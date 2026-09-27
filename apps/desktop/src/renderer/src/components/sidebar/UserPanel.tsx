@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Headphones, HeadphoneOff, Mic, MicOff, Settings } from 'lucide-react';
 import { voice } from '../../features/voice/voiceClient';
 import { cn } from '../../lib/utils';
-import { useSession } from '@diskort/client-core';
+import { useGuild, useSession } from '@diskort/client-core';
 import { useSettings } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
@@ -15,9 +15,13 @@ export function UserPanel() {
   const inputMode = useSettings((s) => s.inputMode);
   const speaking = useVoice((s) => (user ? s.speaking[user.id] === true : false));
   const pttActive = useVoice((s) => s.pttActive);
+  // Konuşma izni yoksa (yetki ya da sunucuda susturma) mikrofon kapalı görünür
+  const micAllowed = useVoice((s) => s.micAllowed || s.status === 'idle');
+  const serverDeaf = useGuild((s) => (user ? s.voiceStates[user.id]?.serverDeaf === true : false));
   const openModal = useUi((s) => s.openModal);
 
-  const muted = selfMute || selfDeaf;
+  const muted = selfMute || selfDeaf || !micAllowed;
+  const deaf = selfDeaf || serverDeaf;
 
   return (
     <div className="flex h-[52px] shrink-0 items-center gap-2 bg-bg-panel px-2">
@@ -32,15 +36,15 @@ export function UserPanel() {
       </div>
       <PanelButton
         active={muted}
-        title={muted ? 'Sesi Aç' : 'Sustur'}
+        title={!micAllowed ? voice.micBlockedReason() : muted ? 'Sesi Aç' : 'Sustur'}
         onClick={() => voice.toggleMute()}
         icon={muted ? <MicOff size={20} /> : <Mic size={20} />}
       />
       <PanelButton
-        active={selfDeaf}
-        title={selfDeaf ? 'Sağırlaştırmayı Kaldır' : 'Sağırlaştır'}
+        active={deaf}
+        title={serverDeaf ? 'Sunucuda sağırlaştırıldın' : selfDeaf ? 'Sağırlaştırmayı Kaldır' : 'Sağırlaştır'}
         onClick={() => voice.toggleDeafen()}
-        icon={selfDeaf ? <HeadphoneOff size={20} /> : <Headphones size={20} />}
+        icon={deaf ? <HeadphoneOff size={20} /> : <Headphones size={20} />}
       />
       <PanelButton
         title="Kullanıcı Ayarları"

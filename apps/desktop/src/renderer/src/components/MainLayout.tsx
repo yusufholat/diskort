@@ -12,8 +12,10 @@ import { ChannelSidebar } from './sidebar/ChannelSidebar';
 import { GuildRail } from './GuildRail';
 import { VoiceStage } from './stage/VoiceStage';
 import { Welcome } from './stage/Welcome';
+import { BanModal } from './modals/BanModal';
 import { ChannelModal } from './modals/ChannelModal';
 import { ScreenSharePicker } from './modals/ScreenSharePicker';
+import { ServerSettingsModal } from './serverSettings/ServerSettingsModal';
 import { SettingsModal } from './settings/SettingsModal';
 
 export function MainLayout() {
@@ -82,9 +84,11 @@ export function MainLayout() {
       </main>
 
       {modal?.type === 'settings' && <SettingsModal initial={modal.section} />}
+      {modal?.type === 'serverSettings' && <ServerSettingsModal initial={modal.section} />}
       {modal?.type === 'screenPicker' && <ScreenSharePicker />}
       {modal?.type === 'channel' && <ChannelModal channel={modal.channel} channelType={modal.channelType} />}
       {modal?.type === 'image' && <ImageViewer attachment={modal.attachment} />}
+      <BanModal />
     </div>
   );
 }

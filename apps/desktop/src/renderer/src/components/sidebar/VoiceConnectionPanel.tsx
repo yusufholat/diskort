@@ -1,7 +1,8 @@
 import { Monitor, MonitorOff, PhoneOff, Signal } from 'lucide-react';
 import { voice } from '../../features/voice/voiceClient';
 import { cn } from '../../lib/utils';
-import { useGuild } from '@diskort/client-core';
+import { Permission } from '@diskort/shared';
+import { useCan, useGuild } from '@diskort/client-core';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
 
@@ -25,6 +26,7 @@ export function VoiceConnectionPanel() {
   const ping = useVoice((s) => s.pingMs);
   const sharing = useVoice((s) => s.sharing);
   const channel = useGuild((s) => s.channels.find((c) => c.id === channelId));
+  const canStream = useCan(Permission.STREAM, channelId ?? undefined);
   const guildName = useGuild((s) => s.guild?.name);
   const openModal = useUi((s) => s.openModal);
   const setView = useUi((s) => s.setView);
@@ -65,7 +67,8 @@ export function VoiceConnectionPanel() {
       </div>
       <div className="mt-2 flex gap-2">
         <button
-          disabled={!connected}
+          disabled={!connected || (!sharing && !canStream)}
+          aria-label={!canStream && !sharing ? 'Bu kanalda ekran paylaşma iznin yok' : undefined}
           className={cn(
             'flex h-8 flex-1 items-center justify-center gap-2 rounded text-sm font-medium transition-colors',
             sharing ? 'bg-ok/20 text-ok hover:bg-ok/30' : 'bg-bg-hover text-text-normal hover:bg-bg-active',

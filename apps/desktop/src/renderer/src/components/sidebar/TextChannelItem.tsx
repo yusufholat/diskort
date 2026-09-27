@@ -1,16 +1,15 @@
-import { Hash } from 'lucide-react';
+import { Hash, Lock } from 'lucide-react';
 import type { Channel } from '@diskort/shared';
-import { useMessages, api, errorMessage, isUnread, useGuild, useSession } from '@diskort/client-core';
-import { confirmDialog } from '../../lib/dialog';
+import { useMessages, isUnread, useGuild } from '@diskort/client-core';
+import { channelMenuItems, isPrivateChannel } from '../../lib/channelMenu';
 import { cn } from '../../lib/utils';
-import { toast, useUi } from '../../stores/ui';
+import { useUi } from '../../stores/ui';
 
 export function TextChannelItem({ channel, selected }: { channel: Channel; selected: boolean }) {
   const unread = useGuild((s) => isUnread(s, channel.id));
   const mentionCount = useMessages((s) => s.mentionCounts[channel.id] ?? 0);
-  const isAdmin = useSession((s) => s.user?.isAdmin ?? false);
+  const locked = useGuild((s) => isPrivateChannel(channel, s.guild?.id));
   const setView = useUi((s) => s.setView);
-  const openModal = useUi((s) => s.openModal);
   const openContextMenu = useUi((s) => s.openContextMenu);
   const highlight = unread && !selected;
 
@@ -29,30 +28,16 @@ export function TextChannelItem({ channel, selected }: { channel: Channel; selec
         onClick={() => setView({ kind: 'text', channelId: channel.id })}
         onContextMenu={(e) => {
           e.preventDefault();
-          if (!isAdmin) return;
-          openContextMenu({
-            x: e.clientX,
-            y: e.clientY,
-            items: [
-              { label: 'Kanalı Düzenle', onClick: () => openModal({ type: 'channel', channel }) },
-              {
-                label: 'Kanalı Sil',
-                danger: true,
-                onClick: async () => {
-                  const ok = await confirmDialog({
-                    title: 'Kanalı sil',
-                    message: `#${channel.name} kanalı ve tüm mesajları kalıcı olarak silinsin mi?`,
-                    confirmLabel: 'Kanalı Sil',
-                    danger: true,
-                  });
-                  if (ok) api.deleteChannel(channel.id).catch((err) => toast(errorMessage(err), 'error'));
-                },
-              },
-            ],
-          });
+          const items = channelMenuItems(channel);
+          if (items.length) openContextMenu({ x: e.clientX, y: e.clientY, items });
         }}
       >
-        <Hash size={20} className="shrink-0 opacity-80" />
+        <span className="relative shrink-0 opacity-80">
+          <Hash size={20} />
+          {locked && (
+            <Lock size={10} strokeWidth={3} aria-label="Özel kanal" className="absolute -top-0.5 -right-1 rounded-sm bg-bg-side" />
+          )}
+        </span>
         <span className={cn('min-w-0 flex-1 truncate', highlight ? 'font-semibold' : 'font-medium')}>
           {channel.name}
         </span>

@@ -9,8 +9,8 @@ import {
   type ClipboardEvent,
   type KeyboardEvent,
 } from 'react';
-import { CirclePlus, X } from 'lucide-react';
-import { MESSAGE_MAX_LENGTH, type Channel, type User } from '@diskort/shared';
+import { CirclePlus, Lock, X } from 'lucide-react';
+import { MESSAGE_MAX_LENGTH, Permission, type Channel, type User } from '@diskort/shared';
 import {
   addFiles,
   formatBytes,
@@ -18,6 +18,7 @@ import {
   removeFile,
   sendMessage,
   setEditing,
+  useCan,
   useMessages,
   useGuild,
   type LocalFile,
@@ -98,6 +99,8 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
   const files = useMessages((s) => s.pendingFiles[channel.id] ?? NO_FILES);
   const users = useGuild((s) => s.users);
   const online = useGuild((s) => s.online);
+  const canSend = useCan(Permission.SEND_MESSAGES, channel.id);
+  const canAttach = useCan(Permission.ATTACH_FILES, channel.id);
 
   useImperativeHandle(handle, () => ({ focus: () => ref.current?.focus() }), []);
 
@@ -114,6 +117,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
     if (query === undefined || query === dismissed) return [];
     const q = query.toLocaleLowerCase('tr');
     return Object.values(users)
+      .filter((u) => !u.removed)
       .filter((u) => u.username.startsWith(q) || u.displayName.toLocaleLowerCase('tr').includes(q))
       .sort((a, b) => Number(!!online[b.id]) - Number(!!online[a.id]) || a.username.localeCompare(b.username))
       .slice(0, MAX_SUGGESTIONS);
@@ -186,10 +190,26 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>): void => {
     if (e.clipboardData.files.length === 0) return;
     e.preventDefault();
+    if (!canAttach) {
+      toast('Bu kanala dosya gönderme iznin yok.', 'error');
+      return;
+    }
     addFiles(channel.id, toLocalFiles(e.clipboardData.files));
   };
 
   const remaining = MESSAGE_MAX_LENGTH - value.trim().length;
+
+  // Salt okunur kanal: yazma kutusu yerine açıklama
+  if (!canSend) {
+    return (
+      <div className="px-4">
+        <div className="flex min-h-11 items-center gap-2 rounded-lg bg-bg-hover px-4 text-text-muted">
+          <Lock size={16} className="shrink-0" />
+          <span>Bu kanala mesaj gönderme iznin yok.</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative px-4">
@@ -219,13 +239,17 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
       <div className="rounded-lg bg-bg-hover">
         {files.length > 0 && <FileTray channelId={channel.id} files={files} />}
         <div className="flex items-end">
-          <button
-            className="shrink-0 py-[11px] pr-1 pl-3.5 text-text-muted hover:text-text-head"
-            title="Dosya ekle"
-            onClick={() => fileInput.current?.click()}
-          >
-            <CirclePlus size={22} />
-          </button>
+          {canAttach ? (
+            <button
+              className="shrink-0 py-[11px] pr-1 pl-3.5 text-text-muted hover:text-text-head"
+              title="Dosya ekle"
+              onClick={() => fileInput.current?.click()}
+            >
+              <CirclePlus size={22} />
+            </button>
+          ) : (
+            <span className="w-2 shrink-0" />
+          )}
           <input
             ref={fileInput}
             type="file"

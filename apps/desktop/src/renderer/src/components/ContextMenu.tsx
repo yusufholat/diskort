@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Check } from 'lucide-react';
 import { useGuild } from '@diskort/client-core';
 import { useSettings } from '../stores/settings';
 import { useUi } from '../stores/ui';
@@ -16,7 +17,7 @@ export function ContextMenu() {
     const rect = ref.current.getBoundingClientRect();
     setPos({
       x: Math.min(menu.x, window.innerWidth - rect.width - 8),
-      y: Math.min(menu.y, window.innerHeight - rect.height - 8),
+      y: Math.max(8, Math.min(menu.y, window.innerHeight - rect.height - 8)),
     });
   }, [menu]);
 
@@ -43,26 +44,48 @@ export function ContextMenu() {
   return (
     <div
       ref={ref}
-      className="animate-pop fixed z-50 min-w-[200px] rounded-md bg-bg-float p-1.5 shadow-xl"
+      className="animate-pop fixed z-50 max-h-[calc(100vh-16px)] min-w-[200px] overflow-y-auto rounded-md bg-bg-float p-1.5 shadow-xl"
       style={{ left: pos.x, top: pos.y }}
       onContextMenu={(e) => e.preventDefault()}
     >
       {menu.userId && <UserAudioControls userId={menu.userId} />}
-      {menu.items?.map((item) => (
-        <button
-          key={item.label}
-          className={cn(
-            'block w-full rounded-[3px] px-2 py-1.5 text-left text-sm',
-            item.danger ? 'text-danger hover:bg-danger hover:text-white' : 'hover:bg-brand hover:text-white',
-          )}
-          onClick={() => {
-            close();
-            item.onClick();
-          }}
-        >
-          {item.label}
-        </button>
-      ))}
+      {menu.items?.map((item, i) =>
+        item.heading ? (
+          <div
+            key={`${i}-${item.label}`}
+            className={cn('px-2 pt-1.5 pb-1 text-[11px] font-bold text-text-muted uppercase', i > 0 && 'mt-1 border-t border-line/60 pt-2')}
+          >
+            {item.label}
+          </div>
+        ) : (
+          <button
+            key={`${i}-${item.label}`}
+            className={cn(
+              'group/item flex w-full items-center gap-2 rounded-[3px] px-2 py-1.5 text-left text-sm',
+              item.danger ? 'text-danger hover:bg-danger hover:text-white' : 'hover:bg-brand hover:text-white',
+            )}
+            onClick={() => {
+              close();
+              item.onClick?.();
+            }}
+          >
+            {item.color !== undefined && (
+              <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: item.color ?? '#99aab5' }} />
+            )}
+            <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            {item.checked !== undefined && (
+              <span
+                className={cn(
+                  'flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] border',
+                  item.checked ? 'border-brand bg-brand text-white group-hover/item:border-white' : 'border-text-muted',
+                )}
+              >
+                {item.checked && <Check size={12} strokeWidth={3} />}
+              </span>
+            )}
+          </button>
+        ),
+      )}
     </div>
   );
 }

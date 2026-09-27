@@ -79,10 +79,15 @@ export function outranksUser(s: PermissionState, actorId: string | undefined, ta
   return outranks(permissionContext(s), { id: actorId, roles: rolesOf(s, actorId) }, { id: targetId, roles: rolesOf(s, targetId) });
 }
 
+/** Hiyerarşi: rol, kullanıcının en üst rolünün altında mı (sahip için hepsi) */
+export function roleIsBelowFor(s: PermissionState, actorId: string | undefined, role: Pick<Role, 'position'>): boolean {
+  if (!actorId) return false;
+  return roleIsBelow(permissionContext(s), { id: actorId, roles: rolesOf(s, actorId) }, role);
+}
+
 /** Rolü düzenleyebilir/verebilir mi: MANAGE_ROLES ve rol kendi en üst rolünün altında */
 export function canManageRole(s: PermissionState, actorId: string | undefined, role: Pick<Role, 'position'>): boolean {
-  if (!actorId || !can(s, actorId, Permission.MANAGE_ROLES)) return false;
-  return roleIsBelow(permissionContext(s), { id: actorId, roles: rolesOf(s, actorId) }, role);
+  return can(s, actorId, Permission.MANAGE_ROLES) && roleIsBelowFor(s, actorId, role);
 }
 
 /**

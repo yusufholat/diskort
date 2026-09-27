@@ -1,19 +1,28 @@
 import { create } from 'zustand';
-import type { Attachment, Channel, ChannelType } from '@diskort/shared';
+import type { Attachment, Channel, ChannelType, User } from '@diskort/shared';
 
 export type Modal =
   | { type: 'settings'; section?: SettingsSection }
+  | { type: 'serverSettings'; section?: ServerSettingsSection }
   | { type: 'screenPicker' }
   | { type: 'channel'; channel?: Channel; channelType?: ChannelType }
   | { type: 'image'; attachment: Attachment }
   | null;
 
-export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app' | 'members' | 'invites';
+export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app';
+
+export type ServerSettingsSection = 'overview' | 'roles' | 'members' | 'invites' | 'bans';
 
 export interface ContextMenuItem {
   label: string;
   danger?: boolean;
-  onClick: () => void;
+  /** Onay kutusu gibi gösterilir (ör. üyenin rolü, sunucuda susturma) */
+  checked?: boolean;
+  /** Etiketin önündeki renkli nokta (rol rengi) */
+  color?: string | null;
+  /** Tıklanamayan küçük başlık (öğe grubu) */
+  heading?: boolean;
+  onClick?: () => void;
 }
 
 export interface ContextMenuState {
@@ -47,6 +56,12 @@ export interface Toast {
 export type View = { kind: 'text'; channelId: string } | { kind: 'voice' } | { kind: 'home' };
 
 interface UiStore {
+  /** Metin kanalının sağındaki üye listesi açık mı */
+  memberListOpen: boolean;
+  toggleMemberList: () => void;
+  /** Yasaklama penceresi (açık pencerenin, ör. sunucu ayarlarının, üstünde açılır) */
+  banUser: User | null;
+  setBanUser: (user: User | null) => void;
   view: View;
   /** Ses sahnesinden dönülecek metin kanalı */
   lastTextChannelId: string | null;
@@ -68,18 +83,35 @@ interface UiStore {
 let toastId = 0;
 
 const LAST_TEXT_CHANNEL_KEY = 'diskort-last-text-channel';
+const MEMBER_LIST_KEY = 'diskort-member-list';
 
-function storedTextChannel(): string | null {
+function stored(key: string): string | null {
   try {
-    return localStorage.getItem(LAST_TEXT_CHANNEL_KEY);
+    return localStorage.getItem(key);
   } catch {
     return null; // depolama kullanılamıyor
   }
 }
 
-const initialTextChannel = storedTextChannel();
+function store(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // depolama kullanılamıyor
+  }
+}
+
+const initialTextChannel = stored(LAST_TEXT_CHANNEL_KEY);
 
 export const useUi = create<UiStore>()((set, get) => ({
+  memberListOpen: stored(MEMBER_LIST_KEY) !== '0',
+  toggleMemberList: () => {
+    const memberListOpen = !get().memberListOpen;
+    store(MEMBER_LIST_KEY, memberListOpen ? '1' : '0');
+    set({ memberListOpen });
+  },
+  banUser: null,
+  setBanUser: (banUser) => set({ banUser, contextMenu: null }),
   view: initialTextChannel ? { kind: 'text', channelId: initialTextChannel } : { kind: 'home' },
   lastTextChannelId: initialTextChannel,
   setView: (view) => {
@@ -87,11 +119,7 @@ export const useUi = create<UiStore>()((set, get) => ({
       set({ view });
       return;
     }
-    try {
-      localStorage.setItem(LAST_TEXT_CHANNEL_KEY, view.channelId);
-    } catch {
-      // depolama kullanılamıyor
-    }
+    store(LAST_TEXT_CHANNEL_KEY, view.channelId);
     set({ view, lastTextChannelId: view.channelId });
   },
   modal: null,

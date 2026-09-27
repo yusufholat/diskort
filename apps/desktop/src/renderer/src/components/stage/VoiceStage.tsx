@@ -1,15 +1,15 @@
 import { useMemo, type ReactNode } from 'react';
 import { Eye, HeadphoneOff, Headphones, Mic, MicOff, Monitor, MonitorOff, PhoneOff, Volume2 } from 'lucide-react';
-import type { VoiceState } from '@diskort/shared';
+import { Permission, type VoiceState } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
-import { adminVoiceItems } from '../../lib/adminMenu';
+import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
-import { membersOf, useGuild, useSession } from '@diskort/client-core';
+import { membersOf, useCan, useGuild, useMemberColor, useSession } from '@diskort/client-core';
 import { useSettings } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
 import { Avatar } from '../ui/Avatar';
-import { LiveBadge } from '../sidebar/VoiceMemberRow';
+import { LiveBadge, VoiceStateIcons } from '../sidebar/VoiceMemberRow';
 import { StreamView } from './StreamView';
 
 type Tile = { kind: 'user'; state: VoiceState } | { kind: 'stream'; userId: string };
@@ -109,6 +109,7 @@ function TileView({ tile, compact }: { tile: Tile; compact?: boolean }) {
 
 function ParticipantTile({ state, compact }: { state: VoiceState; compact?: boolean }) {
   const user = useGuild((s) => s.users[state.userId]);
+  const color = useMemberColor(state.userId);
   const speaking = useVoice((s) => s.speaking[state.userId] === true);
   const selfId = useSession((s) => s.user?.id);
   const localMuted = useSettings((s) => s.localMutes[state.userId] === true);
@@ -123,21 +124,19 @@ function ParticipantTile({ state, compact }: { state: VoiceState; compact?: bool
       style={{ background: `color-mix(in srgb, ${user?.avatarColor ?? '#5865f2'} 35%, #1e1f22)` }}
       onContextMenu={(e) => {
         e.preventDefault();
-        if (state.userId !== selfId) {
-          openContextMenu({
-            x: e.clientX,
-            y: e.clientY,
-            userId: state.userId,
-            items: adminVoiceItems(state.userId, user?.displayName),
-          });
+        const isSelf = state.userId === selfId;
+        const items = memberMenuItems(state.userId);
+        if (!isSelf || items.length > 0) {
+          openContextMenu({ x: e.clientX, y: e.clientY, userId: isSelf ? undefined : state.userId, items });
         }
       }}
     >
       <Avatar user={user} size={compact ? 44 : 80} speaking={speaking} />
       <div className="absolute bottom-2 left-2 flex max-w-[85%] items-center gap-1.5 rounded bg-black/50 px-2 py-0.5 text-sm text-white">
-        {(state.selfMute || localMuted) && !state.selfDeaf && <MicOff size={14} className="text-danger" />}
-        {state.selfDeaf && <HeadphoneOff size={14} className="text-danger" />}
-        <span className="truncate">{user?.displayName}</span>
+        <VoiceStateIcons state={state} localMuted={localMuted} size={14} />
+        <span className="truncate" style={color ? { color } : undefined}>
+          {user?.displayName}
+        </span>
       </div>
     </div>
   );
@@ -174,13 +173,16 @@ function CallControls() {
   const selfDeaf = useSettings((s) => s.selfDeaf);
   const sharing = useVoice((s) => s.sharing);
   const connected = useVoice((s) => s.status === 'connected');
+  const micAllowed = useVoice((s) => s.micAllowed);
+  const channelId = useVoice((s) => s.channelId);
+  const canStream = useCan(Permission.STREAM, channelId ?? undefined);
   const openModal = useUi((s) => s.openModal);
-  const muted = selfMute || selfDeaf;
+  const muted = selfMute || selfDeaf || !micAllowed;
 
   return (
     <div className="flex h-20 shrink-0 items-center justify-center gap-3">
       <RoundButton
-        title={muted ? 'Sesi Aç' : 'Sustur'}
+        title={!micAllowed ? 'Konuşma iznin yok' : muted ? 'Sesi Aç' : 'Sustur'}
         danger={muted}
         onClick={() => voice.toggleMute()}
       >
@@ -194,9 +196,9 @@ function CallControls() {
         {selfDeaf ? <HeadphoneOff size={22} /> : <Headphones size={22} />}
       </RoundButton>
       <RoundButton
-        title={sharing ? 'Yayını Durdur' : 'Ekranını Paylaş'}
+        title={sharing ? 'Yayını Durdur' : canStream ? 'Ekranını Paylaş' : 'Bu kanalda ekran paylaşma iznin yok'}
         active={sharing}
-        disabled={!connected}
+        disabled={!connected || (!sharing && !canStream)}
         onClick={() => (sharing ? void voice.stopScreenShare() : openModal({ type: 'screenPicker' }))}
       >
         {sharing ? <MonitorOff size={22} /> : <Monitor size={22} />}

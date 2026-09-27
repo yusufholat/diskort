@@ -17,6 +17,7 @@ export {
   outranksUser,
   overwriteState,
   permissionsOf,
+  roleIsBelowFor,
   rolesOf,
   setOverwriteState,
   sortedRoles,
