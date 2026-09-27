@@ -220,10 +220,19 @@ function GifGrid({ onPick }: { onPick: (gif: GifResult) => void }) {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  tabs: { flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingBottom: 8 },
-  tab: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
+  // Menülerle aynı dilde bölümlü seçici: seçili sekme yükseltilmiş kutu
+  tabs: {
+    flexDirection: 'row',
+    gap: 4,
+    marginHorizontal: 12,
+    marginBottom: 10,
+    padding: 4,
+    borderRadius: 12,
+    backgroundColor: colors.rail,
+  },
+  tab: { flex: 1, alignItems: 'center', paddingVertical: 7, borderRadius: 9 },
   tabActive: { backgroundColor: colors.active },
-  tabText: { color: colors.muted, fontSize: 15, fontWeight: '600' },
+  tabText: { color: colors.muted, fontSize: 14.5, fontWeight: '700' },
   tabTextActive: { color: colors.head },
   gifs: { flex: 1 },
   search: {
@@ -234,7 +243,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     paddingHorizontal: 12,
     borderRadius: 10,
-    backgroundColor: colors.input,
+    backgroundColor: colors.rail,
   },
   searchInput: { flex: 1, color: colors.text, fontSize: 15, paddingVertical: 9 },
   heading: { color: colors.muted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', marginBottom: 6 },

@@ -1,13 +1,15 @@
-import { useMemo, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { memo, useCallback, useMemo, useState } from 'react';
+import { Animated, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { DM_GROUP_MAX_PARTICIPANTS, DM_NAME_MAX_LENGTH } from '@diskort/shared';
+import { DM_GROUP_MAX_PARTICIPANTS, DM_NAME_MAX_LENGTH, type User } from '@diskort/shared';
 import { addDmParticipant, createDm, dmTitle, useGuild, useSession } from '@diskort/client-core';
 import { Avatar } from '../components/Avatar';
+import { EmptyState } from '../components/States';
 import { Button } from '../components/ui';
-import { colors, radius } from '../theme';
+import { animateNextLayout, useBump } from '../motion';
+import { colors, font, radius, ripple, space } from '../theme';
 
 const NOBODY: string[] = [];
 
@@ -42,10 +44,16 @@ export default function NewDmScreen() {
       );
   }, [users, online, selfId, existing, query]);
 
-  const toggle = (id: string): void =>
-    setSelected((current) =>
-      current.includes(id) ? current.filter((x) => x !== id) : current.length < capacity ? [...current, id] : current,
-    );
+  const toggle = useCallback(
+    (id: string): void => {
+      // Seçilenler şeridi açılıp kapanırken ve kişi eklenip çıkarken yumuşak kayma
+      animateNextLayout(180);
+      setSelected((current) =>
+        current.includes(id) ? current.filter((x) => x !== id) : current.length < capacity ? [...current, id] : current,
+      );
+    },
+    [capacity],
+  );
 
   const makesGroup = !group && selected.length > 1;
 
@@ -74,6 +82,30 @@ export default function NewDmScreen() {
           ? `${dmTitle(group, users, selfId)} grubuna eklenecek kişileri seç. Eklenenler geçmiş mesajları da görür.`
           : `Bir kişi seçersen bire bir konuşma, birden çok kişi seçersen grup başlar (en fazla ${DM_GROUP_MAX_PARTICIPANTS} kişi).`}
       </Text>
+      {selected.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          style={{ flexGrow: 0 }}
+          contentContainerStyle={styles.chips}
+        >
+          {selected.map((id) => (
+            <Pressable
+              key={id}
+              onPress={() => toggle(id)}
+              style={styles.chip}
+              accessibilityLabel={`${users[id]?.displayName ?? 'Kişi'} seçimini kaldır`}
+            >
+              <Avatar user={users[id]} size={22} />
+              <Text style={styles.chipText} numberOfLines={1}>
+                {users[id]?.displayName ?? '…'}
+              </Text>
+              <Ionicons name="close" size={14} color={colors.muted} />
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
       <View style={styles.search}>
         <Ionicons name="search" size={18} color={colors.muted} />
         <TextInput
@@ -81,49 +113,43 @@ export default function NewDmScreen() {
           onChangeText={setQuery}
           placeholder="Kullanıcı ara"
           placeholderTextColor={colors.faint}
-          selectionColor={colors.brand}
+          selectionColor="rgba(88,101,242,0.5)"
+          cursorColor={colors.head}
           autoCapitalize="none"
           autoCorrect={false}
           style={styles.searchInput}
         />
+        {query ? (
+          <Pressable hitSlop={10} onPress={() => setQuery('')} accessibilityLabel="Aramayı temizle">
+            <Ionicons name="close-circle" size={18} color={colors.muted} />
+          </Pressable>
+        ) : null}
       </View>
       <FlatList
         data={candidates}
         keyExtractor={(u) => u.id}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingBottom: 8 }}
+        keyboardDismissMode="on-drag"
+        contentContainerStyle={{ paddingBottom: space.sm, flexGrow: 1 }}
+        extraData={selected}
         ListEmptyComponent={
-          <Text style={styles.empty}>{query ? 'Eşleşen kimse yok.' : 'Eklenebilecek kimse yok.'}</Text>
+          <EmptyState
+            icon={query ? 'search' : 'people-outline'}
+            tone="muted"
+            title={query ? 'Eşleşen kimse yok' : 'Eklenebilecek kimse yok'}
+            text={query ? 'Adı ya da kullanıcı adını denetleyip yeniden ara.' : undefined}
+          />
         }
         renderItem={({ item }) => {
           const on = selected.includes(item.id);
-          const disabled = !on && selected.length >= capacity;
           return (
-            <Pressable
-              onPress={() => toggle(item.id)}
-              disabled={disabled}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: on, disabled }}
-              style={({ pressed }) => [
-                styles.row,
-                on && { backgroundColor: colors.active },
-                pressed && { backgroundColor: colors.hover },
-                disabled && { opacity: 0.4 },
-              ]}
-            >
-              <Avatar user={item} size={38} online={Boolean(online[item.id])} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.name} numberOfLines={1}>
-                  {item.displayName}
-                </Text>
-                <Text style={styles.sub} numberOfLines={1}>
-                  @{item.username}
-                </Text>
-              </View>
-              <View style={[styles.check, on && styles.checkOn]}>
-                {on && <Ionicons name="checkmark" size={16} color="#fff" />}
-              </View>
-            </Pressable>
+            <CandidateRow
+              user={item}
+              on={on}
+              online={Boolean(online[item.id])}
+              disabled={!on && selected.length >= capacity}
+              onToggle={toggle}
+            />
           );
         }}
       />
@@ -135,7 +161,8 @@ export default function NewDmScreen() {
             maxLength={DM_NAME_MAX_LENGTH}
             placeholder="Grup adı (isteğe bağlı)"
             placeholderTextColor={colors.faint}
-            selectionColor={colors.brand}
+            selectionColor="rgba(88,101,242,0.5)"
+            cursorColor={colors.head}
             style={styles.nameInput}
           />
         )}
@@ -156,52 +183,108 @@ export default function NewDmScreen() {
   );
 }
 
+/** Seçilebilecek kişi: dokununca onay kutusu zıplayarak işaretlenir */
+const CandidateRow = memo(function CandidateRow({
+  user,
+  on,
+  online,
+  disabled,
+  onToggle,
+}: {
+  user: User;
+  on: boolean;
+  online: boolean;
+  disabled: boolean;
+  onToggle: (id: string) => void;
+}) {
+  const bump = useBump(on);
+  return (
+    <View style={styles.rowWrap}>
+      <Pressable
+        onPress={() => onToggle(user.id)}
+        disabled={disabled}
+        android_ripple={ripple.row}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: on, disabled }}
+        accessibilityLabel={user.displayName}
+        style={[styles.row, on && { backgroundColor: colors.hover }, disabled && { opacity: 0.4 }]}
+      >
+        <Avatar user={user} size={38} online={online} surface={on ? colors.hover : colors.main} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.name} numberOfLines={1}>
+            {user.displayName}
+          </Text>
+          <Text style={styles.sub} numberOfLines={1}>
+            @{user.username}
+          </Text>
+        </View>
+        <Animated.View style={[styles.check, on && styles.checkOn, { transform: [{ scale: bump }] }]}>
+          {on && <Ionicons name="checkmark" size={16} color="#fff" />}
+        </Animated.View>
+      </Pressable>
+    </View>
+  );
+});
+
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: colors.side },
-  hint: { color: colors.muted, fontSize: 14, paddingHorizontal: 16, paddingTop: 14, lineHeight: 20 },
+  page: { flex: 1, backgroundColor: colors.main },
+  hint: { color: colors.muted, fontSize: font.small, paddingHorizontal: space.lg, paddingTop: 14, lineHeight: 20 },
+  chips: { gap: space.sm, paddingHorizontal: space.md, paddingTop: space.md },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: 180,
+    paddingLeft: 4,
+    paddingRight: 10,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.brandSoft,
+  },
+  chipText: { color: colors.head, fontSize: font.small, fontWeight: '600', flexShrink: 1 },
   search: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    margin: 12,
-    paddingHorizontal: 12,
-    height: 44,
+    gap: space.sm,
+    margin: space.md,
+    paddingHorizontal: space.md,
+    height: 42,
     borderRadius: radius.md,
-    backgroundColor: colors.input,
+    backgroundColor: colors.rail,
   },
-  searchInput: { flex: 1, color: colors.text, fontSize: 16 },
+  searchInput: { flex: 1, color: colors.text, fontSize: font.row, paddingVertical: 0 },
+  rowWrap: { paddingHorizontal: space.sm, paddingVertical: 1 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: space.md,
     minHeight: 56,
-    marginHorizontal: 8,
-    paddingHorizontal: 10,
-    borderRadius: 8,
+    paddingHorizontal: space.sm + 2,
+    borderRadius: radius.md,
+    overflow: 'hidden',
   },
-  name: { color: colors.text, fontSize: 16, fontWeight: '500' },
-  sub: { color: colors.muted, fontSize: 13 },
+  name: { color: colors.text, fontSize: font.row, fontWeight: '600' },
+  sub: { color: colors.muted, fontSize: font.caption + 0.5 },
   check: {
     width: 24,
     height: 24,
-    borderRadius: 6,
+    borderRadius: 12,
     borderWidth: 2,
-    borderColor: colors.muted,
+    borderColor: colors.faint,
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkOn: { backgroundColor: colors.brand, borderColor: colors.brand },
-  empty: { color: colors.muted, fontSize: 15, textAlign: 'center', padding: 24 },
   footer: {
     gap: 10,
-    padding: 12,
+    padding: space.md,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.line,
     backgroundColor: colors.side,
   },
   nameInput: {
     height: 46,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     backgroundColor: colors.input,
     color: colors.text,
     paddingHorizontal: 12,
