@@ -237,3 +237,14 @@ export {
   type MdInline,
   type MdStyle,
 } from './markdown';
+export {
+  clearSearchResults,
+  jumpToSearchResult,
+  loadMoreSearch,
+  onlineViewerCount,
+  runSearch,
+  searchScopeKey,
+  useOnlineViewerCount,
+  useSearch,
+  type SearchState,
+} from './search';
