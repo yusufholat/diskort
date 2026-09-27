@@ -284,11 +284,11 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
         {message.status === 'failed' && message.nonce && (
           <div className="mt-0.5 text-xs text-text-muted">
             Gönderilemedi.{' '}
-            <button className="text-[#00a8fc] hover:underline" onClick={() => retryMessage(message.channelId, message.nonce!)}>
+            <button className="text-link hover:underline" onClick={() => retryMessage(message.channelId, message.nonce!)}>
               Tekrar dene
             </button>{' '}
             ·{' '}
-            <button className="text-[#00a8fc] hover:underline" onClick={() => discardMessage(message.channelId, message.nonce!)}>
+            <button className="text-link hover:underline" onClick={() => discardMessage(message.channelId, message.nonce!)}>
               Vazgeç
             </button>
           </div>
@@ -440,8 +440,8 @@ function EditBox({ message }: { message: LocalMessage }) {
         className="block w-full resize-none rounded-lg border border-transparent bg-bg-hover px-4 py-2.5 leading-[1.375rem] text-text-normal outline-none transition-colors focus:border-brand/50"
       />
       <div className="mt-1 text-xs text-text-muted">
-        iptal için <span className="text-[#00a8fc]">esc</span> • kaydetmek için{' '}
-        <span className="text-[#00a8fc]">enter</span>
+        iptal için <span className="text-link">esc</span> • kaydetmek için{' '}
+        <span className="text-link">enter</span>
       </div>
     </div>
   );

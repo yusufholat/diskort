@@ -5,9 +5,9 @@ type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'success';
 
 const variants: Record<ButtonVariant, string> = {
   primary: 'bg-brand hover:bg-brand-hover text-white',
-  secondary: 'bg-control hover:bg-control-hover text-white',
+  secondary: 'bg-control hover:bg-control-hover text-on-control',
   danger: 'bg-danger hover:bg-danger-hover text-white',
-  success: 'bg-ok hover:bg-[#1a8b4c] text-white',
+  success: 'bg-ok hover:bg-ok-hover text-white',
   ghost: 'bg-transparent hover:underline text-text-normal',
 };
 
@@ -73,7 +73,7 @@ export function Toggle({
         onClick={() => onChange(!checked)}
         className={cn(
           'relative mt-0.5 h-6 w-10 shrink-0 rounded-full transition-colors',
-          checked ? 'bg-ok' : 'bg-[#80848e]',
+          checked ? 'bg-ok' : 'bg-toggle-off',
         )}
       >
         <span

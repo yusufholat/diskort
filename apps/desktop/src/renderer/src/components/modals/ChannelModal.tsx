@@ -138,7 +138,7 @@ function ChannelForm({
                 <span
                   className={cn(
                     'h-5 w-5 shrink-0 rounded-full border-2 transition-[border-width,border-color] duration-150',
-                    type === t.type ? 'border-[6px] border-white' : 'border-text-muted',
+                    type === t.type ? 'border-[6px] border-text-head' : 'border-text-muted',
                   )}
                 />
               </button>

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import type { LinkQuality } from '@diskort/client-core';
-import { colors, createStyles } from '../theme';
+import { colors, createStyles, tint } from '../theme';
 import { useConnectionStats, useLastPing } from '../voice/connectionStats';
 import { useVoice, type VoiceQuality } from '../voice/voice';
 import { ConnectionSheet } from './ConnectionSheet';
@@ -42,7 +42,7 @@ export function SignalBars({ bars, color, size = 16 }: { bars: number; color: st
             width,
             height: Math.round(size * h),
             borderRadius: width / 2,
-            backgroundColor: i < bars ? color : 'rgba(255,255,255,0.18)',
+            backgroundColor: i < bars ? color : tint(0.18),
           }}
         />
       ))}

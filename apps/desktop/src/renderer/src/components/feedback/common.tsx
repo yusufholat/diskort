@@ -18,17 +18,17 @@ import { Skeleton } from '../ui/Skeleton';
 export const TYPE_ICONS: Record<FeedbackType, typeof Bug> = { hata: Bug, oneri: Lightbulb, diger: MessageCircle };
 
 const TYPE_COLORS: Record<FeedbackType, string> = {
-  hata: 'text-[#fa777c]',
+  hata: 'text-danger-text',
   oneri: 'text-warn',
-  diger: 'text-[#00a8fc]',
+  diger: 'text-link',
 };
 
 const STATUS_COLORS: Record<FeedbackStatus, string> = {
-  yeni: 'bg-brand/20 text-[#949cf7]',
-  incelendi: 'bg-[#00a8fc]/15 text-[#00a8fc]',
+  yeni: 'bg-brand/20 text-mention',
+  incelendi: 'bg-link/15 text-link',
   planlandi: 'bg-warn/15 text-warn',
-  tamamlandi: 'bg-ok/15 text-[#2dc770]',
-  reddedildi: 'bg-white/10 text-text-muted',
+  tamamlandi: 'bg-ok/15 text-ok-text',
+  reddedildi: 'bg-tint text-text-muted',
 };
 
 export function TypeBadge({ type, className }: { type: FeedbackType; className?: string }) {
@@ -194,7 +194,7 @@ export function ContextTable({ context }: { context: FeedbackContext }) {
           ) : (
             <ul className="flex flex-col gap-0.5">
               {errors.map((e, i) => (
-                <li key={i} className="font-mono text-xs break-words text-[#fa777c] select-text">
+                <li key={i} className="font-mono text-xs break-words text-danger-text select-text">
                   {e}
                 </li>
               ))}

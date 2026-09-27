@@ -8,7 +8,7 @@ import { bridge, isWindows } from '../../lib/bridge';
 import { confirmDialog } from '../../lib/dialog';
 import { useEscapeLayer } from '../../lib/escape';
 import { usePresenceClosing } from '../../lib/motion';
-import { THEMES } from '../../lib/theme';
+import { THEMES, themeVars } from '../../lib/theme';
 import { cn } from '../../lib/utils';
 import { useSettings, type ScreenCodec, type ScreenPresetId, type ThemeId } from '../../stores/settings';
 import { toast, useUi, type SettingsSection } from '../../stores/ui';
@@ -189,7 +189,7 @@ function AccountSection() {
             onClick={() => void save({ avatarColor: color })}
             className={cn(
               'h-10 w-10 rounded-full transition-transform hover:scale-110',
-              user.avatarColor === color && 'ring-2 ring-white ring-offset-2 ring-offset-bg-main',
+              user.avatarColor === color && 'ring-2 ring-text-head ring-offset-2 ring-offset-bg-main',
             )}
             style={{ background: color }}
             aria-label={color}
@@ -204,11 +204,48 @@ function AccountSection() {
   );
 }
 
-/** Tema önizlemesindeki renkler (kanal listesi, sohbet, mesaj satırları, yazma kutusu) */
-const THEME_PREVIEW: Record<ThemeId, { rail: string; side: string; main: string; input: string; line: string; row: string }> = {
-  dark: { rail: '#1e1f22', side: '#2b2d31', main: '#313338', input: '#383a40', line: '#3f4147', row: '#404249' },
-  black: { rail: '#000000', side: '#0b0b0b', main: '#000000', input: '#161616', line: '#2a2a2a', row: '#262626' },
-};
+/**
+ * Temanın küçük önizlemesi: sunucu şeridi, kanal listesi, iki mesaj, bağlantı ve yazma kutusu. Kutuya
+ * temanın belirteçleri yazılır, içindeki sınıflar (bg-bg-main, text-link…) o temanın renkleriyle çizilir.
+ */
+function ThemePreview({ theme }: { theme: ThemeId }) {
+  return (
+    <div
+      className="flex h-24 overflow-hidden rounded-md border border-line bg-bg-main"
+      style={themeVars(theme)}
+      aria-hidden
+    >
+      <div className="flex w-[13%] flex-col items-center gap-1.5 bg-bg-rail pt-2">
+        <div className="h-4 w-4 rounded-[6px] bg-brand" />
+        <div className="h-4 w-4 rounded-full bg-bg-raised" />
+        <div className="h-4 w-4 rounded-full bg-bg-raised" />
+      </div>
+      <div className="flex w-[27%] flex-col gap-1.5 bg-bg-side p-2">
+        <div className="h-1.5 w-3/5 rounded-full bg-text-muted/50" />
+        <div className="h-2.5 w-full rounded-sm bg-bg-active" />
+        <div className="h-1.5 w-4/5 rounded-full bg-text-faint/60" />
+        <div className="h-1.5 w-2/3 rounded-full bg-text-faint/60" />
+      </div>
+      <div className="flex flex-1 flex-col justify-end gap-1.5 p-2">
+        <div className="flex items-center gap-1.5">
+          <div className="h-3.5 w-3.5 shrink-0 rounded-full bg-ok" />
+          <div className="flex flex-1 flex-col gap-1">
+            <div className="h-1.5 w-1/3 rounded-full bg-text-head" />
+            <div className="h-1.5 w-4/5 rounded-full bg-text-normal/70" />
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 rounded-sm bg-msg-hover">
+          <div className="h-3.5 w-3.5 shrink-0 rounded-full bg-warn" />
+          <div className="flex flex-1 flex-col gap-1">
+            <div className="h-1.5 w-1/4 rounded-full bg-text-head" />
+            <div className="h-1.5 w-1/2 rounded-full bg-link" />
+          </div>
+        </div>
+        <div className="mt-0.5 h-3.5 rounded bg-bg-input" />
+      </div>
+    </div>
+  );
+}
 
 function AppearanceSection() {
   const theme = useSettings((s) => s.theme);
@@ -219,10 +256,9 @@ function AppearanceSection() {
     <div>
       <h2 className="mb-5 text-xl font-bold text-text-head">Görünüm</h2>
       <SectionTitle>Tema</SectionTitle>
-      <div className="grid grid-cols-2 gap-4" role="radiogroup" aria-label="Tema">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-3" role="radiogroup" aria-label="Tema">
         {THEMES.map((t) => {
           const selected = theme === t.id;
-          const p = THEME_PREVIEW[t.id];
           return (
             <button
               key={t.id}
@@ -230,24 +266,11 @@ function AppearanceSection() {
               aria-checked={selected}
               onClick={() => set({ theme: t.id })}
               className={cn(
-                'press group rounded-lg border-2 bg-bg-side p-2.5 text-left transition-colors',
+                'press group flex flex-col rounded-lg border-2 bg-bg-side p-2.5 text-left transition-colors',
                 selected ? 'border-brand' : 'border-edge hover:border-edge-strong',
               )}
             >
-              {/* Küçük önizleme: sunucu şeridi, kanal listesi, sohbet */}
-              <div className="flex h-24 overflow-hidden rounded-md border" style={{ borderColor: p.line, background: p.main }}>
-                <div className="w-[12%]" style={{ background: p.rail }} />
-                <div className="flex w-[28%] flex-col gap-1.5 p-2" style={{ background: p.side }}>
-                  <div className="h-1.5 w-4/5 rounded-full" style={{ background: p.row }} />
-                  <div className="h-1.5 w-3/5 rounded-full" style={{ background: p.line }} />
-                  <div className="h-1.5 w-2/3 rounded-full" style={{ background: p.line }} />
-                </div>
-                <div className="flex flex-1 flex-col justify-end gap-1.5 p-2">
-                  <div className="h-1.5 w-1/3 rounded-full bg-[#949ba4]/60" />
-                  <div className="h-1.5 w-4/5 rounded-full bg-[#dbdee1]/80" />
-                  <div className="mt-1 h-3.5 rounded" style={{ background: p.input }} />
-                </div>
-              </div>
+              <ThemePreview theme={t.id} />
               <div className="mt-2.5 flex items-center gap-2">
                 <span
                   className={cn(

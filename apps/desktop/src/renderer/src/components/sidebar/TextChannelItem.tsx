@@ -25,7 +25,7 @@ export function TextChannelItem({ channel, selected }: { channel: Channel; selec
       {(order === 'before' || order === 'after') && <DropLine after={order === 'after'} />}
       {/* Okunmamış işareti: belirirken büyür, üstüne gelince uzar */}
       {highlight && (
-        <span className="anim-indicator-in absolute top-1/2 -left-2 h-2 w-1 origin-left -translate-y-1/2 rounded-r bg-white transition-[height] duration-150 group-hover/item:h-4" />
+        <span className="anim-indicator-in absolute top-1/2 -left-2 h-2 w-1 origin-left -translate-y-1/2 rounded-r bg-text-head transition-[height] duration-150 group-hover/item:h-4" />
       )}
       <button
         className={cn(

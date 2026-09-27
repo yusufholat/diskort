@@ -6,7 +6,7 @@
 
 /* ---------- Metin seçimi ve imleç ---------- */
 ::selection {
-  background: rgb(88 101 242 / 0.45);
+  background: color-mix(in srgb, var(--color-brand) 45%, transparent);
 }
 input,
 textarea {
@@ -96,7 +96,7 @@ input[type='range']:active::-webkit-slider-thumb {
   transform: scale(1.2, 1.08);
   box-shadow:
     0 1px 3px rgb(0 0 0 / 0.4),
-    0 0 0 4px rgb(88 101 242 / 0.35);
+    0 0 0 4px color-mix(in srgb, var(--color-brand) 35%, transparent);
 }
 input[type='range']:focus-visible {
   outline: 2px solid var(--color-brand);
@@ -116,7 +116,7 @@ input[type='radio'] {
   width: 18px;
   height: 18px;
   margin: 0;
-  border: 2px solid #80848e;
+  border: 2px solid var(--color-check);
   background: transparent center / 12px no-repeat;
   cursor: pointer;
   transition:
@@ -132,7 +132,7 @@ input[type='radio'] {
 }
 input[type='checkbox']:hover,
 input[type='radio']:hover {
-  border-color: #b5bac1;
+  border-color: var(--color-check-hover);
 }
 input[type='checkbox']:checked {
   border-color: var(--color-brand);

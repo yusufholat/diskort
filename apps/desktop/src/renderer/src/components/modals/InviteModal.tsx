@@ -65,7 +65,7 @@ export function InviteModal() {
             Davet en az 1 gün daha geçerli, kullanım sınırı yok{invite ? ` · Kod: ${invite.code}` : ''}.{' '}
             <button
               type="button"
-              className="text-[#00a8fc] hover:underline"
+              className="text-link hover:underline"
               onClick={() => openModal({ type: 'serverSettings', section: 'invites' })}
             >
               Davet ayarları

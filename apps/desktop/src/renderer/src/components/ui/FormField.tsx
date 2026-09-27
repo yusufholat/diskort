@@ -39,14 +39,14 @@ export function FormField({
       <span
         className={cn(
           'mb-2 block text-xs font-bold tracking-wide uppercase transition-colors',
-          error ? 'text-[#fa777c]' : 'text-text-muted',
+          error ? 'text-danger-text' : 'text-text-muted',
         )}
       >
         {label}
       </span>
       {children}
       {error ? (
-        <span key={error} role="alert" className="anim-slide-down mt-1.5 flex items-center gap-1.5 text-xs font-medium text-[#fa777c]">
+        <span key={error} role="alert" className="anim-slide-down mt-1.5 flex items-center gap-1.5 text-xs font-medium text-danger-text">
           <CircleAlert size={14} className="shrink-0" />
           {error}
         </span>
@@ -118,7 +118,7 @@ export function FormAlert({ message, shakeKey, className }: { message: string | 
     <div
       ref={ref}
       role="alert"
-      className={cn('anim-slide-down mb-4 flex items-start gap-2 rounded-[3px] bg-danger/15 px-3 py-2 text-sm text-[#fa777c]', className)}
+      className={cn('anim-slide-down mb-4 flex items-start gap-2 rounded-[3px] bg-danger/15 px-3 py-2 text-sm text-danger-text', className)}
     >
       <CircleAlert size={16} className="mt-px shrink-0" />
       <span>{message}</span>

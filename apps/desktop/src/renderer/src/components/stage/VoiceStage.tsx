@@ -168,7 +168,7 @@ function StreamTile({ userId, compact }: { userId: string; compact?: boolean }) 
       </div>
       {!compact && <div className="text-sm text-text-muted">{user?.displayName} ekranını paylaşıyor</div>}
       <button
-        className="press flex items-center gap-2 rounded bg-control px-4 py-2 text-sm font-medium text-white hover:bg-control-hover"
+        className="press flex items-center gap-2 rounded bg-control px-4 py-2 text-sm font-medium text-on-control hover:bg-control-hover"
         onClick={() => voice.watchStream(userId)}
       >
         <Eye size={16} /> Yayını İzle
@@ -245,14 +245,14 @@ function RoundButton({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        'press-icon flex h-12 w-12 items-center justify-center rounded-full text-white disabled:opacity-40',
+        'press-icon flex h-12 w-12 items-center justify-center rounded-full disabled:opacity-40',
         hangup
-          ? 'w-16 bg-danger hover:bg-danger-hover'
+          ? 'w-16 bg-danger text-white hover:bg-danger-hover'
           : danger
-            ? 'bg-white text-bg-rail hover:bg-[#e3e5e8]'
+            ? 'bg-text-head text-bg-rail hover:opacity-85'
             : active
-              ? 'bg-ok hover:bg-[#1a8b4c]'
-              : 'bg-bg-raised hover:bg-bg-raised-hover',
+              ? 'bg-ok text-white hover:bg-ok-hover'
+              : 'bg-bg-raised text-text-head hover:bg-bg-raised-hover',
       )}
     >
       {/* Simge değişince kısa bir dönüşle yenisine geçer */}

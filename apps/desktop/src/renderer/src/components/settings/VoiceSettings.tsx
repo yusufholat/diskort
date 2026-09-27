@@ -97,7 +97,7 @@ function MicMeter({ editable }: { editable: boolean }) {
           onChange={(e) => set({ vadThresholdDb: Number(e.target.value) })}
         />
       ) : (
-        <div className="absolute top-1 h-6 w-0.5 bg-white/70" style={{ left: `${thresholdPct}%` }} />
+        <div className="absolute top-1 h-6 w-0.5 bg-text-head/70" style={{ left: `${thresholdPct}%` }} />
       )}
     </div>
   );
