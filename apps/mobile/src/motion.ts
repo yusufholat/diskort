@@ -114,6 +114,52 @@ export function useShake(): [Animated.Value, () => void] {
   return [x, run];
 }
 
+/** Hedef değiştikçe oraya yaylanan değer (görünür/gizli, açık/kapalı geçişleri); ilk çizimde oynamaz */
+export function useSpringTo(target: number, bounciness = 4): Animated.Value {
+  const value = useRef(new Animated.Value(target)).current;
+  useEffect(() => {
+    spring(value, target, bounciness).start();
+  }, [target, bounciness, value]);
+  return value;
+}
+
+/** Hedef değiştikçe oraya yumuşakça (ease-out) giden değer */
+export function useTimingTo(target: number, ms = 180): Animated.Value {
+  const value = useRef(new Animated.Value(target)).current;
+  useEffect(() => {
+    timing(value, target, ms).start();
+  }, [target, ms, value]);
+  return value;
+}
+
+/** İskeletlerin yavaş nabzı (0.55 ↔ 1): hepsi aynı ritimde atsın diye tek döngü paylaşılır */
+const pulseValue = new Animated.Value(0.55);
+let pulseUsers = 0;
+let pulseLoop: Animated.CompositeAnimation | null = null;
+
+export function usePulse(): Animated.Value {
+  useEffect(() => {
+    pulseUsers += 1;
+    if (pulseUsers === 1 && !reduceMotion) {
+      pulseLoop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseValue, { toValue: 1, duration: 750, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+          Animated.timing(pulseValue, { toValue: 0.55, duration: 750, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        ]),
+      );
+      pulseLoop.start();
+    }
+    return () => {
+      pulseUsers -= 1;
+      if (pulseUsers === 0) {
+        pulseLoop?.stop();
+        pulseLoop = null;
+      }
+    };
+  }, []);
+  return pulseValue;
+}
+
 /** Açık/kapalı durumuna göre görünür kalma: kapanış animasyonu bitene kadar true döner */
 export function usePresence(open: boolean, exitMs: number): boolean {
   const [mounted, setMounted] = useState(open);
