@@ -70,7 +70,7 @@ export function VoiceConnectionPanel() {
           disabled={!connected || (!sharing && !canStream)}
           aria-label={!canStream && !sharing ? 'Bu kanalda ekran paylaşma iznin yok' : undefined}
           className={cn(
-            'flex h-8 flex-1 items-center justify-center gap-2 rounded text-sm font-medium transition-colors',
+            'flex h-8 flex-1 items-center justify-center gap-2 rounded text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40',
             sharing ? 'bg-ok/20 text-ok hover:bg-ok/30' : 'bg-bg-hover text-text-normal hover:bg-bg-active',
           )}
           onClick={() => (sharing ? void voice.stopScreenShare() : openModal({ type: 'screenPicker' }))}

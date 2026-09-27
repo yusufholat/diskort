@@ -278,7 +278,7 @@ function RoleEditor({ role, everyone, onDeleted }: { role: Role; everyone: boole
               aria-label="Renksiz"
               disabled={!manageable}
               className={cn(
-                'flex h-8 w-8 items-center justify-center rounded border-2 border-[#99aab5] text-[#99aab5]',
+                'flex h-8 w-8 items-center justify-center rounded border-2 border-[#99aab5] text-[#99aab5] disabled:cursor-not-allowed disabled:opacity-50',
                 draft.color === null && 'ring-2 ring-white ring-offset-2 ring-offset-bg-main',
               )}
               onClick={() => {
@@ -294,7 +294,7 @@ function RoleEditor({ role, everyone, onDeleted }: { role: Role; everyone: boole
                 aria-label={color}
                 disabled={!manageable}
                 className={cn(
-                  'h-8 w-8 rounded transition-transform hover:scale-110 disabled:hover:scale-100',
+                  'h-8 w-8 rounded transition-transform hover:scale-110 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100',
                   draft.color === color && 'ring-2 ring-white ring-offset-2 ring-offset-bg-main',
                 )}
                 style={{ background: color }}
@@ -307,20 +307,22 @@ function RoleEditor({ role, everyone, onDeleted }: { role: Role; everyone: boole
           </div>
           <div className="mb-4 flex items-center gap-2">
             <span className="h-8 w-8 shrink-0 rounded" style={{ background: draft.color ?? '#99aab5' }} />
-            <TextInput
-              value={colorText}
-              disabled={!manageable}
-              maxLength={7}
-              placeholder="#rrggbb"
-              aria-label="Özel renk"
-              className="w-32 font-mono"
-              onChange={(e) => {
-                const text = e.target.value.trim();
-                setColorText(text);
-                if (text === '') set({ color: null });
-                else if (ROLE_COLOR_PATTERN.test(text)) set({ color: text.toLowerCase() });
-              }}
-            />
+            <div className="w-36 shrink-0">
+              <TextInput
+                value={colorText}
+                disabled={!manageable}
+                maxLength={7}
+                placeholder="#rrggbb"
+                aria-label="Özel renk"
+                className="font-mono"
+                onChange={(e) => {
+                  const text = e.target.value.trim();
+                  setColorText(text);
+                  if (text === '') set({ color: null });
+                  else if (ROLE_COLOR_PATTERN.test(text)) set({ color: text.toLowerCase() });
+                }}
+              />
+            </div>
             {colorText !== '' && !ROLE_COLOR_PATTERN.test(colorText) && (
               <span className="text-xs text-danger">Renk #rrggbb biçiminde olmalı.</span>
             )}

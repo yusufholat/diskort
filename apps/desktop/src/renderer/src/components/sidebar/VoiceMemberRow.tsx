@@ -1,9 +1,9 @@
 import { HeadphoneOff, MicOff } from 'lucide-react';
-import type { VoiceState } from '@diskort/shared';
+import { Permission, type VoiceState } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
-import { useGuild, useMemberColor, useSession } from '@diskort/client-core';
+import { can, useGuild, useMemberColor, useSession } from '@diskort/client-core';
 import { useSettings } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
@@ -17,19 +17,27 @@ export function LiveBadge({ className }: { className?: string }) {
   );
 }
 
+/** Üyenin bulunduğu kanalda konuşma yetkisi yok (yalnızca dinliyor) */
+export function useSuppressed(state: VoiceState): boolean {
+  return useGuild((s) => !can(s, state.userId, Permission.SPEAK, state.channelId));
+}
+
 /**
- * Ses durumu simgeleri: kendi susturması gri, yerel susturma ve sunucuda susturma/sağırlaştırma kırmızı
- * (Discord gibi).
+ * Ses durumu simgeleri: kendi susturması gri; yerel susturma, sunucuda susturma/sağırlaştırma ve kanalda
+ * konuşma yetkisi olmaması kırmızı (Discord gibi).
  */
 export function VoiceStateIcons({ state, localMuted, size = 15 }: { state: VoiceState; localMuted?: boolean; size?: number }) {
+  const suppressed = useSuppressed(state);
   const deaf = state.selfDeaf || state.serverDeaf;
-  const mutedByOthers = state.serverMute || localMuted;
+  const mutedByOthers = state.serverMute || localMuted || suppressed;
   return (
     <>
       {(state.selfMute || mutedByOthers) && !deaf && (
         <MicOff
           size={size}
-          aria-label={state.serverMute ? 'Sunucuda susturuldu' : 'Susturuldu'}
+          aria-label={
+            state.serverMute ? 'Sunucuda susturuldu' : suppressed ? 'Bu kanalda konuşma izni yok' : 'Susturuldu'
+          }
           className={mutedByOthers ? 'text-danger' : 'text-text-muted'}
         />
       )}

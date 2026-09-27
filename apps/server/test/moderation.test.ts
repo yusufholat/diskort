@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Permission as P } from '@diskort/shared';
 import { TrackSource } from '../src/livekit.js';
-import { startServer, type TestServer } from './helpers.js';
+import { connectGateway, startServer, type TestServer } from './helpers.js';
 
 let s: TestServer;
 
@@ -131,11 +131,26 @@ describe('seste yönetim', () => {
     );
     const role = await s.createRole(s.owner.token, { name: 'DJ', permissions: P.MOVE_MEMBERS });
     await s.giveRole(s.owner.token, mover.user.id, role.id);
+
+    // Taşıma istemci aracılığıyla: üyenin istemcisine VOICE_MOVE gider, kanalı istemci değiştirir
+    await s.app.listen({ port: 0, host: '127.0.0.1' });
+    const client = await connectGateway(s.app, member.token);
     expect((await s.req(mover.token, 'PATCH', `/api/users/${member.user.id}/voice`, { channelId: b!.id })).statusCode).toBe(
       204,
     );
-    expect(s.livekit.of('moveParticipant')).toEqual([[a!.id, member.user.id, b!.id]]);
+    await client.settle();
+    expect(client.of('VOICE_MOVE')).toEqual([{ channelId: b!.id }]);
+    client.ws.close();
+    // İstemci yeni kanala geçti (LiveKit bildirimi)
+    s.ctx.voice.join(member.user.id, b!.id);
     expect(s.ctx.voice.get(member.user.id)!.channelId).toBe(b!.id);
+
+    // Olayı tanımayan (eski) istemci süre dolunca sesten çıkarılır
+    s.ctx.moderation.move(member.user.id, a!.id, 30);
+    await new Promise((r) => setTimeout(r, 80));
+    expect(s.ctx.voice.get(member.user.id)).toBeUndefined();
+    expect(s.livekit.of('removeParticipant')).toContainEqual([b!.id, member.user.id]);
+    s.ctx.voice.join(member.user.id, b!.id);
 
     // Üye A kanalına bağlanamıyorsa oraya taşınamaz
     await s.req(s.owner.token, 'PATCH', `/api/channels/${a!.id}`, {

@@ -345,16 +345,8 @@ export function registerRoleRoutes(app: FastifyInstance, ctx: AppContext): void 
         serverDeaf: body.deaf ?? current.serverDeaf,
       });
     }
-    if (body.channelId === null) {
-      await moderation.disconnect(target.id);
-    } else if (body.channelId !== undefined) {
-      try {
-        await moderation.move(target.id, body.channelId);
-      } catch (err) {
-        req.log.warn({ err: String(err) }, 'üye taşınamadı');
-        return sendError(reply, 502, 'move_failed', 'Üye taşınamadı, ses sunucusu isteği reddetti.');
-      }
-    }
+    if (body.channelId === null) await moderation.disconnect(target.id);
+    else if (body.channelId !== undefined) moderation.move(target.id, body.channelId);
     return reply.code(204).send();
   });
 }

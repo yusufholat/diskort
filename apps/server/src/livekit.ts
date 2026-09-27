@@ -91,11 +91,6 @@ export class LiveKitService {
     }
   }
 
-  /** Bağlı katılımcıyı başka bir ses kanalına taşır (bağlantısı kopmadan). */
-  async moveParticipant(fromChannelId: string, userId: string, toChannelId: string): Promise<void> {
-    await this.rooms.moveParticipant(voiceRoomName(fromChannelId), userId, voiceRoomName(toChannelId));
-  }
-
   receiveWebhook(body: string, authHeader: string | undefined): Promise<WebhookEvent> {
     return this.receiver.receive(body, authHeader);
   }

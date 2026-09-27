@@ -1,5 +1,6 @@
 import { hasPermission, Permission, type User } from '@diskort/shared';
 import type { Store } from './db.js';
+import type { Gateway } from './gateway.js';
 import { TrackSource, type LiveKitService, type PublishSources } from './livekit.js';
 import type { PermissionService } from './permissions.js';
 import type { ServerFlags, VoiceStateStore } from './voiceState.js';
@@ -10,6 +11,7 @@ import type { ServerFlags, VoiceStateStore } from './voiceState.js';
  * - Sunucuda susturulan/sağırlaştırılan üyenin mikrofonu susturulur ve yayın izni alınır; sağırlaştırma
  *   dinlemeyi istemci uygular (LiveKit'te dinleme izni alınıp geri verilince abonelikler geri gelmiyor).
  * - Kanalı görme ya da bağlanma yetkisini kaybeden (veya atılan) sesten çıkarılır.
+ * - Başka kanala taşıma istemci aracılığıyla yapılır (bkz. move).
  */
 export class VoiceModeration {
   /** Kullanıcıya en son uygulanan izin (kanal + kaynaklar); gereksiz LiveKit çağrısı yapılmasın */
@@ -20,6 +22,7 @@ export class VoiceModeration {
     private readonly voice: VoiceStateStore,
     private readonly livekit: LiveKitService,
     private readonly permissions: PermissionService,
+    private readonly gateway: Pick<Gateway, 'sendToUsers'>,
   ) {
     // Sunucu yeniden başlasa da susturmalar sürsün
     for (const [userId, flags] of store.serverVoiceFlags()) voice.setServerFlags(userId, flags);
@@ -91,14 +94,22 @@ export class VoiceModeration {
     return true;
   }
 
-  /** Bağlı üyeyi başka kanala taşır (LiveKit bağlantısı kopmadan odasını değiştirir). */
-  async move(userId: string, channelId: string): Promise<void> {
+  /**
+   * Bağlı üyeyi başka kanala taşır. Kendi sunucumuzdaki LiveKit katılımcı taşımayı desteklemediği için
+   * istemcisine VOICE_MOVE gönderilir, istemci yeni kanala kendisi geçer (hedef kanala bağlanma yetkisi
+   * önceden denetlenir). Olayı tanımayan eski istemci bir süre sonra hâlâ eski kanaldaysa sesten çıkarılır.
+   */
+  move(userId: string, channelId: string, graceMs = MOVE_GRACE_MS): void {
     const state = this.voice.get(userId);
     if (!state || state.channelId === channelId) return;
-    await this.livekit.moveParticipant(state.channelId, userId, channelId);
-    // Webhook'lar da gelir; beklemeden güncelle ki herkes hemen görsün
-    this.voice.join(userId, channelId, state.streaming);
-    this.applied.delete(userId);
-    await this.enforce(userId, channelId);
+    this.gateway.sendToUsers([userId], { t: 'VOICE_MOVE', d: { channelId } });
+    const timer = setTimeout(() => {
+      const now = this.voice.get(userId);
+      if (now?.channelId === state.channelId && now.joinedAt === state.joinedAt) void this.disconnect(userId);
+    }, graceMs);
+    timer.unref();
   }
 }
+
+/** Taşınan istemcinin yeni kanala geçmesi için beklenen süre */
+const MOVE_GRACE_MS = 8000;

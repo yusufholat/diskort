@@ -1,9 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import type { VoiceState } from '@diskort/shared';
+import { Permission, type VoiceState } from '@diskort/shared';
+import { can, useGuild } from '@diskort/client-core';
 import { colors } from '../theme';
 
-/** Ses durumu simgesi: kendi ya da sunucu sağırlaştırması, kendi ya da sunucu susturması */
+/**
+ * Ses durumu simgesi: kendi ya da sunucu sağırlaştırması, kendi ya da sunucu susturması, kanalda konuşma
+ * yetkisinin olmaması.
+ */
 export function VoiceStateIcon({ state, size = 16 }: { state: VoiceState; size?: number }) {
+  const suppressed = useGuild((s) => !can(s, state.userId, Permission.SPEAK, state.channelId));
   if (state.selfDeaf || state.serverDeaf) {
     return (
       <Ionicons
@@ -14,13 +19,15 @@ export function VoiceStateIcon({ state, size = 16 }: { state: VoiceState; size?:
       />
     );
   }
-  if (state.selfMute || state.serverMute) {
+  if (state.selfMute || state.serverMute || suppressed) {
     return (
       <Ionicons
         name="mic-off"
         size={size}
         color={colors.danger}
-        accessibilityLabel={state.serverMute ? 'Sunucuda susturuldu' : 'Susturuldu'}
+        accessibilityLabel={
+          state.serverMute ? 'Sunucuda susturuldu' : suppressed ? 'Bu kanalda konuşma izni yok' : 'Susturuldu'
+        }
       />
     );
   }

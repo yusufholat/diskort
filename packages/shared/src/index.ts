@@ -301,6 +301,11 @@ export type GatewayServerMessage =
   | { t: 'GUILD_UPDATE'; d: Guild }
   /** Rollerden biri eklendi, değişti, silindi ya da sıralama değişti: tüm liste */
   | { t: 'ROLES_UPDATE'; d: { roles: Role[] } }
+  /**
+   * Yetkili biri seni başka ses kanalına taşıdı: seste olan istemci o kanala geçer. (Kendi sunucumuzdaki
+   * LiveKit katılımcı taşımayı desteklemiyor; bu olayı tanımayan eski istemci bir süre sonra sesten çıkarılır.)
+   */
+  | { t: 'VOICE_MOVE'; d: { channelId: string } }
   | { t: 'MESSAGE_CREATE'; d: Message }
   | { t: 'MESSAGE_UPDATE'; d: MessageUpdate }
   | { t: 'MESSAGE_DELETE'; d: { id: string; channelId: string } }

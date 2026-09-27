@@ -61,10 +61,10 @@ export async function buildApp(
   const auth = new AuthService(config.jwtSecret, store, permissions);
   const voice = new VoiceStateStore();
   const livekit = opts.livekit ?? new LiveKitService(config);
-  const moderation = new VoiceModeration(store, voice, livekit, permissions);
   const releases = opts.releases ?? new ReleaseService(config.githubRepo);
   const clientVersions = new ClientVersionPolicy(releases, config.enforceClientVersion, config.minMobileVersions);
   const gateway = new Gateway(store, auth, voice, guild, permissions, clientVersions, config.attachmentMaxBytes);
+  const moderation = new VoiceModeration(store, voice, livekit, permissions, gateway);
   const push = opts.push ?? new PushService(store, config.fcmServiceAccountFile, app.log);
   const ota = new OtaService(releases, app.log, opts.otaFetch);
   const attachments = new AttachmentService(

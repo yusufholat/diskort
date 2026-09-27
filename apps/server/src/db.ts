@@ -389,6 +389,8 @@ export class Store {
       return result;
     } catch (err) {
       this.db.exec('ROLLBACK');
+      // İşlem sırasında okunan (geri alınan) durum önbellekte kalmasın
+      this.permissionCache = null;
       throw err;
     }
   }

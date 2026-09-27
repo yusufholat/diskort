@@ -26,10 +26,6 @@ export class FakeLiveKit extends LiveKitService {
     this.calls.push({ method: 'muteMicrophone', args: [channelId, userId] });
   }
 
-  override async moveParticipant(from: string, userId: string, to: string): Promise<void> {
-    this.calls.push({ method: 'moveParticipant', args: [from, userId, to] });
-  }
-
   override async removeParticipant(channelId: string, userId: string): Promise<void> {
     this.calls.push({ method: 'removeParticipant', args: [channelId, userId] });
   }

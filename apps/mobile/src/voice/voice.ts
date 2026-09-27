@@ -1,5 +1,4 @@
 import { AndroidAudioTypePresets, AudioSession } from '@livekit/react-native';
-import { channelIdFromRoom } from '@diskort/shared';
 import { api, errorMessage, gateway, useGuild, useSession } from '@diskort/client-core';
 import {
   ConnectionState,
@@ -126,6 +125,10 @@ class MobileVoiceClient {
     // Sunucuya yeniden bağlanınca ses durumunu tekrar bildir
     gateway.on((msg) => {
       if (msg.t === 'READY') this.syncVoiceState();
+      // Yetkili biri seni başka ses kanalına taşıdı: o kanala geç
+      if (msg.t === 'VOICE_MOVE' && useVoice.getState().channelId) {
+        this.join(msg.d.channelId).catch((err: Error) => toast(err.message, 'error'));
+      }
     });
     // Sunucuda sağırlaştırılınca kimse duyulmaz (dinleme LiveKit'te kesilmez, uygulama uygular)
     useGuild.subscribe((next, prev) => {
@@ -430,14 +433,6 @@ class MobileVoiceClient {
         useVoice.setState({ micAllowed: canPublish(room, PROTO_SOURCE.microphone) });
         void this.applyLocalState();
         if (useVoice.getState().sharing && !canPublish(room, PROTO_SOURCE.screenShare)) void this.toggleScreenShare();
-      })
-      // Yetkili biri seni başka kanala taşıdı: bağlantı kopmadan oda değişir
-      .on(RoomEvent.Moved, (name) => {
-        const channelId = channelIdFromRoom(name);
-        if (this.room !== room || !channelId) return;
-        useVoice.setState({ channelId, speaking: {}, streams: {}, watching: null });
-        const channel = useGuild.getState().channels.find((c) => c.id === channelId)?.name ?? 'Ses kanalı';
-        VoiceService.update(channel, this.notificationText(), this.micMuted());
       })
       .on(RoomEvent.Reconnecting, () => useVoice.setState({ status: 'reconnecting' }))
       .on(RoomEvent.Reconnected, () => {

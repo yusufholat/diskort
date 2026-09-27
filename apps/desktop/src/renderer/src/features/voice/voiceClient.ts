@@ -13,7 +13,7 @@ import {
   type RemoteTrackPublication,
   type RemoteVideoTrack,
 } from 'livekit-client';
-import { channelIdFromRoom, type VoiceJoinResponse } from '@diskort/shared';
+import type { VoiceJoinResponse } from '@diskort/shared';
 import { api, errorMessage, useGuild, useSession, gateway } from '@diskort/client-core';
 import { bridge } from '../../lib/bridge';
 import { playSound, sharedAudioContext } from '../../lib/sfx';
@@ -78,6 +78,8 @@ class VoiceClient {
   private joinSeq = 0;
   private remoteSpeaking = new Set<string>();
   private selfSpeaking = false;
+  /** Katılırken ya da izin gelince mikrofon yayınlanıyor (iki kez yayınlanmasın) */
+  private micStarting = false;
   private prefetched: { channelId: string; at: number; response: Promise<VoiceJoinResponse> } | null = null;
   private readonly audioSink: HTMLDivElement;
 
@@ -89,6 +91,8 @@ class VoiceClient {
     useSettings.subscribe((next, prev) => this.onSettingsChanged(next, prev));
     gateway.on((msg) => {
       if (msg.t === 'READY') this.syncVoiceState();
+      // Yetkili biri seni başka ses kanalına taşıdı: o kanala geç
+      if (msg.t === 'VOICE_MOVE' && useVoice.getState().channelId) void this.join(msg.d.channelId);
     });
     // Sunucuda sağırlaştırılınca kimse duyulmaz (dinleme LiveKit'te kesilmez, istemci uygular)
     useGuild.subscribe((next, prev) => {
@@ -156,7 +160,7 @@ class VoiceClient {
       playSound('join');
       this.startStats();
       this.syncVoiceState();
-      await this.publishMic(room);
+      await this.startMic(room);
     } catch (err) {
       if (seq !== this.joinSeq) return;
       await this.teardownRoom();
@@ -270,9 +274,19 @@ class VoiceClient {
         this.publishSpeaking();
       }
     } else if (micAllowed && !this.mic && useVoice.getState().status === 'connected') {
-      await this.publishMic(room);
+      await this.startMic(room);
     }
     if (this.screen && !this.canPublish(room, PROTO_SOURCE.screenShare)) await this.stopScreenShare();
+  }
+
+  private async startMic(room: Room): Promise<void> {
+    if (this.micStarting) return;
+    this.micStarting = true;
+    try {
+      await this.publishMic(room);
+    } finally {
+      this.micStarting = false;
+    }
   }
 
   private async publishMic(room: Room): Promise<void> {
@@ -502,15 +516,6 @@ class VoiceClient {
       })
       .on(RoomEvent.ParticipantPermissionsChanged, (_prev, p) => {
         if (p.isLocal && room === this.room) void this.onPermissionsChanged(room);
-      })
-      // Yetkili biri seni başka kanala taşıdı: bağlantı kopmadan oda değişir
-      .on(RoomEvent.Moved, (name) => {
-        const channelId = channelIdFromRoom(name);
-        if (room !== this.room || !channelId) return;
-        this.remoteSpeaking.clear();
-        setVoice({ channelId, speaking: {}, streams: {}, watching: {}, focusedStream: null });
-        this.publishSpeaking();
-        playSound('join');
       })
       .on(RoomEvent.Disconnected, (reason) => {
         if (room !== this.room) return; // kendi başlattığımız ayrılma
