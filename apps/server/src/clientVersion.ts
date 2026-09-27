@@ -11,7 +11,7 @@ export function parsePlatform(value: unknown): ClientPlatform {
 /**
  * Zorunlu güncelleme kuralı, platforma göre:
  * - Masaüstü: en son yayınlanan GitHub sürümünden eski istemciler bağlanamaz.
- * - Android: en son sürümün telefona ulaşabilen hali. Sürümde kablosuz (OTA) güncelleme varsa o sürüm
+ * - Android ve iOS: en son sürümün telefona ulaşabilen hali. Sürümde kablosuz (OTA) güncelleme varsa o sürüm
  *   (arayüz uygulama açılırken iner), yoksa APK'nın sürümü. Sunucu ayarındaki en düşük sürüm
  *   (MIN_ANDROID_VERSION / MIN_IOS_VERSION) bunun altına inilmesine izin vermez.
  * En düşük sürüm bilinmiyorsa (GitHub'a ulaşılamadı, ayar yok) kimse engellenmez.
@@ -29,7 +29,7 @@ export class ClientVersionPolicy {
     const release = await this.releases.latest();
     if (platform === 'desktop') return release?.version ?? null;
     const floor = this.mobileMinimums[platform] ?? null;
-    const latest = platform === 'android' && release ? latestAndroid(release).js : null;
+    const latest = release ? latestMobile(release, platform).js : null;
     if (!floor) return latest;
     if (!latest) return floor;
     return compareVersions(latest, floor) > 0 ? latest : floor;
@@ -45,11 +45,22 @@ export class ClientVersionPolicy {
 }
 
 /**
- * Android'de en son sürümün iki parçası:
- * - apk: indirilecek APK'nın sürümü (yerel kısım değişmediyse önceki sürümün APK'sı yeniden kullanılır)
- * - js: telefona ulaşabilen arayüz sürümü (OTA varsa sürümün kendisi, yoksa APK'nınki)
+ * Telefonda en son sürümün iki parçası:
+ * - native: indirilecek APK'nın (iOS'ta IPA'nın) sürümü (yerel kısım değişmediyse önceki sürümünki
+ *   yeniden kullanılır)
+ * - js: telefona ulaşabilen arayüz sürümü (OTA varsa sürümün kendisi, yoksa uygulama paketininki)
  */
+export function latestMobile(
+  release: LatestRelease,
+  platform: 'android' | 'ios',
+): { native: string | null; js: string | null } {
+  const asset = release.assets[platform];
+  const native = asset ? versionInName(asset.name) : null;
+  return { native, js: release.ota[platform] ? release.version : native };
+}
+
+/** Android için {@link latestMobile}: apk = APK'nın sürümü */
 export function latestAndroid(release: LatestRelease): { apk: string | null; js: string | null } {
-  const apk = release.assets.android ? versionInName(release.assets.android.name) : null;
-  return { apk, js: release.ota.android ? release.version : apk };
+  const { native, js } = latestMobile(release, 'android');
+  return { apk: native, js };
 }

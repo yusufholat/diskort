@@ -87,6 +87,39 @@ describe('indirme uçları', () => {
     }
   });
 
+  it('iOS: IPA varsa kurulum bildirimi ve itms-services yönlendirmesi; yoksa 404', async () => {
+    let releases = new ReleaseService('x/y', fakeFetch([{ ok: true, body: githubRelease }]).fn);
+    ({ app } = await buildApp(config, { dbFile: ':memory:', logger: false, releases }));
+    expect((await app.inject({ method: 'GET', url: '/download/ios/manifest.plist' })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'GET', url: '/download/ios' })).headers.location).toBe('/download');
+    await app.close();
+
+    const withIpa = {
+      ...githubRelease,
+      assets: [
+        ...githubRelease.assets,
+        { name: 'Diskort-0.1.9-ios.ipa', size: 4000, browser_download_url: 'https://example.test/Diskort-0.1.9-ios.ipa' },
+      ],
+    };
+    releases = new ReleaseService('x/y', fakeFetch([{ ok: true, body: withIpa }]).fn);
+    ({ app } = await buildApp(config, { dbFile: ':memory:', logger: false, releases }));
+    const info = (await app.inject({ method: 'GET', url: '/api/download/latest' })).json();
+    expect(info.platforms.ios).toEqual({ name: 'Diskort-0.1.9-ios.ipa', size: 4000, href: '/download/ios' });
+
+    const plist = await app.inject({ method: 'GET', url: '/download/ios/manifest.plist' });
+    expect(plist.statusCode).toBe(200);
+    expect(plist.headers['content-type']).toContain('application/xml');
+    expect(plist.body).toContain('<string>https://example.test/Diskort-0.1.9-ios.ipa</string>');
+    expect(plist.body).toContain('<string>com.diskort.app</string>');
+    expect(plist.body).toContain('<key>bundle-version</key>\n        <string>0.1.9</string>');
+
+    const install = await app.inject({ method: 'GET', url: '/download/iphone', headers: { host: 'diskort.test' } });
+    expect(install.statusCode).toBe(302);
+    expect(install.headers.location).toBe(
+      `itms-services://?action=download-manifest&url=${encodeURIComponent('http://diskort.test/download/ios/manifest.plist')}`,
+    );
+  });
+
   it('sürüm bilgisi hiç alınamadıysa 503 döner', async () => {
     const releases = new ReleaseService('x/y', fakeFetch([new Error('yok')]).fn);
     ({ app } = await buildApp(config, { dbFile: ':memory:', logger: false, releases }));

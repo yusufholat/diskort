@@ -3,7 +3,7 @@ import { registerGlobals } from '@livekit/react-native';
 import { configureClient, dmTitle, reportClientError, useGuild, useSession } from '@diskort/client-core';
 import { GIF_SNIPPET, isGifMessage } from '@diskort/shared';
 import * as SecureStore from 'expo-secure-store';
-import { AppState, Vibration } from 'react-native';
+import { AppState, Platform, Vibration } from 'react-native';
 import { uploadFromDevice } from './attachments';
 import { setupSounds } from './sounds';
 import { getSettings } from './stores/settings';
@@ -30,7 +30,8 @@ const doNotDisturb = (): boolean => useGuild.getState().selfStatus?.status === '
 
 /** Kayıtlı oturum yüklenince çözülür; kök yerleşim o zamana dek açılış ekranını tutar. */
 export const clientReady = configureClient({
-  platform: 'android',
+  // Sunucunun sürüm kuralı platforma göre (MIN_ANDROID_VERSION / MIN_IOS_VERSION)
+  platform: Platform.OS === 'ios' ? 'ios' : 'android',
   version: APP_VERSION,
   storage: secureStorage,
   serverUrl: () => getSettings().serverUrl,

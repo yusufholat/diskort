@@ -6,7 +6,7 @@
 
 import { requireOptionalNativeModule } from 'expo';
 import * as IntentLauncher from 'expo-intent-launcher';
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import type * as ExpoVideo from 'expo-video';
 import type { Attachment } from '@diskort/shared';
 import { attachmentUrl } from '@diskort/client-core';
@@ -38,6 +38,8 @@ export function expoVideo(): typeof ExpoVideo | null {
 export async function openVideoExternally(attachment: Attachment): Promise<void> {
   const url = attachmentUrl(attachment);
   try {
+    // iOS'ta Android'in "Birlikte aç" seçimi yok: Safari'nin oynatıcısı açılır
+    if (Platform.OS === 'ios') throw new Error('intent yok');
     await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
       data: url,
       type: attachment.contentType || 'video/*',

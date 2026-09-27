@@ -258,6 +258,8 @@ class MobileVoiceClient {
             : ['bluetooth', 'headset', 'earpiece'],
           audioTypeOptions: AndroidAudioTypePresets.communication,
         },
+        // iOS: oturumu LiveKit yönetir (registerGlobals); arka planda sürmesini "audio" arka plan kipi sağlar
+        ios: { defaultOutput: getSettings().speaker ? 'speaker' : 'earpiece' },
       });
       await AudioSession.startAudioSession();
 
@@ -337,6 +339,11 @@ class MobileVoiceClient {
     getSettings().set({ speaker: on });
     if (!this.room) return;
     try {
+      // iOS yalnızca "varsayılan yol" (kulaklık/Bluetooth/ahize) ve "hoparlöre zorla" ayırt eder
+      if (Platform.OS === 'ios') {
+        await AudioSession.selectAudioOutput(on ? 'force_speaker' : 'default');
+        return;
+      }
       const outputs = await AudioSession.getAudioOutputs();
       // Kulaklık/Bluetooth bağlıysa onu bozma
       if (outputs.includes('bluetooth') || outputs.includes('headset')) return;

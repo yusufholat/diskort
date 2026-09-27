@@ -21,6 +21,10 @@ export interface Config {
   minMobileVersions: { android: string | null; ios: string | null };
   /** Telefon bildirimleri: Firebase hizmet hesabı anahtarının (JSON) yolu; yoksa bildirim gönderilmez */
   fcmServiceAccountFile: string | null;
+  /** iOS paket kimliği (IOS_BUNDLE_ID, varsayılan com.diskort.app) */
+  iosBundleId: string;
+  /** iOS bildirimleri: Apple'ın APNs anahtarı (APNS_KEY_FILE .p8, APNS_KEY_ID, APNS_TEAM_ID); yoksa kapalı */
+  apns: { keyFile: string; keyId: string; teamId: string; sandbox: boolean } | null;
   /** Tek bir dosya ekinin en büyük boyutu (bayt; ATTACHMENT_MAX_MB, varsayılan 25) */
   attachmentMaxBytes: number;
   /** GIF araması: GIPHY API anahtarı (GIPHY_API_KEY); yoksa GIF düğmesi gösterilmez */
@@ -77,6 +81,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     enforceClientVersion: env.CLIENT_UPDATE_ENFORCE ? env.CLIENT_UPDATE_ENFORCE !== '0' : !isDev,
     minMobileVersions: { android: env.MIN_ANDROID_VERSION || null, ios: env.MIN_IOS_VERSION || null },
     fcmServiceAccountFile: env.FCM_SERVICE_ACCOUNT_FILE || null,
+    // iOS paket kimliği: Ad Hoc kurulum bildirimi (manifest.plist) ve APNs konusu (apns-topic)
+    iosBundleId: env.IOS_BUNDLE_ID || 'com.diskort.app',
+    // iOS bildirimleri doğrudan Apple'a (APNs) gider. Anahtar (.p8) yoksa kapalı; bkz. docs/ios.md
+    apns:
+      env.APNS_KEY_FILE && env.APNS_KEY_ID && env.APNS_TEAM_ID
+        ? {
+            keyFile: env.APNS_KEY_FILE,
+            keyId: env.APNS_KEY_ID,
+            teamId: env.APNS_TEAM_ID,
+            // Ad Hoc ve App Store imzalı uygulamalar üretim ortamını kullanır; Xcode'dan kurulan geliştirme
+            // derlemeleri için APNS_SANDBOX=1
+            sandbox: env.APNS_SANDBOX === '1',
+          }
+        : null,
     attachmentMaxBytes: Math.floor(attachmentMaxMb * 1024 * 1024),
     giphyApiKey: env.GIPHY_API_KEY?.trim() || null,
     giphyRating,

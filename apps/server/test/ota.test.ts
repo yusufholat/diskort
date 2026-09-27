@@ -34,7 +34,7 @@ afterEach(async () => {
 let otaCalls = 0;
 async function start(
   assetNames: string[],
-  opts: { env?: Record<string, string>; ota?: unknown } = {},
+  opts: { env?: Record<string, string>; ota?: unknown; otaUrl?: string } = {},
 ): Promise<FastifyInstance> {
   const config = loadConfig({
     NODE_ENV: 'test',
@@ -56,7 +56,7 @@ async function start(
   otaCalls = 0;
   const otaFetch = (async (url: string) => {
     otaCalls++;
-    expect(url).toBe(OTA_URL);
+    expect(url).toBe(opts.otaUrl ?? OTA_URL);
     return json(opts.ota ?? otaJson);
   }) as unknown as typeof fetch;
   ({ app } = await buildApp(config, {
@@ -135,7 +135,9 @@ describe('OTA güncelleme adresi', () => {
     expect(current.headers['expo-protocol-version']).toBe('1');
     // yerel kısmı farklı: önce yeni APK kurulmalı
     expect((await ask(server, { 'expo-runtime-version': 'native-baska' })).statusCode).toBe(204);
-    expect((await ask(server, { 'expo-runtime-version': RUNTIME }, 'ios')).statusCode).toBe(404);
+    // iOS'un bu sürümde OTA'sı yok; bilinmeyen platform 404
+    expect((await ask(server, { 'expo-runtime-version': RUNTIME }, 'ios')).statusCode).toBe(204);
+    expect((await ask(server, { 'expo-runtime-version': RUNTIME }, 'web')).statusCode).toBe(404);
     await app!.close();
 
     // sürümde OTA yok
@@ -147,5 +149,45 @@ describe('OTA güncelleme adresi', () => {
     // bildirim başka sürüme ait (yanlış yüklenmiş)
     server = await start([`Diskort-${VERSION}-ota-android.json`], { ota: { ...otaJson, version: '0.2.0' } });
     expect((await ask(server, { 'expo-runtime-version': RUNTIME })).statusCode).toBe(204);
+  });
+});
+
+describe('iOS', () => {
+  const IOS_OTA_URL = `https://github.com/sahip/depo/releases/download/v${VERSION}/Diskort-${VERSION}-ota-ios.json`;
+  const iosOta = { ...otaJson, platform: 'ios' };
+
+  it('iOS bildirimini yalnızca iOS adresinden verir', async () => {
+    const server = await start([`Diskort-${VERSION}-ota-ios.json`], { ota: iosOta, otaUrl: IOS_OTA_URL });
+    const res = await ask(server, { 'expo-runtime-version': RUNTIME }, 'ios');
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain(manifest);
+    // Android'e iOS bildirimi gitmez
+    expect((await ask(server, { 'expo-runtime-version': RUNTIME })).statusCode).toBe(204);
+    // Adres ile başlık uyuşmalı
+    const mismatch = await server.inject({
+      method: 'GET',
+      url: '/updates/expo/ios',
+      headers: { 'expo-protocol-version': '1', 'expo-platform': 'android', 'expo-runtime-version': RUNTIME },
+    });
+    expect(mismatch.statusCode).toBe(404);
+  });
+
+  it('platformu uyuşmayan bildirim reddedilir', async () => {
+    const server = await start([`Diskort-${VERSION}-ota-ios.json`], { ota: otaJson, otaUrl: IOS_OTA_URL });
+    expect((await ask(server, { 'expo-runtime-version': RUNTIME }, 'ios')).statusCode).toBe(204);
+  });
+
+  it('sürüm kuralı: IPA ve iOS OTA\'sına göre', async () => {
+    const version = async (server: FastifyInstance) =>
+      (await server.inject({ method: 'GET', url: '/api/client/version?platform=ios' })).json();
+    let server = await start([`Diskort-${VERSION}-android.apk`]);
+    // IPA yok: iOS için kural yok
+    expect(await version(server)).toEqual({ platform: 'ios', latest: null, required: null });
+    await app!.close();
+    server = await start(['Diskort-0.2.9-ios.ipa', `Diskort-${VERSION}-ota-ios.json`], {
+      ota: iosOta,
+      otaUrl: IOS_OTA_URL,
+    });
+    expect(await version(server)).toEqual({ platform: 'ios', latest: '0.2.9', required: VERSION });
   });
 });

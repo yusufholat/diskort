@@ -11,7 +11,9 @@
     const ua = navigator.userAgent || '';
     const platform = ((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '').toLowerCase();
     if (/android/i.test(ua)) return 'android';
-    if (/iphone|ipad|ipod/i.test(ua) || navigator.userAgentData?.mobile) return 'mobile';
+    // iPadOS masaüstü Safari gibi görünür ("Macintosh"); dokunmatik ekranından ayırt edilir
+    if (/iphone|ipad|ipod/i.test(ua) || (/macintosh/i.test(ua) && navigator.maxTouchPoints > 1)) return 'ios';
+    if (navigator.userAgentData?.mobile) return 'mobile';
     if (platform.includes('win') || /windows/i.test(ua)) return 'windows';
     if (platform.includes('mac') || /mac os x/i.test(ua)) return 'mac';
     if (platform.includes('linux') || /linux|x11/i.test(ua)) return 'linux';
@@ -62,7 +64,13 @@
     }
   }
 
-  if (os === 'mobile') {
+  // iOS: kurulum bağlantısı iPhone'un "Yükle" penceresini açar (IPA'nın bildirimi sunucudan)
+  const iosInstallUrl = `itms-services://?action=download-manifest&url=${encodeURIComponent(
+    `${location.origin}/download/ios/manifest.plist`,
+  )}`;
+  document.getElementById('ios-install').href = iosInstallUrl;
+
+  if (os === 'mobile' || os === 'ios') {
     document.getElementById('mobile-notice').hidden = false;
   } else {
     setPrimary(os, true);
@@ -140,13 +148,29 @@
         linux: platforms['linux-appimage']?.size ?? platforms['linux-deb']?.size,
         mac: platforms['mac-arm64']?.size ?? platforms['mac-x64']?.size,
         android: platforms.android?.size,
+        ios: platforms.ios?.size,
       };
       document.querySelectorAll('[data-meta]').forEach((el) => {
         const size = sizes[el.dataset.meta];
         el.textContent = size ? `Sürüm ${latest.version} · ${formatSize(size)}` : '';
       });
 
-      if (os !== 'mobile') {
+      // iOS sürümü yalnızca imzalı IPA yayınlandıysa görünür
+      if (platforms.ios) {
+        document.getElementById('ios-card').hidden = false;
+        if (os === 'ios') {
+          document.getElementById('mobile-notice').hidden = true;
+          primaryLinks.forEach((a) => {
+            a.href = iosInstallUrl;
+            a.removeAttribute('aria-disabled');
+          });
+          primaryIcon.setAttribute('href', '#i-phone');
+          primaryLabel.textContent = 'iPhone için Yükle';
+          primaryMeta.textContent = `Sürüm ${latest.version} · yalnızca kayıtlı iPhone'lar`;
+        }
+      }
+
+      if (os !== 'mobile' && os !== 'ios') {
         const info = PLATFORM_INFO[os];
         const asset = platforms[info.asset];
         setPrimary(os, Boolean(asset), latest.version, asset?.size);

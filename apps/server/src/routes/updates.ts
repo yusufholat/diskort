@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { latestAndroid, parsePlatform } from '../clientVersion.js';
+import { latestMobile, parsePlatform } from '../clientVersion.js';
 import { sendError, type AppContext } from '../context.js';
 
 const SAFE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -45,11 +45,11 @@ export function registerUpdateRoutes(app: FastifyInstance, ctx: AppContext): voi
       .header('Cache-Control', 'private, max-age=0');
     const { platform } = req.params;
     const headerPlatform = req.headers['expo-platform'];
-    if (platform !== 'android' || (headerPlatform && headerPlatform !== platform)) {
+    if ((platform !== 'android' && platform !== 'ios') || (headerPlatform && headerPlatform !== platform)) {
       return sendError(reply, 404, 'not_found', 'Bu platform için güncelleme yok.');
     }
     const update = await ota.latest(platform);
-    // 204: güncelleme yok (yerel kısmı farklı olan telefon önce yeni APK'yı kurmalı)
+    // 204: güncelleme yok (yerel kısmı farklı olan telefon önce yeni APK'yı / IPA'yı kurmalı)
     if (
       !update ||
       update.runtimeVersion !== req.headers['expo-runtime-version'] ||
@@ -79,9 +79,9 @@ export function registerUpdateRoutes(app: FastifyInstance, ctx: AppContext): voi
   app.get<{ Querystring: { platform?: string } }>('/api/client/version', async (req, reply) => {
     const platform = parsePlatform(req.query.platform);
     const [release, required] = await Promise.all([releases.latest(), clientVersions.required(platform)]);
-    // Android'de "en son": indirilecek APK'nın sürümü (arayüz güncellemeleri OTA ile gelir)
+    // Telefonda "en son": indirilecek APK'nın / IPA'nın sürümü (arayüz güncellemeleri OTA ile gelir)
     const latest =
-      platform === 'desktop' ? release?.version : platform === 'android' && release ? latestAndroid(release).apk : null;
+      platform === 'desktop' ? release?.version : release ? latestMobile(release, platform).native : null;
     void reply.header('Cache-Control', 'no-store');
     return { platform, latest: latest ?? required, required };
   });

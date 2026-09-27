@@ -7,9 +7,14 @@
 // yöneticisinin kipini (MODE_NORMAL) ve hoparlörü de değiştiriyor; görüşme sürerken çağrılırsa ses
 // yolu bozulur. Bu yüzden yalnızca açılışta, sesli sohbete girilmeden önce bir kez çağrılır.
 //
+// iOS: ses oturumu (AVAudioSession) LiveKit'indir. expo-audio'nun ses kipi hiç ayarlanmaz (kategoriyi
+// "ambient" yapıp görüşmeyi bozabilir) ve çalış bitince oturumu kapatmaması istenir (keepAudioSessionActive);
+// kapatırsa görüşmenin sesi de kesilir.
+//
 // Yerel modül yalnızca yeni APK'larda var: yoksa (ör. eski APK) ses sessizce atlanır, titreşim sürer.
 
 import { requireOptionalNativeModule } from 'expo';
+import { Platform } from 'react-native';
 import type * as ExpoAudio from 'expo-audio';
 import { setFeedbackSound, type SoundEvent } from './haptics';
 import { getSettings } from './stores/settings';
@@ -63,7 +68,7 @@ function player(name: SoundName): ExpoAudio.AudioPlayer | null {
   if (!audio) return null;
   let p = players.get(name);
   if (!p) {
-    p = audio.createAudioPlayer(FILES[name]);
+    p = audio.createAudioPlayer(FILES[name], { keepAudioSessionActive: Platform.OS === 'ios' });
     p.volume = VOLUME;
     players.set(name, p);
   }
@@ -95,17 +100,19 @@ export function setupSounds(): void {
     audio = null;
     return;
   }
-  audio
-    .setAudioModeAsync({
-      // Ses odağı istenmez: görüşme ve başka uygulamaların sesi kısılmaz
-      interruptionMode: 'mixWithOthers',
-      // Ekran kapalıyken de (biri kanala girdi) çalınabilsin
-      shouldPlayInBackground: true,
-      // Telefon sessizdeyken ya da titreşimdeyken arayüz sesi çalınmaz
-      playsInSilentMode: false,
-      shouldRouteThroughEarpiece: false,
-    })
-    .catch(() => undefined);
+  if (Platform.OS !== 'ios') {
+    audio
+      .setAudioModeAsync({
+        // Ses odağı istenmez: görüşme ve başka uygulamaların sesi kısılmaz
+        interruptionMode: 'mixWithOthers',
+        // Ekran kapalıyken de (biri kanala girdi) çalınabilsin
+        shouldPlayInBackground: true,
+        // Telefon sessizdeyken ya da titreşimdeyken arayüz sesi çalınmaz
+        playsInSilentMode: false,
+        shouldRouteThroughEarpiece: false,
+      })
+      .catch(() => undefined);
+  }
   // İlk çalışta gecikme olmasın diye en sık kullanılanlar önceden hazırlanır
   for (const name of ['mute', 'unmute', 'join', 'leave'] as const) player(name);
   setFeedbackSound(play);

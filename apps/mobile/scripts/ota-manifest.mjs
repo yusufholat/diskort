@@ -3,10 +3,11 @@
 //
 //   node scripts/ota-manifest.mjs --dist <expo export klasörü> --out <çıktı klasörü>
 //     --version 0.2.1 --runtime native-… --config <expo config --json çıktısı> --base-url https://…/updates
+//     [--platform android|ios]   (varsayılan android)
 //   İmza anahtarı: OTA_SIGNING_KEY ortam değişkeni (PEM ya da PEM'in base64'ü)
 //
 // Çıktı: sürüme yüklenecek dosyalar
-//   Diskort-<sürüm>-ota-android.json      bildirim + imzası (sunucu bunu okuyup telefona iletir)
+//   Diskort-<sürüm>-ota-<platform>.json   bildirim + imzası (sunucu bunu okuyup telefona iletir)
 //   Diskort-<sürüm>-ota-<md5><uzantı>     JavaScript paketi ve resim/yazı tipi dosyaları
 // Dosya adlarındaki sürüm, sunucunun /updates/<dosya> yönlendirmesinin doğru sürümü bulmasını sağlar.
 import { createHash, createSign, createVerify } from 'node:crypto';
@@ -22,13 +23,15 @@ const { values: args } = parseArgs({
     runtime: { type: 'string' },
     config: { type: 'string' },
     'base-url': { type: 'string' },
+    platform: { type: 'string', default: 'android' },
   },
 });
 for (const name of ['dist', 'out', 'version', 'runtime', 'config', 'base-url']) {
   if (!args[name]) throw new Error(`--${name} gerekli`);
 }
 
-const PLATFORM = 'android';
+const PLATFORM = args.platform;
+if (PLATFORM !== 'android' && PLATFORM !== 'ios') throw new Error(`Geçersiz --platform: ${PLATFORM}`);
 const prefix = `Diskort-${args.version}-ota`;
 const baseUrl = args['base-url'].replace(/\/+$/, '');
 

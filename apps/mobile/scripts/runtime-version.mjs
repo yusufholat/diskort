@@ -2,10 +2,17 @@
 // Yalnızca yerel bağımlılıklar, yapılandırma eklentileri ve modules/ değişince değişir; sürüm numarası ya da
 // JavaScript değişiklikleri değiştirmez. Aynı parmak izli APK'lar kablosuz (OTA) güncelleme alabilir;
 // parmak izi değişince yeni APK gerekir (CI bunu kendiliğinden algılar).
+//
+//   node scripts/runtime-version.mjs [--platform android|ios] [--debug]
+// Her platformun parmak izi ayrıdır (iOS: Pod'lar ve iOS yerel modülleri; Android: Gradle tarafı).
 import { createFingerprintAsync, SourceSkips } from '@expo/fingerprint';
 
+const platformIndex = process.argv.indexOf('--platform');
+const platform = platformIndex >= 0 ? process.argv[platformIndex + 1] : 'android';
+if (platform !== 'android' && platform !== 'ios') throw new Error(`Geçersiz --platform: ${platform}`);
+
 const fingerprint = await createFingerprintAsync(process.cwd(), {
-  platforms: ['android'],
+  platforms: [platform],
   sourceSkips:
     SourceSkips.ExpoConfigVersions |
     SourceSkips.ExpoConfigRuntimeVersionIfString |
