@@ -46,7 +46,7 @@ function xhrUpload(request: UploadRequest): Promise<UploadResponse> {
 }
 
 /** Dosyayı ham gövde olarak gönderir; beklenen durum kodunda dönen JSON'u verir, değilse ApiError atar. */
-async function sendFile<T>(
+export async function sendFile<T>(
   path: string,
   file: LocalFile,
   expectedStatus: number,

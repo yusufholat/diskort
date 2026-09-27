@@ -4,7 +4,24 @@
 export { configureClient } from './configure';
 export type { ClientEnvironment, KeyValueStorage, LocalFile, UploadRequest, UploadResponse } from './env';
 export { api, ApiError, errorMessage, normalizeServerUrl } from './api';
-export { reportClientError } from './errors';
+export { recentClientErrors, reportClientError } from './errors';
+export {
+  baseFeedbackContext,
+  canManageFeedback,
+  deleteFeedback,
+  feedbackApi,
+  feedbackImageHeaders,
+  feedbackScreenshotUrl,
+  fetchFeedbackScreenshot,
+  loadAllFeedback,
+  loadMyFeedback,
+  onOwnFeedbackUpdate,
+  refreshFeedbackCount,
+  submitFeedback,
+  updateFeedback,
+  useFeedback,
+  type FeedbackDraft,
+} from './feedback';
 export { reportVoiceLog, SpuriousDuplicateGuard } from './voiceDiagnostics';
 export { gateway } from './gateway';
 export { useSession } from './session';
