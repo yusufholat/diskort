@@ -15,7 +15,7 @@ export type NoiseStrengthDb = (typeof NOISE_STRENGTHS_DB)[number];
 export const SIDEBAR_WIDTH = { min: 200, default: 240, max: 480 } as const;
 export const clampSidebarWidth = (w: number): number =>
   Number.isFinite(w) ? Math.round(Math.min(SIDEBAR_WIDTH.max, Math.max(SIDEBAR_WIDTH.min, w))) : SIDEBAR_WIDTH.default;
-const SCREEN_PRESET_IDS = ['720p60', '1080p30', '1080p60', '1440p60'] as const;
+const SCREEN_PRESET_IDS = ['720p60', '1080p30', '1080p60'] as const;
 export type ScreenPresetId = (typeof SCREEN_PRESET_IDS)[number];
 const SCREEN_CODEC_IDS = ['h264', 'vp9', 'vp8', 'av1'] as const;
 export type ScreenCodec = (typeof SCREEN_CODEC_IDS)[number];
@@ -156,7 +156,7 @@ export const useSettings = create<SettingsStore>()(
     }),
     {
       name: 'diskort-settings',
-      version: 10,
+      version: 11,
       storage: createJSONStorage(() => localStorage),
       partialize: ({ set: _set, ...rest }) => rest,
       // Sürüm 1 → 2: gürültü engelleme RNNoise → DeepFilterNet 3 (sanitize içinde)
@@ -185,6 +185,8 @@ export const useSettings = create<SettingsStore>()(
           delete (s as Record<string, unknown>).soundPack;
           delete (s as Record<string, unknown>).sfxVolume;
         }
+        // 1440p60 kaldırıldı (sunucuya fazla ağır geldi); seçmiş olanlar en yüksek seçenek olan 1080p60'a geçer
+        if (version < 11 && (s.screenPreset as string | undefined) === '1440p60') s.screenPreset = '1080p60';
         return s as Settings;
       },
       merge: (saved, current) => ({ ...current, ...sanitize((saved ?? {}) as Partial<Settings>) }),

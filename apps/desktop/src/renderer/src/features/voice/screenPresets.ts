@@ -12,12 +12,12 @@ export interface ScreenPreset {
 // Akıcılık ve bit hızı öncelikli sabit kaliteler; yayın boyunca hiçbir ayar değişmez (bant yetmezse WebRTC kendi
 // içinde düşürür). 1080p60 · 12 Mbps kare başına eski 1080p30 · 6 Mbps kadar veri demek (kullanıcılar onu iyi buldu).
 // Simulcast olmadığından izleyicinin indirme hızı da bunu taşımalı; taşımazsa LiveKit o izleyicide yayını duraklatır.
-// Sunucu çıkışı ≈ bit hızı × izleyici (aylık ~5 TB kota): 1080p60 izleyici başına saatte en çok ~5,4 GB.
+// Sunucu çıkışı ≈ bit hızı × izleyici (aylık ~5 TB kota): 1080p60 izleyici başına saatte en çok ~5,4 GB. 1440p60
+// (18 Mbps) sunucuya fazla ağır geldiği için kaldırıldı; en yüksek seçenek 1080p60.
 export const SCREEN_PRESETS: Record<ScreenPresetId, ScreenPreset> = {
   '720p60': { label: '720p · 60 FPS', width: 1280, height: 720, fps: 60, bitrate: 6_000_000 },
   '1080p30': { label: '1080p · 30 FPS', width: 1920, height: 1080, fps: 30, bitrate: 8_000_000 },
   '1080p60': { label: '1080p · 60 FPS (önerilen)', width: 1920, height: 1080, fps: 60, bitrate: 12_000_000 },
-  '1440p60': { label: '1440p · 60 FPS (deneysel)', width: 2560, height: 1440, fps: 60, bitrate: 18_000_000 },
 };
 
 // Donanım kodlaması (ekran kartı): H.264 hemen her kartta; AV1 yeni kartlarda (NVIDIA RTX 40+, AMD RX 7000+,
