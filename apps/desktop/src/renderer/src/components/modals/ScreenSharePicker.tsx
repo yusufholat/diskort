@@ -140,7 +140,8 @@ export function ScreenSharePicker() {
             onChange={(screenPreset) => settings.set({ screenPreset })}
             options={Object.entries(SCREEN_PRESETS).map(([value, p]) => ({
               value: value as ScreenPresetId,
-              label: p.label,
+              // Yayıncının yükleme hızı en az bu kadar olmalı (bant yetmezse WebRTC kendiliğinden düşürür)
+              label: `${p.label} · ${p.bitrate / 1_000_000} Mbps`,
             }))}
           />
         </div>

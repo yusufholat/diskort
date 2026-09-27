@@ -19,7 +19,7 @@ import { bridge } from '../../lib/bridge';
 import { playSound, sharedAudioContext } from '../../lib/sfx';
 import { getSettings, useSettings, type Settings } from '../../stores/settings';
 import { setVoice, useVoice, type MicLevel } from '../../stores/voice';
-import { MicProcessor, type GateConfig } from './micProcessor';
+import { deepFilterAvailable, MicProcessor, type GateConfig } from './micProcessor';
 import { SCREEN_PRESETS } from './screenPresets';
 import type { ScreenCodec, ScreenContent, ScreenPresetId } from '../../stores/settings';
 
@@ -194,17 +194,25 @@ class VoiceClient {
 
   // ---------- Mikrofon ----------
 
-  private captureOptions(): AudioCaptureOptions {
+  /**
+   * @param deepFilter DeepFilterNet zincirde çalışacak mı. Çalışırken tarayıcının gürültü engelleyicisi
+   * kapatılır (çift işlem sesi bozar); DeepFilterNet yüklenemezse standart engelleme devreye girer.
+   */
+  private captureOptions(deepFilter: boolean): AudioCaptureOptions {
     const s = getSettings();
     return {
       deviceId: s.inputDeviceId,
       echoCancellation: s.echoCancellation,
-      // RNNoise açıkken tarayıcının gürültü engelleyicisi kapatılır (çift işlem sesi bozar).
-      noiseSuppression: s.noise === 'standard',
+      noiseSuppression: s.noise === 'standard' || (s.noise === 'deepfilter' && !deepFilter),
       autoGainControl: s.autoGainControl,
       channelCount: 1,
       sampleRate: 48000,
     };
+  }
+
+  /** Ayar DeepFilterNet ise dosyaları önceden yükler; kullanılamıyorsa false (standart engellemeye düşülür). */
+  private async wantsDeepFilter(): Promise<boolean> {
+    return getSettings().noise === 'deepfilter' && (await deepFilterAvailable());
   }
 
   private gateConfig(): GateConfig {
@@ -221,12 +229,18 @@ class VoiceClient {
     const s = getSettings();
     let track: LocalAudioTrack | null = null;
     try {
-      track = await createLocalAudioTrack(this.captureOptions());
+      const deepFilter = await this.wantsDeepFilter();
+      track = await createLocalAudioTrack(this.captureOptions(deepFilter));
       track.setAudioContext(sharedAudioContext());
-      const processor = new MicProcessor(this.gateConfig(), s.noise === 'rnnoise', (level) =>
-        this.onMicLevel(level),
+      const processor = new MicProcessor(
+        this.gateConfig(),
+        deepFilter,
+        (level) => this.onMicLevel(level),
+        () => void this.republishMic(),
       );
       await track.setProcessor(processor);
+      // DeepFilterNet kurulamadıysa mikrofonu tarayıcının gürültü engellemesiyle yeniden aç
+      if (processor.denoiserFailed) await track.restartTrack(this.captureOptions(false));
       if (s.selfMute || s.selfDeaf) await track.mute();
       if (room !== this.room) {
         track.stop();
@@ -578,6 +592,9 @@ class VoiceClient {
       source: Track.Source.ScreenShare,
       videoCodec: opts.codec,
       backupCodec: false,
+      // Simulcast kapalı: Electron'daki WebRTC donanım kodlayıcısı kullanamadığında (ör. NVIDIA kartlı test
+      // makinesi) H.264'ü yazılımla (OpenH264) kodluyor; 720p alt katman toplam kodlama süresini ~2 katına
+      // çıkarıp çözünürlüğü CPU yüzünden düşürtüyor. 10–20 kişide sunucu trafiği kazancı bu bedele değmiyor.
       simulcast: false,
       screenShareEncoding: { maxBitrate: preset.bitrate, maxFramerate: preset.fps, priority: 'high' },
       degradationPreference: opts.content === 'motion' ? 'maintain-framerate' : 'maintain-resolution',
@@ -652,20 +669,28 @@ class VoiceClient {
   async startMicTest(loopback: boolean): Promise<() => void> {
     if (this.processor) return () => undefined; // bağlıyken canlı seviye zaten akıyor
     const s = getSettings();
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        deviceId: s.inputDeviceId === 'default' ? undefined : { exact: s.inputDeviceId },
-        echoCancellation: s.echoCancellation,
-        noiseSuppression: s.noise === 'standard',
-        autoGainControl: s.autoGainControl,
-        channelCount: 1,
-      },
-    });
-    const track = stream.getAudioTracks()[0]!;
-    const processor = new MicProcessor(this.gateConfig(), s.noise === 'rnnoise', (level) =>
-      setVoice({ micLevel: level }),
-    );
-    await processor.init({ kind: Track.Kind.Audio, track, audioContext: sharedAudioContext() });
+    const open = async (deepFilter: boolean): Promise<{ track: MediaStreamTrack; processor: MicProcessor }> => {
+      const opts = this.captureOptions(deepFilter);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: s.inputDeviceId === 'default' ? undefined : { exact: s.inputDeviceId },
+          echoCancellation: opts.echoCancellation,
+          noiseSuppression: opts.noiseSuppression,
+          autoGainControl: opts.autoGainControl,
+          channelCount: 1,
+        },
+      });
+      const track = stream.getAudioTracks()[0]!;
+      const processor = new MicProcessor(this.gateConfig(), deepFilter, (level) => setVoice({ micLevel: level }));
+      await processor.init({ kind: Track.Kind.Audio, track, audioContext: sharedAudioContext() });
+      return { track, processor };
+    };
+    let { track, processor } = await open(await this.wantsDeepFilter());
+    if (processor.denoiserFailed) {
+      track.stop();
+      await processor.destroy();
+      ({ track, processor } = await open(false));
+    }
 
     let audioEl: HTMLAudioElement | null = null;
     if (loopback && processor.processedTrack) {

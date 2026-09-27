@@ -55,6 +55,10 @@ if (!app.isPackaged) {
   if (process.env.DISKORT_FAKE_MEDIA) {
     app.commandLine.appendSwitch('use-fake-device-for-media-stream');
     app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
+    // Sahte mikrofon bip yerine bir WAV dosyasını çalsın (gürültü engelleme denemeleri için)
+    if (process.env.DISKORT_FAKE_AUDIO_FILE) {
+      app.commandLine.appendSwitch('use-file-for-fake-audio-capture', process.env.DISKORT_FAKE_AUDIO_FILE);
+    }
   }
 }
 

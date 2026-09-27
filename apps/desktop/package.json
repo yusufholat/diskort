@@ -29,7 +29,6 @@
   "devDependencies": {
     "@diskort/client-core": "workspace:*",
     "@diskort/shared": "workspace:*",
-    "@sapphi-red/web-noise-suppressor": "^0.4.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.0.0",
     "@types/react": "^19.3.0",
