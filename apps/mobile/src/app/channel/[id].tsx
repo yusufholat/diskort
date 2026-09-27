@@ -10,14 +10,17 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
-import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
-import { Permission } from '@diskort/shared';
+import { DM_GROUP_MAX_PARTICIPANTS, Permission } from '@diskort/shared';
 import {
   ackChannel,
   deleteMessage,
+  dmBlockedReason,
+  dmPartner,
+  dmTitle,
   loadInitial,
   loadOlder,
   QUICK_REACTIONS,
@@ -48,10 +51,23 @@ const EMPTY: LocalMessage[] = [];
 const NO_REACTIONS: NonNullable<LocalMessage['reactions']> = [];
 const keyOf = (m: LocalMessage): string => m.nonce ?? m.id;
 
+/** Metin kanalı ya da direkt mesaj konuşması (kimlik bir konuşmanınsa) */
 export default function TextChannelScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const channel = useGuild((s) => s.channels.find((c) => c.id === id));
   const self = useSession((s) => s.user);
+  const dm = useGuild((s) => (id ? s.dms[id] : undefined));
+  const dmName = useGuild((s) => (dm ? dmTitle(dm, s.users, self?.id) : ''));
+  const partner = useGuild((s) => (dm ? dmPartner(dm, s.users, self?.id) : undefined));
+  // Bire bir konuşmada karşı taraf ayrıldıysa yazma kutusu yerine neden gösterilir
+  const blocked = useGuild((s) => (dm ? dmBlockedReason(dm, s.users, self?.id) : null));
+  const target = useMemo(
+    () => channel ?? (dm ? { id: dm.id, name: dmName } : undefined),
+    [channel, dm, dmName],
+  );
+  // Kanal "#ad", bire bir konuşma "@ad", grup adıyla geçer
+  const label = channel ? `#${channel.name}` : dm && !dm.group ? `@${dmName}` : dmName;
   const users = useGuild((s) => s.users);
   const messages = useMessages((s) => (id ? s.channels[id]?.messages : undefined) ?? EMPTY);
   const loaded = useMessages((s) => (id ? s.channels[id]?.loaded : false) ?? false);
@@ -136,13 +152,32 @@ export default function TextChannelScreen() {
     .map((uid) => users[uid]?.displayName)
     .filter(Boolean) as string[];
 
-  if (!channel || !self || !id) {
+  if (!target || !self || !id) {
     return <View style={styles.page} />;
   }
 
+  const canAddPeople = dm?.group === true && dm.participantIds.length < DM_GROUP_MAX_PARTICIPANTS;
+
   return (
     <SafeAreaView style={styles.page} edges={['bottom']}>
-      <Stack.Screen options={{ title: `# ${channel.name}` }} />
+      <Stack.Screen
+        options={{
+          title: channel ? `# ${channel.name}` : label,
+          headerRight:
+            canAddPeople && dm
+              ? () => (
+                  <PressableScale
+                    scaleTo={0.8}
+                    hitSlop={10}
+                    accessibilityLabel="Kişi ekle"
+                    onPress={() => router.push({ pathname: '/dm-new', params: { addTo: dm.id } })}
+                  >
+                    <Ionicons name="person-add" size={21} color={colors.muted} />
+                  </PressableScale>
+                )
+              : undefined,
+        }}
+      />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={100}>
         <FlatList
           ref={list}
@@ -162,8 +197,21 @@ export default function TextChannelScreen() {
               <View style={styles.loading}>{loading && messages.length > 0 ? <MessageSkeleton rows={2} /> : null}</View>
             ) : (
               <View style={styles.intro}>
-                <Text style={styles.introTitle}>#{channel.name} kanalına hoş geldin!</Text>
-                <Text style={styles.introText}>Bu, #{channel.name} kanalının başlangıcı.</Text>
+                {dm ? (
+                  <>
+                    <Text style={styles.introTitle}>{dmName}</Text>
+                    {partner && <Text style={styles.introUser}>@{partner.username}</Text>}
+                    <Text style={styles.introText}>
+                      {dm.group ? `${dmName} grubunun başlangıcı.` : `${dmName} ile direkt mesaj geçmişinin başlangıcı.`}{' '}
+                      Bu konuşmayı yalnızca {dm.group ? 'gruptakiler' : 'ikiniz'} görebilir.
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.introTitle}>{label} kanalına hoş geldin!</Text>
+                    <Text style={styles.introText}>Bu, {label} kanalının başlangıcı.</Text>
+                  </>
+                )}
               </View>
             )
           }
@@ -200,7 +248,10 @@ export default function TextChannelScreen() {
         </Text>
         <Composer
           key={editing?.id ?? 'yeni'}
-          channel={channel}
+          channel={target}
+          placeholder={dm ? `${label} ${dm.group ? 'grubuna' : 'kişisine'} mesaj gönder` : undefined}
+          lockedText={blocked ?? undefined}
+          mentionable={dm?.participantIds}
           editing={editing}
           onDoneEditing={() => setEditing(null)}
           onSent={() => list.current?.scrollToOffset({ offset: 0, animated: true })}
@@ -402,6 +453,7 @@ const styles = StyleSheet.create({
   intro: { paddingHorizontal: 16, paddingTop: 24, paddingBottom: 8 },
   introTitle: { color: colors.head, fontSize: 24, fontWeight: '800' },
   introText: { color: colors.muted, fontSize: 15, marginTop: 4 },
+  introUser: { color: colors.text, fontSize: 16, marginTop: 2 },
   typing: { color: colors.text, fontSize: 12.5, paddingHorizontal: 16, height: 18 },
   quickRow: {
     flexDirection: 'row',
