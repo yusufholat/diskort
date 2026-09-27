@@ -54,6 +54,7 @@ import { DmAvatar } from './DmAvatar';
 import { EmojiGrid } from './EmojiGrid';
 import { HeaderButton } from './HeaderButton';
 import type { MarkdownContext } from './Markdown';
+import { MemberSheet } from './MemberSheet';
 import { MessageRow, sameDay } from './MessageRow';
 import { PressableScale } from './PressableScale';
 import { MessageSkeleton } from './Skeleton';
@@ -128,6 +129,8 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
   const [atBottom, setAtBottom] = useState(true);
   const [active, setActive] = useState(AppState.currentState === 'active');
   const [menuFor, setMenuFor] = useState<LocalMessage | null>(null);
+  // Sohbette avatara dokununca açılan üye kartı
+  const [profileOf, setProfileOf] = useState<string | null>(null);
   const [editing, setEditing] = useState<LocalMessage | null>(null);
   // Geçmiş yüklenemedi (bağlantı yok): iskelet yerine hata ve "Tekrar dene"
   const [failed, setFailed] = useState(false);
@@ -327,6 +330,7 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
         animateIn={fresh.has(keyOf(item.message))}
         flash={flash?.id === item.message.id ? flash.seq : 0}
         onReply={canReply ? startReply : undefined}
+        onAvatarPress={setProfileOf}
       />
     ),
     [users, self, md, fresh, flash, canReply],
@@ -475,6 +479,7 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
       />
       <ReactionsSheet />
       <PinsSheet />
+      <MemberSheet userId={profileOf} onClose={() => setProfileOf(null)} />
     </View>
   );
 }

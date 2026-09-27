@@ -75,6 +75,8 @@ interface Props {
   flash?: number;
   /** Satırı sola kaydırınca yanıtla (yoksa ya da yazma izni yoksa kaydırma kapalı) */
   onReply?: (message: LocalMessage) => void;
+  /** Avatara dokununca kişinin profili (üye kartı) açılır */
+  onAvatarPress?: (userId: string) => void;
 }
 
 /** Bu kadar sola kaydırılınca bırakınca yanıtlanır (titreşimle bildirilir) */
@@ -92,6 +94,7 @@ export const MessageRow = memo(function MessageRow({
   animateIn = false,
   flash = 0,
   onReply,
+  onAvatarPress,
 }: Props) {
   const mentioned = isMentioned(message, self);
   // Metni yalnızca GIPHY bağlantısı olan mesaj: bağlantı yerine GIF gösterilir
@@ -187,7 +190,14 @@ export const MessageRow = memo(function MessageRow({
             >
               <Animated.View pointerEvents="none" style={[styles.flash, { opacity: highlight }]} />
               <View style={[styles.gutter, isReply && { paddingTop: REPLY_PREVIEW_HEIGHT }]}>
-                {!compact && <Avatar user={author} size={40} />}
+                {!compact &&
+                  (author && onAvatarPress ? (
+                    <Pressable onPress={() => onAvatarPress(author.id)} hitSlop={4} accessibilityRole="button" accessibilityLabel={`${author.displayName} profili`}>
+                      <Avatar user={author} size={40} />
+                    </Pressable>
+                  ) : (
+                    <Avatar user={author} size={40} />
+                  ))}
                 {compact && message.pinned ? (
                   <Ionicons name="pin" size={12} color={colors.faint} accessibilityLabel="Sabitlendi" style={styles.compactPin} />
                 ) : null}
