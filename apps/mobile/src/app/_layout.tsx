@@ -56,10 +56,12 @@ export default function RootLayout() {
   const showUpdate = Boolean(updateRequired) || (apkPending && !inVoice);
 
   useEffect(() => {
-    // Açılış güncelleyicisi: yeni arayüz varsa uygulama açılmadan iner ve uygulama yeniden başlar
+    // Açılış güncelleyicisi: yeni arayüz varsa uygulama açılmadan iner ve uygulama yeniden başlar.
+    // Sesli sohbet sürüyorsa bu gerçek bir açılış değil, Android ekranı yeniden kurmuştur: yeniden
+    // başlatmak sesi keser; güncelleme sesten çıkınca uygulanır.
     void clientReady
       .catch(() => undefined)
-      .then(updateOnLaunch)
+      .then(() => (useVoice.getState().status === 'idle' ? updateOnLaunch() : undefined))
       .finally(() => setReady(true));
     void cleanupDownloads();
     const sub = AppState.addEventListener('change', (state) => {
@@ -93,18 +95,23 @@ export default function RootLayout() {
     return () => sub.remove();
   }, [ready, token, router]);
 
-  // Oturum açıkken gateway'e bağlan; uygulama öne gelince beklemeden yeniden bağlan
+  // Oturum açıkken gateway'e bağlan; uygulama öne gelince beklemeden yeniden bağlan.
+  // Ses ve gateway bu bileşenden uzun yaşar: Android ekranı (Activity) kapatıp yeniden kurunca
+  // (geri tuşu, arka planda bellek için kapatma) bu bileşen kaldırılıp baştan çizilir ama JavaScript
+  // ve ön plan servisi çalışmaya devam eder. Bu yüzden sesten çıkma ve bağlantıyı kapatma bileşen
+  // kaldırılırken değil, yalnızca oturum kapanınca ya da zorunlu güncellemede yapılır.
   useEffect(() => {
-    if (!ready || !token || updateRequired) return;
-    gateway.connect();
+    if (!ready) return;
+    if (!token || updateRequired) {
+      if (useVoice.getState().status !== 'idle') void voice.leave();
+      gateway.disconnect();
+      return;
+    }
+    gateway.connect(); // zaten bağlıysa bir şey yapmaz
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') gateway.resume();
     });
-    return () => {
-      sub.remove();
-      void voice.leave();
-      gateway.disconnect();
-    };
+    return () => sub.remove();
   }, [ready, token, updateRequired]);
 
   if (!ready) {

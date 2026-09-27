@@ -288,9 +288,11 @@ class MobileVoiceClient {
   }
 
   async leave(): Promise<void> {
-    this.joinSeq++;
+    const seq = ++this.joinSeq;
     await this.teardown();
-    useVoice.setState({ ...IDLE, channelId: null, status: 'idle' });
+    // Bu arada yeniden katılındıysa (ör. "başka cihaz" uyarısından sonra geri dönüş) yeni bağlantının
+    // durumu silinmez
+    if (seq === this.joinSeq) useVoice.setState({ ...IDLE, channelId: null, status: 'idle' });
   }
 
   toggleMute(): void {
@@ -606,17 +608,31 @@ class MobileVoiceClient {
       });
   }
 
-  private async teardown(): Promise<void> {
+  /** Süren kapatma; yenisi bunu bekler */
+  private tearingDown: Promise<void> = Promise.resolve();
+
+  /**
+   * Odayı kapatır, ses oturumunu ve ön plan servisini durdurur. Kapatmalar sırayla yapılır: önceki
+   * kapatma (ör. yavaş kapanan oda) yeni katılmadan sonra bitip yeni bağlantının ses oturumunu ve ön
+   * plan servisini durdurmasın; servissiz kalan ses arka planda Android tarafından kısıtlanır.
+   */
+  private teardown(): Promise<void> {
     const room = this.room;
     this.room = null;
     this.gate.detach();
-    if (room) await room.disconnect(true).catch(() => undefined);
-    await AudioSession.stopAudioSession().catch(() => undefined);
-    try {
-      VoiceService.stop();
-    } catch {
-      // servis zaten kapalı
-    }
+    const previous = this.tearingDown;
+    const next = (async () => {
+      await previous;
+      if (room) await room.disconnect(true).catch(() => undefined);
+      await AudioSession.stopAudioSession().catch(() => undefined);
+      try {
+        VoiceService.stop();
+      } catch {
+        // servis zaten kapalı
+      }
+    })();
+    this.tearingDown = next;
+    return next;
   }
 }
 

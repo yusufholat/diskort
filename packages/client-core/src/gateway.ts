@@ -23,7 +23,13 @@ class GatewayClient {
   private active = false;
   private listeners = new Set<Listener>();
 
+  /**
+   * Bağlantıyı başlatır. Zaten bağlıysa ya da bağlanıyorsa bir şey yapmaz: telefonda Android ekranı
+   * (Activity) yeniden kurulunca arayüz baştan çizilir ve bu yeniden çağrılır; çalışan bağlantı
+   * bozulmamalı (ikinci bir bağlantı da açılmamalı).
+   */
   connect(): void {
+    if (this.active && this.ws) return;
     this.active = true;
     this.attempts = 0;
     this.open();
