@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,7 +9,8 @@ import { colors, createStyles, font, radius, space } from '../theme';
 import { leaveVoice, toggleDeafen, toggleMute } from '../voice/actions';
 import { useVoice } from '../voice/voice';
 import { PressableScale } from './PressableScale';
-import { qualityLevel, SignalBars } from './VoiceQuality';
+import { ConnectionSheet } from './ConnectionSheet';
+import { SignalBars, useVoiceLevel } from './VoiceQuality';
 
 /** Alt çubuktaki düğme boyu (tek satırda kalsın diye ses ekranındakilerden küçük) */
 const BUTTON = 38;
@@ -16,8 +18,8 @@ const BUTTON = 38;
 const STATUS = { connecting: 'Bağlanıyor…', reconnecting: 'Yeniden bağlanıyor…', connected: 'Ses bağlı', idle: '' };
 
 /**
- * Ekranın altında tek satır (Discord mobil gibi): solda bağlantı kalitesi, kanal adı ve durum
- * (dokununca ses ekranı açılır), sağda sustur / sağırlaştır / ayrıl. Sese katılınca aşağıdan
+ * Ekranın altında tek satır (Discord mobil gibi): solda bağlantı kalitesi (dokununca bağlantı paneli),
+ * kanal adı ve durum (dokununca ses ekranı açılır; durum yazısı da bağlantı panelini açar), sağda sustur / sağırlaştır / ayrıl. Sese katılınca aşağıdan
  * yükselerek belirir. `onSettings` verilirse (ana ekranda kullanıcı panelinin yerini alınca) ayarlar
  * düğmesi de olur; böylece aynı düğmeler iki satırda tekrarlanmaz.
  */
@@ -31,7 +33,6 @@ export function VoiceBar({ bottomInset = 0, onSettings }: { bottomInset?: number
 function VoiceBarInner({ bottomInset, onSettings }: { bottomInset: number; onSettings?: () => void }) {
   const router = useRouter();
   const status = useVoice((s) => s.status);
-  const quality = useVoice((s) => s.quality);
   const channelId = useVoice((s) => s.channelId);
   const channel = useGuild((s) => channelById(s, channelId));
   const count = useGuild((s) => {
@@ -46,7 +47,10 @@ function VoiceBarInner({ bottomInset, onSettings }: { bottomInset: number; onSet
   const appear = useAppear(true, 220);
   const connected = status === 'connected';
   const muted = selfMute || selfDeaf || !micAllowed;
-  const level = qualityLevel(quality, null, connected);
+  const level = useVoiceLevel();
+  const [infoOpen, setInfoOpen] = useState(false);
+  const openInfo = useCallback(() => setInfoOpen(true), []);
+  const closeInfo = useCallback(() => setInfoOpen(false), []);
 
   return (
     <Animated.View
@@ -57,6 +61,17 @@ function VoiceBarInner({ bottomInset, onSettings }: { bottomInset: number; onSet
       ]}
     >
       <View style={styles.bar}>
+        {/* Bağlantı göstergesi ve durum yazısı bağlantı panelini, satırın geri kalanı ses ekranını açar */}
+        <Pressable
+          style={styles.signal}
+          android_ripple={{ color: 'rgba(255,255,255,0.1)', borderless: true, radius: 22 }}
+          onPress={openInfo}
+          hitSlop={4}
+          accessibilityRole="button"
+          accessibilityLabel={`Bağlantı bilgisi${level.ping !== null ? `, gecikme ${level.ping} milisaniye` : ''}`}
+        >
+          <SignalBars bars={level.bars} color={level.color} size={15} />
+        </Pressable>
         <Pressable
           style={styles.info}
           android_ripple={{ color: 'rgba(255,255,255,0.07)', foreground: true }}
@@ -64,17 +79,20 @@ function VoiceBarInner({ bottomInset, onSettings }: { bottomInset: number; onSet
           accessibilityRole="button"
           accessibilityLabel={`${channel?.name ?? 'Ses kanalı'}, ${STATUS[status]}${count > 0 ? `, ${count} kişi` : ''}. Ses ekranını aç`}
         >
-          <SignalBars bars={level.bars} color={level.color} size={15} />
           <View style={styles.texts}>
             <Text style={styles.channel} numberOfLines={1}>
               {channel?.name ?? 'Ses kanalı'}
             </Text>
             <Text style={[styles.status, { color: level.color }]} numberOfLines={1}>
-              {STATUS[status]}
+              <Text onPress={openInfo} suppressHighlighting>
+                {STATUS[status]}
+                {connected && level.ping !== null ? <Text style={styles.ping}>{` ${level.ping} ms`}</Text> : null}
+              </Text>
               {count > 0 ? <Text style={styles.count}>{` · ${count} kişi`}</Text> : null}
             </Text>
           </View>
         </Pressable>
+        <ConnectionSheet visible={infoOpen} onClose={closeInfo} />
         {onSettings ? <VoiceControl icon="settings-sharp" size={BUTTON} label="Ayarlar" onPress={onSettings} /> : null}
         <VoiceControl
           icon={muted ? 'mic-off' : 'mic'}
@@ -172,6 +190,7 @@ const styles = createStyles(() => ({
     paddingLeft: space.xs,
     paddingRight: space.sm,
   },
+  signal: { alignSelf: 'stretch', justifyContent: 'center', paddingLeft: space.sm + 2, paddingRight: space.xxs },
   // Dokunma alanı satır boyu; dalga efekti yuvarlatılmış kutuda kalır
   info: {
     flex: 1,
@@ -180,10 +199,11 @@ const styles = createStyles(() => ({
     gap: space.sm + 2,
     alignSelf: 'stretch',
     marginVertical: space.xs,
-    paddingHorizontal: space.sm + 2,
+    paddingHorizontal: space.sm,
     borderRadius: radius.md,
     overflow: 'hidden',
   },
+  ping: { fontWeight: '600', fontVariant: ['tabular-nums'] },
   texts: { flex: 1 },
   channel: { color: colors.head, fontSize: font.body - 0.5, fontWeight: '700' },
   status: { fontSize: font.caption, fontWeight: '700' },
