@@ -230,7 +230,9 @@ class MobileVoiceClient {
         next,
         { audio: false },
         {
-          videoCodec: 'h264',
+          // VP8: yazılım kodlayıcısı her telefonda var. H.264 telefonun donanım kodlayıcısına kalıyor; bazı
+          // telefonlarda (ör. 0.2.2'de denenen) bu boyuttaki dikey görüntüde hiç kare üretmiyor ve yayın ölü kalıyor.
+          videoCodec: 'vp8',
           simulcast: false,
           screenShareEncoding: { maxBitrate: 2_500_000, maxFramerate: 24 },
           // Sıkışınca kare atlamak (donma) yerine netliği düşür
