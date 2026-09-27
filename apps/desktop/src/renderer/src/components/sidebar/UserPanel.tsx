@@ -3,10 +3,13 @@ import { Headphones, HeadphoneOff, Mic, MicOff, Settings } from 'lucide-react';
 import { voice } from '../../features/voice/voiceClient';
 import { useMountedRef } from '../../lib/motion';
 import { cn } from '../../lib/utils';
-import { useGuild, useSession } from '@diskort/client-core';
+import { STATUS_LABELS } from '@diskort/shared';
+import { useCustomStatus, useGuild, useSession, useStatus } from '@diskort/client-core';
 import { useSettings } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
+import { CustomStatusLine } from '../status/CustomStatusLine';
+import { toggleSelfProfile } from '../status/SelfProfilePopout';
 import { Avatar } from '../ui/Avatar';
 
 export function UserPanel() {
@@ -20,21 +23,42 @@ export function UserPanel() {
   const micAllowed = useVoice((s) => s.micAllowed || s.status === 'idle');
   const serverDeaf = useGuild((s) => (user ? s.voiceStates[user.id]?.serverDeaf === true : false));
   const openModal = useUi((s) => s.openModal);
+  const status = useStatus(user?.id);
+  const custom = useCustomStatus(user?.id);
 
   const muted = selfMute || selfDeaf || !micAllowed;
   const deaf = selfDeaf || serverDeaf;
 
   return (
     <div className="flex h-[52px] shrink-0 items-center gap-2 bg-bg-panel px-2">
-      <div className="flex min-w-0 flex-1 items-center gap-2 rounded py-1 pl-0.5">
-        <Avatar user={user ?? undefined} size={32} speaking={speaking} online />
+      {/* Tıklayınca kendi profil kartın: durum ve özel durum buradan değişir */}
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 items-center gap-2 rounded py-1 pr-1 pl-0.5 text-left transition-colors hover:bg-bg-hover"
+        aria-label="Profilin ve durumun"
+        onClick={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          toggleSelfProfile({ left: rect.left, top: rect.top });
+        }}
+      >
+        <Avatar user={user ?? undefined} size={32} speaking={speaking} status={status} />
         <div className="min-w-0 leading-tight">
           <div className="truncate text-sm font-semibold text-text-head">{user?.displayName}</div>
           <div className="truncate text-xs text-text-muted">
-            {inputMode === 'ptt' ? (pttActive ? 'Konuşuyor (bas-konuş)' : 'Bas-konuş') : `@${user?.username}`}
+            {inputMode === 'ptt' ? (
+              pttActive ? (
+                'Konuşuyor (bas-konuş)'
+              ) : (
+                'Bas-konuş'
+              )
+            ) : custom ? (
+              <CustomStatusLine status={custom} />
+            ) : (
+              STATUS_LABELS[status]
+            )}
           </div>
         </div>
-      </div>
+      </button>
       <PanelButton
         active={muted}
         title={!micAllowed ? voice.micBlockedReason() : muted ? 'Sesi Aç' : 'Sustur'}

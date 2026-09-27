@@ -103,6 +103,15 @@ export interface DiskortBridge {
   /** Odaktaki metin kutusunda düzenleme komutu (yapıştırma sayfadan izinsiz yapılamaz). */
   edit(command: EditCommand): void;
 
+  /**
+   * Bilgisayar boşta mı (~10 dakikadır girdi yok, ekran kilitli ya da uykuda). Bu alanı bilmeyen eski
+   * ana süreçte yoktur.
+   */
+  idle?: {
+    get(): Promise<boolean>;
+    onChange(cb: (idle: boolean) => void): () => void;
+  };
+
   screen: {
     /** Sistem sesi paylaşımı destekleniyor mu (şu an yalnızca Windows) */
     supportsAudio: boolean;

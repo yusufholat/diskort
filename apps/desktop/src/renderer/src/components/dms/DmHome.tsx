@@ -3,7 +3,7 @@ import { MessageCircle, MessagesSquare } from 'lucide-react';
 import { useGuild, useSession } from '@diskort/client-core';
 import { startDm } from '../../lib/dm';
 import { useUi } from '../../stores/ui';
-import { Avatar } from '../ui/Avatar';
+import { PresenceAvatar } from '../ui/Avatar';
 import { Button } from '../ui/controls';
 
 const QUICK_MAX = 12;
@@ -53,7 +53,7 @@ export function DmHome() {
                 className="group flex items-center gap-3 rounded-lg bg-bg-side px-3 py-2.5 text-left transition-colors hover:bg-bg-hover"
                 onClick={() => void startDm(u.id)}
               >
-                <Avatar user={u} size={32} online={Boolean(online[u.id])} />
+                <PresenceAvatar userId={u.id} user={u} size={32} ringClassName="bg-bg-side" />
                 <span className="min-w-0 flex-1 leading-tight">
                   <span className="block truncate font-medium text-text-normal">{u.displayName}</span>
                   <span className="block truncate text-xs text-text-muted">@{u.username}</span>

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { gateway } from '@diskort/client-core';
 import { bridge } from '../../lib/bridge';
 import { useSettings } from '../../stores/settings';
 import { toast } from '../../stores/ui';
@@ -8,6 +9,15 @@ import { voice } from '../voice/voiceClient';
 
 /** Electron ana süreciyle entegrasyon: global kısayollar, tepsi menüsü, tercihler, güncellemeler. */
 export function useDesktopIntegration(): void {
+  // Otomatik "Boşta": ana süreç girdi yokluğunu ve ekran kilidini izler, sunucuya iletilir (elle seçilen
+  // durum değişmez; başka bir cihazda etkinsen "Çevrim içi" kalırsın)
+  useEffect(() => {
+    const idle = bridge?.idle;
+    if (!idle) return;
+    void idle.get().then((value) => gateway.setIdle(value), () => undefined);
+    return idle.onChange((value) => gateway.setIdle(value));
+  }, []);
+
   // Global kısayol olayları → ses motoru
   useEffect(() => {
     if (!bridge) return;

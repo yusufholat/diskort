@@ -4,6 +4,7 @@ import { ContextMenu } from './components/ContextMenu';
 import { EmojiPicker } from './components/EmojiPicker';
 import { MainLayout } from './components/MainLayout';
 import { ProfilePopover } from './components/members/ProfilePopover';
+import { SelfProfilePopout } from './components/status/SelfProfilePopout';
 import { TitleBar } from './components/TitleBar';
 import { Toasts } from './components/Toasts';
 import { ConfirmDialogHost } from './components/ui/ConfirmDialog';
@@ -59,6 +60,7 @@ export function App() {
       <ContextMenu />
       <EmojiPicker />
       <ProfilePopover />
+      <SelfProfilePopout />
       <ConfirmDialogHost />
       <Toasts />
       <TooltipHost />

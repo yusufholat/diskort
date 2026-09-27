@@ -31,7 +31,7 @@ import {
 import { toLocalFiles } from '../../features/messages/files';
 import { cn } from '../../lib/utils';
 import { toast } from '../../stores/ui';
-import { Avatar } from '../ui/Avatar';
+import { PresenceAvatar } from '../ui/Avatar';
 import { FileIcon } from './Attachments';
 import { ComposerToolbar } from './ComposerToolbar';
 import { ReplyBar } from './ReplyBar';
@@ -294,7 +294,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
             >
               {item.kind === 'user' ? (
                 <>
-                  <Avatar user={item.user} size={24} online={!!online[item.user.id]} />
+                  <PresenceAvatar userId={item.user.id} user={item.user} size={24} ringClassName="bg-bg-float" />
                   <span className="font-medium">{item.user.displayName}</span>
                   <span className="text-sm text-text-muted">{item.user.username}</span>
                 </>
