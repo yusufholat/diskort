@@ -56,11 +56,16 @@ export interface TestServer {
   ctx: AppContext;
   livekit: FakeLiveKit;
   owner: Account;
+  /** Ana sunucunun kimliği (sahibi `owner`) */
+  guildId: string;
   /** Davet koduyla yeni üye */
   member(username: string, password?: string): Promise<Account>;
   req(token: string, method: string, url: string, payload?: unknown): Promise<InjectResponse>;
   createRole(token: string, body: Record<string, unknown>): Promise<Role>;
   giveRole(token: string, userId: string, roleId: string): Promise<number>;
+  /** Üyenin ana sunucudaki rolleri */
+  rolesOf(userId: string): string[];
+  /** Ana sunucunun ilk metin/ses kanalı */
   channel(type: 'text' | 'voice'): Channel;
   close(): Promise<void>;
 }
@@ -87,18 +92,22 @@ export async function startServer(opts: BuildOptions = {}): Promise<TestServer> 
     ctx,
     livekit,
     owner,
+    guildId: ctx.guild.id,
     req,
     async member(username, password) {
-      const code = (await req(owner.token, 'POST', '/api/invites', {})).json().code as string;
+      const code = (await req(owner.token, 'POST', `/api/guilds/${ctx.guild.id}/invites`, {})).json().code as string;
       return register(code, username, password);
     },
     async createRole(token, body) {
-      const res = await req(token, 'POST', '/api/roles', body);
+      const res = await req(token, 'POST', `/api/guilds/${ctx.guild.id}/roles`, body);
       if (res.statusCode !== 201) throw new Error(`rol oluşturulamadı: ${res.body}`);
       return res.json() as Role;
     },
     async giveRole(token, userId, roleId) {
-      return (await req(token, 'PUT', `/api/users/${userId}/roles/${roleId}`)).statusCode;
+      return (await req(token, 'PUT', `/api/guilds/${ctx.guild.id}/members/${userId}/roles/${roleId}`)).statusCode;
+    },
+    rolesOf(userId) {
+      return ctx.store.getMember(ctx.guild.id, userId)?.roles ?? [];
     },
     channel(type) {
       return ctx.store.listChannels(ctx.guild.id).find((c) => c.type === type)!;

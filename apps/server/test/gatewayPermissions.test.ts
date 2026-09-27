@@ -40,17 +40,20 @@ describe('gateway süzgeci', () => {
     await hideChannel(voice);
 
     const m = await connect(member.token);
-    const ids = m.ready.channels.map((c) => c.id);
+    expect(m.ready.guilds).toHaveLength(1);
+    const [guild] = m.ready.guilds;
+    const ids = guild!.channels.map((c) => c.id);
     expect(ids).not.toContain(text.id);
     expect(ids).not.toContain(voice.id);
     expect(m.ready.voiceStates).toEqual([]);
     expect(m.ready.lastMessageIds[text.id]).toBeUndefined();
-    expect(m.ready.roles.map((r) => r.name)).toEqual(['Yönetici', '@everyone']);
-    expect(m.ready.guild.ownerId).toBe(s.owner.user.id);
-    expect(m.ready.users.find((u) => u.id === s.owner.user.id)?.roles).toHaveLength(1);
+    expect(guild!.roles.map((r) => r.name)).toEqual(['Yönetici', '@everyone']);
+    expect(guild!.guild.ownerId).toBe(s.owner.user.id);
+    expect(guild!.members.find((u) => u.userId === s.owner.user.id)?.roles).toHaveLength(1);
+    expect(m.ready.users.map((u) => u.id).sort()).toEqual([s.owner.user.id, member.user.id].sort());
 
     const o = await connect(s.owner.token);
-    expect(o.ready.channels.map((c) => c.id)).toEqual(expect.arrayContaining([text.id, voice.id]));
+    expect(o.ready.guilds[0]!.channels.map((c) => c.id)).toEqual(expect.arrayContaining([text.id, voice.id]));
     expect(o.ready.voiceStates).toHaveLength(1);
   });
 
@@ -71,7 +74,7 @@ describe('gateway süzgeci', () => {
     await s.req(vip.token, 'PUT', `/api/messages/${msg.id}/reactions/👍`);
     s.ctx.voice.join(vip.user.id, voice.id);
     // Görünen kanalda mesaj (ikisi de görür)
-    const open = (await s.req(s.owner.token, 'POST', '/api/channels', { name: 'acik', type: 'text' })).json() as Channel;
+    const open = (await s.req(s.owner.token, 'POST', `/api/guilds/${s.guildId}/channels`, { name: 'acik', type: 'text' })).json() as Channel;
     await s.req(s.owner.token, 'POST', `/api/channels/${open.id}/messages`, { content: 'herkese' });
     await m.settle();
 
@@ -98,7 +101,10 @@ describe('gateway süzgeci', () => {
     const o = await connect(s.owner.token);
     await s.giveRole(s.owner.token, member.user.id, role.id);
     await m.settle();
-    expect(m.of('USER_UPDATE').at(-1)?.roles).toEqual([role.id]);
+    expect(m.of('GUILD_MEMBER_UPDATE').at(-1)).toEqual({
+      guildId: s.guildId,
+      member: expect.objectContaining({ userId: member.user.id, roles: [role.id] }),
+    });
     expect(m.of('CHANNEL_CREATE').map((c) => c.id).sort()).toEqual([text.id, voice.id].sort());
     expect(m.of('VOICE_STATE_UPDATE').map((v) => v.userId)).toEqual([s.owner.user.id]);
 
@@ -114,7 +120,7 @@ describe('gateway süzgeci', () => {
     expect(o.of('CHANNEL_UPDATE').at(-1)?.id).toBe(text.id);
 
     m.events.length = 0;
-    await s.req(s.owner.token, 'DELETE', `/api/users/${member.user.id}/roles/${role.id}`);
+    await s.req(s.owner.token, 'DELETE', `/api/guilds/${s.guildId}/members/${member.user.id}/roles/${role.id}`);
     await m.settle();
     expect(m.of('CHANNEL_DELETE').map((c) => c.id).sort()).toEqual([text.id, voice.id].sort());
     expect(m.of('VOICE_STATE_DELETE')).toEqual([{ userId: s.owner.user.id, channelId: voice.id }]);
@@ -122,30 +128,40 @@ describe('gateway süzgeci', () => {
     expect(o.of('CHANNEL_DELETE')).toEqual([]);
   });
 
-  it('rol değişiklikleri ROLES_UPDATE, sunucu değişiklikleri GUILD_UPDATE ile duyurulur; atılan üyenin bağlantısı kapanır', async () => {
+  it('rol değişiklikleri ROLES_UPDATE, sunucu değişiklikleri GUILD_UPDATE ile duyurulur; atılan üye sunucuyu kaybeder', async () => {
     const member = await s.member('uye');
     const m = await connect(member.token);
-    const closed = new Promise<number>((resolve) => m.ws.on('close', (code) => resolve(code)));
+    const o = await connect(s.owner.token);
     const role = await s.createRole(s.owner.token, { name: 'Yeni', color: '#123456', hoist: true });
-    await s.req(s.owner.token, 'PATCH', '/api/guild', { name: 'Arkadaşlar' });
+    await s.req(s.owner.token, 'PATCH', `/api/guilds/${s.guildId}`, { name: 'Arkadaşlar' });
     await m.settle();
     expect(m.of('ROLES_UPDATE').at(-1)?.roles.map((r) => r.id)).toContain(role.id);
+    expect(m.of('ROLES_UPDATE').at(-1)?.guildId).toBe(s.guildId);
     expect(m.of('GUILD_UPDATE').at(-1)?.name).toBe('Arkadaşlar');
 
-    await s.req(s.owner.token, 'POST', `/api/users/${member.user.id}/kick`);
-    expect(await closed).toBe(4004);
-    expect(m.of('INVALID_SESSION')).toHaveLength(1);
+    await s.req(s.owner.token, 'DELETE', `/api/guilds/${s.guildId}/members/${member.user.id}`);
+    await m.settle();
+    // Bağlantı açık kalır (hesap başka sunuculara katılabilir), sunucu listeden kalkar
+    expect(m.ws.readyState).toBe(m.ws.OPEN);
+    expect(m.of('GUILD_DELETE')).toEqual([{ id: s.guildId, reason: expect.stringContaining('çıkarıldın') }]);
+    expect(o.of('GUILD_MEMBER_REMOVE')).toEqual([{ guildId: s.guildId, userId: member.user.id }]);
+    // Artık o sunucunun hiçbir olayı gelmez
+    m.events.length = 0;
+    await s.req(s.owner.token, 'POST', `/api/channels/${s.channel('text').id}/messages`, { content: 'yok' });
+    await s.req(s.owner.token, 'PATCH', `/api/guilds/${s.guildId}`, { name: 'Başka' });
+    await m.settle();
+    expect(m.events).toEqual([]);
   });
 
   it('kanal silinince yalnızca onu görenler haber alır', async () => {
     const member = await s.member('uye');
-    const hidden = (await s.req(s.owner.token, 'POST', '/api/channels', { name: 'gizli', type: 'text' })).json() as Channel;
+    const hidden = (await s.req(s.owner.token, 'POST', `/api/guilds/${s.guildId}/channels`, { name: 'gizli', type: 'text' })).json() as Channel;
     await hideChannel(hidden);
     const m = await connect(member.token);
     const o = await connect(s.owner.token);
     await s.req(s.owner.token, 'DELETE', `/api/channels/${hidden.id}`);
     await m.settle();
     expect(m.of('CHANNEL_DELETE')).toEqual([]);
-    expect(o.of('CHANNEL_DELETE')).toEqual([{ id: hidden.id }]);
+    expect(o.of('CHANNEL_DELETE')).toEqual([{ id: hidden.id, guildId: s.guildId }]);
   });
 });

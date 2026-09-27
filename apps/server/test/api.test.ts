@@ -61,7 +61,7 @@ describe('kimlik doğrulama ve davetler', () => {
     const token = await adminToken();
     const inv = await app.inject({
       method: 'POST',
-      url: '/api/invites',
+      url: `/api/guilds/${ctx.guild.id}/invites`,
       headers: { authorization: `Bearer ${token}` },
       payload: { maxUses: 1 },
     });
@@ -75,7 +75,7 @@ describe('kimlik doğrulama ve davetler', () => {
   it('davet kodu büyük/küçük harf ve boşluk duyarsızdır; davetle gelen kullanıcı yönetici değildir', async () => {
     const token = await adminToken();
     const code = (
-      await app.inject({ method: 'POST', url: '/api/invites', headers: { authorization: `Bearer ${token}` }, payload: {} })
+      await app.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: { authorization: `Bearer ${token}` }, payload: {} })
     ).json().code as string;
     const res = await register(`  ${code.toLowerCase()} `, 'mehmet');
     expect(res.statusCode).toBe(201);
@@ -85,10 +85,14 @@ describe('kimlik doğrulama ve davetler', () => {
   it('aynı kullanıcı adı iki kez alınamaz', async () => {
     const token = await adminToken();
     const code = (
-      await app.inject({ method: 'POST', url: '/api/invites', headers: { authorization: `Bearer ${token}` }, payload: {} })
+      await app.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: { authorization: `Bearer ${token}` }, payload: {} })
     ).json().code as string;
-    const res = await register(code, 'admin');
+    const res = await register(code, 'admin', 'baska-sifre-1');
     expect(res.statusCode).toBe(409);
+    // Doğru şifreyle aynı ad: hesap sahibi giriş yapar ve davetin sunucusuna katılır (zaten üyeyse değişmez)
+    const same = await register(code, 'admin');
+    expect(same.statusCode).toBe(201);
+    expect(same.json().user.username).toBe('admin');
   });
 
   it('yanlış şifreyle giriş reddedilir, doğru şifreyle kabul edilir', async () => {
@@ -100,16 +104,23 @@ describe('kimlik doğrulama ve davetler', () => {
     expect(ok.json().user.username).toBe('admin');
   });
 
-  it('yönetici olmayan kullanıcı davet veya kanal oluşturamaz', async () => {
+  it('yönetici olmayan kullanıcı hesap daveti veya kanal oluşturamaz', async () => {
     const token = await adminToken();
     const code = (
-      await app.inject({ method: 'POST', url: '/api/invites', headers: { authorization: `Bearer ${token}` }, payload: {} })
+      await app.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: { authorization: `Bearer ${token}` }, payload: {} })
     ).json().code as string;
     const userToken = (await register(code, 'uye')).json().token as string;
     const headers = { authorization: `Bearer ${userToken}` };
     expect((await app.inject({ method: 'POST', url: '/api/invites', headers, payload: {} })).statusCode).toBe(403);
     expect(
-      (await app.inject({ method: 'POST', url: '/api/channels', headers, payload: { name: 'x', type: 'voice' } })).statusCode,
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/api/guilds/${ctx.guild.id}/channels`,
+          headers,
+          payload: { name: 'x', type: 'voice' },
+        })
+      ).statusCode,
     ).toBe(403);
   });
 

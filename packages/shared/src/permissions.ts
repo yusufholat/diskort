@@ -39,11 +39,13 @@ export const Permission = {
   DEAFEN_MEMBERS: 1 << 17,
   /** Üyeyi başka ses kanalına taşımak ya da sesten çıkarmak */
   MOVE_MEMBERS: 1 << 18,
+  /** Sunucuya davet kodu oluşturmak (kendi davetlerini görmek ve silmek); tümünü yönetmek MANAGE_INVITES */
+  CREATE_INVITE: 1 << 19,
 } as const;
 
 export type PermissionName = keyof typeof Permission;
 
-export const ALL_PERMISSIONS = (1 << 19) - 1;
+export const ALL_PERMISSIONS = (1 << 20) - 1;
 
 /** Kanal izinleriyle değiştirilebilen metin kanalı yetkileri */
 export const TEXT_CHANNEL_PERMISSIONS =
@@ -69,9 +71,10 @@ const TEXT_ONLY = TEXT_CHANNEL_PERMISSIONS & ~Permission.VIEW_CHANNEL;
 
 /**
  * @everyone rolünün varsayılan yetkileri: rollerden önce herkesin yapabildiği her şey (mesaj, dosya,
- * tepki, ses, ekran paylaşımı) ve @everyone bahsetmesi.
+ * tepki, ses, ekran paylaşımı), @everyone bahsetmesi ve sunucuya davet oluşturmak.
  */
 export const DEFAULT_EVERYONE_PERMISSIONS =
+  Permission.CREATE_INVITE |
   Permission.VIEW_CHANNEL |
   Permission.SEND_MESSAGES |
   Permission.ATTACH_FILES |

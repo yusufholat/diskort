@@ -127,7 +127,9 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
       if (!hasPermission(perms, Permission.SEND_MESSAGES)) {
         return forbidden(
           reply,
-          channel ? 'Bu kanala mesaj gönderme iznin yok.' : 'Bu kişi artık sunucuda olmadığı için mesaj gönderemezsin.',
+          channel
+            ? 'Bu kanala mesaj gönderme iznin yok.'
+            : 'Bu kişiyle artık ortak bir sunucunuz olmadığı için mesaj gönderemezsin.',
         );
       }
       if (!allowMessage(req.user.id)) {
@@ -155,10 +157,10 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
       // @everyone ve @here yalnızca kanalda MENTION_EVERYONE yetkisi olan yazarda bildirim olur (kod içindekiler
       // sayılmaz): @everyone kanalı gören herkese, @here kanalı gören ve şu an çevrimiçi olanlara (gateway'e
       // bağlı; çevrimdışı olanların okunmamış sayısı artmaz, telefonlarına da bildirim gitmez). Bahsedilenlerden
-      // kanalı göremeyenler sayılmaz. Direkt mesajda @everyone/@here yoktur; karşı tarafın (üye olan diğer
-      // katılımcıların) her mesajı bahsetme sayılır: okunmamış sayısı ve bildirim onlara gider. Bildirimli
-      // yanıtta asıl yazar da (kanalı görüyorsa) bahsedilir; direkt mesajda zaten katılımcıdır, konuşmadan
-      // ayrıldıysa bildirilmez.
+      // kanalı göremeyenler sayılmaz (başka sunucuların üyeleri hiç sayılmaz). Direkt mesajda @everyone/@here
+      // yoktur; diğer katılımcıların her mesajı bahsetme sayılır: okunmamış sayısı ve bildirim onlara gider.
+      // Bildirimli yanıtta asıl yazar da (kanalı görüyorsa) bahsedilir; direkt mesajda zaten katılımcıdır,
+      // konuşmadan ayrıldıysa bildirilmez.
       const broadcast = channel !== null && hasPermission(perms, Permission.MENTION_EVERYONE);
       const everyone = broadcast && mentionsEveryone(content);
       const here = broadcast && mentionsHere(content);
@@ -166,8 +168,8 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
       if (channel) {
         const candidates = new Set(
           everyone
-            ? store.listUsers().filter((u) => !u.removed && u.id !== req.user.id).map((u) => u.id)
-            : store.resolveMentions(content, req.user.id),
+            ? store.guildMemberIds(channel.guildId).filter((id) => id !== req.user.id)
+            : store.resolveMentions(content, req.user.id, channel.guildId),
         );
         if (here && !everyone) {
           for (const id of gateway.connectedUserIds()) if (id !== req.user.id) candidates.add(id);
@@ -175,7 +177,7 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
         if (replyTo?.mentionUserId) candidates.add(replyTo.mentionUserId);
         mentioned = permissions.viewersOf(channel, candidates);
       } else {
-        mentioned = permissions.dmParticipants(target.id).filter((id) => id !== req.user.id && permissions.isMember(id));
+        mentioned = permissions.dmParticipants(target.id).filter((id) => id !== req.user.id);
         if (replyTo?.mentionUserId && !mentioned.includes(replyTo.mentionUserId)) replyTo.mentionUserId = null;
       }
       const created = store.createMessage(
@@ -199,7 +201,7 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
       }
       gateway.dispatchChannel(target.id, { t: 'MESSAGE_CREATE', d: message });
       // Telefonlara bildirim yanıtı bekletmez
-      if (channel) void push.notifyMention(message, mentioned, channel.name);
+      if (channel) void push.notifyMention(message, mentioned, channel.name, channel.guildId);
       else void push.notifyDm(message, mentioned, store.getDm(target.id)!);
       return reply.code(201).send(message);
     },

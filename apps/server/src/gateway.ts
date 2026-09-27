@@ -9,7 +9,8 @@ import {
   sortRoles,
   type GatewayClientMessage,
   type GatewayServerMessage,
-  type Guild,
+  type GuildCreatePayload,
+  type GuildData,
   type ServerFeatures,
   type User,
 } from '@diskort/shared';
@@ -38,20 +39,23 @@ interface Session {
 export type Visibility = Map<string, Set<string>>;
 
 /**
- * Gerçek zamanlı olay kanalı: kanal/kullanıcı/ses durumu değişikliklerini
- * bağlı istemcilere iletir (Discord "gateway" benzeri). Bir kanala ait olaylar (mesajlar, tepkiler,
- * "yazıyor", ses durumları, kanalın kendisi) yalnızca o kanalı görebilenlere gider.
+ * Gerçek zamanlı olay kanalı: kanal/kullanıcı/ses durumu değişikliklerini bağlı istemcilere iletir
+ * (Discord "gateway" benzeri). Her olay yalnızca onu görmesi gerekenlere gider: bir kanala ait olaylar
+ * (mesajlar, tepkiler, "yazıyor", ses durumları, kanalın kendisi) o kanalı görebilenlere, bir sunucuya ait
+ * olaylar (üyeler, roller, sunucunun kendisi) o sunucunun üyelerine, profil ve çevrimiçi bilgisi ortak
+ * sunucusu (ya da direkt mesaj konuşması) olanlara.
  */
 export class Gateway {
   private readonly sessions = new Set<Session>();
   private readonly byUser = new Map<string, Set<Session>>();
   private pingTimer: NodeJS.Timeout | null = null;
+  /** Sunucu kapanıyor: kapanan bağlantılar için artık veritabanına bakılmaz */
+  private closing = false;
 
   constructor(
     private readonly store: Store,
     private readonly auth: AuthService,
     private readonly voice: VoiceStateStore,
-    private readonly guild: Guild,
     private readonly permissions: PermissionService,
     private readonly clientVersions?: ClientVersionPolicy,
     private readonly attachmentMaxBytes = DEFAULT_ATTACHMENT_MAX_BYTES,
@@ -68,6 +72,7 @@ export class Gateway {
     app.get('/gateway', { websocket: true }, (socket) => this.accept(socket));
     this.pingTimer = setInterval(() => this.pingAll(), PING_INTERVAL_MS);
     app.addHook('onClose', async () => {
+      this.closing = true;
       if (this.pingTimer) clearInterval(this.pingTimer);
       for (const s of this.sessions) s.socket.terminate();
     });
@@ -85,11 +90,11 @@ export class Gateway {
     }
   }
 
-  /** Tüm bağlı istemcilere gönderir; exceptUserId verilirse o kullanıcının oturumlarını atlar. */
-  broadcast(msg: GatewayServerMessage, exceptUserId?: string): void {
+  /** Tüm bağlı istemcilere gönderir (yalnızca herkesi ilgilendiren olaylar: ör. yeni sürüm). */
+  broadcast(msg: GatewayServerMessage): void {
     const data = JSON.stringify(msg);
     for (const s of this.sessions) {
-      if (!s.userId || s.userId === exceptUserId) continue;
+      if (!s.userId) continue;
       if (s.socket.readyState === s.socket.OPEN) s.socket.send(data);
     }
   }
@@ -127,6 +132,19 @@ export class Gateway {
     }
   }
 
+  /** Sunucunun şu anki üyelerine gönderir */
+  sendToGuild(guildId: string, msg: GatewayServerMessage, exceptUserId?: string): void {
+    this.sendToUsers(
+      this.store.guildMemberIds(guildId).filter((id) => id !== exceptUserId),
+      msg,
+    );
+  }
+
+  /** Profil değişikliği: kullanıcıyı görebilen herkese (ortak sunucu, eski üyelik ya da DM) */
+  sendUserUpdate(user: User): void {
+    this.sendToUsers(this.store.observerIds(user.id), { t: 'USER_UPDATE', d: user });
+  }
+
   /** Direkt mesaj olayını (DM_CHANNEL_*) belirli kullanıcıların DM'leri tanıyan oturumlarına gönderir. */
   sendDm(userIds: Iterable<string>, msg: GatewayServerMessage): void {
     const data = JSON.stringify(msg);
@@ -153,11 +171,10 @@ export class Gateway {
    * Yetki değişikliğinden sonra her bağlı kullanıcının görünümünü günceller: görmeyi kaybettiği kanal
    * için CHANNEL_DELETE (+ oradaki ses durumlarının silinmesi), yeni gördüğü kanal için CHANNEL_CREATE
    * (+ oradaki ses durumları). `updated` kanallar (izinleri değişen) görmeye devam edenlere CHANNEL_UPDATE
-   * olarak gider. Eski istemciler de kanal ekleme/silme olaylarını tanıdığı için doğru görünür.
+   * olarak gider.
    */
   syncVisibility(before: Visibility, updated: Iterable<string> = []): void {
     const updatedIds = new Set(updated);
-    const channels = this.store.permissionData().channels;
     const states = this.voice.list();
     for (const userId of this.byUser.keys()) {
       const prev = before.get(userId);
@@ -174,7 +191,7 @@ export class Gateway {
         out.push({ t: 'CHANNEL_DELETE', d: { id } });
       }
       for (const id of next) {
-        const channel = channels.get(id);
+        const channel = this.permissions.channel(id);
         if (!channel) continue;
         if (!prev.has(id)) {
           out.push({ t: 'CHANNEL_CREATE', d: channel });
@@ -185,6 +202,69 @@ export class Gateway {
       }
       for (const msg of out) this.sendToUsers([userId], msg);
     }
+  }
+
+  /** Sunucunun kullanıcıya görünen hâli: görebildiği kanallar, roller, üyeler */
+  guildData(guildId: string, userId: string): GuildData | null {
+    const guild = this.store.getGuild(guildId);
+    if (!guild) return null;
+    return {
+      guild,
+      channels: this.permissions.visibleChannels(guildId, userId),
+      roles: sortRoles(this.store.guildRoles(guildId)),
+      members: this.store.listMembers(guildId),
+    };
+  }
+
+  /**
+   * Kullanıcı sunucuya katıldı (ya da kurdu): kendisine sunucunun tamamı (GUILD_CREATE), diğer üyelere
+   * yeni üye (GUILD_MEMBER_ADD ve çevrimiçiyse PRESENCE_UPDATE).
+   */
+  announceJoin(guildId: string, userId: string): void {
+    const payload = this.guildCreatePayload(guildId, userId);
+    if (!payload) return;
+    this.sendToUsers([userId], { t: 'GUILD_CREATE', d: payload });
+    const member = this.store.getMember(guildId, userId);
+    const user = this.store.getUser(userId);
+    if (!member || !user) return;
+    this.sendToGuild(guildId, { t: 'GUILD_MEMBER_ADD', d: { guildId, member, user } }, userId);
+    if (this.isOnline(userId)) {
+      this.sendToGuild(guildId, { t: 'PRESENCE_UPDATE', d: { userId, online: true } }, userId);
+    }
+  }
+
+  /**
+   * Kullanıcı sunucudan çıktı (ayrıldı, atıldı, yasaklandı): kendisinin listesinden kalkar (GUILD_DELETE),
+   * diğer üyeler eski üye olarak görür (GUILD_MEMBER_REMOVE).
+   */
+  announceLeave(guildId: string, userId: string, reason?: string): void {
+    this.sendToUsers([userId], { t: 'GUILD_DELETE', d: { id: guildId, ...(reason ? { reason } : {}) } });
+    this.sendToGuild(guildId, { t: 'GUILD_MEMBER_REMOVE', d: { guildId, userId } }, userId);
+  }
+
+  /** Üyenin rolleri değişti */
+  announceMember(guildId: string, userId: string): void {
+    const member = this.store.getMember(guildId, userId);
+    if (member) this.sendToGuild(guildId, { t: 'GUILD_MEMBER_UPDATE', d: { guildId, member } });
+  }
+
+  private guildCreatePayload(guildId: string, userId: string): GuildCreatePayload | null {
+    const data = this.guildData(guildId, userId);
+    if (!data) return null;
+    const visible = new Set(data.channels.map((c) => c.id));
+    const onlyVisible = <T>(byChannel: Record<string, T>): Record<string, T> =>
+      Object.fromEntries(Object.entries(byChannel).filter(([channelId]) => visible.has(channelId)));
+    const memberIds = data.members.map((m) => m.userId);
+    const current = new Set(data.members.filter((m) => !m.removed).map((m) => m.userId));
+    return {
+      ...data,
+      users: this.store.usersByIds(memberIds),
+      voiceStates: this.voice.list().filter((v) => visible.has(v.channelId)),
+      online: [...current].filter((id) => this.isOnline(id)),
+      lastMessageIds: onlyVisible(this.store.lastMessageIds()),
+      readStates: onlyVisible(this.store.readStates(userId)),
+      mentionCounts: onlyVisible(this.store.mentionCounts(userId)),
+    };
   }
 
   private send(s: Session, msg: GatewayServerMessage): void {
@@ -223,9 +303,17 @@ export class Gateway {
       set?.delete(session);
       if (set && set.size === 0) {
         this.byUser.delete(session.userId);
-        this.broadcast({ t: 'PRESENCE_UPDATE', d: { userId: session.userId, online: false } });
+        this.announcePresence(session.userId, false);
       }
     });
+  }
+
+  /** Çevrimiçi durumu yalnızca ortak sunucusu olanlara gider */
+  private announcePresence(userId: string, online: boolean): void {
+    if (this.closing) return;
+    const to = this.permissions.coMembers(userId);
+    to.delete(userId);
+    this.sendToUsers(to, { t: 'PRESENCE_UPDATE', d: { userId, online } });
   }
 
   private async handle(s: Session, msg: GatewayClientMessage): Promise<void> {
@@ -269,7 +357,7 @@ export class Gateway {
         const now = Date.now();
         if (now - (s.lastTyping.get(channelId) ?? 0) < TYPING_MIN_INTERVAL_MS) break;
         const dm = this.permissions.isDm(channelId);
-        if (dm ? !s.dm : this.store.permissionData().channels.get(channelId)?.type !== 'text') break;
+        if (dm ? !s.dm : this.permissions.channel(channelId)?.type !== 'text') break;
         if (!this.permissions.can(s.userId, Permission.VIEW_CHANNEL | Permission.SEND_MESSAGES, channelId)) break;
         s.lastTyping.set(channelId, now);
         this.dispatchChannel(channelId, { t: 'TYPING_START', d: { channelId, userId: s.userId } }, { except: s.userId });
@@ -285,23 +373,28 @@ export class Gateway {
     if (!set) this.byUser.set(user.id, (set = new Set()));
     set.add(s);
 
-    // Kullanıcı yalnızca görebildiği kanalları ve onlara ait bilgileri alır. Direkt mesajlar ayrı alandadır
-    // (eski istemciler tanımadıkları türü kanal listesinde göstermesin) ve yalnızca tanıyan istemciye gider.
-    const channels = this.permissions.visibleChannels(user.id);
+    // Kullanıcı yalnızca üye olduğu sunucuları, oralarda görebildiği kanalları ve onlara ait bilgileri
+    // alır. Direkt mesajlar ayrı alandadır ve yalnızca tanıyan istemciye gider.
+    const guilds = this.store
+      .userGuildIds(user.id)
+      .map((id) => this.guildData(id, user.id))
+      .filter((g): g is GuildData => g !== null);
     const dms = s.dm ? this.store.listDms(user.id) : undefined;
-    const visible = new Set([...channels.map((c) => c.id), ...(dms ?? []).map((d) => d.id)]);
+    const visible = new Set([
+      ...guilds.flatMap((g) => g.channels.map((c) => c.id)),
+      ...(dms ?? []).map((d) => d.id),
+    ]);
     const onlyVisible = <T>(byChannel: Record<string, T>): Record<string, T> =>
       Object.fromEntries(Object.entries(byChannel).filter(([channelId]) => visible.has(channelId)));
+    const coMembers = this.permissions.coMembers(user.id);
     this.send(s, {
       t: 'READY',
       d: {
         user,
-        guild: this.store.getGuild() ?? this.guild,
-        channels,
-        users: this.store.listUsers(),
-        roles: sortRoles(Object.values(this.store.permissionData().roles)),
+        guilds,
+        users: this.store.usersByIds(this.store.visibleUserIds(user.id)),
         voiceStates: this.voice.list().filter((v) => visible.has(v.channelId)),
-        online: [...this.byUser.keys()],
+        online: [...this.byUser.keys()].filter((id) => coMembers.has(id)),
         lastMessageIds: onlyVisible(this.store.lastMessageIds()),
         readStates: onlyVisible(this.store.readStates(user.id)),
         mentionCounts: onlyVisible(this.store.mentionCounts(user.id)),
@@ -310,7 +403,7 @@ export class Gateway {
         ...(dms ? { dms } : {}),
       },
     });
-    if (!wasOnline) this.broadcast({ t: 'PRESENCE_UPDATE', d: { userId: user.id, online: true } });
+    if (!wasOnline) this.announcePresence(user.id, true);
   }
 
   private pingAll(): void {

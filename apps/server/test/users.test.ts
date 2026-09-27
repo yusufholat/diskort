@@ -30,7 +30,7 @@ async function setup() {
     })
   ).json();
   const code = (
-    await app.inject({ method: 'POST', url: '/api/invites', headers: auth(admin.token), payload: {} })
+    await app.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: auth(admin.token), payload: {} })
   ).json().code as string;
   const member = (
     await app.inject({
@@ -136,22 +136,38 @@ describe('şifre değiştirme', () => {
 });
 
 describe('üye yönetimi', () => {
-  it('yönetici yetki verir/alır ama kendi yetkisini kaldıramaz', async () => {
+  it('hesap davetlerini yalnızca hesap yöneticisi yönetir; hesap davetiyle gelen hiçbir sunucuya katılmaz', async () => {
     const { admin, member } = await setup();
-    const promote = await app.inject({
-      method: 'PATCH',
-      url: `/api/users/${member.user.id}`,
-      headers: auth(admin.token),
-      payload: { isAdmin: true },
+    expect((await app.inject({ method: 'POST', url: '/api/invites', headers: auth(member.token), payload: {} })).statusCode).toBe(
+      403,
+    );
+    const created = await app.inject({ method: 'POST', url: '/api/invites', headers: auth(admin.token), payload: { maxUses: 1 } });
+    expect(created.statusCode).toBe(201);
+    expect(created.json()).toMatchObject({ guildId: null, maxUses: 1 });
+    const list = await app.inject({ method: 'GET', url: '/api/invites', headers: auth(admin.token) });
+    expect(list.json().map((i: { code: string }) => i.code)).toEqual([created.json().code]);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { inviteCode: created.json().code, username: 'yeni', password: 'sifre12345' },
     });
-    expect(promote.json().isAdmin).toBe(true);
-    const selfDemote = await app.inject({
-      method: 'PATCH',
-      url: `/api/users/${admin.user.id}`,
-      headers: auth(admin.token),
-      payload: { isAdmin: false },
+    expect(res.statusCode).toBe(201);
+    expect(ctx.store.userGuildIds(res.json().user.id)).toEqual([]);
+    // Hesap daveti sunucuya katılmak için kullanılamaz
+    const other = await app.inject({ method: 'POST', url: '/api/invites', headers: auth(admin.token), payload: {} });
+    const join = await app.inject({
+      method: 'POST',
+      url: `/api/invites/${other.json().code}/accept`,
+      headers: auth(res.json().token),
     });
-    expect(selfDemote.statusCode).toBe(400);
+    expect(join.statusCode).toBe(400);
+    // Önizleme: sunucusu olmayan davet
+    const preview = await app.inject({ method: 'GET', url: `/api/invites/${other.json().code}` });
+    expect(preview.json()).toMatchObject({ guild: null, memberCount: 0 });
+    expect(
+      (await app.inject({ method: 'DELETE', url: `/api/invites/${other.json().code}`, headers: auth(admin.token) })).statusCode,
+    ).toBe(204);
   });
 
   it('silinen üyenin oturumu ve ses durumu kalkar; yönetici kendini silemez', async () => {
@@ -188,11 +204,16 @@ describe('üye yönetimi', () => {
     expect((await app.inject({ method: 'GET', url: '/api/me', headers: auth(member.token) })).statusCode).toBe(401);
   });
 
-  it('sesten atma yalnızca sesteki kullanıcı için çalışır', async () => {
+  it('sesten çıkarma yalnızca bu sunucuda seste olan üye için çalışır', async () => {
     const { admin, member } = await setup();
     const kick = () =>
-      app.inject({ method: 'POST', url: `/api/users/${member.user.id}/voice-kick`, headers: auth(admin.token) });
-    expect((await kick()).statusCode).toBe(404);
+      app.inject({
+        method: 'PATCH',
+        url: `/api/guilds/${ctx.guild.id}/members/${member.user.id}/voice`,
+        headers: auth(admin.token),
+        payload: { channelId: null },
+      });
+    expect((await kick()).statusCode).toBe(400);
     ctx.voice.join(member.user.id, ctx.store.listChannels(ctx.guild.id).find((c) => c.type === 'voice')!.id);
     expect((await kick()).statusCode).toBe(204);
     expect(ctx.voice.get(member.user.id)).toBeUndefined();

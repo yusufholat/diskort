@@ -17,31 +17,31 @@ const decodeJwt = (token: string): Record<string, unknown> =>
 
 describe('roller', () => {
   it('yeni toplulukta @everyone ve Yönetici rolü vardır; sahip Yönetici rolündedir', async () => {
-    const roles = (await s.req(s.owner.token, 'GET', '/api/roles')).json() as Role[];
+    const roles = (await s.req(s.owner.token, 'GET', `/api/guilds/${s.guildId}/roles`)).json() as Role[];
     expect(roles.map((r) => r.name)).toEqual(['Yönetici', '@everyone']);
     expect(roles[1]!.id).toBe(s.ctx.guild.id);
     expect(roles[0]!.permissions).toBe(P.ADMINISTRATOR);
-    expect(s.owner.user.roles).toEqual([roles[0]!.id]);
+    expect(s.rolesOf(s.owner.user.id)).toEqual([roles[0]!.id]);
     expect(s.owner.user.isAdmin).toBe(true);
-    expect(s.ctx.store.getGuild()!.ownerId).toBe(s.owner.user.id);
+    expect(s.ctx.store.getGuild(s.guildId)!.ownerId).toBe(s.owner.user.id);
   });
 
   it('rolleri yalnızca MANAGE_ROLES yetkilisi yönetir; kimse kendinde olmayan yetkiyi veremez', async () => {
     const member = await s.member('uye');
-    expect((await s.req(member.token, 'POST', '/api/roles', { name: 'x' })).statusCode).toBe(403);
+    expect((await s.req(member.token, 'POST', `/api/guilds/${s.guildId}/roles`, { name: 'x' })).statusCode).toBe(403);
 
     const mod = await s.member('mod');
     const modRole = await s.createRole(s.owner.token, { name: 'Moderatör', permissions: P.MANAGE_ROLES | P.KICK_MEMBERS });
     expect(await s.giveRole(s.owner.token, mod.user.id, modRole.id)).toBe(200);
 
     // Moderatör kendi yetkileri içinde rol oluşturabilir, fazlasını veremez
-    expect((await s.req(mod.token, 'POST', '/api/roles', { name: 'a', permissions: P.KICK_MEMBERS })).statusCode).toBe(201);
-    expect((await s.req(mod.token, 'POST', '/api/roles', { name: 'b', permissions: P.BAN_MEMBERS })).statusCode).toBe(403);
-    expect((await s.req(mod.token, 'POST', '/api/roles', { name: 'c', permissions: P.ADMINISTRATOR })).statusCode).toBe(
+    expect((await s.req(mod.token, 'POST', `/api/guilds/${s.guildId}/roles`, { name: 'a', permissions: P.KICK_MEMBERS })).statusCode).toBe(201);
+    expect((await s.req(mod.token, 'POST', `/api/guilds/${s.guildId}/roles`, { name: 'b', permissions: P.BAN_MEMBERS })).statusCode).toBe(403);
+    expect((await s.req(mod.token, 'POST', `/api/guilds/${s.guildId}/roles`, { name: 'c', permissions: P.ADMINISTRATOR })).statusCode).toBe(
       403,
     );
     // Geçersiz renk reddedilir
-    expect((await s.req(s.owner.token, 'POST', '/api/roles', { name: 'd', color: 'kırmızı' })).statusCode).toBe(400);
+    expect((await s.req(s.owner.token, 'POST', `/api/guilds/${s.guildId}/roles`, { name: 'd', color: 'kırmızı' })).statusCode).toBe(400);
   });
 
   it('hiyerarşi: kendi en üst rolünün üstündeki rolleri ve üyeleri yönetemez', async () => {
@@ -54,53 +54,51 @@ describe('roller', () => {
     await s.giveRole(s.owner.token, mod.user.id, modRole.id);
 
     // Kendi rolünü ve üstündekini düzenleyemez, altındakini düzenler
-    expect((await s.req(mod.token, 'PATCH', `/api/roles/${modRole.id}`, { name: 'Süper' })).statusCode).toBe(403);
-    expect((await s.req(mod.token, 'PATCH', `/api/roles/${helper.id}`, { color: '#FF0000' })).json().color).toBe('#ff0000');
+    expect((await s.req(mod.token, 'PATCH', `/api/guilds/${s.guildId}/roles/${modRole.id}`, { name: 'Süper' })).statusCode).toBe(403);
+    expect((await s.req(mod.token, 'PATCH', `/api/guilds/${s.guildId}/roles/${helper.id}`, { color: '#FF0000' })).json().color).toBe('#ff0000');
     // Altındaki rolü üyelere verir; kendi rolünü veremez
     expect(await s.giveRole(mod.token, member.user.id, helper.id)).toBe(200);
     expect(await s.giveRole(mod.token, member.user.id, modRole.id)).toBe(403);
     // Sahibin rollerine dokunamaz
     expect(await s.giveRole(mod.token, s.owner.user.id, helper.id)).toBe(403);
     // Sıralamada kendi rolünün üstüne rol çıkaramaz
-    const [admin] = (await s.req(s.owner.token, 'GET', '/api/roles')).json() as Role[];
-    const bad = await s.req(mod.token, 'PUT', '/api/roles/order', { roleIds: [helper.id, admin!.id, modRole.id] });
+    const [admin] = (await s.req(s.owner.token, 'GET', `/api/guilds/${s.guildId}/roles`)).json() as Role[];
+    const bad = await s.req(mod.token, 'PUT', `/api/guilds/${s.guildId}/roles/order`, { roleIds: [helper.id, admin!.id, modRole.id] });
     expect(bad.statusCode).toBe(403);
     // Sahip sıralamayı değiştirir
-    const ok = await s.req(s.owner.token, 'PUT', '/api/roles/order', { roleIds: [admin!.id, helper.id, modRole.id] });
+    const ok = await s.req(s.owner.token, 'PUT', `/api/guilds/${s.guildId}/roles/order`, { roleIds: [admin!.id, helper.id, modRole.id] });
     expect(ok.statusCode).toBe(200);
     expect(s.ctx.store.getRole(helper.id)!.position).toBeGreaterThan(s.ctx.store.getRole(modRole.id)!.position);
     // Artık Yardımcı moderatörün üstünde: üyeden alamaz
-    expect((await s.req(mod.token, 'DELETE', `/api/users/${member.user.id}/roles/${helper.id}`)).statusCode).toBe(403);
+    expect((await s.req(mod.token, 'DELETE', `/api/guilds/${s.guildId}/members/${member.user.id}/roles/${helper.id}`)).statusCode).toBe(403);
     // Rol silinince üyelerden de kalkar
-    expect((await s.req(s.owner.token, 'DELETE', `/api/roles/${helper.id}`)).statusCode).toBe(204);
-    expect(s.ctx.store.getUser(member.user.id)!.roles).toEqual([]);
-    expect((await s.req(s.owner.token, 'DELETE', `/api/roles/${s.ctx.guild.id}`)).statusCode).toBe(400);
+    expect((await s.req(s.owner.token, 'DELETE', `/api/guilds/${s.guildId}/roles/${helper.id}`)).statusCode).toBe(204);
+    expect(s.rolesOf(member.user.id)).toEqual([]);
+    expect((await s.req(s.owner.token, 'DELETE', `/api/guilds/${s.guildId}/roles/${s.ctx.guild.id}`)).statusCode).toBe(400);
   });
 
-  it('eski istemcilerin "yönetici yap" isteği yönetici rolünü verir/alır', async () => {
+  it('ana sunucuda Yönetici rolü verilen hesap yöneticisi olur (isAdmin), rol alınınca olmaz', async () => {
     const member = await s.member('uye');
-    const promote = await s.req(s.owner.token, 'PATCH', `/api/users/${member.user.id}`, { isAdmin: true });
-    expect(promote.json()).toMatchObject({ isAdmin: true });
-    expect(promote.json().roles).toHaveLength(1);
-    const demote = await s.req(s.owner.token, 'PATCH', `/api/users/${member.user.id}`, { isAdmin: false });
-    expect(demote.json()).toMatchObject({ isAdmin: false, roles: [] });
-    // Yönetici, sahibin yöneticiliğini kaldıramaz
-    await s.req(s.owner.token, 'PATCH', `/api/users/${member.user.id}`, { isAdmin: true });
-    const res = await s.req(member.token, 'PATCH', `/api/users/${s.owner.user.id}`, { isAdmin: false });
-    expect(res.statusCode).toBe(403);
+    const admin = (await s.req(s.owner.token, 'GET', `/api/guilds/${s.guildId}/roles`)).json()[0] as Role;
+    expect(await s.giveRole(s.owner.token, member.user.id, admin.id)).toBe(200);
+    expect(s.ctx.store.getUser(member.user.id)!.isAdmin).toBe(true);
+    // Yönetici, sahibin rollerine dokunamaz
+    expect((await s.req(member.token, 'DELETE', `/api/guilds/${s.guildId}/members/${s.owner.user.id}/roles/${admin.id}`)).statusCode).toBe(403);
+    expect((await s.req(s.owner.token, 'DELETE', `/api/guilds/${s.guildId}/members/${member.user.id}/roles/${admin.id}`)).statusCode).toBe(200);
+    expect(s.ctx.store.getUser(member.user.id)!.isAdmin).toBe(false);
   });
 
   it('sunucu adı MANAGE_GUILD ister; sahipliği yalnızca sahip devreder', async () => {
     const member = await s.member('uye');
-    expect((await s.req(member.token, 'PATCH', '/api/guild', { name: 'Yeni' })).statusCode).toBe(403);
+    expect((await s.req(member.token, 'PATCH', `/api/guilds/${s.guildId}`, { name: 'Yeni' })).statusCode).toBe(403);
     const manager = await s.createRole(s.owner.token, { name: 'Yönetim', permissions: P.MANAGE_GUILD });
     await s.giveRole(s.owner.token, member.user.id, manager.id);
-    expect((await s.req(member.token, 'PATCH', '/api/guild', { name: 'Yeni Ad' })).json().name).toBe('Yeni Ad');
-    expect((await s.req(member.token, 'PATCH', '/api/guild', { ownerId: member.user.id })).statusCode).toBe(403);
+    expect((await s.req(member.token, 'PATCH', `/api/guilds/${s.guildId}`, { name: 'Yeni Ad' })).json().name).toBe('Yeni Ad');
+    expect((await s.req(member.token, 'PATCH', `/api/guilds/${s.guildId}`, { ownerId: member.user.id })).statusCode).toBe(403);
 
-    const transfer = await s.req(s.owner.token, 'PATCH', '/api/guild', { ownerId: member.user.id });
+    const transfer = await s.req(s.owner.token, 'PATCH', `/api/guilds/${s.guildId}`, { ownerId: member.user.id });
     expect(transfer.json().ownerId).toBe(member.user.id);
-    expect(s.ctx.permissions.isOwner(member.user.id)).toBe(true);
+    expect(s.ctx.permissions.isOwner(s.guildId, member.user.id)).toBe(true);
     // Eski sahip Yönetici rolüyle yönetici kalır, yeni sahip de yönetici sayılır
     expect(s.ctx.store.getUser(member.user.id)!.isAdmin).toBe(true);
   });
@@ -108,7 +106,7 @@ describe('roller', () => {
 
 describe('kanal izinleri', () => {
   async function privateChannel(roleId: string): Promise<Channel> {
-    const channel = (await s.req(s.owner.token, 'POST', '/api/channels', { name: 'gizli', type: 'text' })).json() as Channel;
+    const channel = (await s.req(s.owner.token, 'POST', `/api/guilds/${s.guildId}/channels`, { name: 'gizli', type: 'text' })).json() as Channel;
     const res = await s.req(s.owner.token, 'PATCH', `/api/channels/${channel.id}`, {
       overwrites: [
         { roleId: s.ctx.guild.id, allow: 0, deny: P.VIEW_CHANNEL },
@@ -164,10 +162,10 @@ describe('kanal izinleri', () => {
     const modRole = await s.createRole(s.owner.token, { name: 'Mod', permissions: P.MANAGE_ROLES | P.MANAGE_CHANNELS });
     const top = await s.createRole(s.owner.token, { name: 'Üst' });
     // Üst rolü moderatörün üstüne taşı
-    const roles = (await s.req(s.owner.token, 'GET', '/api/roles')).json() as Role[];
+    const roles = (await s.req(s.owner.token, 'GET', `/api/guilds/${s.guildId}/roles`)).json() as Role[];
     const order = roles.filter((r) => r.id !== s.ctx.guild.id).map((r) => r.id);
     const reordered = [order[0]!, top.id, ...order.filter((id) => id !== order[0] && id !== top.id)];
-    await s.req(s.owner.token, 'PUT', '/api/roles/order', { roleIds: reordered });
+    await s.req(s.owner.token, 'PUT', `/api/guilds/${s.guildId}/roles/order`, { roleIds: reordered });
     await s.giveRole(s.owner.token, mod.user.id, modRole.id);
 
     const patch = (overwrites: unknown) => s.req(mod.token, 'PATCH', `/api/channels/${text.id}`, { overwrites });
@@ -188,20 +186,34 @@ describe('kanal izinleri', () => {
 });
 
 describe('metin yetkileri', () => {
-  it('başkasının mesajını MANAGE_MESSAGES yetkilisi siler; davetleri MANAGE_INVITES yetkilisi yönetir', async () => {
+  it('başkasının mesajını MANAGE_MESSAGES yetkilisi siler; herkes davet oluşturur, tümünü MANAGE_INVITES yönetir', async () => {
     const author = await s.member('yazar');
     const mod = await s.member('mod');
     const text = s.channel('text');
     const msg = (await s.req(author.token, 'POST', `/api/channels/${text.id}/messages`, { content: 'x' })).json() as Message;
     expect((await s.req(mod.token, 'DELETE', `/api/messages/${msg.id}`)).statusCode).toBe(403);
-    expect((await s.req(mod.token, 'POST', '/api/invites', {})).statusCode).toBe(403);
+    // CREATE_INVITE @everyone'da: herkes davet oluşturur, yalnızca kendi davetlerini görür ve siler
+    const invites = `/api/guilds/${s.guildId}/invites`;
+    const own = (await s.req(author.token, 'POST', invites, {})).json().code as string;
+    const ownerInvite = (await s.req(s.owner.token, 'POST', invites, {})).json().code as string;
+    expect(((await s.req(author.token, 'GET', invites)).json() as { code: string }[]).map((i) => i.code)).toEqual([own]);
+    expect((await s.req(author.token, 'DELETE', `${invites}/${ownerInvite}`)).statusCode).toBe(403);
+    expect((await s.req(author.token, 'DELETE', `${invites}/${own}`)).statusCode).toBe(204);
 
     const role = await s.createRole(s.owner.token, { name: 'Mod', permissions: P.MANAGE_MESSAGES | P.MANAGE_INVITES });
     await s.giveRole(s.owner.token, mod.user.id, role.id);
     expect((await s.req(mod.token, 'DELETE', `/api/messages/${msg.id}`)).statusCode).toBe(204);
-    expect((await s.req(mod.token, 'POST', '/api/invites', {})).statusCode).toBe(201);
+    expect(((await s.req(mod.token, 'GET', invites)).json() as { code: string }[]).map((i) => i.code)).toContain(ownerInvite);
+    expect((await s.req(mod.token, 'DELETE', `${invites}/${ownerInvite}`)).statusCode).toBe(204);
+
+    // @everyone'dan CREATE_INVITE alınınca yetkisiz üye davet oluşturamaz
+    await s.req(s.owner.token, 'PATCH', `/api/guilds/${s.guildId}/roles/${s.guildId}`, {
+      permissions: s.ctx.store.getRole(s.guildId)!.permissions & ~P.CREATE_INVITE,
+    });
+    expect((await s.req(author.token, 'POST', invites, {})).statusCode).toBe(403);
+    expect((await s.req(author.token, 'GET', invites)).statusCode).toBe(403);
     // Kanal oluşturmak ayrı yetki
-    expect((await s.req(mod.token, 'POST', '/api/channels', { name: 'x', type: 'text' })).statusCode).toBe(403);
+    expect((await s.req(mod.token, 'POST', `/api/guilds/${s.guildId}/channels`, { name: 'x', type: 'text' })).statusCode).toBe(403);
   });
 
   it('@everyone yalnızca yetkili yazarda herkese bahsetme sayılır', async () => {
@@ -215,7 +227,7 @@ describe('metin yetkileri', () => {
     // Yazarın kendisi sayılmaz
     expect(s.ctx.store.mentionCounts(a.user.id)).toEqual({});
 
-    await s.req(s.owner.token, 'PATCH', `/api/roles/${s.ctx.guild.id}`, {
+    await s.req(s.owner.token, 'PATCH', `/api/guilds/${s.guildId}/roles/${s.ctx.guild.id}`, {
       permissions: s.ctx.store.getRole(s.ctx.guild.id)!.permissions & ~P.MENTION_EVERYONE,
     });
     const second = (await s.req(a.token, 'POST', `/api/channels/${text.id}/messages`, { content: '@everyone tekrar' })).json();
@@ -224,7 +236,7 @@ describe('metin yetkileri', () => {
   });
 
   it('bahsetme sözcükleri kullanıcı adı olamaz', async () => {
-    const code = (await s.req(s.owner.token, 'POST', '/api/invites', {})).json().code as string;
+    const code = (await s.req(s.owner.token, 'POST', `/api/guilds/${s.guildId}/invites`, {})).json().code as string;
     const res = await s.app.inject({
       method: 'POST',
       url: '/api/auth/register',

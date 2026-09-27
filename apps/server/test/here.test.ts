@@ -33,7 +33,7 @@ const counts = (account: Account): Record<string, number> => s.ctx.store.mention
 /** @everyone rolünden MENTION_EVERYONE yetkisini alır */
 const revokeFromEveryone = async (): Promise<void> => {
   const everyone = s.ctx.store.getRole(s.ctx.guild.id)!;
-  const res = await s.req(s.owner.token, 'PATCH', `/api/roles/${everyone.id}`, {
+  const res = await s.req(s.owner.token, 'PATCH', `/api/guilds/${s.guildId}/roles/${everyone.id}`, {
     permissions: everyone.permissions & ~P.MENTION_EVERYONE,
   });
   expect(res.statusCode).toBe(200);
@@ -71,7 +71,7 @@ describe('@here bahsetmesi', () => {
     // Sahip çevrimdışı
     expect(counts(s.owner)).toEqual({});
     // Telefon bildirimi yalnızca hedeflenenlere
-    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ id: message.id }), [on.user.id], text.name);
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ id: message.id }), [on.user.id], text.name, s.guildId);
 
     // Gateway'den gelen mesaj bayrağı taşır; okunan ve yeniden yüklenen mesajda da kalır
     await listener.settle();
@@ -156,7 +156,7 @@ describe('@here bahsetmesi', () => {
     expect(message.mentionHere).toBe(true);
     expect(counts(insider)).toEqual({ [text.id]: 1 });
     expect(counts(outsider)).toEqual({});
-    expect(notify).toHaveBeenCalledWith(expect.anything(), [insider.user.id], text.name);
+    expect(notify).toHaveBeenCalledWith(expect.anything(), [insider.user.id], text.name, s.guildId);
   });
 
   it('direkt mesajda @here/@everyone yoktur; karşı taraf her mesajda olduğu gibi bildirilir', async () => {

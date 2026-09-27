@@ -34,7 +34,10 @@ export interface AppContext {
   gifs: GifService;
   permissions: PermissionService;
   moderation: VoiceModeration;
-  /** Tek topluluk; adı ya da sahibi değişince yerinde güncellenir */
+  /**
+   * Ana sunucu (ilk kurulan; hesap yöneticileri onun yöneticileridir). Adı, simgesi ya da sahibi değişince
+   * yerinde güncellenir. Diğer sunucular veritabanındadır.
+   */
   guild: Guild;
 }
 

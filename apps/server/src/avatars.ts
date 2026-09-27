@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 import sharp from 'sharp';
-import { AVATAR_MAX_BYTES, type User } from '@diskort/shared';
+import { AVATAR_MAX_BYTES, type Guild, type User } from '@diskort/shared';
 import { UploadError } from './attachments.js';
 import type { Store } from './db.js';
 import { inspectImage } from './fileInfo.js';
@@ -24,7 +24,8 @@ sharp.cache(false);
  * Profil fotoğrafları: yüklenen resim (PNG, JPEG, WebP, GIF; içeriğinden anlaşılır) EXIF yönüne göre
  * döndürülür, ortasından kare kırpılır ve 256×256 WebP olarak <dir>/<özet>.webp'ye yazılır. Yeniden
  * kodlandığı için konum (EXIF/GPS) dahil hiçbir üst veri kalmaz; hareketli resimlerin ilk karesi alınır.
- * Eski dosya fotoğraf değişince, kaldırılınca ve hesap silinince silinir.
+ * Eski dosya fotoğraf değişince, kaldırılınca ve hesap silinince silinir. Sunucu simgeleri de aynı
+ * yoldan işlenir ve aynı klasörde durur (özet sunucu kimliğini içerir).
  */
 export class AvatarService {
   /** İşlemler sırayla: aynı anda tek resim çözülür (bellek) ve dosya/veritabanı güncellemeleri çakışmaz */
@@ -42,6 +43,42 @@ export class AvatarService {
 
   /** Gövdeyi okur, doğrular, küçültür ve kullanıcının fotoğrafı yapar; eskisini siler. */
   async upload(userId: string, body: Readable, declaredSize: number | null): Promise<User> {
+    return this.save(userId, body, declaredSize, (hash) => {
+      const result = this.store.setAvatar(userId, hash);
+      return result ? { value: result.user, previous: result.previous } : null;
+    }, 'Kullanıcı bulunamadı.');
+  }
+
+  /** Sunucu simgesi: fotoğraf gibi işlenir; eskisi silinir. */
+  async uploadGuildIcon(guildId: string, body: Readable, declaredSize: number | null): Promise<Guild> {
+    return this.save(`guild:${guildId}`, body, declaredSize, (hash) => {
+      const result = this.store.setGuildIcon(guildId, hash);
+      return result ? { value: result.guild, previous: result.previous } : null;
+    }, 'Sunucu bulunamadı.');
+  }
+
+  /** Sunucu simgesini kaldırır (baş harflere dönülür); sunucu yoksa null. */
+  removeGuildIcon(guildId: string): Promise<Guild | null> {
+    return this.serial(async () => {
+      const result = this.store.setGuildIcon(guildId, null);
+      if (!result) return null;
+      if (result.previous) await this.removeFile(result.previous);
+      return result.guild;
+    });
+  }
+
+  /** Silinen sunucunun simgesi (özet sunucu silinmeden önce alınır). */
+  removeDeletedIcon(hash: string | null): Promise<void> {
+    return this.removeDeleted(hash);
+  }
+
+  private async save<T>(
+    owner: string,
+    body: Readable,
+    declaredSize: number | null,
+    apply: (hash: string) => { value: T; previous: string | null } | null,
+    missing: string,
+  ): Promise<T> {
     const input = await readLimited(body, declaredSize, AVATAR_MAX_BYTES);
     const image = inspectImage(input);
     if (!image) {
@@ -52,7 +89,7 @@ export class AvatarService {
     }
     return this.serial(async () => {
       const output = await normalize(input);
-      const hash = createHash('sha256').update(userId).update('\0').update(output).digest('hex').slice(0, 32);
+      const hash = createHash('sha256').update(owner).update('\0').update(output).digest('hex').slice(0, 32);
       await fs.promises.mkdir(this.dir, { recursive: true });
       const temp = path.join(this.dir, `${randomBytes(8).toString('hex')}.tmp`);
       try {
@@ -62,14 +99,14 @@ export class AvatarService {
         await fs.promises.rm(temp, { force: true });
         throw err;
       }
-      const result = this.store.setAvatar(userId, hash);
+      const result = apply(hash);
       if (!result) {
-        // Hesap bu arada silindi
+        // Hesap (ya da sunucu) bu arada silindi
         await this.removeFile(hash);
-        throw new UploadError(404, 'not_found', 'Kullanıcı bulunamadı.');
+        throw new UploadError(404, 'not_found', missing);
       }
       if (result.previous && result.previous !== hash) await this.removeFile(result.previous);
-      return result.user;
+      return result.value;
     });
   }
 

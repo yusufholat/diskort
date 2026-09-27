@@ -8,7 +8,7 @@ import { createRateLimiter } from './messages.js';
 
 /**
  * Profil fotoğrafları. Kullanıcı yalnızca kendi fotoğrafını yükler ya da kaldırır; değişiklik USER_UPDATE
- * ile herkese iletilir. Fotoğraflar, <img> ve React Native <Image> jeton gönderemediği için kimlik
+ * ile onu görebilenlere (ortak sunucu, DM) iletilir. Fotoğraflar, <img> ve React Native <Image> jeton gönderemediği için kimlik
  * doğrulamasız sunulur; adres içerik özetini taşıdığından süresiz önbelleklenebilir.
  */
 export function registerAvatarRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -41,7 +41,7 @@ export function registerAvatarRoutes(app: FastifyInstance, ctx: AppContext): voi
             (req.body as Readable | undefined) ?? req.raw,
             length !== undefined && /^\d+$/.test(length) ? Number(length) : null,
           );
-          gateway.broadcast({ t: 'USER_UPDATE', d: user });
+          gateway.sendUserUpdate(user);
           return user;
         } catch (err) {
           if (err instanceof UploadError) return sendError(reply, err.status, err.code, err.message);
@@ -57,7 +57,7 @@ export function registerAvatarRoutes(app: FastifyInstance, ctx: AppContext): voi
     }
     const user = await avatars.remove(req.user.id);
     if (!user) return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
-    gateway.broadcast({ t: 'USER_UPDATE', d: user });
+    gateway.sendUserUpdate(user);
     return user;
   });
 

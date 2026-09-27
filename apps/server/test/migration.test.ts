@@ -42,38 +42,38 @@ describe('göç 8: roller', () => {
     try {
       expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
       const guild = store.ensureGuild('Yeni ad yok sayılır');
-      expect(guild).toEqual({ id: 'g1', name: 'Eski', ownerId: 'kurucu' });
+      expect(guild).toEqual({ id: 'g1', name: 'Eski', ownerId: 'kurucu', iconUrl: null });
 
-      const roles = Object.values(store.permissionData().roles).sort((a, b) => b.position - a.position);
+      const roles = store.guildRoles('g1').sort((a, b) => b.position - a.position);
       expect(roles.map((r) => [r.name, r.position])).toEqual([
         ['Yönetici', 1],
         ['@everyone', 0],
       ]);
       const [admin, everyone] = roles;
       expect(everyone!.id).toBe('g1');
+      // Göç 14 herkese davet oluşturma yetkisini ekler
+      expect(everyone!.permissions & P.CREATE_INVITE).toBe(P.CREATE_INVITE);
       expect(admin!.permissions).toBe(P.ADMINISTRATOR);
       expect(admin!.hoist).toBe(true);
 
-      expect(store.getUser('kurucu')).toMatchObject({
-        isAdmin: true,
-        roles: [admin!.id],
-        removed: false,
-        avatarUrl: '/api/avatars/kurucu/abc123.webp',
-      });
-      expect(store.getUser('ikinci')).toMatchObject({ isAdmin: true, roles: [admin!.id] });
-      expect(store.getUser('uye')).toMatchObject({ isAdmin: false, roles: [] });
+      expect(store.getUser('kurucu')).toMatchObject({ isAdmin: true, avatarUrl: '/api/avatars/kurucu/abc123.webp' });
+      expect(store.getMember('g1', 'kurucu')).toMatchObject({ roles: [admin!.id], removed: false });
+      expect(store.getUser('ikinci')).toMatchObject({ isAdmin: true });
+      expect(store.getMember('g1', 'ikinci')).toMatchObject({ roles: [admin!.id] });
+      expect(store.getUser('uye')).toMatchObject({ isAdmin: false });
+      expect(store.getMember('g1', 'uye')).toMatchObject({ roles: [], removed: false });
 
       const perms = new PermissionService(store);
-      expect(perms.base('ikinci')).toBe(ALL_PERMISSIONS);
+      expect(perms.base('g1', 'ikinci')).toBe(ALL_PERMISSIONS);
       const member = perms.inChannel('uye', 't1');
       for (const flag of [P.VIEW_CHANNEL, P.SEND_MESSAGES, P.ATTACH_FILES, P.ADD_REACTIONS]) {
         expect(hasPermission(member, flag)).toBe(true);
       }
       for (const flag of [P.MANAGE_MESSAGES, P.MANAGE_CHANNELS, P.MANAGE_INVITES, P.KICK_MEMBERS]) {
-        expect(hasPermission(perms.base('uye'), flag)).toBe(false);
+        expect(hasPermission(perms.base('g1', 'uye'), flag)).toBe(false);
       }
-      expect(perms.outranks('kurucu', 'ikinci')).toBe(true);
-      expect(perms.outranks('ikinci', 'kurucu')).toBe(false);
+      expect(perms.outranks('g1', 'kurucu', 'ikinci')).toBe(true);
+      expect(perms.outranks('g1', 'ikinci', 'kurucu')).toBe(false);
       expect(store.listChannels('g1')[0]!.overwrites).toEqual([]);
     } finally {
       store.close();
@@ -86,8 +86,8 @@ describe('göç 8: roller', () => {
     const store = new Store(file);
     try {
       store.ensureGuild('x');
-      expect(Object.keys(store.permissionData().roles)).toHaveLength(2);
-      const adminRole = Object.values(store.permissionData().roles).find((r) => r.name === 'Yönetici')!;
+      expect(store.guildRoles('g1')).toHaveLength(2);
+      const adminRole = store.guildRoles('g1').find((r) => r.name === 'Yönetici')!;
       store.removeMemberRole('ikinci', adminRole.id);
       const flags = store.db.prepare('SELECT id, is_admin FROM users ORDER BY id').all();
       expect(flags).toEqual([
@@ -346,8 +346,7 @@ describe('göç 13: @here', () => {
     const store = new Store(schema12Database());
     try {
       const db = store.db;
-      expect(MIGRATIONS).toHaveLength(13);
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 13 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
       expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
       expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
       const count = (table: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
@@ -374,8 +373,166 @@ describe('göç 13: @here', () => {
     new Store(file).close();
     const store = new Store(file);
     try {
-      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 13 });
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
       expect(store.listMessages('t1', null, 50, 'u1')).toHaveLength(3);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+/**
+ * 0.5.3 sürümündeki (şema 13, üretimdeki) gibi bir veritabanı: tek topluluk; sahip, yönetici, rollü üye,
+ * rolsüz üye, atılan ve yasaklanan hesaplar, sunucuda susturulan üye, özel kanal, davetler, DM, mesajlar.
+ */
+function schema13Database(): string {
+  const file = schema12Database();
+  const db = new DatabaseSync(file);
+  db.exec('PRAGMA foreign_keys = ON');
+  db.exec(MIGRATIONS[12]!);
+  db.exec('PRAGMA user_version = 13');
+  const everyone = P.VIEW_CHANNEL | P.SEND_MESSAGES | P.CONNECT | P.SPEAK | P.MENTION_EVERYONE;
+  db.exec(`
+    UPDATE roles SET permissions = ${everyone} WHERE id = 'g1';
+    UPDATE guilds SET owner_id = 'u1' WHERE id = 'g1';
+    INSERT INTO roles (id, guild_id, name, color, position, hoist, permissions, created_at) VALUES
+      ('admin', 'g1', 'Yönetici', '#e67e22', 2, 1, ${P.ADMINISTRATOR}, 1),
+      ('dj', 'g1', 'DJ', '#123456', 1, 0, ${P.MOVE_MEMBERS | P.MANAGE_INVITES}, 1);
+    INSERT INTO users (id, username, display_name, password_hash, avatar_color, is_admin, created_at, removed_at, banned_at, ban_reason, server_mute, server_deaf)
+      VALUES ('u3', 'atilan', 'Atılan', 'x', '#5865f2', 0, 3, 50, NULL, NULL, 0, 0),
+             ('u4', 'yasakli', 'Yasaklı', 'x', '#5865f2', 0, 4, 60, 60, 'spam', 0, 0),
+             ('u5', 'yonetici', 'Yönetici', 'x', '#5865f2', 1, 5, NULL, NULL, NULL, 1, 0);
+    UPDATE users SET server_deaf = 1 WHERE id = 'u2';
+    INSERT INTO member_roles (user_id, role_id) VALUES ('u5', 'admin'), ('u2', 'dj');
+    INSERT INTO channel_overwrites (channel_id, role_id, allow, deny) VALUES ('v1', 'dj', ${P.VIEW_CHANNEL}, 0);
+    INSERT INTO invites (code, created_by, max_uses, uses, expires_at, created_at, grants_admin) VALUES
+      ('ESKIDAVT', 'u1', 5, 1, NULL, 7, 0),
+      ('BASLANGC', NULL, 1, 1, NULL, 1, 1);
+    INSERT INTO messages (channel_id, author_id, content, created_at) VALUES ('t1', 'u3', 'atılmadan önce', 11);
+  `);
+  db.close();
+  return file;
+}
+
+describe('göç 14: çoklu sunucu', () => {
+  it('herkes ana sunucuya bugünkü üyeliği, rolleri, yasakları ve susturmalarıyla taşınır; hiçbir kayıt kaybolmaz', () => {
+    const before = new DatabaseSync(schema13Database());
+    const file = (before.prepare('PRAGMA database_list').get() as { file: string }).file;
+    const count = (db: DatabaseSync, table: string) =>
+      (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+    const tables = ['users', 'channels', 'messages', 'reactions', 'attachments', 'read_states', 'roles', 'member_roles',
+      'channel_overwrites', 'dm_channels', 'dm_participants', 'invites'];
+    const counts = Object.fromEntries(tables.map((t) => [t, count(before, t)]));
+    const legacyUsers = before.prepare('SELECT * FROM users ORDER BY id').all();
+    before.close();
+
+    const store = new Store(file);
+    try {
+      const db = store.db;
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 14 });
+      expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+      expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+      for (const t of tables) expect([t, count(db, t)]).toEqual([t, counts[t]]);
+      // Eski sütunlar olduğu gibi durur (eski sürüme dönülürse diye)
+      expect(db.prepare('SELECT * FROM users ORDER BY id').all()).toEqual(legacyUsers);
+
+      // Üyelikler: herkes ana sunucuda; atılan ve yasaklanan eski üye
+      expect(store.primaryGuildId()).toBe('g1');
+      expect(store.getGuild('g1')).toEqual({ id: 'g1', name: 'Eski', ownerId: 'u1', iconUrl: null });
+      expect(store.listMembers('g1')).toEqual([
+        { userId: 'u1', roles: [], joinedAt: 1, removed: false },
+        { userId: 'u2', roles: ['dj'], joinedAt: 2, removed: false },
+        { userId: 'u3', roles: [], joinedAt: 3, removed: true },
+        { userId: 'u4', roles: [], joinedAt: 4, removed: true },
+        { userId: 'u5', roles: ['admin'], joinedAt: 5, removed: false },
+      ]);
+      expect(['u1', 'u2', 'u3', 'u4', 'u5'].map((id) => store.memberStatus('g1', id))).toEqual([
+        'member',
+        'member',
+        'removed',
+        'banned',
+        'member',
+      ]);
+      expect(store.listBans('g1')).toEqual([expect.objectContaining({ reason: 'spam', bannedAt: 60, user: expect.objectContaining({ id: 'u4' }) })]);
+      expect(store.serverVoiceFlags('g1', 'u5')).toEqual({ serverMute: true, serverDeaf: false });
+      expect(store.serverVoiceFlags('g1', 'u2')).toEqual({ serverMute: false, serverDeaf: true });
+      expect(store.userGuildIds('u3')).toEqual([]);
+
+      // Yetkiler: rollerin yetkileri aynı, @everyone'a yalnızca CREATE_INVITE eklenir
+      const roles = Object.fromEntries(store.guildRoles('g1').map((r) => [r.id, r.permissions]));
+      expect(roles).toEqual({
+        g1: P.VIEW_CHANNEL | P.SEND_MESSAGES | P.CONNECT | P.SPEAK | P.MENTION_EVERYONE | P.CREATE_INVITE,
+        admin: P.ADMINISTRATOR,
+        dj: P.MOVE_MEMBERS | P.MANAGE_INVITES,
+      });
+      const perms = new PermissionService(store);
+      expect(perms.base('g1', 'u5')).toBe(ALL_PERMISSIONS);
+      expect(perms.base('g1', 'u3')).toBe(0);
+      expect(perms.base('g1', 'u4')).toBe(0);
+      expect(perms.canView('u2', 'v1')).toBe(true);
+      expect(perms.canView('u3', 't1')).toBe(false);
+      expect(perms.isOwner('g1', 'u1')).toBe(true);
+      // Hesap yöneticileri: sahip ve Yönetici rolündekiler (is_admin sütunu da aynı kalır)
+      expect(['u1', 'u2', 'u3', 'u4', 'u5'].map((id) => store.getUser(id)!.isAdmin)).toEqual([true, false, false, false, true]);
+
+      // Davetler: eskiler ana sunucunun daveti, başlangıç daveti hesap daveti olarak kalır
+      expect(store.getInvite('ESKIDAVT')).toMatchObject({ guildId: 'g1', uses: 1, maxUses: 5 });
+      expect(store.getInvite('BASLANGC')).toMatchObject({ guildId: null });
+      expect(store.listInvites('g1').map((i) => i.code)).toEqual(['ESKIDAVT']);
+
+      // Mesajlar, DM'ler ve atılanın mesajı yerinde
+      expect(store.listMessages('t1', null, 50, 'u1').map((m) => m.content)).toEqual([
+        'selam',
+        'naber',
+        '@everyone @here',
+        'atılmadan önce',
+      ]);
+      expect(store.listMessages('d1', null, 50, 'u1').map((m) => m.content)).toEqual(['özel']);
+      expect(store.listDms('u2').map((d) => d.id)).toEqual(['d1']);
+      expect(perms.inChannel('u2', 'd1')).toBeGreaterThan(0);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('eski üye yeni davetle döner (roller gelmez), yasaklı dönemez; yeni sunucular ana sunucudan ayrıdır', () => {
+    const store = new Store(schema13Database());
+    try {
+      const join = store.joinWithInvite('ESKIDAVT', 'u3');
+      expect(join).toEqual({ ok: true, guildId: 'g1', alreadyMember: false });
+      expect(store.getMember('g1', 'u3')).toMatchObject({ removed: false, roles: [] });
+      expect(store.joinWithInvite('ESKIDAVT', 'u4')).toMatchObject({ ok: false, reason: 'banned' });
+      expect(store.joinWithInvite('eskidavt', 'u1')).toEqual({ ok: true, guildId: 'g1', alreadyMember: true });
+
+      const other = store.createGuild('u3', 'Başka Grup');
+      expect(store.primaryGuildId()).toBe('g1');
+      expect(store.userGuildIds('u3')).toEqual(['g1', other.id]);
+      expect(store.listMembers(other.id).map((m) => m.userId)).toEqual(['u3']);
+      expect(store.listChannels(other.id).map((c) => [c.name, c.type])).toEqual([
+        ['genel-sohbet', 'text'],
+        ['Genel', 'voice'],
+      ]);
+      const perms = new PermissionService(store);
+      // Başka sunucunun sahibi ana sunucuda yetki kazanmaz, hesap yöneticisi olmaz
+      expect(perms.base(other.id, 'u3')).toBe(ALL_PERMISSIONS);
+      expect(perms.base('g1', 'u3') & P.ADMINISTRATOR).toBe(0);
+      expect(store.getUser('u3')!.isAdmin).toBe(false);
+      // Ana sunucunun üyesi yeni sunucuyu göremez
+      expect(perms.base(other.id, 'u1')).toBe(0);
+      expect(perms.visibleChannelIds('u1').size).toBe(store.listChannels('g1').length);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('yeniden açılışta göç tekrar çalışmaz', () => {
+    const file = schema13Database();
+    new Store(file).close();
+    const store = new Store(file);
+    try {
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 14 });
+      expect(store.db.prepare('SELECT COUNT(*) AS n FROM guild_members').get()).toEqual({ n: 5 });
+      expect(store.guildRoles('g1').find((r) => r.id === 'g1')!.permissions & P.CREATE_INVITE).toBe(P.CREATE_INVITE);
     } finally {
       store.close();
     }
