@@ -63,9 +63,14 @@ function idle(channelId: string): Promise<void> {
  * hep "şimdi"ye kadar kesintisiz kalır). Bulununca `jump` isteği yayınlanır; arayüz mesaja kaydırıp
  * vurgular. Mesaj silinmişse ya da çok eskideyse hata gösterilir ve false döner.
  */
-export async function jumpToMessage(channelId: string, messageId: string): Promise<boolean> {
+export async function jumpToMessage(
+  channelId: string,
+  messageId: string,
+  opts: { maxPages?: number; notFound?: string } = {},
+): Promise<boolean> {
   const target = Number(messageId);
-  for (let page = 0; page < JUMP_MAX_PAGES && !isLoaded(channelId, messageId); page++) {
+  const maxPages = opts.maxPages ?? JUMP_MAX_PAGES;
+  for (let page = 0; page < maxPages && !isLoaded(channelId, messageId); page++) {
     await idle(channelId);
     if (isLoaded(channelId, messageId)) break;
     const channel = useMessages.getState().channels[channelId];
@@ -78,7 +83,7 @@ export async function jumpToMessage(channelId: string, messageId: string): Promi
     if (after?.hasMore && after.messages.find((m) => !m.status)?.id === oldest.id) return false;
   }
   if (!isLoaded(channelId, messageId)) {
-    env().notifyError('Asıl mesaj bulunamadı; silinmiş ya da çok eskide kalmış olabilir.');
+    env().notifyError(opts.notFound ?? 'Asıl mesaj bulunamadı; silinmiş ya da çok eskide kalmış olabilir.');
     return false;
   }
   useMessages.setState({ jump: { channelId, messageId, seq: ++jumpSeq } });

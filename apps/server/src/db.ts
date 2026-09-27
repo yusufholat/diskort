@@ -9,6 +9,7 @@ import {
   hasPermission,
   MAX_GUILDS_PER_USER,
   MESSAGE_MAX_REACTIONS,
+  MAX_PINS_PER_CHANNEL,
   Permission,
   basePermissions,
   type Attachment,
@@ -23,6 +24,7 @@ import {
   type Message,
   type PermissionContext,
   type PermissionOverwrite,
+  type PinnedMessage,
   type Reaction,
   type ReactionUsersPage,
   type ReferencedMessage,
@@ -325,6 +327,28 @@ export const MIGRATIONS: string[] = [
   ) WITHOUT ROWID;
   CREATE INDEX link_previews_expiry ON link_previews(expires_at);
   `,
+  // 17: hesap-yoneticisi dalındaki göçün yeri (hesap yöneticisi bayrağı). O dal birleşince bu satır onun
+  // göçüyle değiştirilir; göç 18 ondan bağımsızdır.
+  `SELECT 1;`,
+  // 18: sabitlenmiş mesajlar. Mesaj başına en fazla bir kayıt; mesaj (ya da kanalı) silinince kayıt da
+  // gider. channel_id sorgular için mesajınkinin kopyasıdır. Yeni PIN_MESSAGES yetkisi MANAGE_MESSAGES
+  // yetkili rollere ve kanal izinlerine (izin/engel) aynen yansıtılır; @everyone'da kapalı kalır (Yönetici
+  // ve sahip zaten her yetkiye sahip). Tekrar çalışsa da zararsızdır (IF NOT EXISTS, bit OR'u).
+  `
+  CREATE TABLE IF NOT EXISTS message_pins (
+    message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    pinned_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+    pinned_at  INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS message_pins_by_channel ON message_pins(channel_id, pinned_at);
+  UPDATE roles SET permissions = permissions | ${Permission.PIN_MESSAGES}
+    WHERE (permissions & ${Permission.MANAGE_MESSAGES}) != 0;
+  UPDATE channel_overwrites SET allow = allow | ${Permission.PIN_MESSAGES}
+    WHERE (allow & ${Permission.MANAGE_MESSAGES}) != 0;
+  UPDATE channel_overwrites SET deny = deny | ${Permission.PIN_MESSAGES}
+    WHERE (deny & ${Permission.MANAGE_MESSAGES}) != 0;
+  `,
 ];
 
 type Param = string | number | null;
@@ -559,6 +583,8 @@ const toAttachment = (r: AttachmentRow): Attachment => ({
 });
 
 export type AddReactionResult = 'added' | 'exists' | 'limit';
+
+export type PinResult = 'pinned' | 'exists' | 'limit' | 'missing';
 
 const toChannel = (r: ChannelRow, overwrites: PermissionOverwrite[] = []): Channel => ({
   id: r.id,
@@ -1903,12 +1929,71 @@ export class Store {
       reactions.set(String(r.message_id), list);
     }
     const references = this.references(messages);
+    const pinned = new Set(
+      this.all<{ message_id: number }>(`SELECT message_id FROM message_pins WHERE message_id IN (${marks})`, ...ids).map((r) =>
+        String(r.message_id),
+      ),
+    );
     return messages.map((m) => ({
       ...m,
       attachments: attachments.get(m.id) ?? [],
       reactions: reactions.get(m.id) ?? [],
       referencedMessage: (m.replyToId && references.get(m.replyToId)) || null,
+      pinned: pinned.has(m.id),
     }));
+  }
+
+  // ---------- Sabitlenmiş mesajlar ----------
+
+  /**
+   * Mesajı kanalına sabitler. Zaten sabitliyse 'exists'; kanalda MAX_PINS_PER_CHANNEL sabitli mesaj varsa
+   * 'limit'; mesaj yoksa 'missing'.
+   */
+  pinMessage(messageId: number, userId: string, now = Date.now()): PinResult {
+    return this.tx((): PinResult => {
+      const row = this.one<{ channel_id: string }>('SELECT channel_id FROM messages WHERE id = ?', messageId);
+      if (!row) return 'missing';
+      if (this.one('SELECT 1 FROM message_pins WHERE message_id = ?', messageId)) return 'exists';
+      const count = this.one<{ n: number }>('SELECT COUNT(*) AS n FROM message_pins WHERE channel_id = ?', row.channel_id)!.n;
+      if (count >= MAX_PINS_PER_CHANNEL) return 'limit';
+      // Aynı milisaniyedeki sabitlemeler de sıralı kalsın (liste en son sabitlenenle başlar)
+      const last = this.lastPinAt(row.channel_id);
+      if (last !== null && now <= last) now = last + 1;
+      this.run(
+        'INSERT INTO message_pins (message_id, channel_id, pinned_by, pinned_at) VALUES (?, ?, ?, ?)',
+        messageId,
+        row.channel_id,
+        userId,
+        now,
+      );
+      return 'pinned';
+    });
+  }
+
+  /** Sabitlemeyi kaldırır; sabitli değilse false */
+  unpinMessage(messageId: number): boolean {
+    return this.run('DELETE FROM message_pins WHERE message_id = ?', messageId) > 0;
+  }
+
+  /** Kanalın sabitlenmiş mesajları, en son sabitlenen önce */
+  listPins(channelId: string, viewerId: string | null = null): PinnedMessage[] {
+    const rows = this.all<MessageRow & { pinned_at: number; pinned_by: string | null }>(
+      `SELECT m.*, p.pinned_at, p.pinned_by FROM message_pins p JOIN messages m ON m.id = p.message_id
+       WHERE p.channel_id = ? ORDER BY p.pinned_at DESC, p.message_id DESC LIMIT ?`,
+      channelId,
+      MAX_PINS_PER_CHANNEL,
+    );
+    const pins = new Map(rows.map((r) => [String(r.id), { pinnedAt: r.pinned_at, pinnedBy: r.pinned_by }]));
+    return this.withDetails(rows.map(toMessage), viewerId).map((m) => ({
+      ...m,
+      pinned: true as const,
+      ...pins.get(m.id)!,
+    }));
+  }
+
+  /** Kanaldaki en son sabitlemenin zamanı (sabitli mesaj yoksa null) */
+  lastPinAt(channelId: string): number | null {
+    return this.one<{ at: number | null }>('SELECT MAX(pinned_at) AS at FROM message_pins WHERE channel_id = ?', channelId)!.at;
   }
 
   /**
