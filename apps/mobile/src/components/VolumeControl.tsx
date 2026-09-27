@@ -101,12 +101,15 @@ const styles = StyleSheet.create({
   mute: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   slider: { flex: 1 },
   percent: { color: '#fff', fontSize: 13, fontWeight: '600', minWidth: 42, textAlign: 'right', fontVariant: ['tabular-nums'] },
+  // Menü sayfasındaki öğe gruplarıyla aynı kart
   section: {
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderRadius: 12,
+    backgroundColor: colors.main,
   },
   sectionTitle: {
     color: colors.muted,

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -11,16 +12,17 @@ import {
   type TextInputProps,
   type ViewStyle,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAppear, useShake } from '../motion';
-import { colors, radius } from '../theme';
+import { colors, font, radius, ripple, space } from '../theme';
 import { PressableScale } from './PressableScale';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
 const BG: Record<Variant, [string, string]> = {
   primary: [colors.brand, colors.brandPressed],
-  secondary: ['#4e5058', '#6d6f78'],
-  danger: [colors.danger, '#da373c'],
+  secondary: [colors.control, colors.controlPressed],
+  danger: [colors.danger, colors.dangerPressed],
   ghost: ['transparent', 'rgba(255,255,255,0.06)'],
 };
 
@@ -35,6 +37,7 @@ export function Button({
   return (
     <PressableScale
       scaleTo={0.97}
+      ripple={variant === 'ghost' ? true : { color: 'rgba(255,255,255,0.12)', foreground: true }}
       {...rest}
       disabled={disabled || busy}
       style={({ pressed: p }) => [
@@ -115,6 +118,58 @@ export function SectionTitle({ children }: { children: ReactNode }) {
   return <Text style={styles.section}>{children}</Text>;
 }
 
+/** Ayarlar gibi sayfalarda yuvarlak köşeli grup */
+export function Card({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  return <View style={[styles.card, style]}>{children}</View>;
+}
+
+/** Karttaki gezinme satırı: simge kutusu, ad, isteğe bağlı açıklama/değer ve ok */
+export function NavRow({
+  icon,
+  iconColor = colors.brand,
+  label,
+  detail,
+  value,
+  onPress,
+  danger,
+  first,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  iconColor?: string;
+  label: string;
+  detail?: string;
+  value?: string;
+  onPress?: () => void;
+  danger?: boolean;
+  /** Kartın ilk satırı (üstünde ayırıcı çizgi olmaz) */
+  first?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      android_ripple={ripple.row}
+      accessibilityRole={onPress ? 'button' : 'text'}
+      style={styles.navRow}
+    >
+      {!first && <View style={styles.navDivider} />}
+      <View style={[styles.navIcon, { backgroundColor: danger ? colors.danger : iconColor }]}>
+        <Ionicons name={icon} size={17} color="#fff" />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.navLabel, danger && { color: colors.dangerText }]}>{label}</Text>
+        {detail ? <Text style={styles.navDetail}>{detail}</Text> : null}
+      </View>
+      {value ? (
+        <Text style={styles.navValue} numberOfLines={1}>
+          {value}
+        </Text>
+      ) : null}
+      {onPress ? <Ionicons name="chevron-forward" size={18} color={colors.faint} /> : null}
+    </Pressable>
+  );
+}
+
 export const ui = StyleSheet.create({
   errorBox: {
     backgroundColor: 'rgba(242,63,67,0.15)',
@@ -128,7 +183,8 @@ export const ui = StyleSheet.create({
 const styles = StyleSheet.create({
   button: {
     height: 46,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
@@ -138,7 +194,7 @@ const styles = StyleSheet.create({
   label: { color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 8, textTransform: 'uppercase' },
   input: {
     height: 46,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     backgroundColor: colors.input,
     color: colors.text,
     paddingHorizontal: 12,
@@ -152,11 +208,19 @@ const styles = StyleSheet.create({
   error: { color: '#fa777c', fontSize: 13 },
   section: {
     color: colors.muted,
-    fontSize: 12,
+    fontSize: font.caption,
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginTop: 20,
-    marginBottom: 8,
+    letterSpacing: 0.5,
+    marginTop: space.xxl,
+    marginBottom: space.sm,
+    marginLeft: space.xs,
   },
+  card: { backgroundColor: colors.side, borderRadius: radius.lg - 4, overflow: 'hidden' },
+  navRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 52, paddingHorizontal: space.md + 2, paddingVertical: space.sm + 2 },
+  navDivider: { position: 'absolute', top: 0, left: 56, right: 0, height: StyleSheet.hairlineWidth, backgroundColor: colors.line },
+  navIcon: { width: 30, height: 30, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  navLabel: { color: colors.head, fontSize: font.row, fontWeight: '500' },
+  navDetail: { color: colors.muted, fontSize: font.caption + 0.5, marginTop: 1, lineHeight: 17 },
+  navValue: { color: colors.muted, fontSize: font.small + 0.5, maxWidth: '45%' },
 });

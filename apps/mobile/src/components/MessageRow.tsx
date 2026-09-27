@@ -13,7 +13,7 @@ import {
 } from '@diskort/client-core';
 import type { User } from '@diskort/shared';
 import { duration, useAppear } from '../motion';
-import { colors } from '../theme';
+import { colors, font, layout, radius, ripple, space } from '../theme';
 import { Avatar } from './Avatar';
 import { AttachmentList, UploadList } from './Attachments';
 import { GifEmbed } from './GifEmbed';
@@ -32,6 +32,14 @@ const startOfDay = (ts: number): number => {
 };
 export const sameDay = (a: number, b: number): boolean => startOfDay(a) === startOfDay(b);
 
+/** Gün ayracındaki yazı: "Bugün", "Dün" ya da "12 Eylül 2026" */
+function dayLabel(ts: number): string {
+  const diff = startOfDay(Date.now()) - startOfDay(ts);
+  if (diff <= 0) return 'Bugün';
+  if (diff <= 86_400_000) return 'Dün';
+  return longDate.format(ts);
+}
+
 function stamp(ts: number): string {
   const diff = startOfDay(Date.now()) - startOfDay(ts);
   if (diff <= 0) return `Bugün ${time.format(ts)}`;
@@ -45,6 +53,8 @@ interface Props {
   compact: boolean;
   /** Bu mesajın üstünde gün ayracı gösterilsin mi */
   dayBreak: boolean;
+  /** Okunmamış ilk mesaj: üstünde kırmızı "YENİ" ayracı */
+  newDivider?: boolean;
   self: User;
   md: MarkdownContext;
   onLongPress: (message: LocalMessage) => void;
@@ -59,6 +69,7 @@ export const MessageRow = memo(function MessageRow({
   author,
   compact,
   dayBreak,
+  newDivider = false,
   self,
   md,
   onLongPress,
@@ -92,25 +103,22 @@ export const MessageRow = memo(function MessageRow({
     <Animated.View
       style={{
         opacity: appear,
-        transform: [{ translateY: appear.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }],
+        transform: [{ translateY: appear.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }],
       }}
     >
-      {dayBreak && (
-        <View style={styles.dayBreak}>
-          <View style={styles.dayLine} />
-          <Text style={styles.dayText}>{longDate.format(message.createdAt)}</Text>
-          <View style={styles.dayLine} />
-        </View>
-      )}
+      {(dayBreak || newDivider) && <Separator day={dayBreak ? message.createdAt : null} unread={newDivider} />}
       <Pressable
         onLongPress={() => !message.status && onLongPress(message)}
         delayLongPress={300}
-        style={({ pressed }) => [
+        // Kaydırmaya başlarken dokunulan satır parlamasın: basma kısa bir gecikmeyle başlar
+        unstable_pressDelay={90}
+        android_ripple={ripple.row}
+        accessibilityHint="Seçenekler için uzun bas"
+        style={[
           styles.row,
           compact ? styles.compact : styles.full,
           mentioned && !replying && styles.mentioned,
           replying && styles.replying,
-          pressed && styles.pressed,
         ]}
       >
         <Animated.View pointerEvents="none" style={[styles.flash, { opacity: highlight }]} />
@@ -173,25 +181,43 @@ export const MessageRow = memo(function MessageRow({
   );
 });
 
+/** Gün ayracı ve/veya okunmamışların başladığı yer (kırmızı çizgi, sağda "YENİ") */
+function Separator({ day, unread }: { day: number | null; unread: boolean }) {
+  const line = [styles.dayLine, unread && { backgroundColor: colors.danger }];
+  return (
+    <View style={[styles.dayBreak, !day && { marginTop: 10 }]} accessibilityRole="header">
+      <View style={line} />
+      {day !== null && <Text style={[styles.dayText, unread && { color: colors.dangerText }]}>{dayLabel(day)}</Text>}
+      {day !== null && <View style={line} />}
+      {unread && (
+        <View style={styles.newTag} accessibilityLabel="Yeni mesajlar buradan başlıyor">
+          <Text style={styles.newTagText}>YENİ</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', paddingRight: 14 },
-  full: { paddingTop: 14, paddingBottom: 2 },
+  full: { paddingTop: 12, paddingBottom: 2, marginTop: 4 },
   compact: { paddingVertical: 2 },
-  pressed: { backgroundColor: 'rgba(0,0,0,0.12)' },
-  mentioned: { backgroundColor: 'rgba(240,178,50,0.09)', borderLeftWidth: 2, borderLeftColor: colors.warn },
+  mentioned: { backgroundColor: colors.warnSoft, borderLeftWidth: 2, borderLeftColor: colors.warn },
   replying: { backgroundColor: 'rgba(88,101,242,0.1)', borderLeftWidth: 2, borderLeftColor: colors.brand },
   flash: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(88,101,242,0.25)' },
-  gutter: { width: 64, alignItems: 'center' },
+  gutter: { width: layout.avatarColumn, alignItems: 'center' },
   body: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 2 },
-  author: { color: colors.head, fontSize: 16, fontWeight: '600', flexShrink: 1 },
+  header: { flexDirection: 'row', alignItems: 'baseline', gap: space.sm, marginBottom: 2 },
+  author: { color: colors.head, fontSize: font.row, fontWeight: '600', flexShrink: 1 },
   deleted: { color: colors.muted, fontStyle: 'italic' },
-  time: { color: colors.faint, fontSize: 12 },
+  time: { color: colors.faint, fontSize: font.caption },
   edited: { color: colors.faint, fontSize: 11 },
   failed: { color: colors.muted, fontSize: 13, marginTop: 2 },
   action: { color: colors.link },
   reactions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
-  dayBreak: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 18, marginBottom: 4 },
-  dayLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.line },
-  dayText: { color: colors.muted, fontSize: 12, fontWeight: '600' },
+  dayBreak: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginHorizontal: space.lg, marginTop: space.lg, marginBottom: 2, minHeight: 16 },
+  dayLine: { flex: 1, height: 1, backgroundColor: colors.line },
+  dayText: { color: colors.muted, fontSize: font.caption, fontWeight: '700' },
+  newTag: { backgroundColor: colors.danger, borderRadius: radius.sm, paddingHorizontal: 5, paddingVertical: 1, marginLeft: -space.sm },
+  newTagText: { color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.3 },
 });

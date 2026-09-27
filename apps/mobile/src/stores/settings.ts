@@ -23,6 +23,8 @@ interface MobileSettings {
   vadAuto: boolean;
   /** Elle belirlenen eşik (dBFS) */
   vadThresholdDb: number;
+  /** Ses düğmelerine ve yönetim işlemlerine basınca kısa titreşim (bkz. haptics.ts) */
+  haptics: boolean;
   set: (patch: Partial<Omit<MobileSettings, 'set'>>) => void;
 }
 
@@ -41,6 +43,7 @@ export const useSettings = create<MobileSettings>()(
       voiceActivity: true,
       vadAuto: true,
       vadThresholdDb: -50,
+      haptics: true,
       set: (patch) => set(patch),
     }),
     {
