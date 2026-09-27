@@ -102,7 +102,8 @@ export function SearchBox({ scope, placeholder }: { scope: SearchScope; placehol
       <div
         className={cn(
           'flex h-8 items-center gap-1.5 rounded-lg border bg-bg-input px-2.5 text-sm transition-[width,border-color] duration-150',
-          wide ? 'w-80 border-brand/60' : 'w-60 border-float-edge',
+          // Kapalıyken üye listesinin içeriğiyle aynı genişlik (w-60 − 2×px-2): Discord'daki gibi listenin hizasında
+          wide ? 'w-80 border-brand/60' : 'w-56 border-float-edge',
         )}
       >
         <input

@@ -145,90 +145,87 @@ export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' |
   };
 
   return (
-    <div className="flex h-full min-w-0 flex-1">
-      <div className="anim-fade-in relative flex h-full min-w-0 flex-1 flex-col bg-bg-main" {...dropHandlers}>
-        {dragging && (
-          <div className="anim-fade-in pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/60">
-            <div className="anim-modal-in flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-white/60 bg-brand px-10 py-8 text-white shadow-2xl">
-              <Upload size={40} />
-              <div className="text-lg font-bold">{dm ? `${label} ile paylaş` : `${label} kanalına yükle`}</div>
-              <div className="text-sm text-white/80">Göndermeden önce bir not ekleyebilirsin.</div>
-            </div>
-          </div>
-        )}
-        {/* Discord gibi: başlığa (kanal adına ya da boş yerine) tıklamak üye listesini açıp kapatır */}
-        <header
-          className="flex h-12 shrink-0 cursor-pointer items-center gap-2 border-b border-edge px-4 shadow-sm"
-          onClick={(e) => {
-            if ((e.target as HTMLElement).closest('button, a')) return;
-            useUi.getState().toggleMemberList();
-          }}
-        >
-          {dm ? <DmAvatar dm={dm} size={24} status /> : <Hash size={22} className="text-text-muted" />}
-          <span className="min-w-0 truncate font-semibold text-text-head">{channel.name}</span>
-          {partner && <span className="min-w-0 truncate text-sm text-text-muted">@{partner.username}</span>}
-          <span className="flex-1" />
-          {dm?.group && dm.participantIds.length < DM_GROUP_MAX_PARTICIPANTS && (
-            <button
-              data-tooltip="Kişi ekle"
-              aria-label="Kişi ekle"
-              className="press-icon rounded p-1 text-text-muted hover:text-text-normal"
-              onClick={() => useUi.getState().openModal({ type: 'newDm', addTo: dm.id })}
-            >
-              <UserPlus size={22} />
-            </button>
-          )}
-          <PinsButton key={channel.id} channelId={channel.id} />
+    <div className="flex h-full min-w-0 flex-1 flex-col bg-bg-main">
+      {/* Discord gibi: başlık sohbetin ve üye listesinin üstünde tam genişlikte, arama kutusu listenin hizasında.
+          Üye listesi yalnızca düğmeyle açılıp kapanır (başlığa tıklamak telefona özgü) */}
+      <header className="relative z-10 flex h-12 shrink-0 items-center gap-2 border-b border-edge bg-bg-main pr-2 pl-4 shadow-sm">
+        {dm ? <DmAvatar dm={dm} size={24} status /> : <Hash size={22} className="text-text-muted" />}
+        <span className="min-w-0 truncate font-semibold text-text-head">{channel.name}</span>
+        {partner && <span className="min-w-0 truncate text-sm text-text-muted">@{partner.username}</span>}
+        <span className="flex-1" />
+        {dm?.group && dm.participantIds.length < DM_GROUP_MAX_PARTICIPANTS && (
           <button
-            data-tooltip={memberListOpen ? 'Üye listesini gizle' : 'Üye listesini göster'}
-            aria-label={memberListOpen ? 'Üye listesini gizle' : 'Üye listesini göster'}
-            aria-pressed={memberListOpen}
-            className={cn(
-              'press-icon rounded p-1',
-              memberListOpen ? 'text-text-head' : 'text-text-muted hover:text-text-normal',
-            )}
-            onClick={() => useUi.getState().toggleMemberList()}
+            data-tooltip="Kişi ekle"
+            aria-label="Kişi ekle"
+            className="press-icon rounded p-1 text-text-muted hover:text-text-normal"
+            onClick={() => useUi.getState().openModal({ type: 'newDm', addTo: dm.id })}
           >
-            <Users size={22} />
+            <UserPlus size={22} />
           </button>
-          <SearchBox scope={searchScope} placeholder={dm ? 'Ara' : guildName ? `${guildName} sunucusunu ara` : 'Sunucuda ara'} />
-        </header>
-
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          {unreadBelow && (
-            <button
-              className="anim-bar-in absolute top-0 right-4 left-4 z-10 flex items-center justify-between rounded-b-lg bg-brand px-3 py-1 text-sm font-medium text-white shadow transition-colors hover:bg-brand-hover"
-              onClick={() => setScrollSignal((n) => n + 1)}
-            >
-              <span>Yeni mesajların var</span>
-              <span>Şimdiye atla ↓</span>
-            </button>
+        )}
+        <PinsButton key={channel.id} channelId={channel.id} />
+        <button
+          data-tooltip={memberListOpen ? 'Üye listesini gizle' : 'Üye listesini göster'}
+          aria-label={memberListOpen ? 'Üye listesini gizle' : 'Üye listesini göster'}
+          aria-pressed={memberListOpen}
+          className={cn(
+            'press-icon rounded p-1',
+            memberListOpen ? 'text-text-head' : 'text-text-muted hover:text-text-normal',
           )}
-          <MessageList
-            channel={channel}
-            dm={dm}
-            self={self}
-            dividerId={dividerId}
-            onAtBottomChange={setAtBottom}
-            scrollToBottomSignal={scrollSignal}
-          />
-        </div>
+          onClick={() => useUi.getState().toggleMemberList()}
+        >
+          <Users size={22} />
+        </button>
+        <SearchBox scope={searchScope} placeholder={dm ? 'Ara' : guildName ? `${guildName} sunucusunu ara` : 'Sunucuda ara'} />
+      </header>
+      <div className="flex min-h-0 flex-1">
+        <div className="anim-fade-in relative flex min-h-0 min-w-0 flex-1 flex-col bg-bg-main" {...dropHandlers}>
+          {dragging && (
+            <div className="anim-fade-in pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/60">
+              <div className="anim-modal-in flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-white/60 bg-brand px-10 py-8 text-white shadow-2xl">
+                <Upload size={40} />
+                <div className="text-lg font-bold">{dm ? `${label} ile paylaş` : `${label} kanalına yükle`}</div>
+                <div className="text-sm text-white/80">Göndermeden önce bir not ekleyebilirsin.</div>
+              </div>
+            </div>
+          )}
 
-        <Composer
-          ref={composer}
-          channel={channel}
-          self={self}
-          placeholder={dm ? `${label} ${dm.group ? 'grubuna' : 'kişisine'} mesaj gönder` : undefined}
-          lockedText={blocked ?? undefined}
-          mentionable={dm?.participantIds}
-          onSend={() => {
-            setDividerId(null);
-            setScrollSignal((n) => n + 1);
-          }}
-        />
-        <TypingIndicator channelId={channel.id} selfId={self.id} />
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {unreadBelow && (
+              <button
+                className="anim-bar-in absolute top-0 right-4 left-4 z-10 flex items-center justify-between rounded-b-lg bg-brand px-3 py-1 text-sm font-medium text-white shadow transition-colors hover:bg-brand-hover"
+                onClick={() => setScrollSignal((n) => n + 1)}
+              >
+                <span>Yeni mesajların var</span>
+                <span>Şimdiye atla ↓</span>
+              </button>
+            )}
+            <MessageList
+              channel={channel}
+              dm={dm}
+              self={self}
+              dividerId={dividerId}
+              onAtBottomChange={setAtBottom}
+              scrollToBottomSignal={scrollSignal}
+            />
+          </div>
+
+          <Composer
+            ref={composer}
+            channel={channel}
+            self={self}
+            placeholder={dm ? `${label} ${dm.group ? 'grubuna' : 'kişisine'} mesaj gönder` : undefined}
+            lockedText={blocked ?? undefined}
+            mentionable={dm?.participantIds}
+            onSend={() => {
+              setDividerId(null);
+              setScrollSignal((n) => n + 1);
+            }}
+          />
+          <TypingIndicator channelId={channel.id} selfId={self.id} />
+        </div>
+        {searchOpen ? <SearchPanel /> : memberListOpen && (dm ? <DmMembers dm={dm} /> : <MemberList />)}
       </div>
-      {searchOpen ? <SearchPanel /> : memberListOpen && (dm ? <DmMembers dm={dm} /> : <MemberList />)}
     </div>
   );
 }
