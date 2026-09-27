@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Pressable, Switch, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { SOUND_LABELS } from '@diskort/client-core';
 import { feedback, soundCue, useHapticsAvailable } from '../haptics';
+import { MOBILE_SOUND_NAMES, previewSound, soundsAvailable } from '../sounds';
 import { useSettings, type NoiseMode, type NoiseStrengthDb } from '../stores/settings';
 import { colors, createStyles } from '../theme';
 import { dpdfnetAvailable, effectiveNoiseMode, useNoiseFilter } from '../voice/noiseFilter';
@@ -26,7 +29,6 @@ export function VoiceSettings() {
   const inVoice = useVoice((s) => s.status !== 'idle');
   const haptics = useSettings((s) => s.haptics);
   const hapticsAvailable = useHapticsAvailable((s) => s.available);
-  const sounds = useSettings((s) => s.sounds);
   // Eşik sürüklenirken göstergedeki çizgi anında kayar; bırakınca kaydedilir
   const [preview, setPreview] = useState<number | null>(null);
 
@@ -47,15 +49,7 @@ export function VoiceSettings() {
             if (v) feedback('unmute');
           }}
         />
-        <ToggleRow
-          label="Sesli sohbet sesleri"
-          description="Katılınca, ayrılınca, susturunca, sağırlaştırınca, yayın açılıp kapanınca ve kanala biri girip çıkınca kısa ses. Telefon sessizdeyken çalmaz."
-          value={sounds}
-          onChange={(v) => {
-            set({ sounds: v });
-            if (v) soundCue('unmute');
-          }}
-        />
+        <SoundSettings />
         <NoiseSetting />
         <ToggleRow
           label="Yankı engelleme"
@@ -113,6 +107,76 @@ export function VoiceSettings() {
         )}
       </Card>
     </View>
+  );
+}
+
+/** Arayüz sesleri: aç/kapat, bildirim sesi, seviye ve her sesi dinleme listesi */
+function SoundSettings() {
+  const sounds = useSettings((s) => s.sounds);
+  const notificationSound = useSettings((s) => s.notificationSound);
+  const volume = useSettings((s) => s.sfxVolume);
+  const set = useSettings((s) => s.set);
+  const [listOpen, setListOpen] = useState(false);
+  // Eski APK'larda (expo-audio yok) ses çalınamaz; ayarlar gösterilmez
+  if (!soundsAvailable()) return null;
+  return (
+    <>
+      <ToggleRow
+        label="Sesli sohbet sesleri"
+        description="Katılınca, ayrılınca, susturunca, sağırlaştırınca, yayın açılıp kapanınca ve kanala biri girip çıkınca kısa ses. Telefon sessizdeyken çalmaz."
+        value={sounds}
+        onChange={(v) => {
+          set({ sounds: v });
+          if (v) soundCue('unmute');
+        }}
+      />
+      <ToggleRow
+        label="Bildirim sesi"
+        description="Uygulama açıkken senden bahsedilince ya da direkt mesaj gelince. Rahatsız Etmeyin durumunda çalmaz."
+        value={notificationSound}
+        onChange={(v) => {
+          set({ notificationSound: v });
+          if (v) previewSound('mention');
+        }}
+      />
+      <View style={styles.choiceBlock}>
+        <Text style={styles.label}>Ses efektleri — %{Math.round(volume * 100)}</Text>
+        <Slider
+          value={volume}
+          min={0}
+          max={1}
+          step={0.05}
+          accessibilityLabel="Ses efektleri seviyesi"
+          accessibilityText={(v) => `%${Math.round(v * 100)}`}
+          onChangeEnd={(v) => {
+            set({ sfxVolume: Math.round(v * 100) / 100 });
+            previewSound('unmute');
+          }}
+        />
+        <Pressable
+          onPress={() => setListOpen((o) => !o)}
+          style={({ pressed }) => [styles.listToggle, pressed && { opacity: 0.8 }]}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: listOpen }}
+        >
+          <Text style={styles.listToggleText}>Sesleri dinle</Text>
+          <Ionicons name={listOpen ? 'chevron-up' : 'chevron-down'} size={16} color={colors.muted} />
+        </Pressable>
+        {listOpen &&
+          MOBILE_SOUND_NAMES.map((name) => (
+            <Pressable
+              key={name}
+              onPress={() => previewSound(name)}
+              style={({ pressed }) => [styles.soundRow, pressed && { opacity: 0.6 }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Dinle: ${SOUND_LABELS[name]}`}
+            >
+              <Ionicons name="play-circle-outline" size={20} color={colors.brand} />
+              <Text style={styles.soundLabel}>{SOUND_LABELS[name]}</Text>
+            </Pressable>
+          ))}
+      </View>
+    </>
   );
 }
 
@@ -291,6 +355,10 @@ const styles = createStyles(() => ({
   choiceTextSelected: { color: colors.white },
   vad: { paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: colors.line, marginLeft: 2, marginBottom: 4 },
   hint: { color: colors.muted, fontSize: 12.5, lineHeight: 18, marginTop: 6 },
+  listToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, alignSelf: 'flex-start' },
+  listToggleText: { color: colors.muted, fontSize: 14, fontWeight: '500' },
+  soundRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 7 },
+  soundLabel: { color: colors.text, fontSize: 14.5 },
   // Kaydırıcıyla hizalı olsun diye iki yanda başparmak payı bırakılır
   meter: { height: 22, justifyContent: 'center', marginHorizontal: THUMB_PAD, marginTop: 6 },
   meterTrack: { height: 8, borderRadius: 4, backgroundColor: colors.control, overflow: 'hidden' },

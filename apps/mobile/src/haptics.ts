@@ -68,8 +68,19 @@ if (Platform.OS === 'android') {
   useHapticsAvailable.setState({ available: Platform.OS !== 'ios' });
 }
 
-/** Ses çalınan olaylar: düğme olayları ve kanala başkasının girip çıkması (yalnızca ses, titreşimsiz) */
-export type SoundEvent = FeedbackEvent | 'userJoin' | 'userLeave';
+/**
+ * Ses çalınan olaylar: düğme olayları ve kendiliğinden olanlar (yalnızca ses, titreşimsiz): kanala biri
+ * girdi/çıktı, biri yayına başladı/bitirdi, bahsedilme, bağlantı koptu/geri geldi
+ */
+export type SoundEvent =
+  | FeedbackEvent
+  | 'userJoin'
+  | 'userLeave'
+  | 'userStreamStart'
+  | 'userStreamStop'
+  | 'mention'
+  | 'disconnect'
+  | 'reconnected';
 
 type SoundPlayer = (event: SoundEvent) => void;
 let playSound: SoundPlayer | null = null;
@@ -88,8 +99,11 @@ export function soundCue(event: SoundEvent): void {
   }
 }
 
-/** Olayın geri bildirimini ver: ayar açıksa titreşim, ses modülü takılıysa ses */
-export function feedback(event: FeedbackEvent): void {
+/**
+ * Yalnızca titreşim: sesi işlem bitince ayrıca çalınan olaylar için (katıl: bağlantı kurulunca, ekran
+ * paylaşımı: Android onayından sonra)
+ */
+export function haptic(event: FeedbackEvent): void {
   if (getSettings().haptics && useHapticsAvailable.getState().available) {
     try {
       Vibration.vibrate(PATTERNS[event]);
@@ -97,5 +111,10 @@ export function feedback(event: FeedbackEvent): void {
       // Titreşim desteklenmiyor: sessizce geç
     }
   }
+}
+
+/** Olayın geri bildirimini ver: ayar açıksa titreşim, ses modülü takılıysa ses */
+export function feedback(event: FeedbackEvent): void {
+  haptic(event);
   soundCue(event);
 }

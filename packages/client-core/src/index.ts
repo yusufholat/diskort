@@ -263,3 +263,15 @@ export {
   type SearchState,
   type SearchSuggestion,
 } from './search';
+export {
+  ChannelSoundGate,
+  encodeWav,
+  OTHERS_QUIET_MS,
+  OTHERS_SOUNDS,
+  renderSound,
+  SFX_PEAK_DBFS,
+  SFX_SAMPLE_RATE,
+  SOUND_LABELS,
+  SOUND_NAMES,
+  type SoundName,
+} from './sfx';

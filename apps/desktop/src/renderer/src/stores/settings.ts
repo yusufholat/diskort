@@ -48,7 +48,14 @@ export interface Settings {
   hotkeys: HotkeyConfig;
   minimizeToTray: boolean;
   openAtLogin: boolean;
+  /** Arayüz sesleri: katıl/ayrıl, sustur, sağırlaştır, yayın, biri girdi/çıktı (bkz. lib/sfx.ts) */
   sounds: boolean;
+  /** Arayüz seslerinin seviyesi (0–1) */
+  sfxVolume: number;
+  /** Bahsedilince ve direkt mesaj gelince ses (Rahatsız Etmeyin durumunda çalmaz) */
+  notificationSound: boolean;
+  /** Bas-konuş tuşuna basınca ve bırakınca kısa ses */
+  pttSounds: boolean;
   /** Arayüz teması: koyu (varsayılan) ya da OLED ekranlar için simsiyah */
   theme: ThemeId;
   /** Mesajlardaki bağlantıların önizlemeleri (kart, YouTube, resim) gösterilsin mi */
@@ -88,6 +95,9 @@ const defaults: Settings = {
   minimizeToTray: true,
   openAtLogin: false,
   sounds: true,
+  sfxVolume: 0.7,
+  notificationSound: true,
+  pttSounds: false,
   theme: DEFAULT_THEME,
   linkPreviews: true,
   selfMute: false,
@@ -112,6 +122,7 @@ function sanitize(saved: Partial<Settings>): Partial<Settings> {
   }
   if (s.screenPreset !== undefined && !SCREEN_PRESET_IDS.includes(s.screenPreset)) s.screenPreset = defaults.screenPreset;
   if (s.theme !== undefined && !isThemeId(s.theme)) s.theme = defaults.theme;
+  if (s.sfxVolume !== undefined) s.sfxVolume = Number.isFinite(s.sfxVolume) ? Math.min(1, Math.max(0, s.sfxVolume)) : defaults.sfxVolume;
   if (s.screenCodec !== undefined && !SCREEN_CODEC_IDS.includes(s.screenCodec)) s.screenCodec = defaults.screenCodec;
   return s;
 }

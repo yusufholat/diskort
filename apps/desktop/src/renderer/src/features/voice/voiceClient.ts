@@ -18,6 +18,7 @@ import {
 import type { VoiceJoinResponse } from '@diskort/shared';
 import {
   api,
+  ChannelSoundGate,
   describeTransport,
   errorMessage,
   gateway,
@@ -34,7 +35,7 @@ import {
   type TransportStats,
 } from '@diskort/client-core';
 import { bridge } from '../../lib/bridge';
-import { playSound, sharedAudioContext } from '../../lib/sfx';
+import { playSound, prepareSounds, sharedAudioContext } from '../../lib/sfx';
 import { getSettings, useSettings, type Settings } from '../../stores/settings';
 import { setVoice, useVoice, type MicLevel } from '../../stores/voice';
 import {
@@ -70,6 +71,8 @@ const STATS_INTERVAL_MS = 2000;
 /** Etiket/simge rengi son bu kadar sürenin ping ve kaybına göre belirlenir */
 const QUALITY_WINDOW_MS = 10_000;
 const PREFETCH_TTL_MS = 60_000;
+/** Yeniden bağlanma bu süreyi aşarsa "bağlantı koptu" sesi çalınır; geri gelince "geri geldi" */
+const RECONNECT_SOUND_DELAY_MS = 2500;
 
 /** LiveKit protokolündeki kaynak numaraları (ParticipantPermission.canPublishSources) */
 const PROTO_SOURCE = { microphone: 2, screenShare: 3 } as const;
@@ -129,6 +132,11 @@ class VoiceClient {
   private micStarting = false;
   private prefetched: { channelId: string; at: number; response: Promise<VoiceJoinResponse> } | null = null;
   private readonly audioSink: HTMLDivElement;
+  /** Başkalarının kanal olaylarının sesleri (bağlanınca sel olmasın, art arda gelenler tek ses) */
+  private readonly channelSounds = new ChannelSoundGate((name) => playSound(name));
+  /** Bağlantı kısa süre içinde geri gelmezse "koptu" sesi; geri gelince "geri geldi" */
+  private reconnectTimer: number | null = null;
+  private lostSoundPlayed = false;
 
   constructor() {
     this.audioSink = document.createElement('div');
@@ -144,7 +152,15 @@ class VoiceClient {
     // Sunucuda sağırlaştırılınca kimse duyulmaz (dinleme LiveKit'te kesilmez, istemci uygular)
     useGuild.subscribe((next, prev) => {
       const selfId = useSession.getState().user?.id;
-      if (selfId && next.voiceStates[selfId]?.serverDeaf !== prev.voiceStates[selfId]?.serverDeaf) this.applyVolumes();
+      if (!selfId) return;
+      const now = next.voiceStates[selfId];
+      const before = prev.voiceStates[selfId];
+      if (now?.serverDeaf !== before?.serverDeaf) this.applyVolumes();
+      // Yetkili biri seni sunucuda susturdu / sağırlaştırdı (ya da kaldırdı): kendi düğmendeki gibi ses
+      if (now && before && useVoice.getState().status === 'connected') {
+        if (now.serverDeaf !== before.serverDeaf) playSound(now.serverDeaf ? 'deafen' : 'undeafen');
+        else if (now.serverMute !== before.serverMute) playSound(now.serverMute ? 'mute' : 'unmute');
+      }
     });
   }
 
@@ -169,11 +185,14 @@ class VoiceClient {
     return api.joinVoice(channelId);
   }
 
-  async join(channelId: string): Promise<void> {
+  /** @param opts.silent Sessiz geri dönüş ("başka cihaz" uyarısından sonra): katılma sesi çalınmaz */
+  async join(channelId: string, opts: { silent?: boolean } = {}): Promise<void> {
     const current = useVoice.getState();
     if (current.channelId === channelId && current.status !== 'idle') return;
 
     const seq = ++this.joinSeq;
+    // Ses bağlamı ve çıkış aygıtı bağlanırken hazırlanır: "katıldın" sesi aygıt değişimine takılmasın
+    prepareSounds();
     await this.teardownRoom();
     setVoice({ ...RESET_ROOM_STATE, channelId, status: 'connecting', error: null });
 
@@ -192,6 +211,8 @@ class VoiceClient {
       });
       this.room = room;
       this.bindRoom(room);
+      // Bağlanırken gelen katılımcı/yayın olayları ses çıkarmaz (süre bağlanınca kısaltılır)
+      this.channelSounds.quiet(60_000);
 
       await room.connect(url, token, { autoSubscribe: false });
       if (seq !== this.joinSeq) {
@@ -205,7 +226,9 @@ class VoiceClient {
       this.applyVolumes();
       setConnectionStats({ server: this.serverInfo(room, url) });
       setVoice({ status: 'connected', micAllowed: this.canPublish(room, PROTO_SOURCE.microphone) });
-      playSound('join');
+      // Bağlantı kurulunca (öncesinde değil) çalınır; kanaldakilerin girişleri ve yayınları ses seli yapmaz
+      this.channelSounds.quiet();
+      if (!opts.silent) playSound('join');
       this.startStats();
       this.syncVoiceState();
       await this.startMic(room);
@@ -224,12 +247,12 @@ class VoiceClient {
     }
   }
 
-  async leave(): Promise<void> {
+  async leave(opts: { silent?: boolean } = {}): Promise<void> {
     this.joinSeq++;
     const wasActive = useVoice.getState().status !== 'idle';
     await this.teardownRoom();
     setVoice({ ...RESET_ROOM_STATE, channelId: null, status: 'idle' });
-    if (wasActive) playSound('leave');
+    if (wasActive && !opts.silent) playSound('leave');
   }
 
   clearError(): void {
@@ -237,6 +260,8 @@ class VoiceClient {
   }
 
   private async teardownRoom(): Promise<void> {
+    this.channelSounds.cancel();
+    this.clearReconnectTimer();
     this.stopStats();
     this.statsPrev = { publisher: null, subscriber: null };
     setConnectionStats(EMPTY_CONNECTION_STATS);
@@ -473,6 +498,11 @@ class VoiceClient {
     if (useVoice.getState().pttActive === active) return;
     setVoice({ pttActive: active });
     this.processor?.updateGate({ ptt: active });
+    // Bas-konuş sesi (Ayarlar'dan açılır; varsayılan kapalı). Susturulmuşken tuş bir şey açmaz, ses de yok.
+    const s = getSettings();
+    if (useVoice.getState().status === 'connected' && s.inputMode === 'ptt' && !s.selfMute && !s.selfDeaf) {
+      playSound(active ? 'pttOn' : 'pttOff');
+    }
   }
 
   private applyMicMute(): void {
@@ -544,11 +574,14 @@ class VoiceClient {
 
   private bindRoom(room: Room): void {
     room
-      .on(RoomEvent.TrackPublished, (pub, p) => this.onPublication(pub, p))
+      .on(RoomEvent.TrackPublished, (pub, p) => {
+        if (room === this.room) this.onPublication(pub, p, true);
+      })
       .on(RoomEvent.TrackUnpublished, (pub, p) => {
         if (pub.source === Track.Source.ScreenShare || pub.source === Track.Source.ScreenShareAudio) {
           this.refreshStream(p);
         }
+        if (pub.source === Track.Source.ScreenShare && room === this.room) this.channelSounds.push('userStreamStop');
       })
       .on(RoomEvent.TrackSubscribed, (track, _pub, _p) => this.onSubscribed(track))
       .on(RoomEvent.TrackUnsubscribed, (track) => {
@@ -557,13 +590,13 @@ class VoiceClient {
       })
       .on(RoomEvent.ParticipantConnected, () => {
         this.applyVolumes();
-        playSound('userJoin');
+        if (room === this.room) this.channelSounds.push('userJoin');
       })
       .on(RoomEvent.ParticipantDisconnected, (p) => {
         this.remoteSpeaking.delete(p.identity);
         this.publishSpeaking();
         this.refreshStream(p);
-        playSound('userLeave');
+        if (room === this.room) this.channelSounds.push('userLeave');
       })
       .on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => {
         this.remoteSpeaking = new Set(speakers.filter((sp) => !sp.isLocal).map((sp) => sp.identity));
@@ -574,12 +607,27 @@ class VoiceClient {
       })
       .on(RoomEvent.Reconnecting, () => {
         this.duplicates.noteReconnect();
-        if (room === this.room) setVoice({ status: 'reconnecting' });
+        if (room !== this.room) return;
+        setVoice({ status: 'reconnecting' });
+        // Kısa kopmalar sessiz geçer; bağlantı birkaç saniyede gelmezse "koptu" sesi
+        this.clearReconnectTimer();
+        this.reconnectTimer = window.setTimeout(() => {
+          this.reconnectTimer = null;
+          if (room !== this.room || useVoice.getState().status !== 'reconnecting') return;
+          this.lostSoundPlayed = true;
+          playSound('disconnect');
+        }, RECONNECT_SOUND_DELAY_MS);
       })
       .on(RoomEvent.SignalReconnecting, () => this.duplicates.noteReconnect())
       .on(RoomEvent.Reconnected, () => {
         this.duplicates.noteReconnect();
-        if (room === this.room) setVoice({ status: 'connected' });
+        if (room !== this.room) return;
+        setVoice({ status: 'connected' });
+        // Yeniden bağlanınca LiveKit katılımcıları yeniden bildirebilir: ses seli olmasın
+        this.channelSounds.quiet();
+        const wasLost = this.lostSoundPlayed;
+        this.clearReconnectTimer();
+        if (wasLost) playSound('reconnected');
       })
       .on(RoomEvent.AudioPlaybackStatusChanged, () => {
         if (!room.canPlaybackAudio) void room.startAudio().catch(() => undefined);
@@ -595,19 +643,26 @@ class VoiceClient {
         }
         // Kendi yeniden bağlanmamızın ardından gelen "başka cihaz" uyarısı: sessizce kanala geri dön
         if (channelId && this.duplicates.shouldRejoin(reason === DisconnectReason.DUPLICATE_IDENTITY)) {
-          void this.leave()
-            .then(() => this.join(channelId))
+          void this.leave({ silent: true })
+            .then(() => this.join(channelId, { silent: true }))
             .catch(() => undefined);
           return;
         }
         this.joinSeq++;
         void this.teardownRoom();
         setVoice({ ...RESET_ROOM_STATE, channelId: null, status: 'idle', error: disconnectMessage(reason) });
-        playSound('leave');
+        // Kendin ayrılmadın (bağlantı koptu, çıkarıldın, başka cihazdan girildi): "koptu" sesi
+        playSound(reason === DisconnectReason.CLIENT_INITIATED ? 'leave' : 'disconnect');
       });
   }
 
-  private onPublication(pub: RemoteTrackPublication, p: RemoteParticipant): void {
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.lostSoundPlayed = false;
+  }
+
+  private onPublication(pub: RemoteTrackPublication, p: RemoteParticipant, published = false): void {
     if (pub.source === Track.Source.Microphone) {
       pub.setSubscribed(true);
       return;
@@ -615,6 +670,8 @@ class VoiceClient {
     if (pub.source === Track.Source.ScreenShare || pub.source === Track.Source.ScreenShareAudio) {
       this.refreshStream(p);
       if (useVoice.getState().watching[p.identity]) pub.setSubscribed(true);
+      // Kanaldaki biri yayına başladı (katılırken zaten süren yayınlar için ses yok)
+      if (published && pub.source === Track.Source.ScreenShare) this.channelSounds.push('userStreamStart');
     }
   }
 

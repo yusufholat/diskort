@@ -5,6 +5,7 @@ import { GIF_SNIPPET, isGifMessage } from '@diskort/shared';
 import * as SecureStore from 'expo-secure-store';
 import { AppState, Platform, Vibration } from 'react-native';
 import { uploadFromDevice } from './attachments';
+import { soundCue } from './haptics';
 import { setupSounds } from './sounds';
 import { getSettings } from './stores/settings';
 import { toast, useUi } from './stores/ui';
@@ -46,6 +47,9 @@ export const clientReady = configureClient({
     const author = message.authorId ? guild.users[message.authorId]?.displayName : undefined;
     const channel = guild.channels.find((c) => c.id === message.channelId)?.name;
     Vibration.vibrate(60);
+    // Bildirim sesi (Ayarlar → Ses → "Bildirim sesi"; telefon sessizdeyken çalmaz). Uygulama arka plandayken
+    // telefonun kendi bildirimi ses çıkarır, ikinci kez çalınmaz.
+    if (AppState.currentState === 'active') soundCue('mention');
     const replied = message.replyMentionUserId != null && message.replyMentionUserId === useSession.getState().user?.id;
     toast(`${author ?? 'Biri'} ${replied ? 'sana yanıt verdi' : 'senden bahsetti'} · #${channel ?? ''}`);
   },
@@ -57,6 +61,9 @@ export const clientReady = configureClient({
     const from = dm.group ? `${author} · ${dmTitle(dm, guild.users, useSession.getState().user?.id)}` : author;
     const text = isGifMessage(message) ? GIF_SNIPPET : message.content || (message.attachments.length ? '📎 Dosya gönderdi' : '');
     Vibration.vibrate(60);
+    // Bildirim sesi (Ayarlar → Ses → "Bildirim sesi"; telefon sessizdeyken çalmaz). Uygulama arka plandayken
+    // telefonun kendi bildirimi ses çıkarır, ikinci kez çalınmaz.
+    if (AppState.currentState === 'active') soundCue('mention');
     toast(`${from}: ${text.length > 80 ? `${text.slice(0, 80)}…` : text}`);
   },
   onUpdateRequired: (version) => useUi.setState({ updateRequired: version }),

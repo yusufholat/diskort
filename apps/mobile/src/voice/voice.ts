@@ -1,6 +1,7 @@
 import { AndroidAudioTypePresets, AudioSession } from '@livekit/react-native';
 import {
   api,
+  ChannelSoundGate,
   errorMessage,
   gateway,
   reportClientError,
@@ -32,7 +33,7 @@ import {
 import { Dimensions, PermissionsAndroid, PixelRatio, Platform } from 'react-native';
 import { create } from 'zustand';
 import { VoiceService } from '../../modules/voice-service';
-import { soundCue } from '../haptics';
+import { soundCue, type SoundEvent } from '../haptics';
 import { getSettings, useSettings } from '../stores/settings';
 import { toast } from '../stores/ui';
 import { MicGate, SILENT_LEVEL, type GateConfig, type MicLevel } from './micGate';
@@ -116,6 +117,8 @@ export const useVoice = create<VoiceStore>()(() => ({ channelId: null, status: '
 
 /** LiveKit protokolündeki kaynak numaraları (ParticipantPermission.canPublishSources) */
 const PROTO_SOURCE = { microphone: 2, screenShare: 3 } as const;
+/** Yeniden bağlanma bu süreyi aşarsa "bağlantı koptu" sesi çalınır; geri gelince "geri geldi" */
+const RECONNECT_SOUND_DELAY_MS = 2500;
 
 /** LiveKit bu kaynağı yayınlamaya izin veriyor mu (sunucu izni kanaldaki yetkilere göre verir) */
 function canPublish(room: Room, source: number): boolean {
@@ -194,6 +197,12 @@ class MobileVoiceClient {
   private joinSeq = 0;
   private readonly duplicates = new SpuriousDuplicateGuard();
   private readonly gate = new MicGate((micLevel) => useVoice.setState({ micLevel }));
+  /** Başkalarının kanal olaylarının sesleri (bağlanınca sel olmasın, art arda gelenler tek ses) */
+  // Kapıdan yalnızca başkalarının olayları (userJoin, userStream…) geçer; hepsi SoundEvent
+  private readonly channelSounds = new ChannelSoundGate((name) => soundCue(name as SoundEvent));
+  /** Bağlantı birkaç saniyede geri gelmezse "koptu" sesi; geri gelince "geri geldi" */
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private lostSoundPlayed = false;
 
   constructor() {
     // DPDFNet yetişemedi ya da hata verdi: mikrofon WebRTC'nin standart gürültü engellemesiyle yeniden açılır
@@ -206,8 +215,12 @@ class MobileVoiceClient {
     });
     // Bildirimdeki düğmeler
     VoiceService.addListener('onAction', ({ action }) => {
-      if (action === 'toggleMute') this.toggleMute();
-      else void this.leave();
+      if (action === 'toggleMute') {
+        const wasOff = this.micMuted();
+        this.toggleMute();
+        const off = this.micMuted();
+        if (off !== wasOff) soundCue(off ? 'mute' : 'unmute');
+      } else void this.leave().then(() => soundCue('leave'));
     });
     // Sunucuya yeniden bağlanınca ses durumunu tekrar bildir
     gateway.on((msg) => {
@@ -220,8 +233,14 @@ class MobileVoiceClient {
     // Sunucuda sağırlaştırılınca kimse duyulmaz (dinleme LiveKit'te kesilmez, uygulama uygular)
     useGuild.subscribe((next, prev) => {
       const selfId = useSession.getState().user?.id;
-      if (selfId && next.voiceStates[selfId]?.serverDeaf !== prev.voiceStates[selfId]?.serverDeaf) {
-        void this.applyLocalState();
+      if (!selfId) return;
+      const now = next.voiceStates[selfId];
+      const before = prev.voiceStates[selfId];
+      if (now?.serverDeaf !== before?.serverDeaf) void this.applyLocalState();
+      // Yetkili biri seni sunucuda susturdu / sağırlaştırdı (ya da kaldırdı): kendi düğmendeki gibi ses
+      if (now && before && useVoice.getState().status === 'connected') {
+        if (now.serverDeaf !== before.serverDeaf) soundCue(now.serverDeaf ? 'deafen' : 'undeafen');
+        else if (now.serverMute !== before.serverMute) soundCue(now.serverMute ? 'mute' : 'unmute');
       }
     });
     // Kişi/yayın ses seviyeleri ve ses algılama ayarları anında uygulanır
@@ -256,7 +275,8 @@ class MobileVoiceClient {
       : 'Bu kanalda konuşma iznin yok.';
   }
 
-  async join(channelId: string): Promise<void> {
+  /** @param opts.silent Sessiz geri dönüş ("başka cihaz" uyarısından sonra): katılma sesi çalınmaz */
+  async join(channelId: string, opts: { silent?: boolean } = {}): Promise<void> {
     const current = useVoice.getState();
     if (current.channelId === channelId && current.status !== 'idle') return;
     const seq = ++this.joinSeq;
@@ -293,6 +313,8 @@ class MobileVoiceClient {
       });
       this.room = room;
       this.bind(room);
+      // Bağlanırken gelen katılımcı/yayın olayları ses çıkarmaz (süre bağlanınca kısaltılır)
+      this.channelSounds.quiet(60_000);
       await room.connect(url, token, { autoSubscribe: false });
       if (seq !== this.joinSeq) {
         await room.disconnect();
@@ -307,6 +329,10 @@ class MobileVoiceClient {
         listenOnly: !micGranted,
         micAllowed: canPublish(room, PROTO_SOURCE.microphone),
       });
+      // Katılma sesi bağlantı ve ses oturumu (görüşme kipi) kurulduktan sonra: önce çalınca kip değişirken
+      // kesiliyordu
+      this.channelSounds.quiet();
+      if (!opts.silent) soundCue('join');
       // Konuşma izni yoksa (ya da sunucuda susturulduysa) yalnızca dinlenir; izin gelince açılır
       if (micGranted && !this.micMuted()) await room.localParticipant.setMicrophoneEnabled(true, captureOptions());
       this.gate.attach(room, gateConfig());
@@ -461,7 +487,10 @@ class MobileVoiceClient {
         },
       );
       if (next) await this.scaleScreenShare(room);
-      useVoice.setState({ sharing: next && Boolean(room.localParticipant.getTrackPublication(Track.Source.ScreenShare)) });
+      const sharing = next && Boolean(room.localParticipant.getTrackPublication(Track.Source.ScreenShare));
+      useVoice.setState({ sharing });
+      if (sharing) soundCue('shareStart');
+      else if (!next) soundCue('shareStop');
     } catch (err) {
       useVoice.setState({ sharing: false });
       const message = errorMessage(err);
@@ -639,8 +668,13 @@ class MobileVoiceClient {
   private bind(room: Room): void {
     const bump = (): void => useVoice.setState((s) => ({ tracksVersion: s.tracksVersion + 1 }));
     room
-      .on(RoomEvent.TrackPublished, (pub, p) => this.onPublication(pub, p))
+      .on(RoomEvent.TrackPublished, (pub, p) => {
+        this.onPublication(pub, p);
+        // Kanaldaki biri yayına başladı (katılırken zaten süren yayınlar için ses yok)
+        if (this.room === room && pub.source === Track.Source.ScreenShare) this.channelSounds.push('userStreamStart');
+      })
       .on(RoomEvent.TrackUnpublished, (pub, p) => {
+        if (this.room === room && pub.source === Track.Source.ScreenShare) this.channelSounds.push('userStreamStop');
         if (pub.source === Track.Source.ScreenShareAudio) {
           useVoice.setState((s) => {
             const { [p.identity]: _gone, ...streamAudio } = s.streamAudio;
@@ -664,11 +698,11 @@ class MobileVoiceClient {
         if (pub.source === Track.Source.ScreenShareAudio && !p.isLocal) this.applyVolumes();
       })
       .on(RoomEvent.ParticipantConnected, () => {
-        if (this.room === room) soundCue('userJoin');
+        if (this.room === room) this.channelSounds.push('userJoin');
       })
       .on(RoomEvent.ParticipantDisconnected, (p) => {
         useVoice.setState((s) => streamGone(s, p.identity));
-        if (this.room === room) soundCue('userLeave');
+        if (this.room === room) this.channelSounds.push('userLeave');
       })
       // Bağlantı kalitesi göstergesi: yalnızca kendi bağlantımız (değişince bildirilir, ucuz)
       .on(RoomEvent.ConnectionQualityChanged, (quality: ConnectionQuality, participant: Participant) => {
@@ -687,11 +721,27 @@ class MobileVoiceClient {
       .on(RoomEvent.Reconnecting, () => {
         this.duplicates.noteReconnect();
         useVoice.setState({ status: 'reconnecting' });
+        if (this.room !== room) return;
+        // Kısa kopmalar sessiz geçer; bağlantı birkaç saniyede gelmezse "koptu" sesi
+        this.clearReconnectTimer();
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
+          if (this.room !== room || useVoice.getState().status !== 'reconnecting') return;
+          this.lostSoundPlayed = true;
+          soundCue('disconnect');
+        }, RECONNECT_SOUND_DELAY_MS);
       })
       .on(RoomEvent.SignalReconnecting, () => this.duplicates.noteReconnect())
       .on(RoomEvent.Reconnected, () => {
         this.duplicates.noteReconnect();
         useVoice.setState({ status: 'connected' });
+        if (this.room === room) {
+          // Yeniden bağlanınca LiveKit katılımcıları yeniden bildirebilir: ses seli olmasın
+          this.channelSounds.quiet();
+          const wasLost = this.lostSoundPlayed;
+          this.clearReconnectTimer();
+          if (wasLost) soundCue('reconnected');
+        }
         this.syncVoiceState();
         // Yeniden bağlanınca (ör. ping zaman aşımı) izler değişmiş olabilir: seviyeler ve yayın sesi
         // tercihi yeniden uygulanır
@@ -707,13 +757,13 @@ class MobileVoiceClient {
         // Kendi yeniden bağlanmamızın ardından gelen "başka cihaz" uyarısı: sessizce kanala geri dön
         if (channelId && this.duplicates.shouldRejoin(reason === DisconnectReason.DUPLICATE_IDENTITY)) {
           void this.leave()
-            .then(() => this.join(channelId))
+            .then(() => this.join(channelId, { silent: true }))
             .catch((err: Error) => toast(err.message, 'error'));
           return;
         }
         toast(disconnectMessage(reason), reason === DisconnectReason.CLIENT_INITIATED ? 'info' : 'error');
-        // Kendimiz ayrılmadık (sunucu çıkardı, bağlantı koptu): masaüstündeki gibi ayrılma sesi
-        soundCue('leave');
+        // Kendimiz ayrılmadık (sunucu çıkardı, bağlantı koptu): masaüstündeki gibi "koptu" sesi
+        soundCue(reason === DisconnectReason.CLIENT_INITIATED ? 'leave' : 'disconnect');
         void this.leave();
       });
   }
@@ -726,9 +776,17 @@ class MobileVoiceClient {
    * kapatma (ör. yavaş kapanan oda) yeni katılmadan sonra bitip yeni bağlantının ses oturumunu ve ön
    * plan servisini durdurmasın; servissiz kalan ses arka planda Android tarafından kısıtlanır.
    */
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.lostSoundPlayed = false;
+  }
+
   private teardown(): Promise<void> {
     const room = this.room;
     this.room = null;
+    this.channelSounds.cancel();
+    this.clearReconnectTimer();
     this.gate.detach();
     const previous = this.tearingDown;
     const next = (async () => {
