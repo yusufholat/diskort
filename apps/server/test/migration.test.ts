@@ -286,8 +286,7 @@ describe('göç 12: geri bildirimler', () => {
     const store = new Store(schema11Database());
     try {
       const db = store.db;
-      expect(MIGRATIONS).toHaveLength(12);
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 12 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
       expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
       expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
       const count = (table: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
@@ -321,8 +320,62 @@ describe('göç 12: geri bildirimler', () => {
     new Store(file).close();
     const store = new Store(file);
     try {
-      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 12 });
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
       expect(() => store.db.exec(MIGRATIONS[11]!)).not.toThrow();
+    } finally {
+      store.close();
+    }
+  });
+});
+
+/** 0.5.x sürümündeki (şema 12, üretimdeki) gibi bir veritabanı: @everyone bahsetmeli bir mesaj da var */
+function schema12Database(): string {
+  const file = schema11Database();
+  const db = new DatabaseSync(file);
+  db.exec(MIGRATIONS[11]!);
+  db.exec('PRAGMA user_version = 12');
+  db.exec(`
+    INSERT INTO messages (channel_id, author_id, content, created_at, mention_everyone) VALUES ('t1', 'u1', '@everyone @here', 10, 1);
+  `);
+  db.close();
+  return file;
+}
+
+describe('göç 13: @here', () => {
+  it('şema 12 veritabanı 13 ile göçer; eski mesajlar @here sayılmaz, yenileri saklanır', () => {
+    const store = new Store(schema12Database());
+    try {
+      const db = store.db;
+      expect(MIGRATIONS).toHaveLength(13);
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 13 });
+      expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+      expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+      const count = (table: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+      expect([count('channels'), count('messages'), count('dm_participants'), count('reactions')]).toEqual([3, 4, 2, 1]);
+      const messages = store.listMessages('t1', null, 50, 'u1');
+      expect(messages.map((m) => [m.content, m.mentionEveryone, m.mentionHere])).toEqual([
+        ['selam', false, false],
+        ['naber', false, false],
+        ['@everyone @here', true, false],
+      ]);
+      expect(messages[1]).toMatchObject({ replyToId: messages[0]!.id });
+
+      const here = store.createMessage('t1', 'u1', '@here', [], { userIds: ['u2'], everyone: false, here: true })!;
+      expect(here).toMatchObject({ mentionHere: true, mentionEveryone: false });
+      expect(store.getMessage(Number(here.id))).toMatchObject({ mentionHere: true });
+      expect(store.mentionCounts('u2')).toEqual({ t1: 2 });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('yeniden açılışta göç tekrar çalışmaz', () => {
+    const file = schema12Database();
+    new Store(file).close();
+    const store = new Store(file);
+    try {
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 13 });
+      expect(store.listMessages('t1', null, 50, 'u1')).toHaveLength(3);
     } finally {
       store.close();
     }

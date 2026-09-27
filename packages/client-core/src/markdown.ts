@@ -87,6 +87,19 @@ function parseText(text: string): MdBlock[] {
 }
 
 /**
+ * Bahsetme düğümü gerçek bir @everyone / @here bahsetmesi mi: yalnızca mesajda bildirim olduysa (yazarın
+ * yetkisi vardı ve kod içinde değildi; sunucu bayrağı koyar). Değilse düz metin gösterilir, Discord gibi.
+ */
+export function broadcastMention(
+  username: string,
+  message: { mentionEveryone?: boolean; mentionHere?: boolean } | undefined,
+): 'everyone' | 'here' | null {
+  if (username === 'everyone' && message?.mentionEveryone) return 'everyone';
+  if (username === 'here' && message?.mentionHere) return 'here';
+  return null;
+}
+
+/**
  * Tek satırlık düz metin (yanıtın üstündeki alıntı gibi): biçim işaretleri atılır, satırlar
  * birleştirilir, bahsetmeler görünen adla yazılır, sürprizler gizli kalır.
  */

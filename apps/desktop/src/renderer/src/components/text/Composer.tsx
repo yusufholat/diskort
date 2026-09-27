@@ -10,10 +10,11 @@ import {
   type ClipboardEvent,
   type KeyboardEvent,
 } from 'react';
-import { CirclePlus, Lock, X } from 'lucide-react';
+import { AtSign, CirclePlus, Lock, X } from 'lucide-react';
 import { MESSAGE_MAX_LENGTH, Permission, type Channel, type User } from '@diskort/shared';
 import {
   addFiles,
+  broadcastSuggestions,
   formatBytes,
   insertText,
   notifyTyping,
@@ -24,6 +25,7 @@ import {
   useCan,
   useMessages,
   useGuild,
+  type BroadcastMention,
   type LocalFile,
 } from '@diskort/client-core';
 import { toLocalFiles } from '../../features/messages/files';
@@ -40,6 +42,9 @@ const drafts = new Map<string, string>();
 const MENTION_QUERY = /(?:^|[\s(])@([a-z0-9_.]{0,32})$/i;
 const MAX_SUGGESTIONS = 8;
 const NO_FILES: LocalFile[] = [];
+
+/** Bahsetme önerisi: üye ya da (yetkisi varsa) @everyone / @here */
+type Suggestion = { kind: 'user'; user: User } | { kind: 'broadcast'; mention: BroadcastMention };
 
 export interface ComposerHandle {
   focus: () => void;
@@ -116,6 +121,8 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
   const online = useGuild((s) => s.online);
   const canSend = useCan(Permission.SEND_MESSAGES, channel.id);
   const canAttach = useCan(Permission.ATTACH_FILES, channel.id);
+  // @everyone / @here yalnızca yetkisi olana önerilir (direkt mesajda bu yetki yoktur)
+  const canMentionEveryone = useCan(Permission.MENTION_EVERYONE, channel.id);
 
   useImperativeHandle(handle, () => ({ focus: () => ref.current?.focus() }), []);
 
@@ -128,15 +135,19 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
 
   // ---------- @bahsetme önerileri ----------
   const query = MENTION_QUERY.exec(value.slice(0, caret))?.[1];
-  const suggestions = useMemo(() => {
+  const suggestions = useMemo((): Suggestion[] => {
     if (query === undefined || query === dismissed) return [];
     const q = query.toLocaleLowerCase('tr');
-    return Object.values(users)
+    const members = Object.values(users)
       .filter((u) => !u.removed && (!mentionable || mentionable.includes(u.id)))
       .filter((u) => u.username.startsWith(q) || u.displayName.toLocaleLowerCase('tr').includes(q))
       .sort((a, b) => Number(!!online[b.id]) - Number(!!online[a.id]) || a.username.localeCompare(b.username))
       .slice(0, MAX_SUGGESTIONS);
-  }, [query, dismissed, users, online, mentionable]);
+    return [
+      ...members.map((user): Suggestion => ({ kind: 'user', user })),
+      ...broadcastSuggestions(q, canMentionEveryone).map((mention): Suggestion => ({ kind: 'broadcast', mention })),
+    ];
+  }, [query, dismissed, users, online, mentionable, canMentionEveryone]);
   const active = Math.min(selected, Math.max(0, suggestions.length - 1));
 
   const update = (next: string, nextCaret: number): void => {
@@ -161,8 +172,9 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
   };
   const focusInput = useCallback(() => ref.current?.focus(), []);
 
-  const pick = (user: User): void => {
-    const before = value.slice(0, caret).replace(/@[a-z0-9_.]*$/i, `@${user.username} `);
+  const pick = (suggestion: Suggestion): void => {
+    const name = suggestion.kind === 'user' ? suggestion.user.username : suggestion.mention.name;
+    const before = value.slice(0, caret).replace(/@[a-z0-9_.]*$/i, `@${name} `);
     const next = before + value.slice(caret);
     update(next, before.length);
     requestAnimationFrame(() => ref.current?.setSelectionRange(before.length, before.length));
@@ -267,9 +279,9 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
           style={{ ['--drop-from' as string]: '6px' }}
         >
           <div className="px-3 pb-1 text-xs font-bold text-text-muted uppercase">Üyeler</div>
-          {suggestions.map((u, i) => (
+          {suggestions.map((item, i) => (
             <button
-              key={u.id}
+              key={item.kind === 'user' ? item.user.id : `@${item.mention.name}`}
               className={cn(
                 'flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors duration-75',
                 i === active ? 'bg-bg-active text-text-head' : 'text-text-normal',
@@ -277,12 +289,24 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
               onMouseEnter={() => setSelected(i)}
               onMouseDown={(e) => {
                 e.preventDefault();
-                pick(u);
+                pick(item);
               }}
             >
-              <Avatar user={u} size={24} online={!!online[u.id]} />
-              <span className="font-medium">{u.displayName}</span>
-              <span className="text-sm text-text-muted">{u.username}</span>
+              {item.kind === 'user' ? (
+                <>
+                  <Avatar user={item.user} size={24} online={!!online[item.user.id]} />
+                  <span className="font-medium">{item.user.displayName}</span>
+                  <span className="text-sm text-text-muted">{item.user.username}</span>
+                </>
+              ) : (
+                <>
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand/30 text-[#c9cdfb]">
+                    <AtSign size={14} />
+                  </span>
+                  <span className="font-medium">@{item.mention.name}</span>
+                  <span className="min-w-0 truncate text-sm text-text-muted">{item.mention.description}</span>
+                </>
+              )}
             </button>
           ))}
         </div>

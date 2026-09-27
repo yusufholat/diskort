@@ -258,6 +258,11 @@ export const MIGRATIONS: string[] = [
   `,
   // 12: geri bildirimler (feedbackStore.ts). Kendi başınadır ve yeniden çalışsa da zararsızdır (IF NOT EXISTS).
   FEEDBACK_MIGRATION,
+  // 13: @here bahsetmesi. mention_here: yazarın yetkisi olan bir @here (o an çevrimiçi olanlara bildirim
+  // gitti); eski mesajlarda 0. Kime bildirim gittiği ayrıca saklanmaz, okunmamış bahsetme sayısına yazılır.
+  `
+  ALTER TABLE messages ADD COLUMN mention_here INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 type Param = string | number | null;
@@ -380,6 +385,7 @@ interface MessageRow {
   created_at: number;
   edited_at: number | null;
   mention_everyone: number;
+  mention_here: number;
   reply_to_id: number | null;
   reply_mention_user_id: string | null;
   embeds: string | null;
@@ -406,6 +412,7 @@ const toMessage = (r: MessageRow): Message => ({
   attachments: [],
   reactions: [],
   mentionEveryone: r.mention_everyone === 1,
+  mentionHere: r.mention_here === 1,
   embeds: parseEmbeds(r.embeds),
   replyToId: r.reply_to_id === null ? null : String(r.reply_to_id),
   referencedMessage: null,
@@ -1481,13 +1488,14 @@ export class Store {
    * Mesajı kaydeder ve yüklenmiş dosyaları ona bağlar (dosyalar bu kullanıcının, bu kanala yüklediği ve
    * henüz kullanılmamış dosyalar olmalı; değilse null döner). Bahsedilen kullanıcıların okunmamış
    * bahsetme sayısını artırır. `reply` verilirse mesaj ona yanıttır (aynı kanalda olduğu önceden denetlenir).
+   * `everyone` / `here`: yetkili bir @everyone / @here bahsetmesi (kime gittiği `userIds` içindedir).
    */
   createMessage(
     channelId: string,
     authorId: string,
     content: string,
     attachmentIds: string[] = [],
-    mentions: { userIds: string[]; everyone: boolean } = {
+    mentions: { userIds: string[]; everyone: boolean; here?: boolean } = {
       userIds: this.resolveMentions(content, authorId),
       everyone: false,
     },
@@ -1501,8 +1509,8 @@ export class Store {
       const id = Number(
         this.db
           .prepare(
-            `INSERT INTO messages (channel_id, author_id, content, created_at, mention_everyone, reply_to_id, reply_mention_user_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO messages (channel_id, author_id, content, created_at, mention_everyone, mention_here, reply_to_id, reply_mention_user_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             channelId,
@@ -1510,6 +1518,7 @@ export class Store {
             content,
             Date.now(),
             mentions.everyone ? 1 : 0,
+            mentions.here ? 1 : 0,
             reply?.toId ?? null,
             reply?.mentionUserId ?? null,
           ).lastInsertRowid,

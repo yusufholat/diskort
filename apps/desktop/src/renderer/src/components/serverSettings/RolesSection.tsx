@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, Plus, ShieldAlert, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Lock, Plus, ShieldAlert, X } from 'lucide-react';
 import {
   hasPermission,
   Permission,
@@ -16,6 +16,7 @@ import {
   errorMessage,
   moderation,
   PERMISSION_GROUPS,
+  rolePermissionSource,
   useCan,
   useGuild,
   usePermissions,
@@ -157,6 +158,7 @@ export function RolesSection() {
           role={selected}
           everyone={selected.id === guildId}
           onDeleted={() => setSelectedId(null)}
+          onShowEveryone={() => setSelectedId(guildId)}
         />
       </div>
     </div>
@@ -172,8 +174,21 @@ interface Draft {
   permissions: number;
 }
 
-function RoleEditor({ role, everyone, onDeleted }: { role: Role; everyone: boolean; onDeleted: () => void }) {
+function RoleEditor({
+  role,
+  everyone,
+  onDeleted,
+  onShowEveryone,
+}: {
+  role: Role;
+  everyone: boolean;
+  onDeleted: () => void;
+  /** @everyone rolünü seçer (herkeste olan bir yetkiyi kısıtlamak için) */
+  onShowEveryone: () => void;
+}) {
   const selfId = useSession((s) => s.user?.id);
+  // Yetkiler birleşir: @everyone'da açık olan bir yetki her rolde de fiilen açıktır
+  const everyonePermissions = useGuild((s) => (s.guild ? (s.roles[s.guild.id]?.permissions ?? 0) : 0));
   const myPermissions = usePermissions();
   const manageable = useGuild((s) => canManageRole(s, selfId, role));
   const admin = hasPermission(myPermissions, Permission.ADMINISTRATOR);
@@ -347,10 +362,24 @@ function RoleEditor({ role, everyone, onDeleted }: { role: Role; everyone: boole
 
       {tab === 'permissions' && (
         <div>
-          {everyone && (
+          {everyone ? (
             <p className="mb-4 text-sm text-text-muted">
-              Bu yetkiler herkese verilir. Bir kanal için ayrıca kanalın ayarlarındaki İzinler bölümünden değiştirilebilir
-              (ör. özel ya da salt okunur kanal).
+              Bu yetkiler herkese verilir. Burada açık olan bir yetki, başka bir rolde kapalı olsa bile herkeste kalır
+              (yetkiler birleşir). Bir yetkiyi yalnızca bazı rollere vermek için burada kapat, o rollerde aç. Bir kanal
+              için ayrıca kanalın ayarlarındaki İzinler bölümünden değiştirilebilir (ör. özel ya da salt okunur kanal).
+            </p>
+          ) : hasPermission(draft.permissions, Permission.ADMINISTRATOR) ? (
+            <div className="mb-4 flex items-start gap-2 rounded bg-warn/15 px-3 py-2 text-sm text-warn">
+              <ShieldAlert size={16} className="mt-0.5 shrink-0" />
+              <span>
+                Bu rolde Yönetici yetkisi açık: roldekiler aşağıdaki bütün yetkilere sahiptir ve kanal izinlerinden
+                etkilenmez.
+              </span>
+            </div>
+          ) : (
+            <p className="mb-4 text-sm text-text-muted">
+              Üyeler @everyone rolünün ve sahip oldukları bütün rollerin yetkilerini birlikte alır. Kilitli yetkiler
+              @everyone rolünde açık olduğu için herkeste zaten var; burada kapatmak kimseyi kısıtlamaz.
             </p>
           )}
           {PERMISSION_GROUPS.map((group) => (
@@ -358,17 +387,55 @@ function RoleEditor({ role, everyone, onDeleted }: { role: Role; everyone: boole
               <div className="mb-1 text-xs font-bold tracking-wide text-text-muted uppercase">{group.title}</div>
               {group.permissions.map((p) => {
                 const lacking = !admin && !hasPermission(myPermissions, p.flag);
+                const own = hasPermission(draft.permissions, p.flag);
+                // @everyone'dan ya da Yönetici yetkisinden zaten geliyorsa açık ve kilitli görünür
+                const source = rolePermissionSource(
+                  { permissions: draft.permissions, isEveryone: everyone },
+                  everyonePermissions,
+                  p.flag,
+                );
+                const locked = source !== 'role';
                 return (
                   <div key={p.name} className="border-b border-line/60 py-1">
                     <Toggle
                       label={p.label}
                       description={lacking ? `${p.description} (Sende olmayan bir yetkiyi veremezsin.)` : p.description}
-                      checked={hasPermission(draft.permissions, p.flag)}
-                      disabled={!manageable || lacking}
+                      checked={own || locked}
+                      disabled={!manageable || lacking || locked}
                       onChange={(on) =>
                         set({ permissions: on ? draft.permissions | p.flag : draft.permissions & ~p.flag })
                       }
                     />
+                    {source === 'everyone' && (
+                      <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-muted">
+                        <Lock size={12} className="shrink-0" />
+                        <span>
+                          Bu izin @everyone rolünde açık; herkeste zaten var. Kısıtlamak için @everyone rolünde kapat.
+                        </span>
+                        <button className="font-medium text-[#00a8fc] hover:underline" onClick={onShowEveryone}>
+                          @everyone rolüne git
+                        </button>
+                        {own && (
+                          <span className="flex basis-full items-center gap-2 pl-5">
+                            Bu rolde de ayrıca açık: @everyone rolünde kapatsan da bu roldekilerde kalır.
+                            {manageable && !lacking && (
+                              <button
+                                className="font-medium text-[#00a8fc] hover:underline"
+                                onClick={() => set({ permissions: draft.permissions & ~p.flag })}
+                              >
+                                Bu rolden kaldır
+                              </button>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {source === 'administrator' && (
+                      <div className="mb-2 flex items-center gap-2 text-xs text-text-muted">
+                        <Lock size={12} className="shrink-0" /> Yönetici yetkisi açık olduğu için bu roldekilerde zaten
+                        var.
+                      </div>
+                    )}
                     {p.flag === Permission.ADMINISTRATOR && hasPermission(draft.permissions, p.flag) && (
                       <div className="mb-2 flex items-center gap-2 text-xs text-warn">
                         <ShieldAlert size={14} /> Bu roldekiler her şeyi yapabilir; diğer yetkilerin önemi kalmaz.

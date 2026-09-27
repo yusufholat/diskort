@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   hasPermission,
   mentionsEveryone,
+  mentionsHere,
   MESSAGE_MAX_ATTACHMENTS,
   MESSAGE_MAX_LENGTH,
   MESSAGE_MAX_REACTIONS,
@@ -151,11 +152,16 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
       const content = body.content ?? '';
       // Metin yalnızca bir GIPHY bağlantısıysa GIF gömülür (seçiciden gönderilen GIF önbellekte hazırdır)
       const embeds = await gifs.embedsFor(content);
-      // @everyone yalnızca yetkisi olan yazarda herkese bildirim olur; bahsedilenlerden kanalı göremeyenler
-      // sayılmaz. Direkt mesajda karşı tarafın (üye olan diğer katılımcıların) her mesajı bahsetme sayılır:
-      // okunmamış sayısı ve bildirim onlara gider. Bildirimli yanıtta asıl yazar da (kanalı görüyorsa)
-      // bahsedilir; direkt mesajda zaten katılımcıdır, konuşmadan ayrıldıysa bildirilmez.
-      const everyone = channel !== null && mentionsEveryone(content) && hasPermission(perms, Permission.MENTION_EVERYONE);
+      // @everyone ve @here yalnızca kanalda MENTION_EVERYONE yetkisi olan yazarda bildirim olur (kod içindekiler
+      // sayılmaz): @everyone kanalı gören herkese, @here kanalı gören ve şu an çevrimiçi olanlara (gateway'e
+      // bağlı; çevrimdışı olanların okunmamış sayısı artmaz, telefonlarına da bildirim gitmez). Bahsedilenlerden
+      // kanalı göremeyenler sayılmaz. Direkt mesajda @everyone/@here yoktur; karşı tarafın (üye olan diğer
+      // katılımcıların) her mesajı bahsetme sayılır: okunmamış sayısı ve bildirim onlara gider. Bildirimli
+      // yanıtta asıl yazar da (kanalı görüyorsa) bahsedilir; direkt mesajda zaten katılımcıdır, konuşmadan
+      // ayrıldıysa bildirilmez.
+      const broadcast = channel !== null && hasPermission(perms, Permission.MENTION_EVERYONE);
+      const everyone = broadcast && mentionsEveryone(content);
+      const here = broadcast && mentionsHere(content);
       let mentioned: string[];
       if (channel) {
         const candidates = new Set(
@@ -163,6 +169,9 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
             ? store.listUsers().filter((u) => !u.removed && u.id !== req.user.id).map((u) => u.id)
             : store.resolveMentions(content, req.user.id),
         );
+        if (here && !everyone) {
+          for (const id of gateway.connectedUserIds()) if (id !== req.user.id) candidates.add(id);
+        }
         if (replyTo?.mentionUserId) candidates.add(replyTo.mentionUserId);
         mentioned = permissions.viewersOf(channel, candidates);
       } else {
@@ -174,7 +183,7 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
         req.user.id,
         content,
         body.attachmentIds,
-        { userIds: mentioned, everyone },
+        { userIds: mentioned, everyone, here },
         replyTo,
       );
       if (!created) {

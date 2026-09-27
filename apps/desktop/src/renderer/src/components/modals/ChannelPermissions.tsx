@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Check, Plus, Slash, X } from 'lucide-react';
+import { Check, Plus, ShieldAlert, Slash, X } from 'lucide-react';
 import { hasPermission, Permission, sortRoles, type Channel, type PermissionOverwrite } from '@diskort/shared';
 import {
   api,
@@ -45,6 +45,8 @@ export function ChannelPermissions({ channel, onDone }: { channel: Channel; onDo
   const myPermissions = permissionsOf(s, selfId, channel.id);
   const admin = hasPermission(permissionsOf(s, selfId), Permission.ADMINISTRATOR);
   const editable = selected ? roleIsBelowFor(s, selfId, selected) : false;
+  // Yönetici yetkisi olan rol kanal izinlerinden etkilenmez (engellense de her şeyi yapar)
+  const selectedIsAdmin = selected ? hasPermission(selected.permissions, Permission.ADMINISTRATOR) : false;
   const dirty = JSON.stringify(normalize(overwrites)) !== JSON.stringify(normalize(channel.overwrites ?? []));
 
   const everyone = overwrites.find((o) => o.roleId === guildId);
@@ -141,6 +143,15 @@ export function ChannelPermissions({ channel, onDone }: { channel: Channel; onDo
               Bu rol senin en üst rolünden aşağıda olmadığı için izinlerini değiştiremezsin.
             </div>
           )}
+          {selectedIsAdmin && (
+            <div className="mb-2 flex items-start gap-2 rounded bg-warn/15 px-3 py-2 text-sm text-warn">
+              <ShieldAlert size={16} className="mt-0.5 shrink-0" />
+              <span>
+                Bu rolde Yönetici yetkisi var: kanal izinleri bu roldekileri etkilemez, engellesen de her şeyi
+                yapabilirler.
+              </span>
+            </div>
+          )}
           {infos.map((p) => {
             const current = overwriteState(
               overwrites.find((o) => o.roleId === selected.id),
@@ -163,6 +174,12 @@ export function ChannelPermissions({ channel, onDone }: { channel: Channel; onDo
           })}
         </div>
       </div>
+
+      <p className="mt-3 text-xs text-text-muted">
+        Sunucunun sahibi ve Yönetici yetkisi olanlar kanal izinlerinden etkilenmez. Bir üyenin rollerinden biri izin
+        verip diğeri engellerse izin verme kazanır.
+        {channel.type === 'text' && ' Mesaj gönderemeyen dosya ekleyemez ve @everyone/@here kullanamaz.'}
+      </p>
 
       <div className="mt-4 flex justify-end gap-2">
         <Button

@@ -28,7 +28,7 @@ export const Permission = {
   ADD_REACTIONS: 1 << 10,
   /** Başkalarının mesajlarını silmek */
   MANAGE_MESSAGES: 1 << 11,
-  /** @everyone ile herkese bildirim göndermek */
+  /** @everyone ile herkese, @here ile çevrimiçi olanlara bildirim göndermek */
   MENTION_EVERYONE: 1 << 12,
   // Ses
   CONNECT: 1 << 13,
