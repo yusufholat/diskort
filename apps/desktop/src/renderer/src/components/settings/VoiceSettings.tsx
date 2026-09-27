@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { voice } from '../../features/voice/voiceClient';
+import { MIC_TEST_RECORD_MS, type MicTest, type MicTestPhase } from '../../features/voice/micTest';
 import { bridge } from '../../lib/bridge';
-import { errorMessage } from '@diskort/client-core';
 import { cn, clamp } from '../../lib/utils';
 import { useSettings, type NoiseMode, type NoiseStrengthDb } from '../../stores/settings';
 import { useVoice } from '../../stores/voice';
@@ -105,37 +105,54 @@ function MicMeter({ editable }: { editable: boolean }) {
 
 function MicTestControls() {
   const connected = useVoice((s) => s.status !== 'idle');
+  const [test, setTest] = useState<MicTest | null>(null);
   const [loopback, setLoopback] = useState(false);
+  const [phase, setPhase] = useState<MicTestPhase>(null);
   const [error, setError] = useState<string | null>(null);
-  const inputDeviceId = useSettings((s) => s.inputDeviceId);
-  const noise = useSettings((s) => s.noise);
 
+  // Ayarlar sayfası açıkken (ses kanalında değilsen) gösterge için test zinciri çalışır; sayfadan çıkınca,
+  // ses kanalına girince kapanır ve mikrofon, ses bağlamları, worklet'ler serbest bırakılır.
   useEffect(() => {
     if (connected) return;
-    let stop: (() => void) | null = null;
-    let cancelled = false;
-    voice
-      .startMicTest(loopback)
-      .then((fn) => {
-        if (cancelled) fn();
-        else stop = fn;
-      })
-      .catch((err) => setError(errorMessage(err)));
+    const t = voice.startMicTest(setError);
+    setTest(t);
     return () => {
-      cancelled = true;
-      stop?.();
+      t?.stop();
+      setTest(null);
+      setLoopback(false);
+      setPhase(null);
     };
-  }, [connected, loopback, inputDeviceId, noise]);
+  }, [connected]);
 
   if (connected) return <p className="mt-2 text-xs text-text-muted">Ses kanalına bağlısın; gösterge canlı mikrofonunu gösteriyor.</p>;
+
+  const toggleLoopback = (): void => {
+    test?.setLoopback(!loopback);
+    setLoopback(!loopback);
+  };
+
   return (
-    <div className="mt-3 flex items-center gap-3">
-      <Button variant={loopback ? 'danger' : 'primary'} onClick={() => setLoopback(!loopback)}>
-        {loopback ? 'Testi Durdur' : 'Kendini Dinle'}
-      </Button>
-      <span className="text-xs text-text-muted">
-        {error ?? 'Mikrofonunun başkalarına nasıl gittiğini (gürültü engelleme dahil) duy.'}
-      </span>
+    <div className="mt-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant={loopback ? 'danger' : 'primary'} onClick={toggleLoopback} disabled={!test}>
+          {loopback ? 'Testi Durdur' : 'Kendini Dinle'}
+        </Button>
+        <Button variant="secondary" onClick={() => void test?.recordAndPlay(setPhase)} disabled={!test || phase !== null}>
+          {phase === 'recording' ? 'Kaydediliyor…' : phase === 'playing' ? 'Çalınıyor…' : `Kaydet ve Dinle (${MIC_TEST_RECORD_MS / 1000} sn)`}
+        </Button>
+      </div>
+      {error ? (
+        <p className="mt-2 text-xs text-danger-text">{error}</p>
+      ) : (
+        <p className="mt-2 text-xs text-text-muted">
+          {phase === 'recording'
+            ? 'Konuş; kaydın bitince sana çalınacak.'
+            : 'Sesini, başkalarına gittiği hâliyle (gürültü engelleme ve hassasiyet dahil) seçili çıkış aygıtından duy. Ayarları test sürerken değiştirip karşılaştırabilirsin.'}
+        </p>
+      )}
+      {loopback && (
+        <p className="mt-1 text-xs text-warn">Hoparlörden dinlersen ses mikrofona geri girip yankı yapar; kulaklık kullan.</p>
+      )}
     </div>
   );
 }
