@@ -187,6 +187,8 @@ async function requestPermissions(): Promise<boolean> {
  */
 class MobileVoiceClient {
   private room: Room | null = null;
+  /** Ses sunucusunun adresi (bağlantı panelinde gösterilir) */
+  private serverUrl: string | null = null;
   private joinSeq = 0;
   private readonly duplicates = new SpuriousDuplicateGuard();
   private readonly gate = new MicGate((micLevel) => useVoice.setState({ micLevel }));
@@ -231,6 +233,11 @@ class MobileVoiceClient {
     });
   }
 
+  /** Bağlantı istatistikleri için açık oda ve ses sunucusunun adresi (bkz. connectionStats.ts) */
+  statsTarget(): { room: Room; url: string } | null {
+    return this.room && this.serverUrl ? { room: this.room, url: this.serverUrl } : null;
+  }
+
   /** Mikrofon açılamıyorsa kullanıcıya gösterilecek neden */
   micBlockedReason(): string {
     const state = selfVoiceState();
@@ -250,6 +257,7 @@ class MobileVoiceClient {
       const micGranted = await requestPermissions();
       const { url, token } = await api.joinVoice(channelId);
       if (seq !== this.joinSeq) return;
+      this.serverUrl = url;
 
       await AudioSession.configureAudio({
         android: {
