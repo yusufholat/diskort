@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
-import { parseMarkdown, type MdInline } from '@diskort/client-core';
-import type { User } from '@diskort/shared';
+import { broadcastMention, parseMarkdown, type MdInline } from '@diskort/client-core';
+import type { Message, User } from '@diskort/shared';
 import { cn } from '../../lib/utils';
 
 /**
@@ -10,7 +10,14 @@ import { cn } from '../../lib/utils';
 export interface MarkdownContext {
   usersByName: Record<string, User>;
   selfId: string | undefined;
+  /** Çizilen mesajın @everyone / @here bayrakları: yalnızca bildirim olduysa vurgulanır (yoksa düz metin) */
+  flags?: Pick<Message, 'mentionEveryone' | 'mentionHere'>;
 }
+
+const BROADCAST_TOOLTIP = {
+  everyone: 'Kanalı görebilen herkese bildirildi',
+  here: 'Kanalı görebilen ve o an çevrimiçi olan herkese bildirildi',
+} as const;
 
 function Spoiler({ children }: { children: ReactNode }) {
   const [shown, setShown] = useState(false);
@@ -47,6 +54,18 @@ function renderInline(nodes: MdInline[], ctx: MarkdownContext, key: string): Rea
           </a>
         );
       case 'mention': {
+        const broadcast = broadcastMention(node.username, ctx.flags);
+        if (broadcast) {
+          return (
+            <span
+              key={k}
+              className="rounded-[3px] bg-brand/20 px-0.5 font-medium text-[#c9cdfb]"
+              data-tooltip={BROADCAST_TOOLTIP[broadcast]}
+            >
+              @{broadcast}
+            </span>
+          );
+        }
         const user = ctx.usersByName[node.username];
         if (!user) return node.raw;
         return (

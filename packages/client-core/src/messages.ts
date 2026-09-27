@@ -510,15 +510,17 @@ function setTyping(channelId: string, userId: string, until: number | null): voi
 export const mentions = (content: string, username: string): boolean => extractMentions(content).includes(username);
 
 /**
- * Mesaj bu kullanıcıyı ilgilendiriyor mu: adıyla, (yetkili bir yazarın) @everyone bahsetmesiyle ya da
- * bildirimli ("@ AÇIK") bir yanıtla
+ * Mesaj bu kullanıcıyı ilgilendiriyor mu: adıyla, (yetkili bir yazarın) @everyone ya da @here
+ * bahsetmesiyle veya bildirimli ("@ AÇIK") bir yanıtla. @here yalnızca o an çevrimiçi olanlara bildirilir;
+ * canlı gelen mesajı alan istemci zaten çevrimiçidir, geçmişteki @here ise Discord'daki gibi herkeste vurgulanır.
  */
 export const isMentioned = (
-  message: Pick<Message, 'content' | 'mentionEveryone' | 'authorId' | 'replyMentionUserId'>,
+  message: Pick<Message, 'content' | 'mentionEveryone' | 'mentionHere' | 'authorId' | 'replyMentionUserId'>,
   user: { id: string; username: string },
 ): boolean =>
   message.authorId !== user.id &&
   (message.mentionEveryone === true ||
+    message.mentionHere === true ||
     message.replyMentionUserId === user.id ||
     mentions(message.content, user.username));
 

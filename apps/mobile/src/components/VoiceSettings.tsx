@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { feedback, useHapticsAvailable } from '../haptics';
 import { useSettings } from '../stores/settings';
 import { colors } from '../theme';
 import { useVoice, voice } from '../voice/voice';
 import { Slider } from './Slider';
-import { SectionTitle } from './ui';
+import { Card, SectionTitle } from './ui';
 
 /** Göstergenin ölçeği (dBFS): -80 en sol, 0 en sağ */
 const METER_MIN = -80;
@@ -23,72 +24,89 @@ export function VoiceSettings() {
   const threshold = useSettings((s) => s.vadThresholdDb);
   const set = useSettings((s) => s.set);
   const inVoice = useVoice((s) => s.status !== 'idle');
+  const haptics = useSettings((s) => s.haptics);
+  const hapticsAvailable = useHapticsAvailable((s) => s.available);
   // Eşik sürüklenirken göstergedeki çizgi anında kayar; bırakınca kaydedilir
   const [preview, setPreview] = useState<number | null>(null);
 
   return (
     <View>
       <SectionTitle>Ses</SectionTitle>
-      <ToggleRow
-        label="Gürültü engelleme"
-        description="Fan, trafik, klima gibi sürekli arka plan seslerini azaltır."
-        value={noiseSuppression}
-        onChange={(v) => set({ noiseSuppression: v })}
-      />
-      <ToggleRow
-        label="Yankı engelleme"
-        description="Hoparlörden gelen sesin mikrofona geri girmesini önler."
-        value={echoCancellation}
-        onChange={(v) => set({ echoCancellation: v })}
-      />
-      <ToggleRow
-        label="Otomatik ses seviyesi"
-        description="Mikrofonunun seviyesini otomatik dengeler."
-        value={autoGainControl}
-        onChange={(v) => set({ autoGainControl: v })}
-      />
-      {inVoice && (
-        <Text style={styles.note}>Bu üç ayar sesli sohbete bir sonraki katılışında uygulanır.</Text>
-      )}
+      <Card style={styles.card}>
+        <ToggleRow
+          label="Dokunma titreşimi"
+          description={
+            hapticsAvailable === false
+              ? 'Bu telefonda titreşim kullanılamıyor.'
+              : 'Sustur, sağırlaştır, hoparlör, ekran paylaşımı, katıl ve ayrıl düğmelerine basınca kısa titreşim. Susturunca çift, açınca tek tık.'
+          }
+          value={haptics && hapticsAvailable !== false}
+          onChange={(v) => {
+            set({ haptics: v });
+            if (v) feedback('unmute');
+          }}
+        />
+        <ToggleRow
+          label="Gürültü engelleme"
+          description="Fan, trafik, klima gibi sürekli arka plan seslerini azaltır."
+          value={noiseSuppression}
+          onChange={(v) => set({ noiseSuppression: v })}
+        />
+        <ToggleRow
+          label="Yankı engelleme"
+          description="Hoparlörden gelen sesin mikrofona geri girmesini önler."
+          value={echoCancellation}
+          onChange={(v) => set({ echoCancellation: v })}
+        />
+        <ToggleRow
+          label="Otomatik ses seviyesi"
+          description="Mikrofonunun seviyesini otomatik dengeler."
+          value={autoGainControl}
+          onChange={(v) => set({ autoGainControl: v })}
+        />
+        {inVoice && (
+          <Text style={styles.note}>Bu üç ayar sesli sohbete bir sonraki katılışında uygulanır.</Text>
+        )}
 
-      <ToggleRow
-        label="Ses algılama"
-        description="Konuşmadığın anlarda mikrofonun sessize alınır; klavye, tabak çanak gibi sesler gitmez."
-        value={voiceActivity}
-        onChange={(v) => set({ voiceActivity: v })}
-      />
-      {voiceActivity && (
-        <View style={styles.vad}>
-          <ToggleRow
-            label="Hassasiyeti otomatik belirle"
-            description="Eşik ortamın gürültüsüne göre kendiliğinden ayarlanır."
-            value={vadAuto}
-            onChange={(v) => set({ vadAuto: v })}
-          />
-          <MicMeter threshold={vadAuto ? null : (preview ?? threshold)} />
-          {!vadAuto && (
-            <Slider
-              value={threshold}
-              min={METER_MIN}
-              max={0}
-              step={1}
-              accessibilityLabel="Giriş hassasiyeti"
-              accessibilityText={(v) => `${Math.round(v)} desibel`}
-              onChange={setPreview}
-              onChangeEnd={(v) => {
-                setPreview(null);
-                set({ vadThresholdDb: Math.round(v) });
-              }}
+        <ToggleRow
+          label="Ses algılama"
+          description="Konuşmadığın anlarda mikrofonun sessize alınır; klavye, tabak çanak gibi sesler gitmez."
+          value={voiceActivity}
+          onChange={(v) => set({ voiceActivity: v })}
+        />
+        {voiceActivity && (
+          <View style={styles.vad}>
+            <ToggleRow
+              label="Hassasiyeti otomatik belirle"
+              description="Eşik ortamın gürültüsüne göre kendiliğinden ayarlanır."
+              value={vadAuto}
+              onChange={(v) => set({ vadAuto: v })}
             />
-          )}
-          <Text style={styles.hint}>
-            {inVoice
-              ? `Çubuk yeşile döndüğünde sesin iletilir. Eşik: ${vadAuto ? 'otomatik' : `${Math.round(preview ?? threshold)} dB`}.`
-              : 'Seviye göstergesi sesli sohbete bağlıyken çalışır.'}{' '}
-            Uygulama arka plandayken (ekran kapalı) ses algılama çalışmaz; mikrofon açık kalır.
-          </Text>
-        </View>
-      )}
+            <MicMeter threshold={vadAuto ? null : (preview ?? threshold)} />
+            {!vadAuto && (
+              <Slider
+                value={threshold}
+                min={METER_MIN}
+                max={0}
+                step={1}
+                accessibilityLabel="Giriş hassasiyeti"
+                accessibilityText={(v) => `${Math.round(v)} desibel`}
+                onChange={setPreview}
+                onChangeEnd={(v) => {
+                  setPreview(null);
+                  set({ vadThresholdDb: Math.round(v) });
+                }}
+              />
+            )}
+            <Text style={styles.hint}>
+              {inVoice
+                ? `Çubuk yeşile döndüğünde sesin iletilir. Eşik: ${vadAuto ? 'otomatik' : `${Math.round(preview ?? threshold)} dB`}.`
+                : 'Seviye göstergesi sesli sohbete bağlıyken çalışır.'}{' '}
+              Uygulama arka plandayken (ekran kapalı) ses algılama çalışmaz; mikrofon açık kalır.
+            </Text>
+          </View>
+        )}
+      </Card>
     </View>
   );
 }
@@ -158,6 +176,7 @@ function ToggleRow({
 const THUMB_PAD = 9;
 
 const styles = StyleSheet.create({
+  card: { paddingHorizontal: 16, paddingVertical: 4 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
   label: { color: colors.text, fontSize: 15.5, fontWeight: '500' },
   description: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 2 },

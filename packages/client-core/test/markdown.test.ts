@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseInline, parseMarkdown } from '../src/markdown';
+import { broadcastMention, parseInline, parseMarkdown } from '../src/markdown';
 
 describe('satır içi biçimlendirme', () => {
   it('iç içe stilleri ayrıştırır', () => {
@@ -64,5 +64,19 @@ describe('bloklar', () => {
 
   it('dilsiz ve tek satırlık kod bloğu', () => {
     expect(parseMarkdown('```merhaba```')).toEqual([{ type: 'codeblock', lang: null, text: 'merhaba' }]);
+  });
+});
+
+describe('@everyone ve @here', () => {
+  it('yalnızca mesajda bildirim olduysa bahsetme sayılır', () => {
+    const [everyone, , here] = parseInline('@everyone ve @here');
+    expect(everyone).toEqual({ type: 'mention', username: 'everyone', raw: '@everyone' });
+    expect(here).toEqual({ type: 'mention', username: 'here', raw: '@here' });
+    expect(broadcastMention('everyone', { mentionEveryone: true, mentionHere: false })).toBe('everyone');
+    expect(broadcastMention('here', { mentionEveryone: true, mentionHere: false })).toBeNull();
+    expect(broadcastMention('here', { mentionEveryone: false, mentionHere: true })).toBe('here');
+    expect(broadcastMention('everyone', { mentionEveryone: false })).toBeNull();
+    expect(broadcastMention('ali', { mentionEveryone: true, mentionHere: true })).toBeNull();
+    expect(broadcastMention('everyone', undefined)).toBeNull();
   });
 });

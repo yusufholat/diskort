@@ -27,10 +27,11 @@ import {
   type LocalFile,
 } from '@diskort/client-core';
 import { PressableScale } from '../components/PressableScale';
+import { TextSkeleton } from '../components/Skeleton';
 import { Button, FadeIn, Field, SectionTitle, ui } from '../components/ui';
 import { animateNextLayout } from '../motion';
 import { toast } from '../stores/ui';
-import { colors, radius } from '../theme';
+import { colors, radius, ripple } from '../theme';
 import { NATIVE_VERSION } from '../version';
 import { useVoice } from '../voice/voice';
 
@@ -297,19 +298,32 @@ function MyFeedback() {
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
 
-  useEffect(() => {
+  const load = (): void => {
+    setError(null);
     loadMyFeedback().catch((err: unknown) => setError(errorMessage(err)));
-  }, []);
+  };
+  useEffect(load, []);
 
   return (
     <View>
       <SectionTitle>Geri bildirimlerim</SectionTitle>
-      {error ? (
-        <Text style={ui.errorText}>{error}</Text>
+      {error && mine === null ? (
+        <View style={[styles.item, styles.stateBox]}>
+          <Ionicons name="cloud-offline-outline" size={22} color={colors.dangerText} />
+          <Text style={[ui.errorText, { flex: 1 }]}>Yüklenemedi: {error}</Text>
+          <Pressable onPress={load} hitSlop={8} accessibilityRole="button">
+            <Text style={styles.retry}>Tekrar dene</Text>
+          </Pressable>
+        </View>
       ) : mine === null ? (
-        <Text style={styles.hint}>Yükleniyor…</Text>
+        <View style={[styles.item, { padding: 12 }]}>
+          <TextSkeleton lines={3} />
+        </View>
       ) : mine.length === 0 ? (
-        <Text style={styles.hint}>Henüz geri bildirim göndermedin.</Text>
+        <View style={[styles.item, styles.stateBox]}>
+          <Ionicons name="mail-open-outline" size={22} color={colors.muted} />
+          <Text style={[styles.hint, { marginTop: 0, flex: 1 }]}>Henüz geri bildirim göndermedin. Gönderdiklerin ve yanıtları burada görünür.</Text>
+        </View>
       ) : (
         mine.map((f) => (
           <MyFeedbackItem
@@ -332,7 +346,7 @@ function MyFeedbackItem({ item, open, onToggle }: { item: Feedback; open: boolea
   const headers = feedbackImageHeaders();
   return (
     <View style={styles.item}>
-      <Pressable onPress={onToggle} style={styles.itemHeader} accessibilityState={{ expanded: open }}>
+      <Pressable onPress={onToggle} android_ripple={ripple.row} style={styles.itemHeader} accessibilityState={{ expanded: open }}>
         <View style={{ flex: 1 }}>
           <Text style={styles.itemTitle} numberOfLines={open ? undefined : 1}>
             {item.title ?? item.body.replace(/\s+/g, ' ')}
@@ -392,7 +406,7 @@ const styles = StyleSheet.create({
   body: {
     minHeight: 120,
     maxHeight: 260,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     backgroundColor: colors.input,
     color: colors.text,
     padding: 12,
@@ -415,7 +429,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  contextBox: { backgroundColor: colors.side, borderRadius: radius.md, padding: 12, marginVertical: 16 },
+  contextBox: { backgroundColor: colors.side, borderRadius: radius.lg - 4, padding: 12, marginVertical: 16 },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
   checkbox: {
     width: 20,
@@ -434,7 +448,9 @@ const styles = StyleSheet.create({
   contextRow: { flexDirection: 'row', gap: 12 },
   contextLabel: { color: colors.muted, fontSize: 13, width: 118 },
   contextValue: { color: colors.text, fontSize: 13, flexShrink: 1 },
-  item: { backgroundColor: colors.side, borderRadius: radius.md, marginBottom: 8, overflow: 'hidden' },
+  item: { backgroundColor: colors.side, borderRadius: radius.lg - 4, marginBottom: 8, overflow: 'hidden' },
+  stateBox: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14 },
+  retry: { color: colors.link, fontSize: 14, fontWeight: '600' },
   itemHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12 },
   itemTitle: { color: colors.head, fontSize: 15, fontWeight: '600' },
   itemMeta: { color: colors.muted, fontSize: 12.5, marginTop: 2 },

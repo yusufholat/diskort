@@ -10,9 +10,11 @@ import {
   type User,
 } from '@diskort/shared';
 import {
+  broadcastSuggestions,
   can,
   channelPermissionInfos,
   configureClient,
+  effectivePermissions,
   gateway,
   isMentioned,
   memberActions,
@@ -21,6 +23,7 @@ import {
   moveTargets,
   overwriteState,
   permissionsOf,
+  rolePermissionSource,
   setOverwriteState,
   useGuild,
   useSession,
@@ -165,6 +168,102 @@ describe('görünüm', () => {
     expect(isMentioned({ content: '@everyone', mentionEveryone: false, authorId: 'ali' }, me)).toBe(false);
     expect(isMentioned({ content: '@mod bak', mentionEveryone: false, authorId: 'ali' }, me)).toBe(true);
     expect(isMentioned({ content: '@everyone', mentionEveryone: true, authorId: 'mod' }, me)).toBe(false);
+  });
+
+  it('@here, bayrağı varsa @everyone gibi vurgulanır; bayraksız (yetkisiz) @here düz metindir', () => {
+    const me = { id: 'mod', username: 'mod' };
+    expect(isMentioned({ content: '@here', mentionEveryone: false, mentionHere: true, authorId: 'ali' }, me)).toBe(true);
+    expect(isMentioned({ content: '@here', mentionEveryone: false, mentionHere: false, authorId: 'ali' }, me)).toBe(false);
+    // Bayrağı bilmeyen eski sunucu
+    expect(isMentioned({ content: '@here', mentionEveryone: false, authorId: 'ali' }, me)).toBe(false);
+    expect(isMentioned({ content: '@here', mentionEveryone: false, mentionHere: true, authorId: 'mod' }, me)).toBe(false);
+  });
+});
+
+describe('rol düzenleme ipuçları', () => {
+  const everyone = DEFAULT_EVERYONE_PERMISSIONS;
+
+  it('@everyone rolünde açık yetki diğer rollerde herkeste zaten var sayılır', () => {
+    const role = { permissions: 0, isEveryone: false };
+    expect(rolePermissionSource(role, everyone, P.MENTION_EVERYONE)).toBe('everyone');
+    expect(rolePermissionSource(role, everyone, P.SEND_MESSAGES)).toBe('everyone');
+    // @everyone'da kapalıysa rolün kendi ayarı geçerli
+    expect(rolePermissionSource(role, everyone & ~P.MENTION_EVERYONE, P.MENTION_EVERYONE)).toBe('role');
+    expect(rolePermissionSource(role, everyone, P.KICK_MEMBERS)).toBe('role');
+    // @everyone rolünün kendisi hep kendi ayarı
+    expect(rolePermissionSource({ permissions: everyone, isEveryone: true }, everyone, P.MENTION_EVERYONE)).toBe('role');
+  });
+
+  it('Yönetici rolünde diğer bütün yetkiler zaten var', () => {
+    const admin = { permissions: P.ADMINISTRATOR, isEveryone: false };
+    expect(rolePermissionSource(admin, 0, P.KICK_MEMBERS)).toBe('administrator');
+    expect(rolePermissionSource(admin, everyone, P.SEND_MESSAGES)).toBe('administrator');
+    expect(rolePermissionSource(admin, 0, P.ADMINISTRATOR)).toBe('role');
+    // @everyone'da Yönetici (tehlikeli ama olası): herkeste her şey var
+    expect(rolePermissionSource({ permissions: 0, isEveryone: false }, P.ADMINISTRATOR, P.BAN_MEMBERS)).toBe('everyone');
+  });
+
+  it('üyenin etkin yetkileri ve kaynakları', () => {
+    const s = useGuild.getState();
+    expect(effectivePermissions(s, 'sahip').all).toBe('owner');
+    expect(effectivePermissions(s, 'eski')).toEqual({ all: null, granted: [] });
+    expect(effectivePermissions(s, 'yok')).toEqual({ all: null, granted: [] });
+
+    const veli = effectivePermissions(s, 'veli');
+    expect(veli.all).toBeNull();
+    expect(veli.granted.map((g) => g.info.name)).toEqual([
+      'VIEW_CHANNEL',
+      'SEND_MESSAGES',
+      'ATTACH_FILES',
+      'ADD_REACTIONS',
+      'MENTION_EVERYONE',
+      'CONNECT',
+      'SPEAK',
+      'STREAM',
+    ]);
+    expect(veli.granted.every((g) => g.roles.map((r) => r.id).join() === 'g')).toBe(true);
+
+    const mod = effectivePermissions(s, 'mod');
+    expect(mod.all).toBeNull();
+    const kick = mod.granted.find((g) => g.info.name === 'KICK_MEMBERS')!;
+    expect(kick.roles.map((r) => r.id)).toEqual(['mod']);
+    expect(mod.granted.find((g) => g.info.name === 'MENTION_EVERYONE')!.roles.map((r) => r.id)).toEqual(['g']);
+
+    // Yönetici rolü verilen üye
+    receive({ t: 'USER_UPDATE', d: user('veli', ['admin']) });
+    const admin = effectivePermissions(useGuild.getState(), 'veli');
+    expect(admin.all).toBe('administrator');
+    expect(admin.granted[0]).toMatchObject({ info: { name: 'ADMINISTRATOR' } });
+    expect(admin.granted[0]!.roles.map((r) => r.id)).toEqual(['admin']);
+  });
+});
+
+describe('bahsetme önerileri', () => {
+  it('@everyone ve @here yalnızca yetkisi olana önerilir', () => {
+    expect(broadcastSuggestions('', true).map((m) => m.name)).toEqual(['everyone', 'here']);
+    expect(broadcastSuggestions('H', true).map((m) => m.name)).toEqual(['here']);
+    expect(broadcastSuggestions('ever', true).map((m) => m.name)).toEqual(['everyone']);
+    expect(broadcastSuggestions('ali', true)).toEqual([]);
+    expect(broadcastSuggestions('', false)).toEqual([]);
+    // Direkt mesajda yetki yoktur
+    receive({
+      t: 'DM_CHANNEL_CREATE',
+      d: {
+        id: 'dm1',
+        participantIds: ['mod', 'ali'],
+        group: false,
+        name: null,
+        ownerId: null,
+        createdAt: 1,
+        lastMessageId: null,
+        lastActivityAt: 1,
+      },
+    });
+    const s = useGuild.getState();
+    expect(can(s, 'mod', P.MENTION_EVERYONE, 'dm1')).toBe(false);
+    expect(can(s, 'mod', P.MENTION_EVERYONE, 'genel')).toBe(true);
+    // Salt okunur kanalda mesaj gönderemeyen herkesten de bahsedemez
+    expect(can(s, 'mod', P.MENTION_EVERYONE, 'duyuru')).toBe(false);
   });
 });
 

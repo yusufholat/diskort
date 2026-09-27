@@ -1,21 +1,27 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, BackHandler, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { membersOf, useCan, useGuild, useMemberColor, useSession } from '@diskort/client-core';
 import { Permission, type VoiceState } from '@diskort/shared';
 import { Avatar } from '../components/Avatar';
 import { MemberSheet } from '../components/MemberSheet';
 import { SpeakingRing } from '../components/SpeakingRing';
+import { EmptyState, Notice } from '../components/States';
 import { StreamViewer } from '../components/StreamViewer';
-import { IconButton } from '../components/VoiceBar';
+import { VoiceControl } from '../components/VoiceBar';
+import { ConnectionQualityBadge } from '../components/VoiceQuality';
 import { VoiceStateIcon } from '../components/VoiceStateIcon';
 import { UserVolume } from '../components/VolumeControl';
-import { useAppear, useLayoutAnimationOn } from '../motion';
-import { toast } from '../stores/ui';
+import { useAppear, useLayoutAnimationOn, useTimingTo } from '../motion';
 import { useSettings } from '../stores/settings';
-import { colors } from '../theme';
+import { colors, font, radius, space } from '../theme';
+import { leaveVoice, toggleDeafen, toggleMute, toggleScreenShare, toggleSpeaker } from '../voice/actions';
 import { useVoice, voice, type ScreenShareStats } from '../voice/voice';
+
+const GRID_PADDING = space.md;
+const GRID_GAP = 10;
 
 export default function VoiceScreen() {
   const router = useRouter();
@@ -35,6 +41,7 @@ export default function VoiceScreen() {
   const sharing = useVoice((s) => s.sharing);
   const micAllowed = useVoice((s) => s.micAllowed);
   const canStream = useCan(Permission.STREAM, channelId ?? undefined);
+  const { width } = useWindowDimensions();
   // Uzun basılan (yönetilecek / sesi ayarlanacak) üye
   const [member, setMember] = useState<string | null>(null);
   // Katılan/ayrılan kutucukta diğerleri yumuşakça yer değiştirir
@@ -42,82 +49,120 @@ export default function VoiceScreen() {
   useLayoutAnimationOn(members.map((m) => m.userId).join(','), 220, false);
   const { fullscreen, setFullscreen, rotate, screenOptions } = useStreamFullscreen(viewing, watching);
 
+  const title = channel?.name ?? 'Ses';
+  const options = useMemo(
+    () => ({
+      ...screenOptions,
+      title,
+      headerRight: status === 'idle' ? undefined : () => <ConnectionQualityBadge />,
+    }),
+    [screenOptions, title, status],
+  );
+
+  // Tek kişiyse geniş kutucuk, değilse iki sütun; yayın izlenirken kutucuklar kısalır
+  const single = members.length === 1;
+  const tileWidth = single ? width - GRID_PADDING * 2 : Math.floor((width - GRID_PADDING * 2 - GRID_GAP) / 2);
+  const tileHeight = viewing ? 118 : single ? 220 : Math.round(tileWidth * 0.86);
+  const openMember = useCallback((userId: string) => setMember(userId), []);
+
   if (status === 'idle' || !channelId) {
     return (
-      <View style={[styles.page, styles.center]}>
-        <Stack.Screen options={{ ...screenOptions, title: 'Ses' }} />
-        <Text style={styles.muted}>Bir ses kanalına bağlı değilsin.</Text>
-        <Pressable onPress={() => router.back()} style={{ marginTop: 12 }}>
-          <Text style={{ color: colors.link, fontSize: 15 }}>Kanallara dön</Text>
-        </Pressable>
+      <View style={styles.page}>
+        <Stack.Screen options={{ ...screenOptions, title: 'Ses', headerRight: undefined }} />
+        <EmptyState
+          icon="volume-mute-outline"
+          tone="muted"
+          title="Bir ses kanalına bağlı değilsin"
+          text="Kanal listesinden bir ses kanalına dokununca burada konuşanları görürsün."
+          action={{ title: 'Kanallara dön', onPress: () => router.back() }}
+        />
       </View>
     );
   }
 
+  const micOff = selfMute || selfDeaf || !micAllowed;
+
   return (
     <SafeAreaView style={styles.page} edges={['bottom']}>
-      <Stack.Screen options={{ ...screenOptions, title: channel?.name ?? 'Ses' }} />
+      <Stack.Screen options={options} />
       {status !== 'connected' && (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>{status === 'connecting' ? 'Bağlanıyor…' : 'Bağlantı koptu, yeniden bağlanılıyor…'}</Text>
-        </View>
+        <Notice icon="sync" tone="warn">
+          {status === 'connecting' ? 'Ses kanalına bağlanılıyor…' : 'Bağlantı koptu, yeniden bağlanılıyor…'}
+        </Notice>
       )}
       {!micAllowed && (
-        <View style={[styles.banner, { backgroundColor: colors.side }]}>
-          <Text style={[styles.bannerText, { color: colors.text }]}>{voice.micBlockedReason()} Yalnızca dinliyorsun.</Text>
-        </View>
+        <Notice icon="mic-off" tone="muted">
+          {voice.micBlockedReason()} Yalnızca dinliyorsun.
+        </Notice>
       )}
       {listenOnly && (
-        <View style={[styles.banner, { backgroundColor: colors.side }]}>
-          <Text style={[styles.bannerText, { color: colors.text }]}>
-            Mikrofon izni verilmedi: yalnızca dinliyorsun. Ayarlardan izin verip yeniden katılabilirsin.
-          </Text>
-        </View>
+        <Notice icon="mic-off" tone="muted">
+          Mikrofon izni verilmedi: yalnızca dinliyorsun. Ayarlardan izin verip yeniden katılabilirsin.
+        </Notice>
       )}
 
       {sharing && (
-        <View style={[styles.banner, { backgroundColor: colors.ok }]}>
-          <Text style={[styles.bannerText, { color: '#fff' }]}>Ekranını paylaşıyorsun</Text>
+        <View style={styles.sharing}>
+          <View style={styles.sharingRow}>
+            <View style={styles.liveDot} />
+            <Text style={styles.sharingText}>Ekranını paylaşıyorsun</Text>
+          </View>
           <ShareStatsLine />
         </View>
       )}
 
       {/* Tam ekranda da aynı bileşen kalır (yalnızca yerleşimi değişir): video yeniden bağlanmaz */}
+      {/* Doğrudan sayfanın çocuğu olmalı: tam ekranda sayfanın tamamını kaplar */}
       {viewing && (
         <StreamViewer key={viewing} userId={viewing} fullscreen={fullscreen} onFullscreen={setFullscreen} onRotate={rotate} />
       )}
 
       <ScrollView contentContainerStyle={styles.grid}>
         {members.map((m) => (
-          <Member key={m.userId} state={m} onLongPress={() => setMember(m.userId)} />
+          <MemberTile key={m.userId} state={m} width={tileWidth} height={tileHeight} selfId={selfId} onLongPress={openMember} />
         ))}
       </ScrollView>
 
       <View style={styles.controls}>
-        <IconButton icon={speaker ? 'volume-high' : 'ear'} onPress={() => void voice.setSpeaker(!speaker)} size={24} />
-        <IconButton
+        <VoiceControl
+          icon={speaker ? 'volume-high' : 'ear'}
+          caption={speaker ? 'Hoparlör' : 'Kulaklık'}
+          label={speaker ? 'Hoparlör açık, kulaklığa geç' : 'Ahize, hoparlöre geç'}
+          size={52}
+          onPress={toggleSpeaker}
+        />
+        <VoiceControl
           icon={sharing ? 'stop-circle-outline' : 'phone-portrait-outline'}
+          caption={sharing ? 'Durdur' : 'Ekran'}
+          label={sharing ? 'Ekran paylaşımını durdur' : 'Ekranını paylaş'}
           on={sharing}
-          onPress={() =>
-            sharing || canStream
-              ? void voice.toggleScreenShare()
-              : toast('Bu kanalda ekran paylaşma iznin yok.', 'error')
-          }
-          size={24}
+          size={52}
+          onPress={() => toggleScreenShare(canStream)}
         />
-        <IconButton
-          icon={selfMute || selfDeaf || !micAllowed ? 'mic-off' : 'mic'}
-          active={selfMute || selfDeaf || !micAllowed}
-          onPress={() => voice.toggleMute()}
-          size={24}
+        <VoiceControl
+          icon={micOff ? 'mic-off' : 'mic'}
+          caption={micOff ? 'Sessiz' : 'Mikrofon'}
+          label={micOff ? 'Mikrofonu aç' : 'Sustur'}
+          off={micOff}
+          size={52}
+          onPress={toggleMute}
         />
-        <IconButton icon={selfDeaf ? 'volume-mute' : 'headset'} active={selfDeaf} onPress={() => voice.toggleDeafen()} size={24} />
-        <IconButton
+        <VoiceControl
+          icon={selfDeaf ? 'volume-mute' : 'headset'}
+          caption={selfDeaf ? 'Sağır' : 'Ses'}
+          label={selfDeaf ? 'Sağırlaştırmayı kaldır' : 'Sağırlaştır'}
+          off={selfDeaf}
+          size={52}
+          onPress={toggleDeafen}
+        />
+        <VoiceControl
           icon="call"
           danger
-          size={24}
+          caption="Ayrıl"
+          label="Bağlantıyı kes"
+          size={52}
           onPress={() => {
-            void voice.leave();
+            leaveVoice();
             router.back();
           }}
         />
@@ -185,18 +230,18 @@ function useStreamFullscreen(viewing: string | null, watching: string | null) {
 
   const rotate = useCallback(() => setOrientation(landscape ? 'portrait' : 'landscape'), [landscape]);
 
-  return {
-    fullscreen,
-    setFullscreen,
-    rotate,
-    screenOptions: {
+  const screenOptions = useMemo(
+    () => ({
       headerShown: !fullscreen,
       statusBarHidden: fullscreen,
       navigationBarHidden: fullscreen,
       // 'default' açıkça verilmeli: seçenek kaldırılınca react-native-screens yönü geri bırakmıyor
       orientation: orientation ?? ('default' as const),
-    },
-  };
+    }),
+    [fullscreen, orientation],
+  );
+
+  return { fullscreen, setFullscreen, rotate, screenOptions };
 }
 
 /** Yayının gerçekte nasıl gittiği: çözünürlük, kare hızı, bit hızı, kodlayıcı ve varsa darboğaz */
@@ -232,82 +277,153 @@ function ShareStatsLine() {
   );
 }
 
-function Member({ state, onLongPress }: { state: VoiceState; onLongPress: () => void }) {
+/**
+ * Seste bir kişi: büyük avatar (konuşunca yeşil halka ve kutucuğun kenarı yumuşakça yanar), altta
+ * ad ve ses durumu; yayın yapıyorsa CANLI ve "Yayını izle". Katılınca büyüyerek belirir.
+ */
+const MemberTile = memo(function MemberTile({
+  state,
+  width,
+  height,
+  selfId,
+  onLongPress,
+}: {
+  state: VoiceState;
+  width: number;
+  height: number;
+  selfId: string | undefined;
+  onLongPress: (userId: string) => void;
+}) {
   const user = useGuild((s) => s.users[state.userId]);
   const color = useMemberColor(state.userId);
-  const selfId = useSession((s) => s.user?.id);
   const speaking = useVoice((s) => Boolean(s.speaking[state.userId]));
   const hasStream = useVoice((s) => Boolean(s.streams[state.userId]));
   const watching = useVoice((s) => s.watching === state.userId);
-  // Katılan kişinin kutucuğu büyüyerek belirir
   const appear = useAppear(true, 260);
+  // Konuşma kenarı: açılışı hızlı, sönüşü yavaş (kısa sessizliklerde titremez)
+  const edge = useTimingTo(speaking ? 1 : 0, speaking ? 90 : 280);
+  const self = state.userId === selfId;
+  const avatar = Math.min(72, Math.round(height * 0.44));
   return (
-    <Pressable onLongPress={onLongPress} delayLongPress={300}>
-    <Animated.View
-      style={[
-        styles.member,
-        speaking && styles.memberSpeaking,
-        {
-          opacity: appear,
-          transform: [{ scale: appear.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }],
-        },
-      ]}
+    <Pressable
+      onLongPress={() => onLongPress(state.userId)}
+      delayLongPress={300}
+      accessibilityLabel={`${user?.displayName ?? 'Üye'}${speaking ? ', konuşuyor' : ''}${state.streaming ? ', yayında' : ''}`}
+      accessibilityHint="Ses seviyesi ve seçenekler için uzun bas"
     >
-      <SpeakingRing speaking={speaking} size={72}>
-        <Avatar user={user} size={72} />
-      </SpeakingRing>
-      <View style={styles.memberNameRow}>
-        <VoiceStateIcon state={state} size={14} />
-        <Text
-          style={[styles.memberName, state.userId === selfId && { color: colors.head }, color ? { color } : null]}
-          numberOfLines={1}
-        >
-          {user?.displayName ?? '…'}
-        </Text>
-      </View>
-      {state.streaming && state.userId === selfId && (
-        <View style={[styles.watch, { backgroundColor: colors.danger }]}>
-          <Text style={styles.watchText}>CANLI</Text>
+      <Animated.View
+        style={[
+          styles.tile,
+          {
+            width,
+            height,
+            opacity: appear,
+            transform: [{ scale: appear.interpolate({ inputRange: [0, 1], outputRange: [0.88, 1] }) }],
+          },
+        ]}
+      >
+        <Animated.View pointerEvents="none" style={[styles.tileEdge, { opacity: edge }]} />
+        {state.streaming && (
+          <View style={styles.live}>
+            <Text style={styles.liveText}>CANLI</Text>
+          </View>
+        )}
+        <SpeakingRing speaking={speaking} size={avatar}>
+          <Avatar user={user} size={avatar} />
+        </SpeakingRing>
+        <View style={styles.nameRow}>
+          <VoiceStateIcon state={state} size={14} />
+          <Text style={[styles.name, self && { color: colors.head }, color ? { color } : null]} numberOfLines={1}>
+            {user?.displayName ?? '…'}
+          </Text>
         </View>
-      )}
-      {hasStream && state.userId !== selfId && (
-        <Pressable onPress={() => voice.watch(watching ? null : state.userId)} style={[styles.watch, watching && { backgroundColor: colors.active }]}>
-          <Text style={styles.watchText}>{watching ? 'İzlemeyi bırak' : 'Yayını izle'}</Text>
-        </Pressable>
-      )}
-    </Animated.View>
+        {hasStream && !self && (
+          <Pressable
+            onPress={() => voice.watch(watching ? null : state.userId)}
+            android_ripple={{ color: 'rgba(255,255,255,0.2)' }}
+            style={[styles.watch, watching && { backgroundColor: colors.control }]}
+            accessibilityRole="button"
+          >
+            <Ionicons name={watching ? 'eye-off' : 'eye'} size={14} color="#fff" />
+            <Text style={styles.watchText}>{watching ? 'İzlemeyi bırak' : 'Yayını izle'}</Text>
+          </Pressable>
+        )}
+      </Animated.View>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.deep },
-  center: { alignItems: 'center', justifyContent: 'center' },
-  muted: { color: colors.muted, fontSize: 15 },
-  banner: { backgroundColor: colors.warn, paddingVertical: 6, paddingHorizontal: 12 },
-  bannerText: { color: '#000', fontSize: 13, fontWeight: '600', textAlign: 'center' },
-  statsText: { color: 'rgba(255,255,255,0.85)', fontSize: 11.5, textAlign: 'center', marginTop: 2 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', padding: 12, gap: 12 },
-  member: {
-    width: 150,
-    alignItems: 'center',
-    backgroundColor: colors.rail,
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 8,
-    borderWidth: 2,
-    borderColor: 'transparent',
+  sharing: {
+    backgroundColor: colors.okSoft,
+    marginHorizontal: space.sm,
+    marginTop: space.sm,
+    borderRadius: radius.md,
+    paddingVertical: space.sm,
+    paddingHorizontal: space.md,
   },
-  memberSpeaking: { borderColor: 'rgba(35,165,90,0.55)' },
-  memberNameRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10 },
-  memberName: { color: colors.text, fontSize: 15, fontWeight: '500', flexShrink: 1 },
-  watch: { marginTop: 10, backgroundColor: colors.brand, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 },
-  watchText: { color: '#fff', fontSize: 12.5, fontWeight: '600' },
+  sharingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.ok },
+  sharingText: { color: '#2dc770', fontSize: font.small, fontWeight: '700' },
+  statsText: { color: colors.muted, fontSize: 11.5, textAlign: 'center', marginTop: 2 },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    padding: GRID_PADDING,
+    gap: GRID_GAP,
+  },
+  tile: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.rail,
+    borderRadius: radius.lg - 2,
+    paddingHorizontal: space.sm,
+    overflow: 'hidden',
+  },
+  tileEdge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: radius.lg - 2,
+    borderWidth: 2,
+    borderColor: colors.ok,
+  },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10, maxWidth: '100%' },
+  name: { color: colors.text, fontSize: font.body - 0.5, fontWeight: '600', flexShrink: 1 },
+  live: {
+    position: 'absolute',
+    top: space.sm,
+    left: space.sm,
+    backgroundColor: colors.danger,
+    borderRadius: radius.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  liveText: { color: '#fff', fontSize: 10.5, fontWeight: '800' },
+  watch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: space.sm,
+    backgroundColor: colors.brand,
+    borderRadius: radius.pill,
+    paddingHorizontal: space.md,
+    paddingVertical: 5,
+    overflow: 'hidden',
+  },
+  watchText: { color: '#fff', fontSize: 12.5, fontWeight: '700' },
   controls: {
     flexDirection: 'row',
     justifyContent: 'space-evenly',
-    alignItems: 'center',
-    paddingVertical: 14,
+    alignItems: 'flex-start',
+    paddingTop: space.md,
+    paddingBottom: space.md,
     backgroundColor: colors.rail,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
   },
 });

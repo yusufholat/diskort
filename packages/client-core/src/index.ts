@@ -31,6 +31,7 @@ export {
   can,
   canAssignRole,
   canManageRole,
+  effectivePermissions,
   isOwner,
   memberColorOf,
   memberGroups,
@@ -38,14 +39,18 @@ export {
   overwriteState,
   permissionsOf,
   roleIsBelowFor,
+  rolePermissionSource,
   rolesOf,
   setOverwriteState,
   sortedRoles,
   useCan,
   useMemberColor,
   usePermissions,
+  type EffectivePermissions,
   type MemberGroup,
   type OverwriteState,
+  type PermissionGrant,
+  type RolePermissionSource,
 } from './permissions';
 export {
   channelPermissionInfos,
@@ -89,11 +94,14 @@ export {
   startReply,
 } from './replies';
 export {
+  BROADCAST_MENTIONS,
+  broadcastSuggestions,
   focusComposer,
   hasComposer,
   insertText,
   mentionInComposer,
   registerComposer,
+  type BroadcastMention,
   type ComposerHandle,
 } from './composer';
 export {
@@ -130,4 +138,12 @@ export {
   useGifPicker,
   type GifPickerState,
 } from './gifs';
-export { parseInline, parseMarkdown, plainText, type MdBlock, type MdInline, type MdStyle } from './markdown';
+export {
+  broadcastMention,
+  parseInline,
+  parseMarkdown,
+  plainText,
+  type MdBlock,
+  type MdInline,
+  type MdStyle,
+} from './markdown';

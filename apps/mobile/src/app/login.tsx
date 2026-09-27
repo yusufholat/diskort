@@ -67,6 +67,9 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.page}>
       <KeyboardAvoidingView behavior="height" style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          <View style={styles.logo} accessibilityElementsHidden>
+            <Text style={styles.logoText}>D</Text>
+          </View>
           <View style={styles.card}>
             <Text style={styles.title}>{title}</Text>
             <Text style={styles.subtitle}>{subtitle}</Text>
@@ -159,7 +162,18 @@ function Link({ text, onPress, muted }: { text: string; onPress: () => void; mut
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.rail },
   scroll: { flexGrow: 1, justifyContent: 'center', padding: 20 },
-  card: { backgroundColor: colors.main, borderRadius: 10, padding: 22 },
+  logo: {
+    alignSelf: 'center',
+    width: 64,
+    height: 64,
+    borderRadius: 22,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
+  },
+  logoText: { color: '#fff', fontSize: 32, fontWeight: '800' },
+  card: { backgroundColor: colors.main, borderRadius: 16, padding: 22 },
   title: { color: colors.head, fontSize: 24, fontWeight: '700', textAlign: 'center' },
   subtitle: { color: colors.muted, fontSize: 15, textAlign: 'center', marginTop: 6, marginBottom: 22 },
   links: { marginTop: 4 },

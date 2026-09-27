@@ -11,6 +11,7 @@ import {
 } from '@diskort/client-core';
 import {
   type AudioCaptureOptions,
+  type ConnectionQuality,
   ConnectionState,
   DisconnectReason,
   type Participant,
@@ -83,7 +84,11 @@ interface VoiceStore {
   tracksVersion: number;
   /** Mikrofon seviyesi (yalnızca ayarlardaki gösterge açıkken güncellenir) */
   micLevel: MicLevel;
+  /** Kendi bağlantımızın kalitesi (LiveKit'in birkaç saniyede bir bildirdiği; göstergede çubuklar) */
+  quality: VoiceQuality;
 }
+
+export type VoiceQuality = 'excellent' | 'good' | 'poor' | 'lost' | 'unknown';
 
 const IDLE: Omit<VoiceStore, 'channelId' | 'status'> = {
   speaking: {},
@@ -96,6 +101,7 @@ const IDLE: Omit<VoiceStore, 'channelId' | 'status'> = {
   sharing: false,
   tracksVersion: 0,
   micLevel: SILENT_LEVEL,
+  quality: 'unknown',
 };
 
 export const useVoice = create<VoiceStore>()(() => ({ channelId: null, status: 'idle', ...IDLE }));
@@ -419,6 +425,21 @@ class MobileVoiceClient {
   private lastShareSample: { bytes: number; at: number } | null = null;
 
   /** Paylaşılan ekranın gönderim bilgileri: donma gibi sorunların nedenini görmek için ses ekranında gösterilir. */
+  /** Sunucuya gidiş-dönüş süresi (ms): mikrofon izinin bağlantı istatistiğinden; bilinmiyorsa null */
+  async pingMs(): Promise<number | null> {
+    const sender = this.room?.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack?.sender;
+    if (!sender) return null;
+    let rtt: number | null = null;
+    (await sender.getStats()).forEach((entry: Record<string, unknown>) => {
+      if (entry.type === 'candidate-pair' && entry.nominated && typeof entry.currentRoundTripTime === 'number') {
+        rtt = Math.round(entry.currentRoundTripTime * 1000);
+      } else if (rtt === null && entry.type === 'remote-inbound-rtp' && typeof entry.roundTripTime === 'number') {
+        rtt = Math.round(entry.roundTripTime * 1000);
+      }
+    });
+    return rtt;
+  }
+
   async screenShareStats(): Promise<ScreenShareStats | null> {
     const sender = this.room?.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.videoTrack?.sender;
     if (!sender) return null;
@@ -543,6 +564,10 @@ class MobileVoiceClient {
       .on(RoomEvent.TrackUnsubscribed, bump)
       .on(RoomEvent.ParticipantDisconnected, (p) => {
         useVoice.setState((s) => streamGone(s, p.identity));
+      })
+      // Bağlantı kalitesi göstergesi: yalnızca kendi bağlantımız (değişince bildirilir, ucuz)
+      .on(RoomEvent.ConnectionQualityChanged, (quality: ConnectionQuality, participant: Participant) => {
+        if (participant.isLocal && this.room === room) useVoice.setState({ quality: quality as VoiceQuality });
       })
       .on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => {
         useVoice.setState({ speaking: Object.fromEntries(speakers.map((p) => [p.identity, true as const])) });

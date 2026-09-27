@@ -16,9 +16,11 @@ interface Props {
   size?: number;
   speaking?: boolean;
   online?: boolean;
+  /** Çevrimiçi noktasının çevresindeki halka: avatarın durduğu yüzeyin rengi */
+  surface?: string;
 }
 
-export function Avatar({ user, size = 40, speaking, online }: Props) {
+export function Avatar({ user, size = 40, speaking, online, surface = colors.side }: Props) {
   const ring = speaking ? 3 : 0;
   const src = avatarUrl(user);
   // Yüklenemeyen fotoğrafın yerine baş harfler (adres değişince yeniden denenir)
@@ -58,6 +60,8 @@ export function Avatar({ user, size = 40, speaking, online }: Props) {
               height: size * 0.36,
               borderRadius: size,
               backgroundColor: online ? colors.ok : colors.faint,
+              borderColor: surface,
+              borderWidth: size >= 32 ? 3 : 2,
             },
           ]}
         />
@@ -70,5 +74,5 @@ const styles = StyleSheet.create({
   circle: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   photo: { width: '100%', height: '100%' },
   text: { color: '#fff', fontWeight: '600' },
-  dot: { position: 'absolute', right: -1, bottom: -1, borderWidth: 3, borderColor: colors.side },
+  dot: { position: 'absolute', right: -1, bottom: -1 },
 });

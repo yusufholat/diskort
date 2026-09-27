@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { MESSAGE_MAX_LENGTH, Permission, type Channel, type User } from '@diskort/shared';
 import {
   addFiles,
+  broadcastSuggestions,
   editMessage,
   formatBytes,
   insertText,
@@ -20,14 +21,15 @@ import {
   type LocalMessage,
 } from '@diskort/client-core';
 import { pickDocuments, pickMedia } from '../attachments';
-import { useAppear } from '../motion';
+import { useAppear, useBump, useLayoutAnimationOn, useTimingTo } from '../motion';
 import { toast } from '../stores/ui';
-import { colors } from '../theme';
+import { colors, font, radius, ripple, space, text as textStyles } from '../theme';
 import { fileIcon } from './Attachments';
 import { Avatar } from './Avatar';
-import { BottomSheet } from './BottomSheet';
+import { BottomSheet, SheetHeader } from './BottomSheet';
 import { ExpressionSheet, type ExpressionTab } from './ExpressionSheet';
 import { PressableScale } from './PressableScale';
+import { ContextBar } from './ContextBar';
 import { ReplyBar } from './ReplyBar';
 
 /** Kanal değiştirince yarım kalan mesaj kaybolmasın */
@@ -65,6 +67,8 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
   const files = useMessages((s) => s.pendingFiles[channel.id] ?? NO_FILES);
   const canSend = useCan(Permission.SEND_MESSAGES, channel.id);
   const canAttach = useCan(Permission.ATTACH_FILES, channel.id);
+  // @everyone / @here yalnızca yetkisi olana önerilir (direkt mesajda bu yetki yoktur)
+  const canMentionEveryone = useCan(Permission.MENTION_EVERYONE, channel.id);
 
   // Düzenleme kipine geçince mesaj metniyle başla
   const text = editing ? (editText ?? editing.content) : value;
@@ -89,8 +93,17 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
       .sort((a, b) => Number(!!online[b.id]) - Number(!!online[a.id]) || a.username.localeCompare(b.username))
       .slice(0, 5);
   }, [query, users, online, mentionable]);
+  const broadcasts = useMemo(
+    () => (query === undefined ? [] : broadcastSuggestions(query, canMentionEveryone)),
+    [query, canMentionEveryone],
+  );
 
-  const pick = (user: User): void => {
+  // Yazma kutusunun üstüne şerit (yanıt, düzenleme, dosyalar, öneriler) gelip gidince liste
+  // sıçramak yerine yumuşakça kayar
+  const replying = useMessages((s) => Boolean(s.replies[channel.id]));
+  useLayoutAnimationOn(`${files.length}:${replying}:${Boolean(editing)}:${suggestions.length > 0}`, 180, false);
+
+  const pick = (user: Pick<User, 'username'>): void => {
     const before = text.slice(0, selection.start).replace(/@[a-z0-9_.]*$/i, `@${user.username} `);
     setText(before + text.slice(selection.start));
     setSelection({ start: before.length, end: before.length });
@@ -168,117 +181,115 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
   }
 
   return (
-    <View>
-      {suggestions.length > 0 && (
+    <View style={styles.wrap}>
+      {suggestions.length + broadcasts.length > 0 && (
         <Suggestions>
           {suggestions.map((u) => (
-            <Pressable key={u.id} style={({ pressed }) => [styles.suggestion, pressed && { backgroundColor: colors.active }]} onPress={() => pick(u)}>
-              <Avatar user={u} size={26} online={!!online[u.id]} />
+            <Pressable key={u.id} android_ripple={ripple.row} style={styles.suggestion} onPress={() => pick(u)}>
+              <Avatar user={u} size={28} online={!!online[u.id]} surface={colors.side} />
               <Text style={styles.suggestionName}>{u.displayName}</Text>
-              <Text style={styles.suggestionUser}>{u.username}</Text>
+              <Text style={styles.suggestionUser}>@{u.username}</Text>
+            </Pressable>
+          ))}
+          {broadcasts.map((b) => (
+            <Pressable
+              key={b.name}
+              style={({ pressed }) => [styles.suggestion, pressed && { backgroundColor: colors.active }]}
+              onPress={() => pick({ username: b.name })}
+            >
+              <Ionicons name="at" size={22} color={colors.muted} style={{ width: 26, textAlign: 'center' }} />
+              <Text style={styles.suggestionName}>@{b.name}</Text>
+              <Text style={[styles.suggestionUser, { flexShrink: 1 }]} numberOfLines={1}>
+                {b.description}
+              </Text>
             </Pressable>
           ))}
         </Suggestions>
       )}
       {editing && (
-        <View style={styles.editBar}>
+        <ContextBar>
+          <Ionicons name="create-outline" size={15} color={colors.brandText} />
           <Text style={styles.editText}>Mesajı düzenliyorsun</Text>
           <Pressable
-            hitSlop={8}
+            hitSlop={10}
             onPress={() => {
               setEditText(null);
               onDoneEditing();
             }}
+            accessibilityLabel="Düzenlemeyi bırak"
           >
-            <Text style={{ color: colors.link }}>Vazgeç</Text>
+            <Ionicons name="close-circle" size={20} color={colors.muted} />
           </Pressable>
-        </View>
+        </ContextBar>
       )}
       {!editing && <ReplyBar channelId={channel.id} />}
       {!editing && files.length > 0 && (
-        <ScrollView horizontal style={styles.tray} contentContainerStyle={styles.trayContent} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.tray}
+          contentContainerStyle={styles.trayContent}
+          keyboardShouldPersistTaps="handled"
+        >
           {files.map((file, i) => (
-            <View key={`${file.uri}-${i}`} style={styles.trayItem}>
-              {file.uri && /^image\/(png|jpeg|gif|webp)$/.test(file.type) ? (
-                <Image source={{ uri: file.uri }} style={styles.trayImage} />
-              ) : (
-                <View style={[styles.trayImage, styles.trayIcon]}>
-                  <Ionicons name={fileIcon(file.type)} size={30} color={colors.muted} />
-                </View>
-              )}
-              <Text style={styles.trayName} numberOfLines={1}>
-                {file.name}
-              </Text>
-              <Text style={styles.traySize}>{formatBytes(file.size)}</Text>
-              <Pressable
-                hitSlop={8}
-                style={styles.trayRemove}
-                onPress={() => removeFile(channel.id, i)}
-                accessibilityLabel="Kaldır"
-              >
-                <Ionicons name="close" size={14} color={colors.head} />
-              </Pressable>
-            </View>
+            <TrayItem key={`${file.uri}-${i}`} file={file} onRemove={() => removeFile(channel.id, i)} />
           ))}
         </ScrollView>
       )}
       <View style={styles.row}>
         {!editing && canAttach && (
           <PressableScale
-            scaleTo={0.85}
+            scaleTo={0.86}
             onPress={() => setAttachMenu(true)}
-            hitSlop={6}
-            style={styles.attach}
+            ripple={{ color: 'rgba(255,255,255,0.14)', borderless: true, radius: 21 }}
+            style={styles.circle}
             accessibilityLabel="Dosya ekle"
           >
-            <Ionicons name="add-circle" size={30} color={colors.muted} />
+            <Ionicons name="add" size={26} color={colors.text} />
           </PressableScale>
         )}
-        <TextInput
-          ref={input}
-          value={text}
-          onChangeText={setText}
-          onSelectionChange={(e) => {
-            setSelection(e.nativeEvent.selection);
-            setForcedSelection(undefined);
-          }}
-          selection={forcedSelection}
-          placeholder={placeholder ?? `#${channel.name} kanalına mesaj gönder`}
-          placeholderTextColor={colors.faint}
-          multiline
-          maxLength={MESSAGE_MAX_LENGTH * 2}
-          style={styles.input}
-        />
-        {gifsEnabled && !editing && (
+        <View style={styles.field}>
+          <TextInput
+            ref={input}
+            value={text}
+            onChangeText={setText}
+            onSelectionChange={(e) => {
+              setSelection(e.nativeEvent.selection);
+              setForcedSelection(undefined);
+            }}
+            selection={forcedSelection}
+            placeholder={placeholder ?? `#${channel.name} kanalına mesaj gönder`}
+            placeholderTextColor={colors.faint}
+            selectionColor="rgba(88,101,242,0.5)"
+            cursorColor={colors.head}
+            multiline
+            maxLength={MESSAGE_MAX_LENGTH * 2}
+            style={styles.input}
+          />
+          {remaining < 200 && <Text style={[styles.counter, remaining < 0 && { color: colors.danger }]}>{remaining}</Text>}
+          {gifsEnabled && !editing && (
+            <PressableScale
+              scaleTo={0.85}
+              onPress={() => setExpressions('gif')}
+              hitSlop={6}
+              style={styles.gifButton}
+              accessibilityLabel="GIF"
+            >
+              <Text style={styles.gifButtonText}>GIF</Text>
+            </PressableScale>
+          )}
           <PressableScale
             scaleTo={0.85}
-            onPress={() => setExpressions('gif')}
+            onPress={() => setExpressions('emoji')}
+            ripple={{ color: 'rgba(255,255,255,0.14)', borderless: true, radius: 18 }}
             hitSlop={4}
-            style={styles.gifButton}
-            accessibilityLabel="GIF"
+            style={styles.fieldIcon}
+            accessibilityLabel="Emoji"
           >
-            <Text style={styles.gifButtonText}>GIF</Text>
+            <Ionicons name="happy-outline" size={24} color={colors.muted} />
           </PressableScale>
-        )}
-        <PressableScale
-          scaleTo={0.85}
-          onPress={() => setExpressions('emoji')}
-          hitSlop={6}
-          style={styles.attach}
-          accessibilityLabel="Emoji"
-        >
-          <Ionicons name="happy-outline" size={27} color={colors.muted} />
-        </PressableScale>
-        {remaining < 200 && <Text style={[styles.counter, remaining < 0 && { color: colors.danger }]}>{remaining}</Text>}
-        <PressableScale
-          scaleTo={0.86}
-          onPress={submit}
-          disabled={!canSubmit}
-          accessibilityLabel={editing ? 'Kaydet' : 'Gönder'}
-          style={[styles.send, !canSubmit && { opacity: 0.4 }]}
-        >
-          <Ionicons name={editing ? 'checkmark' : 'send'} size={20} color="#fff" />
-        </PressableScale>
+        </View>
+        <SendButton ready={canSubmit} editing={Boolean(editing)} onPress={submit} />
       </View>
 
       <ExpressionSheet
@@ -297,11 +308,66 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
         }}
       />
       <BottomSheet visible={attachMenu} onClose={() => setAttachMenu(false)}>
-        <AttachOption icon="images-outline" label="Fotoğraf veya video" onPress={() => void attach(pickMedia)} />
-        <AttachOption icon="document-outline" label="Dosya" onPress={() => void attach(pickDocuments)} />
-        <AttachOption icon="close" label="Vazgeç" onPress={() => setAttachMenu(false)} />
+        <SheetHeader title="Ekle" subtitle="Dosyalar mesajla birlikte gönderilir" />
+        <View style={styles.attachTiles}>
+          <AttachTile icon="images" color={colors.brand} label="Fotoğraf veya video" onPress={() => void attach(pickMedia)} />
+          <AttachTile icon="document" color={colors.ok} label="Dosya" onPress={() => void attach(pickDocuments)} />
+        </View>
       </BottomSheet>
     </View>
+  );
+}
+
+/**
+ * Gönder düğmesi: gönderilecek bir şey yokken sönük, yazınca mor dolgu yumuşakça gelir ve simge
+ * zıplar. Genişliği hep aynı: yazmaya başlayınca kutu kaymaz.
+ */
+function SendButton({ ready, editing, onPress }: { ready: boolean; editing: boolean; onPress: () => void }) {
+  const fill = useTimingTo(ready ? 1 : 0, 150);
+  const bump = useBump(ready);
+  return (
+    <PressableScale
+      scaleTo={0.86}
+      onPress={onPress}
+      disabled={!ready}
+      accessibilityLabel={editing ? 'Kaydet' : 'Gönder'}
+      accessibilityState={{ disabled: !ready }}
+      style={styles.circle}
+    >
+      <Animated.View style={[StyleSheet.absoluteFill, styles.sendFill, { opacity: fill }]} />
+      <Animated.View style={{ transform: [{ scale: bump }] }}>
+        <Ionicons name={editing ? 'checkmark' : 'send'} size={editing ? 22 : 18} color={ready ? '#fff' : colors.faint} />
+      </Animated.View>
+    </PressableScale>
+  );
+}
+
+/** Eklenen dosya: resimse küçük önizleme, değilse simge; köşede kaldır düğmesi. Büyüyerek belirir. */
+function TrayItem({ file, onRemove }: { file: LocalFile; onRemove: () => void }) {
+  const appear = useAppear(true, 200);
+  const image = Boolean(file.uri) && /^image\/(png|jpeg|gif|webp)$/.test(file.type);
+  return (
+    <Animated.View
+      style={[
+        styles.trayItem,
+        { opacity: appear, transform: [{ scale: appear.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }] },
+      ]}
+    >
+      {image ? (
+        <Image source={{ uri: file.uri }} style={styles.trayImage} />
+      ) : (
+        <View style={[styles.trayImage, styles.trayIcon]}>
+          <Ionicons name={fileIcon(file.type)} size={30} color={colors.muted} />
+        </View>
+      )}
+      <Text style={styles.trayName} numberOfLines={1}>
+        {file.name}
+      </Text>
+      <Text style={styles.traySize}>{formatBytes(file.size)}</Text>
+      <Pressable hitSlop={8} style={styles.trayRemove} onPress={onRemove} accessibilityLabel={`${file.name} dosyasını kaldır`}>
+        <Ionicons name="close" size={14} color="#fff" />
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -318,56 +384,96 @@ function Suggestions({ children }: { children: ReactNode }) {
         },
       ]}
     >
+      <Text style={styles.suggestionsTitle}>Üyeler</Text>
       {children}
     </Animated.View>
   );
 }
 
-function AttachOption({
+function AttachTile({
   icon,
+  color,
   label,
   onPress,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
+  color: string;
   label: string;
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.option, pressed && { backgroundColor: colors.hover }]}>
-      <Ionicons name={icon} size={22} color={colors.text} />
-      <Text style={styles.optionText}>{label}</Text>
-    </Pressable>
+    <PressableScale scaleTo={0.95} ripple onPress={onPress} containerStyle={{ flex: 1 }} style={styles.tile} accessibilityRole="button">
+      <View style={[styles.tileIcon, { backgroundColor: color }]}>
+        <Ionicons name={icon} size={24} color="#fff" />
+      </View>
+      <Text style={styles.tileText}>{label}</Text>
+    </PressableScale>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingVertical: 8 },
-  attach: { height: 44, justifyContent: 'center' },
+  wrap: { backgroundColor: colors.main },
+  row: { flexDirection: 'row', alignItems: 'flex-end', gap: space.sm, paddingHorizontal: space.sm + 2, paddingTop: 6, paddingBottom: space.sm },
+  circle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.field,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  sendFill: { backgroundColor: colors.brand, borderRadius: 21 },
+  field: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    minHeight: 42,
+    borderRadius: 21,
+    backgroundColor: colors.field,
+    paddingLeft: space.lg,
+    paddingRight: 4,
+  },
+  input: {
+    flex: 1,
+    maxHeight: 150,
+    paddingTop: 10,
+    paddingBottom: 10,
+    color: colors.text,
+    fontSize: font.row,
+  },
+  fieldIcon: { width: 36, height: 42, alignItems: 'center', justifyContent: 'center' },
   gifButton: {
-    alignSelf: 'center',
+    height: 42,
+    justifyContent: 'center',
+    marginHorizontal: 4,
+  },
+  gifButtonText: {
+    color: colors.muted,
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
     borderWidth: 1.5,
     borderColor: colors.muted,
     borderRadius: 5,
     paddingHorizontal: 4,
     paddingVertical: 1,
-    marginHorizontal: 2,
   },
-  gifButtonText: { color: colors.muted, fontSize: 11.5, fontWeight: '800', letterSpacing: 0.3 },
   locked: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    margin: 8,
+    gap: space.sm,
+    margin: space.sm,
     minHeight: 44,
     paddingHorizontal: 14,
     borderRadius: 22,
     backgroundColor: colors.side,
   },
   lockedText: { color: colors.muted, fontSize: 15, flexShrink: 1 },
-  tray: { flexGrow: 0, backgroundColor: colors.side },
-  trayContent: { gap: 10, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 8 },
-  trayItem: { width: 92 },
-  trayImage: { width: 92, height: 92, borderRadius: 8, backgroundColor: colors.main },
+  tray: { flexGrow: 0 },
+  trayContent: { gap: 10, paddingHorizontal: space.md, paddingTop: space.md, paddingBottom: 4 },
+  trayItem: { width: 88 },
+  trayImage: { width: 88, height: 88, borderRadius: radius.lg - 4, backgroundColor: colors.side },
   trayIcon: { alignItems: 'center', justifyContent: 'center' },
   trayName: { color: colors.text, fontSize: 12, marginTop: 4 },
   traySize: { color: colors.muted, fontSize: 11 },
@@ -375,46 +481,39 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -6,
     right: -6,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.deep,
+    backgroundColor: colors.danger,
+    borderWidth: 2,
+    borderColor: colors.main,
   },
-  option: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 15 },
-  optionText: { color: colors.head, fontSize: 16 },
-  input: {
-    flex: 1,
-    minHeight: 44,
-    maxHeight: 160,
-    backgroundColor: colors.hover,
-    borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingTop: 11,
-    paddingBottom: 11,
-    color: colors.text,
-    fontSize: 16,
-  },
-  counter: { color: colors.muted, fontSize: 12, marginBottom: 14 },
-  send: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.brand,
+  attachTiles: { flexDirection: 'row', gap: space.md, paddingHorizontal: space.md, paddingBottom: space.sm },
+  tile: {
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: space.sm,
+    paddingVertical: space.lg,
+    borderRadius: radius.lg - 4,
+    backgroundColor: colors.main,
+    overflow: 'hidden',
   },
-  suggestions: { backgroundColor: colors.side, borderTopLeftRadius: 10, borderTopRightRadius: 10, paddingVertical: 4 },
-  suggestion: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8 },
-  suggestionName: { color: colors.head, fontSize: 15, fontWeight: '500' },
-  suggestionUser: { color: colors.muted, fontSize: 13 },
-  editBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
+  tileIcon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  tileText: { color: colors.head, fontSize: font.body - 0.5, fontWeight: '600' },
+  counter: { color: colors.muted, fontSize: 12, alignSelf: 'center', marginHorizontal: 4 },
+  suggestions: {
     backgroundColor: colors.side,
+    marginHorizontal: space.sm,
+    borderRadius: radius.lg - 4,
+    paddingVertical: 6,
+    marginBottom: 4,
+    overflow: 'hidden',
+    elevation: 4,
   },
-  editText: { color: colors.muted, fontSize: 13 },
+  suggestionsTitle: { ...textStyles.section, paddingHorizontal: 14, paddingVertical: 4 },
+  suggestion: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8 },
+  suggestionName: { color: colors.head, fontSize: 15, fontWeight: '600' },
+  suggestionUser: { color: colors.muted, fontSize: 13 },
+  editText: { flex: 1, color: colors.muted, fontSize: 13.5, fontWeight: '600' },
 });

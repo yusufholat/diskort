@@ -72,7 +72,11 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
         'Mesajlara yeni emoji tepkisi ekleyebilir. Kapalıyken de var olan tepkilere katılabilir.',
       ),
       info('MANAGE_MESSAGES', 'Mesajları Yönet', 'Başkalarının mesajlarını silebilir.'),
-      info('MENTION_EVERYONE', '@everyone Bahset', '@everyone yazarak kanalı gören herkese bildirim gönderebilir.'),
+      info(
+        'MENTION_EVERYONE',
+        '@everyone ve @here Bahset',
+        '@everyone yazarak kanalı gören herkese, @here yazarak kanalı gören ve o an çevrimiçi olanlara bildirim gönderebilir. Yetkisi olmayanın yazdığı @everyone düz metin kalır.',
+      ),
     ],
   },
   {

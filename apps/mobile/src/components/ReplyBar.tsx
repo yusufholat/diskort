@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   cancelReply,
@@ -9,6 +9,7 @@ import {
   useMessages,
 } from '@diskort/client-core';
 import { colors } from '../theme';
+import { ContextBar } from './ContextBar';
 
 /**
  * Yazma kutusunun üstündeki şerit (Discord'daki gibi): "@Ad kişisine yanıt veriliyor", asıl yazarın
@@ -22,8 +23,8 @@ export function ReplyBar({ channelId }: { channelId: string }) {
   const own = isOwnReplyTarget(draft);
 
   return (
-    <View style={styles.bar}>
-      <Ionicons name="arrow-undo" size={15} color={colors.muted} />
+    <ContextBar>
+      <Ionicons name="arrow-undo" size={15} color={colors.brandText} />
       <Text style={styles.text} numberOfLines={1}>
         <Text style={[styles.name, color ? { color } : null]}>@{author?.displayName ?? 'Silinmiş Kullanıcı'}</Text>{' '}
         kişisine yanıt veriliyor
@@ -35,7 +36,7 @@ export function ReplyBar({ channelId }: { channelId: string }) {
           accessibilityRole="switch"
           accessibilityState={{ checked: draft.mention }}
           accessibilityLabel="Asıl yazara bildirim"
-          style={({ pressed }) => [styles.toggle, pressed && { opacity: 0.6 }]}
+          style={({ pressed }) => [styles.toggle, draft.mention && styles.toggleOnBg, pressed && { opacity: 0.6 }]}
         >
           <Text style={[styles.toggleText, draft.mention && styles.toggleOn]}>@ {draft.mention ? 'AÇIK' : 'KAPALI'}</Text>
         </Pressable>
@@ -43,22 +44,15 @@ export function ReplyBar({ channelId }: { channelId: string }) {
       <Pressable hitSlop={10} onPress={() => cancelReply(channelId)} accessibilityLabel="Yanıtı iptal et">
         <Ionicons name="close-circle" size={20} color={colors.muted} />
       </Pressable>
-    </View>
+    </ContextBar>
   );
 }
 
 const styles = StyleSheet.create({
-  bar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: colors.side,
-  },
   text: { flex: 1, color: colors.muted, fontSize: 13.5 },
   name: { color: colors.text, fontWeight: '700' },
-  toggle: { paddingHorizontal: 6, paddingVertical: 2 },
-  toggleText: { color: colors.muted, fontSize: 12.5, fontWeight: '800' },
+  toggle: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6 },
+  toggleOnBg: { backgroundColor: 'rgba(0,168,252,0.12)' },
+  toggleText: { color: colors.muted, fontSize: 12, fontWeight: '800' },
   toggleOn: { color: colors.link },
 });

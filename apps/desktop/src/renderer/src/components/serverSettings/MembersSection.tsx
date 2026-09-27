@@ -1,13 +1,15 @@
 import { useMemo, useState, type MouseEvent } from 'react';
-import { Copy, Crown, MoreHorizontal, Plus, X } from 'lucide-react';
+import { ChevronDown, Copy, Crown, MoreHorizontal, Plus, ShieldCheck, X } from 'lucide-react';
 import { Permission, type User } from '@diskort/shared';
 import {
   api,
   canAssignRole,
+  effectivePermissions,
   errorMessage,
   memberColorOf,
   moderation,
   outranksUser,
+  PERMISSION_GROUPS,
   useCan,
   useGuild,
   useSession,
@@ -100,6 +102,7 @@ function MemberRow({ user, onResetCode }: { user: User; onResetCode: (code: stri
   });
   const isAdmin = useCan(Permission.ADMINISTRATOR);
   const openContextMenu = useUi((s) => s.openContextMenu);
+  const [showPermissions, setShowPermissions] = useState(false);
 
   const held = user.roles.map((id) => roles[id]).filter((r) => r !== undefined).sort((a, b) => b.position - a.position);
 
@@ -161,63 +164,129 @@ function MemberRow({ user, onResetCode }: { user: User; onResetCode: (code: stri
   };
 
   return (
-    <div
-      className="group flex items-center gap-3 rounded-md bg-bg-side px-3 py-2"
-      onContextMenu={(e) => openMenu(e, e.clientX, e.clientY)}
-    >
-      <Avatar user={user} size={36} online={online} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate font-semibold text-text-head" style={color ? { color } : undefined}>
-            {user.displayName}
-          </span>
-          {user.id === ownerId && <Crown size={14} aria-label="Sunucunun sahibi" className="shrink-0 text-warn" />}
-          {isSelf && <span className="text-xs text-text-muted">(sen)</span>}
+    <div className="rounded-md bg-bg-side" onContextMenu={(e) => openMenu(e, e.clientX, e.clientY)}>
+      <div className="group flex items-center gap-3 px-3 py-2">
+        <Avatar user={user} size={36} online={online} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate font-semibold text-text-head" style={color ? { color } : undefined}>
+              {user.displayName}
+            </span>
+            {user.id === ownerId && <Crown size={14} aria-label="Sunucunun sahibi" className="shrink-0 text-warn" />}
+            {isSelf && <span className="text-xs text-text-muted">(sen)</span>}
+          </div>
+          <div className="truncate text-xs text-text-muted">
+            @{user.username}
+            {voiceChannel && ` · 🔊 ${voiceChannel}`}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-1">
+            {held.map((role) => {
+              const removable = canAssignRole(useGuild.getState(), selfId, user.id, role);
+              return (
+                <span
+                  key={role.id}
+                  className="flex h-6 items-center gap-1.5 rounded bg-bg-main px-1.5 text-xs text-text-normal"
+                >
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: role.color ?? '#99aab5' }} />
+                  {role.name}
+                  {removable && (
+                    <button
+                      data-tooltip={`${role.name} rolünü al`}
+                      aria-label={`${role.name} rolünü al`}
+                      className="text-text-muted hover:text-danger"
+                      onClick={() => void moderation.setRole(user.id, role.id, false)}
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </span>
+              );
+            })}
+            <AddRoleButton items={addableRoles} />
+            <button
+              aria-expanded={showPermissions}
+              className="flex h-6 items-center gap-1 rounded px-1.5 text-xs text-text-muted hover:text-text-head"
+              onClick={() => setShowPermissions((v) => !v)}
+            >
+              <ShieldCheck size={12} /> Etkin izinler
+              <ChevronDown size={12} className={cn('transition-transform', showPermissions && 'rotate-180')} />
+            </button>
+          </div>
         </div>
-        <div className="truncate text-xs text-text-muted">
-          @{user.username}
-          {voiceChannel && ` · 🔊 ${voiceChannel}`}
-        </div>
-        <div className="mt-1 flex flex-wrap items-center gap-1">
-          {held.map((role) => {
-            const removable = canAssignRole(useGuild.getState(), selfId, user.id, role);
-            return (
-              <span
-                key={role.id}
-                className="flex h-6 items-center gap-1.5 rounded bg-bg-main px-1.5 text-xs text-text-normal"
-              >
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: role.color ?? '#99aab5' }} />
-                {role.name}
-                {removable && (
-                  <button
-                    data-tooltip={`${role.name} rolünü al`}
-                    aria-label={`${role.name} rolünü al`}
-                    className="text-text-muted hover:text-danger"
-                    onClick={() => void moderation.setRole(user.id, role.id, false)}
-                  >
-                    <X size={12} />
-                  </button>
-                )}
-              </span>
-            );
-          })}
-          <AddRoleButton items={addableRoles} />
-        </div>
+        <button
+          data-tooltip="Üyeyi yönet"
+          aria-label="Üyeyi yönet"
+          className={cn(
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-hover hover:text-text-head',
+            'opacity-70 group-hover:opacity-100',
+          )}
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            openMenu(e, rect.left, rect.bottom + 4);
+          }}
+        >
+          <MoreHorizontal size={18} />
+        </button>
       </div>
-      <button
-        data-tooltip="Üyeyi yönet"
-        aria-label="Üyeyi yönet"
-        className={cn(
-          'flex h-8 w-8 shrink-0 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-hover hover:text-text-head',
-          'opacity-70 group-hover:opacity-100',
-        )}
-        onClick={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          openMenu(e, rect.left, rect.bottom + 4);
-        }}
-      >
-        <MoreHorizontal size={18} />
-      </button>
+      {showPermissions && <EffectivePermissionsPanel userId={user.id} />}
+    </div>
+  );
+}
+
+/**
+ * Üyenin sunucu genelindeki etkin yetkileri ve her birinin hangi rolden geldiği: yetkiler birleştiği için
+ * (@everyone + rolleri) bir rolde kapatılan yetkinin üyede neden hâlâ olduğunu görmeye yarar.
+ */
+function EffectivePermissionsPanel({ userId }: { userId: string }) {
+  const guild = useGuild((s) => s.guild);
+  const roles = useGuild((s) => s.roles);
+  const users = useGuild((s) => s.users);
+  const summary = useMemo(() => effectivePermissions({ guild, roles, users }, userId), [guild, roles, users, userId]);
+  const granted = new Map(summary.granted.map((g) => [g.info.flag, g]));
+
+  if (summary.all) {
+    const via = granted.get(Permission.ADMINISTRATOR)?.roles.map((r) => r.name).join(', ');
+    return (
+      <div className="border-t border-line/60 px-3 py-2 text-sm text-text-muted">
+        {summary.all === 'owner' ? 'Sunucunun sahibi' : `Yönetici yetkisi${via ? ` (${via})` : ''}`}: bütün yetkilere
+        sahip ve kanal izinlerinden etkilenmez.
+      </div>
+    );
+  }
+  return (
+    <div className="border-t border-line/60 px-3 py-2">
+      {summary.granted.length === 0 && <div className="text-sm text-text-muted">Hiçbir yetkisi yok.</div>}
+      {PERMISSION_GROUPS.map((group) => {
+        const items = group.permissions.flatMap((p) => granted.get(p.flag) ?? []);
+        if (items.length === 0) return null;
+        return (
+          <div key={group.title} className="mb-1.5 flex flex-wrap items-center gap-1">
+            <span className="mr-1 w-28 shrink-0 text-[11px] font-bold tracking-wide text-text-muted uppercase">
+              {group.title}
+            </span>
+            {items.map(({ info, roles: from }) => {
+              // Yalnızca @everyone'dan gelen yetki herkeste var: soluk gösterilir
+              const everyoneOnly = from.length === 1 && from[0]!.id === guild?.id;
+              return (
+                <span
+                  key={info.name}
+                  className={cn(
+                    'rounded px-1.5 py-0.5 text-xs',
+                    everyoneOnly ? 'bg-bg-main text-text-muted' : 'bg-brand/20 text-text-normal',
+                  )}
+                  data-tooltip={`Kaynak: ${from.map((r) => r.name).join(', ')}`}
+                >
+                  {info.label}
+                </span>
+              );
+            })}
+          </div>
+        );
+      })}
+      <div className="mt-1 text-xs text-text-faint">
+        Soluk olanlar @everyone rolünden gelir (herkeste var). Kaynağını görmek için üzerine gel; kanal izinleri bir
+        kanalda bunları değiştirebilir.
+      </div>
     </div>
   );
 }

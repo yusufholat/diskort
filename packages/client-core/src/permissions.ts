@@ -17,6 +17,7 @@ import {
   type User,
 } from '@diskort/shared';
 import { useGuild, type GuildStore } from './guild';
+import { PERMISSION_GROUPS, type PermissionInfo } from './permissionInfo';
 import { useSession } from './session';
 
 // Yetkiler sunucudakiyle aynı kodla hesaplanır (@diskort/shared). İstemci bunları yalnızca yapılamayacak
@@ -155,6 +156,73 @@ export function memberGroups(s: Pick<GuildStore, 'guild' | 'roles' | 'users' | '
   if (online.length) groups.push({ id: 'online', title: 'Çevrimiçi', members: online.sort(byName) });
   if (offline.length) groups.push({ id: 'offline', title: 'Çevrimdışı', members: offline.sort(byName) });
   return groups;
+}
+
+// ---------- Rol düzenleme ve etkin yetkiler ----------
+
+/**
+ * Rol düzenleme ekranında bir yetkinin bu rol için anlamı. Yetkiler birleşir (Discord gibi: @everyone +
+ * üyenin rolleri); bu yüzden bir rolde kapatmak, yetkiyi başka yerden alanları kısıtlamaz:
+ * - 'administrator': rolde Yönetici açık, diğer her yetki zaten var;
+ * - 'everyone': @everyone rolünde açık, herkeste zaten var (kısıtlamak için @everyone'da kapatılmalı);
+ * - 'role': rolün kendi ayarı geçerli.
+ * @everyone rolünün kendisi için her zaman 'role'.
+ */
+export type RolePermissionSource = 'role' | 'administrator' | 'everyone';
+
+export function rolePermissionSource(
+  role: { permissions: number; isEveryone: boolean },
+  everyonePermissions: number,
+  flag: number,
+): RolePermissionSource {
+  if (role.isEveryone) return 'role';
+  if (flag !== Permission.ADMINISTRATOR && hasPermission(role.permissions, Permission.ADMINISTRATOR)) {
+    return 'administrator';
+  }
+  if (hasPermission(everyonePermissions, flag) || hasPermission(everyonePermissions, Permission.ADMINISTRATOR)) {
+    return 'everyone';
+  }
+  return 'role';
+}
+
+/** Üyenin bir yetkisi ve onu veren roller (@everyone dahil, yukarıdan aşağı) */
+export interface PermissionGrant {
+  info: PermissionInfo;
+  roles: Role[];
+}
+
+export interface EffectivePermissions {
+  /**
+   * Her yetkiye sahip ve kanal izinlerinden etkilenmez: 'owner' sunucunun sahibi, 'administrator' Yönetici
+   * yetkili bir rolü (ya da @everyone'da Yönetici) var. null: yalnızca `granted` içindekiler.
+   */
+  all: 'owner' | 'administrator' | null;
+  /** Rollerinden gelen yetkiler, rol ekranındaki sırayla (kanal izinleri hesaba katılmaz) */
+  granted: PermissionGrant[];
+}
+
+const NO_GRANTS: EffectivePermissions = { all: null, granted: [] };
+
+/** Üyenin sunucu genelindeki etkin yetkileri ve her birinin kaynağı (üye yönetiminde gösterilir) */
+export function effectivePermissions(
+  s: Pick<GuildStore, 'guild' | 'roles' | 'users'>,
+  userId: string,
+): EffectivePermissions {
+  const user = s.users[userId];
+  if (!s.guild || !user || user.removed) return NO_GRANTS;
+  const everyone = s.roles[s.guild.id];
+  const held = sortRoles(
+    [...rolesOf(s, userId).map((id) => s.roles[id]), everyone].filter((r): r is Role => r !== undefined),
+  );
+  const granted = PERMISSION_GROUPS.flatMap((g) => g.permissions)
+    .map((info) => ({ info, roles: held.filter((r) => hasPermission(r.permissions, info.flag)) }))
+    .filter((g) => g.roles.length > 0);
+  const all = isOwner(s, userId)
+    ? 'owner'
+    : granted.some((g) => g.info.flag === Permission.ADMINISTRATOR)
+      ? 'administrator'
+      : null;
+  return { all, granted };
 }
 
 // ---------- Kanal izinleri (düzenleme ekranı) ----------

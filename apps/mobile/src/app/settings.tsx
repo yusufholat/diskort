@@ -1,18 +1,19 @@
 import { useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { api, errorMessage, gateway, removeAvatar, uploadAvatar, useSession } from '@diskort/client-core';
 import { pickAvatar } from '../attachments';
 import { Avatar } from '../components/Avatar';
 import { PressableScale } from '../components/PressableScale';
-import { Button, FadeIn, Field, SectionTitle, ui } from '../components/ui';
+import { Button, Card, FadeIn, Field, NavRow, SectionTitle, ui } from '../components/ui';
 import { VoiceSettings } from '../components/VoiceSettings';
 import { animateNextLayout } from '../motion';
 import { registerForPush, unregisterPush, usePushState } from '../notifications';
 import { APP_VERSION, NATIVE_VERSION } from '../version';
 import { DEFAULT_SERVER_URL, useSettings } from '../stores/settings';
 import { toast } from '../stores/ui';
-import { colors } from '../theme';
+import { colors, font, radius, space } from '../theme';
 import { voice } from '../voice/voice';
 
 export default function SettingsScreen() {
@@ -48,58 +49,96 @@ export default function SettingsScreen() {
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.profile}>
-        <PressableScale scaleTo={0.92} onPress={() => void photo.change()} disabled={photo.busy !== null} accessibilityLabel="Profil fotoğrafını değiştir">
-          <Avatar user={user} size={64} />
-        </PressableScale>
-        <View style={{ flex: 1 }}>
+        <View style={styles.banner} />
+        <View style={styles.profileBody}>
+          <PressableScale
+            scaleTo={0.94}
+            onPress={() => void photo.change()}
+            disabled={photo.busy !== null}
+            accessibilityLabel="Profil fotoğrafını değiştir"
+            style={styles.avatarWrap}
+          >
+            <Avatar user={user} size={80} online surface={colors.side} />
+            <View style={styles.cameraBadge}>
+              {photo.busy ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="camera" size={15} color="#fff" />
+              )}
+            </View>
+          </PressableScale>
           <Text style={styles.name}>{user.displayName}</Text>
           <Text style={styles.username}>@{user.username}</Text>
+          {user.avatarUrl ? (
+            <Pressable
+              onPress={() => void photo.remove()}
+              disabled={photo.busy !== null}
+              hitSlop={8}
+              style={styles.removePhoto}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.removePhotoText, photo.confirmRemove && { color: colors.dangerText }]}>
+                {photo.confirmRemove ? 'Emin misin? Fotoğrafı kaldır' : 'Fotoğrafı kaldır'}
+              </Text>
+            </Pressable>
+          ) : (
+            <Text style={styles.photoHint}>Fotoğraf eklemek için avatara dokun</Text>
+          )}
         </View>
       </View>
 
       <SectionTitle>Hesap</SectionTitle>
-      <Field label="Görünen ad" value={displayName} onChangeText={setDisplayName} maxLength={32} />
-      <Button
-        title="Kaydet"
-        busy={savingName}
-        disabled={!displayName.trim() || displayName.trim() === user.displayName}
-        onPress={() => void saveName()}
-      />
-
-      <SectionTitle>Profil Fotoğrafı</SectionTitle>
-      <Button
-        title={user.avatarUrl ? 'Fotoğrafı Değiştir' : 'Fotoğraf Seç'}
-        variant="secondary"
-        busy={photo.busy === 'upload'}
-        disabled={photo.busy !== null}
-        onPress={() => void photo.change()}
-      />
-      {user.avatarUrl ? (
-        <View style={{ marginTop: 8 }}>
-          <Button
-            title={photo.confirmRemove ? 'Emin misin? Fotoğrafı kaldır' : 'Fotoğrafı Kaldır'}
-            variant={photo.confirmRemove ? 'danger' : 'ghost'}
-            busy={photo.busy === 'remove'}
-            disabled={photo.busy !== null}
-            onPress={() => void photo.remove()}
-          />
-        </View>
-      ) : null}
+      <Card style={styles.cardPad}>
+        <Field label="Görünen ad" value={displayName} onChangeText={setDisplayName} maxLength={32} />
+        <Button
+          title="Kaydet"
+          busy={savingName}
+          disabled={!displayName.trim() || displayName.trim() === user.displayName}
+          onPress={() => void saveName()}
+        />
+      </Card>
 
       <NotificationSettings />
 
       <VoiceSettings />
 
-      <SectionTitle>Geri Bildirim</SectionTitle>
-      <Text style={styles.warning}>Hata mı buldun, bir fikrin mi var? Gönderdiklerinin durumunu da orada görürsün.</Text>
-      <Button title="Geri bildirim gönder" variant="secondary" onPress={() => router.push('/feedback')} />
+      <SectionTitle>Destek</SectionTitle>
+      <Card>
+        <NavRow
+          first
+          icon="chatbubble-ellipses"
+          iconColor={colors.ok}
+          label="Geri bildirim gönder"
+          detail="Hata mı buldun, bir fikrin mi var? Durumunu da orada görürsün."
+          onPress={() => router.push('/feedback')}
+        />
+        <NavRow
+          icon="sparkles"
+          label="Yenilikler"
+          detail="Sürüm notları: her sürümde neler değişti"
+          onPress={() => router.push('/whats-new')}
+        />
+      </Card>
 
       <SectionTitle>Uygulama</SectionTitle>
-      <Info label="Sürüm" value={APP_VERSION === NATIVE_VERSION ? APP_VERSION : `${APP_VERSION} (APK ${NATIVE_VERSION})`} />
-      {serverUrl !== DEFAULT_SERVER_URL && <Info label="Sunucu" value={serverUrl} />}
-      <Pressable onPress={() => void Linking.openURL(`${DEFAULT_SERVER_URL}/privacy`)} style={styles.link}>
-        <Text style={styles.linkText}>Gizlilik</Text>
-      </Pressable>
+      <Card>
+        <NavRow
+          first
+          icon="information-circle"
+          iconColor={colors.control}
+          label="Sürüm"
+          value={APP_VERSION === NATIVE_VERSION ? APP_VERSION : `${APP_VERSION} (APK ${NATIVE_VERSION})`}
+        />
+        {serverUrl !== DEFAULT_SERVER_URL && (
+          <NavRow icon="server" iconColor={colors.control} label="Sunucu" value={serverUrl} />
+        )}
+        <NavRow
+          icon="shield-checkmark"
+          iconColor={colors.control}
+          label="Gizlilik"
+          onPress={() => void Linking.openURL(`${DEFAULT_SERVER_URL}/privacy`)}
+        />
+      </Card>
 
       <View style={{ marginTop: 24 }}>
         <Button title="Çıkış Yap" variant="secondary" onPress={() => void logout()} />
@@ -180,23 +219,27 @@ function NotificationSettings() {
   return (
     <View>
       <SectionTitle>Bildirimler</SectionTitle>
-      <Text style={[styles.warning, state.kind === 'error' && { color: '#fa777c' }]} selectable>
-        {text}
-      </Text>
-      {state.kind === 'registered' ? (
-        <Button title="Test bildirimi gönder" variant="secondary" busy={busy} onPress={() => void test()} />
-      ) : (
-        <Button title="Yeniden dene" variant="secondary" onPress={() => void registerForPush()} />
-      )}
-    </View>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.info}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={styles.infoValue}>{value}</Text>
+      <Card style={styles.cardPad}>
+        <View style={styles.pushRow}>
+          <View
+            style={[
+              styles.pushDot,
+              {
+                backgroundColor:
+                  state.kind === 'registered' ? colors.ok : state.kind === 'denied' || state.kind === 'error' ? colors.danger : colors.warn,
+              },
+            ]}
+          />
+          <Text style={[styles.warning, { flex: 1, marginBottom: 0 }, state.kind === 'error' && { color: colors.dangerText }]} selectable>
+            {text}
+          </Text>
+        </View>
+        {state.kind === 'registered' ? (
+          <Button title="Test bildirimi gönder" variant="secondary" busy={busy} onPress={() => void test()} />
+        ) : (
+          <Button title="Yeniden dene" variant="secondary" onPress={() => void registerForPush()} />
+        )}
+      </Card>
     </View>
   );
 }
@@ -223,55 +266,75 @@ function DeleteAccount({ onDeleted }: { onDeleted: () => void }) {
 
   return (
     <View>
-      <SectionTitle>Hesabı Sil</SectionTitle>
-      <Text style={styles.warning}>
-        Hesabın kalıcı olarak silinir ve geri alınamaz. Mesajların kalır, yazarı “Silinmiş Kullanıcı” görünür.
-      </Text>
-      {open ? (
-        <>
-          <Field label="Onaylamak için şifren" value={password} onChangeText={setPassword} secureTextEntry autoFocus />
-          {error && (
-            <FadeIn style={ui.errorBox} shakeKey={attempt}>
-              <Text style={ui.errorText}>{error}</Text>
-            </FadeIn>
-          )}
-          <Button title="Hesabımı Kalıcı Olarak Sil" variant="danger" busy={busy} disabled={!password} onPress={() => void submit()} />
-          <View style={{ marginTop: 8 }}>
-            <Button
-              title="Vazgeç"
-              variant="ghost"
-              onPress={() => {
-                animateNextLayout(180);
-                setOpen(false);
-              }}
-            />
-          </View>
-        </>
-      ) : (
-        <Button
-          title="Hesabımı Sil"
-          variant="danger"
-          onPress={() => {
-            // Şifre alanı yumuşakça açılır
-            animateNextLayout(200);
-            setOpen(true);
-          }}
-        />
-      )}
+      <SectionTitle>Tehlikeli bölge</SectionTitle>
+      <Card style={[styles.cardPad, styles.dangerCard]}>
+        <Text style={styles.warning}>
+          Hesabın kalıcı olarak silinir ve geri alınamaz. Mesajların kalır, yazarı “Silinmiş Kullanıcı” görünür.
+        </Text>
+        {open ? (
+          <>
+            <Field label="Onaylamak için şifren" value={password} onChangeText={setPassword} secureTextEntry autoFocus />
+            {error && (
+              <FadeIn style={ui.errorBox} shakeKey={attempt}>
+                <Text style={ui.errorText}>{error}</Text>
+              </FadeIn>
+            )}
+            <Button title="Hesabımı Kalıcı Olarak Sil" variant="danger" busy={busy} disabled={!password} onPress={() => void submit()} />
+            <View style={{ marginTop: 8 }}>
+              <Button
+                title="Vazgeç"
+                variant="ghost"
+                onPress={() => {
+                  animateNextLayout(180);
+                  setOpen(false);
+                }}
+              />
+            </View>
+          </>
+        ) : (
+          <Button
+            title="Hesabımı Sil"
+            variant="danger"
+            onPress={() => {
+              // Şifre alanı yumuşakça açılır
+              animateNextLayout(200);
+              setOpen(true);
+            }}
+          />
+        )}
+      </Card>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.main },
-  content: { padding: 16, paddingBottom: 48 },
-  profile: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: colors.rail, borderRadius: 10, padding: 16 },
-  name: { color: colors.head, fontSize: 19, fontWeight: '700' },
-  username: { color: colors.muted, fontSize: 14, marginTop: 2 },
-  info: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10 },
-  infoLabel: { color: colors.muted, fontSize: 15 },
-  infoValue: { color: colors.text, fontSize: 15 },
-  link: { paddingVertical: 10 },
-  linkText: { color: colors.link, fontSize: 15 },
-  warning: { color: colors.muted, fontSize: 14, lineHeight: 20, marginBottom: 12 },
+  content: { padding: space.lg, paddingBottom: 48 },
+  profile: { backgroundColor: colors.side, borderRadius: radius.lg, overflow: 'hidden' },
+  banner: { height: 64, backgroundColor: colors.brand },
+  profileBody: { alignItems: 'center', paddingHorizontal: space.lg, paddingBottom: space.lg, marginTop: -44 },
+  avatarWrap: { padding: 4, borderRadius: 48, backgroundColor: colors.side },
+  cameraBadge: {
+    position: 'absolute',
+    right: 2,
+    bottom: 2,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.brand,
+    borderWidth: 3,
+    borderColor: colors.side,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  name: { color: colors.head, fontSize: font.heading + 2, fontWeight: '800', marginTop: space.sm },
+  username: { color: colors.muted, fontSize: font.body - 1, marginTop: 2 },
+  removePhoto: { marginTop: space.md },
+  removePhotoText: { color: colors.muted, fontSize: font.small, fontWeight: '600' },
+  photoHint: { color: colors.faint, fontSize: font.caption, marginTop: space.md },
+  cardPad: { padding: space.lg },
+  dangerCard: { borderWidth: 1, borderColor: 'rgba(242,63,67,0.35)' },
+  pushRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm + 2, marginBottom: space.md },
+  pushDot: { width: 10, height: 10, borderRadius: 5, marginTop: 5 },
+  warning: { color: colors.muted, fontSize: font.small, lineHeight: 20, marginBottom: space.md },
 });
