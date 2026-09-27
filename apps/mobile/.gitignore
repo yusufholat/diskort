@@ -29,6 +29,8 @@ yarn-error.*
 # macOS
 .DS_Store
 *.pem
+# OTA imza sertifikası herkese açıktır (uygulamaya gömülür); özel anahtar depoda DEĞİL
+!certs/certificate.pem
 
 # local env files
 .env*.local
