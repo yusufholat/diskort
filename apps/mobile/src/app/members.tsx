@@ -2,7 +2,7 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import { Pressable, SectionList, Text, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import type { User } from '@diskort/shared';
 import { memberGroups, useCustomStatus, useGuild, useMemberColor, useSession, useStatus } from '@diskort/client-core';
 import { Avatar } from '../components/Avatar';
@@ -103,7 +103,10 @@ const MemberRow = memo(function MemberRow({
             <Text style={[styles.name, color ? { color } : null]} numberOfLines={1}>
               {user.displayName}
             </Text>
-            {owner && <Ionicons name="star" size={13} color={colors.warn} accessibilityLabel="Sunucunun sahibi" />}
+            {/* Masaüstündeki gibi taç; Ionicons'ta taç yok */}
+            {owner && (
+              <MaterialCommunityIcons name="crown-outline" size={14} color={colors.warn} accessibilityLabel="Sunucunun sahibi" />
+            )}
             {self && (
               <View style={styles.youTag}>
                 <Text style={styles.youText}>SEN</Text>
