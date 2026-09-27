@@ -166,7 +166,7 @@ function IconAction({
       aria-label={title}
       onClick={onClick}
       className={cn(
-        'flex h-8 w-8 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-hover',
+        'press-icon flex h-8 w-8 items-center justify-center rounded text-text-muted hover:bg-bg-hover',
         danger ? 'hover:text-danger' : 'hover:text-text-head',
       )}
     >

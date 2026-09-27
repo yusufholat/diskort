@@ -72,7 +72,7 @@ function targetOf(node: EventTarget | null): HTMLElement | null {
 /** Uygulamanın kökünde bir kez bulunur; tüm `data-tooltip` / `title` öğelerinin ipucunu çizer. */
 export function TooltipHost() {
   const [tip, setTip] = useState<Tip | null>(null);
-  const { value: shown, closing } = usePresence(tip, 80);
+  const { value: shown, closing } = usePresence(tip, 100);
 
   useEffect(() => {
     let current: HTMLElement | null = null;
