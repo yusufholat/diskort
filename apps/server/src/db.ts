@@ -294,9 +294,36 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX invites_by_guild ON invites(guild_id);
   UPDATE roles SET permissions = permissions | ${Permission.CREATE_INVITE} WHERE id = guild_id;
   `,
+  // 15: kullanıcı durumu. Hesap başına tek satır (hiç ayarlamamış hesapta yok = 'online', özel durum yok).
+  // status_expires_at / custom_expires_at: süre dolunca sunucu satırı varsayılana çeker (bkz. presence.ts);
+  // okurken de süresi geçmiş değer yok sayılır.
+  `
+  CREATE TABLE user_status (
+    user_id           TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    status            TEXT NOT NULL DEFAULT 'online' CHECK (status IN ('online', 'idle', 'dnd', 'invisible')),
+    status_expires_at INTEGER,
+    custom_text       TEXT,
+    custom_emoji      TEXT,
+    custom_expires_at INTEGER,
+    updated_at        INTEGER NOT NULL
+  ) WITHOUT ROWID;
+  CREATE INDEX user_status_status_expiry ON user_status(status_expires_at) WHERE status_expires_at IS NOT NULL;
+  CREATE INDEX user_status_custom_expiry ON user_status(custom_expires_at) WHERE custom_expires_at IS NOT NULL;
+  `,
 ];
 
 type Param = string | number | null;
+
+/** user_status satırı */
+export interface StatusRow {
+  user_id: string;
+  status: 'online' | 'idle' | 'dnd' | 'invisible';
+  status_expires_at: number | null;
+  custom_text: string | null;
+  custom_emoji: string | null;
+  custom_expires_at: number | null;
+  updated_at: number;
+}
 
 interface UserRow {
   id: string;
@@ -1701,6 +1728,75 @@ export class Store {
       this.run("DELETE FROM channels WHERE id = ? AND type = 'dm'", id);
     }
     return files;
+  }
+
+  // ---------- Kullanıcı durumu ----------
+
+  /** Kaydedilmiş durum satırı (süresi geçmiş değerler dahil; yorumlama presence.ts'de) */
+  getStatusRow(userId: string): StatusRow | undefined {
+    return this.one<StatusRow>('SELECT * FROM user_status WHERE user_id = ?', userId);
+  }
+
+  saveStatusRow(row: Omit<StatusRow, 'updated_at'>): void {
+    this.run(
+      `INSERT INTO user_status (user_id, status, status_expires_at, custom_text, custom_emoji, custom_expires_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (user_id) DO UPDATE SET status = excluded.status, status_expires_at = excluded.status_expires_at,
+         custom_text = excluded.custom_text, custom_emoji = excluded.custom_emoji,
+         custom_expires_at = excluded.custom_expires_at, updated_at = excluded.updated_at`,
+      row.user_id,
+      row.status,
+      row.status_expires_at,
+      row.custom_text,
+      row.custom_emoji,
+      row.custom_expires_at,
+      Date.now(),
+    );
+  }
+
+  /**
+   * Süresi dolan durumları 'online'a, süresi dolan özel durumları boşa çeker. Değişen hesapların
+   * kimliklerini döner.
+   */
+  expireStatuses(now: number): string[] {
+    return this.tx(() => {
+      const ids = new Set<string>();
+      for (const r of this.all<{ user_id: string }>(
+        'SELECT user_id FROM user_status WHERE status_expires_at <= ? OR custom_expires_at <= ?',
+        now,
+        now,
+      )) {
+        ids.add(r.user_id);
+      }
+      if (ids.size === 0) return [];
+      this.run(
+        "UPDATE user_status SET status = 'online', status_expires_at = NULL, updated_at = ? WHERE status_expires_at <= ?",
+        now,
+        now,
+      );
+      this.run(
+        `UPDATE user_status SET custom_text = NULL, custom_emoji = NULL, custom_expires_at = NULL, updated_at = ?
+         WHERE custom_expires_at <= ?`,
+        now,
+        now,
+      );
+      return [...ids];
+    });
+  }
+
+  /** Rahatsız Etmeyin'de olanlar (süresi geçmemiş); telefonlarına bildirim gitmez */
+  dndUserIds(userIds: string[], now = Date.now()): Set<string> {
+    if (userIds.length === 0) return new Set();
+    // Rahatsız Etmeyin'deki hesap az olur: hepsi okunup süzülür (uzun IN listesi yerine)
+    const wanted = new Set(userIds);
+    return new Set(
+      this.all<{ user_id: string }>(
+        `SELECT user_id FROM user_status WHERE status = 'dnd' AND (status_expires_at IS NULL OR status_expires_at > ?)`,
+        now,
+      )
+        .map((r) => r.user_id)
+        .filter((id) => wanted.has(id)),
+    );
   }
 
   // ---------- Bildirim jetonları ----------

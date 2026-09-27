@@ -2,9 +2,11 @@
 
 import type { Feedback } from './feedback';
 import type { PermissionOverwrite, Role } from './permissions';
+import type { Presence, SelfStatus } from './presence';
 
 export * from './permissions';
 export * from './feedback';
+export * from './presence';
 
 // ---------- Modeller ----------
 
@@ -72,6 +74,8 @@ export interface GuildCreatePayload extends GuildData {
   voiceStates: VoiceState[];
   /** Bu sunucunun çevrimiçi üyeleri */
   online: string[];
+  /** Çevrimiçi üyelerin durumları (eski sunucularda gelmez: hepsi 'online' sayılır) */
+  presences?: Record<string, Presence>;
   lastMessageIds: Record<string, string>;
   readStates: Record<string, string>;
   mentionCounts: Record<string, number>;
@@ -481,8 +485,15 @@ export interface ReadyPayload {
   users: User[];
   /** Yalnızca görülebilen ses kanallarındakiler */
   voiceStates: VoiceState[];
-  /** Ortak sunucularda çevrimiçi olanlar */
+  /** Ortak sunucularda çevrimiçi olanlar (görünmez olanlar hariç) */
   online: string[];
+  /**
+   * `online` listesindekilerin durumu ve özel durumu (eski sunucularda gelmez: hepsi 'online' sayılır).
+   * Kullanıcının kendisi de, çevrimiçi görünüyorsa, buradadır (otomatik "boşta" dahil).
+   */
+  presences?: Record<string, Presence>;
+  /** Kullanıcının kendi durum ayarları (eski sunucularda gelmez) */
+  status?: SelfStatus;
   /**
    * Ana sunucu (ilk kurulan): hesap yöneticileri onun yöneticileridir, geri bildirimleri onu yönetenler
    * görür. Kullanıcı üyesi olmasa da bildirilir.
@@ -516,7 +527,13 @@ export type GatewayServerMessage =
   /** Profil değişti (ya da yeni tanınan biri) */
   | { t: 'USER_UPDATE'; d: User }
   | { t: 'USER_DELETE'; d: { id: string } }
-  | { t: 'PRESENCE_UPDATE'; d: { userId: string; online: boolean } }
+  /**
+   * Çevrimiçi durumu değişti. `online` eski istemciler içindir (boşta/rahatsız etmeyin = true, görünmez =
+   * false); `status` ve `customStatus` eski sunucularda gelmez. Kullanıcının kendisine de gider.
+   */
+  | { t: 'PRESENCE_UPDATE'; d: { userId: string; online: boolean } & Partial<Presence> }
+  /** Kendi durum ayarların değişti (başka cihazdan, süresi doldu ya da özel durum temizlendi) */
+  | { t: 'USER_STATUS_UPDATE'; d: SelfStatus }
   | { t: 'CHANNEL_CREATE'; d: Channel }
   | { t: 'CHANNEL_UPDATE'; d: Channel }
   | { t: 'CHANNEL_DELETE'; d: { id: string; guildId?: string } }
@@ -581,12 +598,19 @@ export interface IdentifyPayload {
 
 /** İstemci direkt mesajları tanıyor: READY'de `dms`, DM_CHANNEL_* ve DM mesaj olayları gelir */
 export const CLIENT_FEATURE_DM = 'dm';
+/**
+ * İstemci boşta olduğunu bildirir (IDLE_SET). Bunu bildiren bir masaüstü oturumu etkinken (boşta değil)
+ * telefonlara bildirim gönderilmez: kişi mesajı zaten masaüstünde canlı görüyor.
+ */
+export const CLIENT_FEATURE_PRESENCE = 'presence';
 
 export type GatewayClientMessage =
   | { t: 'IDENTIFY'; d: IdentifyPayload }
   | { t: 'HEARTBEAT' }
   | { t: 'VOICE_STATE_SET'; d: { selfMute: boolean; selfDeaf: boolean } }
-  | { t: 'TYPING_START'; d: { channelId: string } };
+  | { t: 'TYPING_START'; d: { channelId: string } }
+  /** Bu oturum boşta mı (masaüstünde ~10 dk girdi yok ya da ekran kilitli; telefonda uygulama arka planda) */
+  | { t: 'IDLE_SET'; d: { idle: boolean } };
 
 // ---------- Sabitler ----------
 

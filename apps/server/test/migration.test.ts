@@ -429,7 +429,7 @@ describe('göç 14: çoklu sunucu', () => {
     const store = new Store(file);
     try {
       const db = store.db;
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 14 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
       expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
       expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
       for (const t of tables) expect([t, count(db, t)]).toEqual([t, counts[t]]);
@@ -530,7 +530,7 @@ describe('göç 14: çoklu sunucu', () => {
     new Store(file).close();
     const store = new Store(file);
     try {
-      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 14 });
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
       expect(store.db.prepare('SELECT COUNT(*) AS n FROM guild_members').get()).toEqual({ n: 5 });
       expect(store.guildRoles('g1').find((r) => r.id === 'g1')!.permissions & P.CREATE_INVITE).toBe(P.CREATE_INVITE);
     } finally {

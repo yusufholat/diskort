@@ -132,14 +132,19 @@ type EventData<T extends GatewayServerMessage['t']> =
  * Gateway'e bağlanır, READY'yi bekler; sunucu önceden app.listen ile açılmış olmalı. `features` verilmezse
  * IDENTIFY'da özellik bildirmeyen eski istemci gibi davranır.
  */
-export function connectGateway(app: FastifyInstance, token: string, features?: string[]): Promise<GatewayClient> {
+export function connectGateway(
+  app: FastifyInstance,
+  token: string,
+  features?: string[],
+  identify: Record<string, unknown> = {},
+): Promise<GatewayClient> {
   const { port } = app.server.address() as { port: number };
   return new Promise((resolve) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/gateway`);
     const events: GatewayServerMessage[] = [];
     ws.on('message', (raw) => {
       const msg = JSON.parse(raw.toString()) as GatewayServerMessage;
-      if (msg.t === 'HELLO') ws.send(JSON.stringify({ t: 'IDENTIFY', d: { token, ...(features ? { features } : {}) } }));
+      if (msg.t === 'HELLO') ws.send(JSON.stringify({ t: 'IDENTIFY', d: { token, ...identify, ...(features ? { features } : {}) } }));
       else if (msg.t === 'READY') {
         resolve({
           ws,
