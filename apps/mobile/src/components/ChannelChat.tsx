@@ -37,6 +37,7 @@ import {
   useCustomStatus,
   useGuild,
   useMessages,
+  useOnlineViewerCount,
   usePins,
   useSession,
   useStatus,
@@ -338,7 +339,11 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
         <OtherUnread channelId={id} />
       </HeaderButton>
       <View style={styles.headerTitle}>
-        {dm ? <DmTitle dm={dm} name={dmName} /> : <ChannelTitle name={channel?.name ?? ''} />}
+        {dm ? (
+          <DmTitle dm={dm} name={dmName} />
+        ) : (
+          <ChannelTitle channelId={id} name={channel?.name ?? ''} onPress={() => router.push('/members')} />
+        )}
       </View>
       <HeaderButton icon="pin-outline" label="Sabitlenmiş mesajlar" size={22} onPress={() => openPinsSheet(id)}>
         <UnseenPins channelId={id} />
@@ -352,9 +357,16 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
             onPress={() => router.push({ pathname: '/dm-new', params: { addTo: dm.id } })}
           />
         ) : null
-      ) : (
-        <HeaderButton icon="people" label="Üyeler" size={22} onPress={() => router.push('/members')} />
-      )}
+      ) : null}
+      {/* Discord gibi: sağda arama (üyeler başlığa dokununca açılır) */}
+      <HeaderButton
+        icon="search"
+        label="Mesajlarda ara"
+        size={22}
+        onPress={() =>
+          router.push({ pathname: '/search', params: dm ? { dmId: dm.id } : { guildId: channel?.guildId ?? '' } })
+        }
+      />
     </View>
   );
 
@@ -497,15 +509,34 @@ function UnseenPins({ channelId }: { channelId: string }) {
   return unseen ? <View style={styles.pinDot} /> : null;
 }
 
-/** Başlık: kanal adı # simgesiyle */
-function ChannelTitle({ name }: { name: string }) {
+/**
+ * Başlık (Discord mobil gibi): "# kanal ›" ve altında kanalı görebilen çevrimiçi üye sayısı; dokununca
+ * üye listesi açılır.
+ */
+function ChannelTitle({ channelId, name, onPress }: { channelId: string; name: string; onPress: () => void }) {
+  const online = useOnlineViewerCount(channelId);
   return (
-    <View style={styles.title}>
-      <Feather name="hash" size={20} color={colors.muted} />
-      <Text style={styles.titleText} numberOfLines={1}>
-        {name}
-      </Text>
-    </View>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${name} kanalı, ${online} çevrim içi. Üyeleri göster`}
+      style={({ pressed }) => [styles.channelTitle, pressed && { opacity: 0.6 }]}
+      hitSlop={6}
+    >
+      <View style={styles.title}>
+        <Feather name="hash" size={18} color={colors.muted} />
+        <Text style={[styles.titleText, { fontSize: 17 }]} numberOfLines={1}>
+          {name}
+        </Text>
+        <Feather name="chevron-right" size={18} color={colors.muted} style={{ marginLeft: -2 }} />
+      </View>
+      <View style={styles.onlineRow}>
+        <View style={styles.onlineDot} />
+        <Text style={styles.titleSub} numberOfLines={1}>
+          {online} çevrim içi
+        </Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -874,6 +905,9 @@ const styles = createStyles(() => ({
   title: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   titleText: { color: colors.head, fontSize: 18, fontWeight: '700', flexShrink: 1 },
   titleSub: { color: colors.muted, fontSize: 12, marginTop: -1 },
+  channelTitle: { alignSelf: 'flex-start', maxWidth: '100%' },
+  onlineRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginLeft: 2 },
+  onlineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.ok },
   intro: { paddingHorizontal: space.lg, paddingTop: space.xxl, paddingBottom: space.sm },
   introIcon: {
     width: 68,

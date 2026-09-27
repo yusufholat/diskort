@@ -31,6 +31,8 @@ import {
   type Role,
   type User,
   referenceOf,
+  SEARCH_TOTAL_CAP,
+  type SearchHas,
 } from '@diskort/shared';
 import { AVATAR_COLORS } from '@diskort/shared';
 import { FEEDBACK_MIGRATION } from './feedbackStore.js';
@@ -52,6 +54,33 @@ const V8_EVERYONE =
 /** Göçte ve yeni toplulukta oluşturulan yönetici rolü */
 const ADMIN_ROLE_NAME = 'Yönetici';
 const ADMIN_ROLE_COLOR = '#e67e22';
+
+/**
+ * Mesaj araması için SQLite FTS5 dizini (göç 19). Dizinde mesaj metninin arama için katlanmış kopyası
+ * durur (rowid = mesaj kimliği); tetikleyiciler ekleme/düzenleme/silmede (kanal ya da konuşma silinince
+ * zincirleme silinenler dahil) dizini güncel tutar, göç var olan mesajları baştan dizinler.
+ * Sözcük ayırıcı unicode61 + remove_diacritics 2: büyük/küçük harf ve aksan duyarsız (ç=c, ş=s, ğ=g, ö=o,
+ * ü=u, İ=i). Türkçedeki noktasız ı'yı unicode61 i'ye indirmez; bu yüzden metin dizine ı→i çevrilerek yazılır
+ * (sorgu da aynı katlamayla kurulur, bkz. @diskort/shared foldSearchText). Yeniden çalışsa da zararsızdır.
+ */
+export const SEARCH_MIGRATION = `
+  CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(body, tokenize = 'unicode61 remove_diacritics 2');
+  DROP TRIGGER IF EXISTS messages_fts_insert;
+  DROP TRIGGER IF EXISTS messages_fts_update;
+  DROP TRIGGER IF EXISTS messages_fts_delete;
+  CREATE TRIGGER messages_fts_insert AFTER INSERT ON messages BEGIN
+    INSERT INTO messages_fts (rowid, body) VALUES (new.id, replace(new.content, 'ı', 'i'));
+  END;
+  CREATE TRIGGER messages_fts_update AFTER UPDATE OF content ON messages BEGIN
+    DELETE FROM messages_fts WHERE rowid = old.id;
+    INSERT INTO messages_fts (rowid, body) VALUES (new.id, replace(new.content, 'ı', 'i'));
+  END;
+  CREATE TRIGGER messages_fts_delete AFTER DELETE ON messages BEGIN
+    DELETE FROM messages_fts WHERE rowid = old.id;
+  END;
+  DELETE FROM messages_fts;
+  INSERT INTO messages_fts (rowid, body) SELECT id, replace(content, 'ı', 'i') FROM messages;
+`;
 
 /** Testler eski şemadan göçü sınayabilsin diye dışa açık */
 export const MIGRATIONS: string[] = [
@@ -364,6 +393,8 @@ export const MIGRATIONS: string[] = [
   UPDATE channel_overwrites SET deny = deny | ${Permission.PIN_MESSAGES}
     WHERE (deny & ${Permission.MANAGE_MESSAGES}) != 0;
   `,
+  // 19: mesaj araması (bkz. SEARCH_MIGRATION)
+  SEARCH_MIGRATION,
 ];
 
 type Param = string | number | null;
@@ -1916,6 +1947,76 @@ export class Store {
         )
       : this.all<MessageRow>('SELECT * FROM messages WHERE channel_id = ? ORDER BY id DESC LIMIT ?', channelId, limit);
     return this.withDetails(rows.reverse().map(toMessage), viewerId);
+  }
+
+  /**
+   * Mesaj araması, yeniden eskiye. `channelIds` aranacak kanallardır (çağıran, kullanıcının görebildikleriyle
+   * sınırlar; boşsa sonuç yok). `match`: FTS5 sorgusu (yoksa yalnızca süzgeçler). `cursor`: bu kimlikten
+   * eski mesajlar. Toplam sayı SEARCH_TOTAL_CAP'e kadar sayılır.
+   */
+  searchMessages(opts: {
+    channelIds: readonly string[];
+    match: string | null;
+    authorIds: readonly string[] | null;
+    has: readonly SearchHas[];
+    before: number | null;
+    after: number | null;
+    cursor: number | null;
+    limit: number;
+    viewerId: string;
+  }): { messages: Message[]; total: number; totalCapped: boolean; more: boolean } {
+    const empty = { messages: [], total: 0, totalCapped: false, more: false };
+    if (opts.channelIds.length === 0 || opts.authorIds?.length === 0) return empty;
+    const where: string[] = [`m.channel_id IN (${opts.channelIds.map(() => '?').join(',')})`];
+    const params: Param[] = [...opts.channelIds];
+    if (opts.match) {
+      where.push('m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)');
+      params.push(opts.match);
+    }
+    if (opts.authorIds) {
+      where.push(`m.author_id IN (${opts.authorIds.map(() => '?').join(',')})`);
+      params.push(...opts.authorIds);
+    }
+    for (const has of opts.has) {
+      if (has === 'link') where.push(`(m.content LIKE '%http://%' OR m.content LIKE '%https://%')`);
+      else if (has === 'file') where.push('EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id)');
+      else if (has === 'video') {
+        where.push(`EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND a.content_type LIKE 'video/%')`);
+      } else {
+        // Resim: resim dosyası ya da GIF
+        where.push(
+          `(EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND a.content_type LIKE 'image/%')
+            OR m.embeds LIKE '%"type":"gif"%')`,
+        );
+      }
+    }
+    if (opts.before !== null) {
+      where.push('m.created_at < ?');
+      params.push(opts.before);
+    }
+    if (opts.after !== null) {
+      where.push('m.created_at >= ?');
+      params.push(opts.after);
+    }
+    const filter = where.join(' AND ');
+    const counted = this.one<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM (SELECT 1 FROM messages m WHERE ${filter} LIMIT ${SEARCH_TOTAL_CAP + 1})`,
+      ...params,
+    )!.n;
+    const pageWhere = opts.cursor !== null ? `${filter} AND m.id < ?` : filter;
+    const pageParams = opts.cursor !== null ? [...params, opts.cursor] : params;
+    const rows = this.all<MessageRow>(
+      `SELECT m.* FROM messages m WHERE ${pageWhere} ORDER BY m.id DESC LIMIT ?`,
+      ...pageParams,
+      opts.limit + 1,
+    );
+    const more = rows.length > opts.limit;
+    return {
+      messages: this.withDetails(rows.slice(0, opts.limit).map(toMessage), opts.viewerId),
+      total: Math.min(counted, SEARCH_TOTAL_CAP),
+      totalCapped: counted > SEARCH_TOTAL_CAP,
+      more,
+    };
   }
 
   getMessage(id: number, viewerId: string | null = null): Message | null {

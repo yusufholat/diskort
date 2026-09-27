@@ -35,6 +35,7 @@ import { registerGifRoutes } from './routes/gifs.js';
 import { registerGuildRoutes } from './routes/guilds.js';
 import { registerMessageRoutes } from './routes/messages.js';
 import { registerRoleRoutes } from './routes/roles.js';
+import { registerSearchRoutes } from './routes/search.js';
 import { registerStatusRoutes } from './routes/status.js';
 import { registerUpdateRoutes } from './routes/updates.js';
 import { registerVoiceRoutes } from './routes/voice.js';
@@ -175,6 +176,7 @@ export async function buildApp(
   registerDownloadRoutes(app, ctx);
   registerMessageRoutes(app, ctx);
   registerDmRoutes(app, ctx);
+  registerSearchRoutes(app, ctx);
   registerGuildRoutes(app, ctx);
   registerRoleRoutes(app, ctx);
   registerStatusRoutes(app, ctx);

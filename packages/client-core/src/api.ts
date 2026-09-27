@@ -25,6 +25,7 @@ import type {
   ResetCodeResponse,
   ResetPasswordRequest,
   ReleaseNotes,
+  SearchResponse,
   Role,
   UpdateChannelRequest,
   UpdateGuildRequest,
@@ -154,6 +155,10 @@ export const api = {
   /** Görülebilen tüm kanalların yeni sırası; yanıt görülebilen kanallar (yeni konumlarıyla) */
   reorderChannels: (guildId: string, channelIds: string[]) =>
     request<Channel[]>('PUT', `/api/guilds/${guildId}/channels/order`, { channelIds }),
+
+  /** Mesaj araması; params: q, guildId | dmId, channelId, cursor, limit, tz (bkz. sunucu routes/search.ts) */
+  search: (params: Record<string, string>) =>
+    request<SearchResponse>('GET', `/api/search?${new URLSearchParams(params).toString()}`),
 
   joinVoice: (channelId: string) => request<VoiceJoinResponse>('POST', `/api/voice/${channelId}/join`),
 

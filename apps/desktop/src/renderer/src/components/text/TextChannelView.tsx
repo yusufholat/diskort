@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { Hash, Upload, UserPlus, Users } from 'lucide-react';
 import { DM_GROUP_MAX_PARTICIPANTS, Permission, type Channel, type DmChannel } from '@diskort/shared';
 import {
@@ -21,6 +21,7 @@ import { toLocalFiles } from '../../features/messages/files';
 import { Composer, type ComposerHandle } from './Composer';
 import { MessageList } from './MessageList';
 import { PinsButton } from './Pins';
+import { SearchBox, SearchPanel, useSearchOpen } from '../search/Search';
 
 const hasFiles = (e: DragEvent): boolean => e.dataTransfer.types.includes('Files');
 
@@ -39,6 +40,10 @@ export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' |
   const composer = useRef<ComposerHandle>(null);
   const canAttach = useCan(Permission.SEND_MESSAGES | Permission.ATTACH_FILES, channel.id);
   const memberListOpen = useUi((s) => s.memberListOpen);
+  // Arama kapsamı: açık konuşma ya da seçili sunucu; sonuçlar açıkken üye listesinin yerinde
+  const guildId = useGuild((s) => s.guild?.id ?? '');
+  const searchScope = useMemo(() => (dm ? { dmId: dm.id } : { guildId }), [dm, guildId]);
+  const searchOpen = useSearchOpen(searchScope);
   // Bire bir konuşmada karşı taraf ayrıldıysa yazma kutusu yerine neden gösterilir
   const blocked = useGuild((s) => (dm ? dmBlockedReason(dm, s.users, self.id, s.reachable) : null));
   const partner = useGuild((s) => (dm ? dmPartner(dm, s.users, self.id) : undefined));
@@ -185,6 +190,7 @@ export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' |
           >
             <Users size={22} />
           </button>
+          <SearchBox scope={searchScope} placeholder={dm ? 'Ara' : 'Sunucuda ara'} />
         </header>
 
         <div className="relative flex min-h-0 flex-1 flex-col">
@@ -221,7 +227,7 @@ export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' |
         />
         <TypingIndicator channelId={channel.id} selfId={self.id} />
       </div>
-      {memberListOpen && (dm ? <DmMembers dm={dm} /> : <MemberList />)}
+      {searchOpen ? <SearchPanel /> : memberListOpen && (dm ? <DmMembers dm={dm} /> : <MemberList />)}
     </div>
   );
 }

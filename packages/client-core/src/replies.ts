@@ -1,7 +1,7 @@
 import type { Message } from '@diskort/shared';
 import { focusComposer } from './composer';
 import { env } from './env';
-import { loadOlder, useMessages, type ReplyDraft } from './messages';
+import { loadInitial, loadOlder, useMessages, type ReplyDraft } from './messages';
 import { useSession } from './session';
 
 // Discord'daki gibi yanıtlar: mesaja "Yanıtla" denince yazma kutusunun üstünde "… kişisine yanıt
@@ -61,7 +61,9 @@ function idle(channelId: string): Promise<void> {
 /**
  * Kanaldaki bir mesaja atlar: yüklü değilse geçmiş, mesaj gelene kadar geriye doğru yüklenir (liste
  * hep "şimdi"ye kadar kesintisiz kalır). Bulununca `jump` isteği yayınlanır; arayüz mesaja kaydırıp
- * vurgular. Mesaj silinmişse ya da çok eskideyse hata gösterilir ve false döner.
+ * vurgular. Mesaj silinmişse ya da çok eskideyse hata gösterilir ve false döner. Kanalın geçmişi henüz
+ * hiç yüklenmediyse önce son sayfa yüklenir (aramadan başka bir kanala atlarken).
+ * `maxPages`: en fazla kaç sayfa (100 mesaj) geriye gidilir; arama sonuçları için daha derin.
  */
 export async function jumpToMessage(
   channelId: string,
@@ -69,6 +71,10 @@ export async function jumpToMessage(
   opts: { maxPages?: number; notFound?: string } = {},
 ): Promise<boolean> {
   const target = Number(messageId);
+  if (!useMessages.getState().channels[channelId]?.loaded) {
+    await idle(channelId);
+    await loadInitial(channelId);
+  }
   const maxPages = opts.maxPages ?? JUMP_MAX_PAGES;
   for (let page = 0; page < maxPages && !isLoaded(channelId, messageId); page++) {
     await idle(channelId);
