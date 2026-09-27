@@ -137,7 +137,7 @@ describe('direkt mesajlar', () => {
     const owner = await connect(s.owner.token);
 
     // READY: DM kanal listesinde değil, ayrı alanda; okunmamış bilgisi ortak haritalarda
-    expect(v.ready.channels.map((c) => c.id)).not.toContain(dm.id);
+    expect(v.ready.guilds.flatMap((g) => g.channels).map((c) => c.id)).not.toContain(dm.id);
     expect(v.ready.dms?.map((d) => d.id)).toEqual([dm.id]);
     expect(v.ready.dms?.[0]?.lastMessageId).toBe(v.ready.lastMessageIds[dm.id]);
     expect(v.ready.mentionCounts[dm.id]).toBe(1);
@@ -282,7 +282,7 @@ describe('direkt mesajlar', () => {
     expect(res.json().error).toBe('group_full');
   });
 
-  it('atılan üye: bağlanamaz; karşı taraf geçmişi okur ama yazamaz; geri dönünce konuşma kaldığı yerden sürer', async () => {
+  it('ortak sunucusu kalmayan kişiyle bire bir konuşma okunur ama yazılamaz; grup sürer; geri dönünce konuşma sürer', async () => {
     const ali = await s.member('ali');
     const veli = await s.member('veli');
     const ayse = await s.member('ayse');
@@ -292,9 +292,10 @@ describe('direkt mesajlar', () => {
       await s.req(ali.token, 'POST', '/api/dms', { userIds: [veli.user.id, ayse.user.id] })
     ).json() as DmChannel;
 
-    expect((await s.req(s.owner.token, 'POST', `/api/users/${veli.user.id}/kick`)).statusCode).toBe(204);
-    // Atılanın oturumu geçersiz
-    expect((await s.req(veli.token, 'GET', `/api/channels/${dm.id}/messages`)).statusCode).toBe(401);
+    expect((await s.req(s.owner.token, 'DELETE', `/api/guilds/${s.guildId}/members/${veli.user.id}`)).statusCode).toBe(204);
+    // Atılanın hesabı ve oturumu durur (başka sunuculara katılabilir); konuşmanın geçmişini okur, yazamaz
+    expect((await s.req(veli.token, 'GET', `/api/channels/${dm.id}/messages`)).statusCode).toBe(200);
+    expect((await s.req(veli.token, 'POST', `/api/channels/${dm.id}/messages`, { content: 'x' })).statusCode).toBe(403);
     // Karşı taraf: mesajlar durur, yeni mesaj ve dosya yok, yeni konuşma açılamaz
     const history = await s.req(ali.token, 'GET', `/api/channels/${dm.id}/messages`);
     expect(history.json().map((m: Message) => m.content)).toEqual(['görüşürüz']);
@@ -302,23 +303,21 @@ describe('direkt mesajlar', () => {
     expect((await s.req(ali.token, 'POST', `/api/channels/${dm.id}/messages`, { content: 'hey' })).statusCode).toBe(403);
     expect((await upload(ali.token, dm.id)).statusCode).toBe(403);
     expect((await s.req(ali.token, 'POST', '/api/dms', { userIds: [veli.user.id] })).statusCode).toBe(404);
-    // Grupta diğerleri yazmaya devam eder; atılan okunmamış sayısı almaz
+    // Grup konuşması sunuculardan bağımsızdır: herkes yazmaya devam eder
     await send(ali, group.id, 'biz devam');
     expect(s.ctx.store.mentionCounts(ayse.user.id)[group.id]).toBe(1);
-    expect(s.ctx.store.mentionCounts(veli.user.id)[group.id]).toBeUndefined();
+    expect(s.ctx.store.mentionCounts(veli.user.id)[group.id]).toBe(1);
+    // Ortak sunucusu olmayan biri gruba eklenemez
+    const outsider = await s.member('yabanci');
+    await s.req(s.owner.token, 'DELETE', `/api/guilds/${s.guildId}/members/${outsider.user.id}`);
+    expect((await s.req(ali.token, 'PUT', `/api/dms/${group.id}/participants/${outsider.user.id}`)).statusCode).toBe(404);
     // Yönetici atılanın konuşmalarına da erişemez
     expect((await s.req(s.owner.token, 'GET', `/api/channels/${dm.id}/messages`)).statusCode).toBe(404);
 
     // Yeni davetle geri döner: konuşmaları yerinde
-    const code = (await s.req(s.owner.token, 'POST', '/api/invites', {})).json().code as string;
-    const back = await s.app.inject({
-      method: 'POST',
-      url: '/api/auth/register',
-      payload: { inviteCode: code, username: 'veli', password: 'sifre12345' },
-    });
-    expect(back.statusCode).toBe(201);
-    const veliAgain = back.json() as Account;
-    expect((await s.req(veliAgain.token, 'GET', '/api/dms')).json().map((d: DmChannel) => d.id).sort()).toEqual(
+    const code = (await s.req(s.owner.token, 'POST', `/api/guilds/${s.guildId}/invites`, {})).json().code as string;
+    expect((await s.req(veli.token, 'POST', `/api/invites/${code}/accept`)).statusCode).toBe(200);
+    expect((await s.req(veli.token, 'GET', '/api/dms')).json().map((d: DmChannel) => d.id).sort()).toEqual(
       [dm.id, group.id].sort(),
     );
     expect((await s.req(ali.token, 'POST', `/api/channels/${dm.id}/messages`, { content: 'hoş geldin' })).statusCode).toBe(
@@ -345,7 +344,7 @@ describe('direkt mesajlar', () => {
     expect(s.ctx.store.listMessages(dm.id, null, 50)).toEqual([]);
   });
 
-  it('telefon bildirimi: her DM mesajı yazar dışındaki üye katılımcılara gider', async () => {
+  it('telefon bildirimi: her DM mesajı yazar dışındaki katılımcılara gider', async () => {
     const ali = await s.member('ali');
     const veli = await s.member('veli');
     const ayse = await s.member('ayse');
@@ -364,7 +363,7 @@ describe('direkt mesajlar', () => {
       await s.req(ali.token, 'POST', '/api/dms', { userIds: [veli.user.id, ayse.user.id] })
     ).json() as DmChannel;
     await send(veli, group.id, 'gruba');
-    await s.req(s.owner.token, 'POST', `/api/users/${ayse.user.id}/kick`);
+    await s.req(s.owner.token, 'DELETE', `/api/guilds/${s.guildId}/members/${ayse.user.id}`);
     await send(veli, group.id, 'ayşe atıldı');
     // Topluluk kanalında bahsetme eski yoldan gider
     await send(ali, s.channel('text').id, '@veli genelde');
@@ -373,7 +372,7 @@ describe('direkt mesajlar', () => {
       { kind: 'dm', recipients: [veli.user.id], channelId: dm.id },
       { kind: 'dm', recipients: [veli.user.id], channelId: dm.id },
       { kind: 'dm', recipients: [ali.user.id, ayse.user.id], channelId: group.id },
-      { kind: 'dm', recipients: [ali.user.id], channelId: group.id },
+      { kind: 'dm', recipients: [ali.user.id, ayse.user.id], channelId: group.id },
       { kind: 'mention', recipients: [veli.user.id], channelId: s.channel('text').id },
     ]);
   });

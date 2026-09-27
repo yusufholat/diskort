@@ -69,6 +69,58 @@
   }
   document.querySelector(`.platform[data-platform="${os}"]`)?.classList.add('current');
 
+  // Davet bağlantısı: https://<sunucu>/davet/<kod>
+  const inviteMatch = /^\/davet\/([A-Za-z0-9]{4,32})\/?$/.exec(location.pathname);
+  if (inviteMatch) {
+    const code = inviteMatch[1].toUpperCase();
+    const card = document.getElementById('invite-card');
+    document.getElementById('invite-code').textContent = code;
+    document.getElementById('invite-copy').addEventListener('click', (e) => {
+      navigator.clipboard?.writeText(code).then(() => {
+        e.target.textContent = 'Kopyalandı';
+      });
+    });
+    // Android'de kurulu uygulama bağlantıyla açılır (katılma ekranı kodla hazır gelir)
+    if (os === 'android') {
+      const open = document.getElementById('invite-open');
+      open.href = `diskort://davet/${code}`;
+      open.hidden = false;
+    }
+    card.hidden = false;
+    fetch(`/api/invites/${encodeURIComponent(code)}`, { headers: { Accept: 'application/json' } })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((invite) => {
+        const icon = document.getElementById('invite-icon');
+        if (invite.guild) {
+          document.getElementById('invite-name').textContent = invite.guild.name;
+          document.getElementById('invite-meta').textContent = `${invite.memberCount} üye`;
+          if (invite.guild.iconUrl) {
+            const img = document.createElement('img');
+            img.src = invite.guild.iconUrl;
+            img.alt = '';
+            icon.appendChild(img);
+          } else {
+            icon.textContent = invite.guild.name
+              .trim()
+              .split(/\s+/)
+              .slice(0, 3)
+              .map((w) => w[0] || '')
+              .join('')
+              .toLocaleUpperCase('tr');
+          }
+        } else {
+          document.getElementById('invite-label').textContent = 'Diskort hesabı daveti';
+          document.getElementById('invite-name').textContent = 'Diskort';
+          icon.textContent = 'D';
+        }
+      })
+      .catch(() => {
+        document.getElementById('invite-label').textContent = 'Bu davet geçersiz ya da süresi dolmuş';
+        document.getElementById('invite-steps').textContent = 'Seni davet eden kişiden yeni bir davet bağlantısı iste.';
+        card.classList.add('invalid');
+      });
+  }
+
   fetch('/api/download/latest', { headers: { Accept: 'application/json' } })
     .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
     .then((latest) => {

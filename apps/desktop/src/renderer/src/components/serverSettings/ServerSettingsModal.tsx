@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { Permission } from '@diskort/shared';
-import { isOwner, useFeedback, usePermissions, useGuild, useSession } from '@diskort/client-core';
+import { canManageFeedback, isOwner, useFeedback, usePermissions, useGuild, useSession } from '@diskort/client-core';
 import { useEscapeLayer } from '../../lib/escape';
 import { usePresenceClosing } from '../../lib/motion';
 import { cn } from '../../lib/utils';
@@ -24,7 +24,7 @@ const SECTIONS: { id: ServerSettingsSection; label: string; any: number[] }[] = 
     label: 'Üyeler',
     any: [P.MANAGE_ROLES, P.KICK_MEMBERS, P.BAN_MEMBERS, P.MUTE_MEMBERS, P.DEAFEN_MEMBERS, P.MOVE_MEMBERS],
   },
-  { id: 'invites', label: 'Davetler', any: [P.MANAGE_INVITES] },
+  { id: 'invites', label: 'Davetler', any: [P.CREATE_INVITE, P.MANAGE_INVITES] },
   { id: 'bans', label: 'Yasaklar', any: [P.BAN_MEMBERS] },
   { id: 'feedback', label: 'Geri Bildirimler', any: [P.MANAGE_GUILD] },
 ];
@@ -34,7 +34,13 @@ export function useServerSettingsSections(): { id: ServerSettingsSection; label:
   const perms = usePermissions();
   const selfId = useSession((s) => s.user?.id);
   const owner = useGuild((s) => isOwner(s, selfId));
-  return SECTIONS.filter((s) => (s.id === 'overview' && owner) || s.any.some((flag) => (perms & flag) === flag));
+  // Geri bildirimler uygulamanın kendisi hakkındadır: yalnızca ana sunucunun ayarlarında
+  const primary = useGuild((s) => s.activeGuildId === s.primaryGuildId);
+  return SECTIONS.filter((s) =>
+    s.id === 'feedback'
+      ? primary && canManageFeedback()
+      : (s.id === 'overview' && owner) || s.any.some((flag) => (perms & flag) === flag),
+  );
 }
 
 /** Sunucu Ayarları: genel, roller, üyeler, davetler, yasaklar (yetkiye göre). */

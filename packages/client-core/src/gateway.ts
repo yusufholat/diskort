@@ -6,7 +6,7 @@ import {
 } from '@diskort/shared';
 import { normalizeServerUrl } from './api';
 import { env } from './env';
-import { useGuild } from './guild';
+import { restoreActiveGuild, useGuild } from './guild';
 import { useSession } from './session';
 
 const RECONNECT_DELAYS_MS = [500, 1000, 2000, 5000, 10000];
@@ -32,6 +32,7 @@ class GatewayClient {
     if (this.active && this.ws) return;
     this.active = true;
     this.attempts = 0;
+    restoreActiveGuild();
     this.open();
   }
 

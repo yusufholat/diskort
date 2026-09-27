@@ -8,7 +8,7 @@ import type { ServerFlags, VoiceStateStore } from './voiceState.js';
 /**
  * Sesli sohbette yetkilerin LiveKit'e yansıması:
  * - Jeton ve bağlı katılımcının izni kanaldaki yetkilerden gelir: SPEAK → mikrofon, STREAM → ekran.
- * - Sunucuda susturulan/sağırlaştırılan üyenin mikrofonu susturulur ve yayın izni alınır; sağırlaştırma
+ * - Sunucuda (guild başına) susturulan/sağırlaştırılan üyenin mikrofonu susturulur ve yayın izni alınır; sağırlaştırma
  *   dinlemeyi istemci uygular (LiveKit'te dinleme izni alınıp geri verilince abonelikler geri gelmiyor).
  * - Kanalı görme ya da bağlanma yetkisini kaybeden (veya atılan) sesten çıkarılır.
  * - Başka kanala taşıma istemci aracılığıyla yapılır (bkz. move).
@@ -24,8 +24,13 @@ export class VoiceModeration {
     private readonly permissions: PermissionService,
     private readonly gateway: Pick<Gateway, 'sendToUsers'>,
   ) {
-    // Sunucu yeniden başlasa da susturmalar sürsün
-    for (const [userId, flags] of store.serverVoiceFlags()) voice.setServerFlags(userId, flags);
+    // Susturmalar sunucu başına saklanır: kişi hangi sunucunun kanalına girerse oradaki durumu geçerlidir
+    voice.setFlagResolver((userId, channelId) => this.flagsIn(userId, channelId));
+  }
+
+  private flagsIn(userId: string, channelId: string): ServerFlags {
+    const guildId = this.permissions.guildOf(channelId);
+    return guildId ? this.store.serverVoiceFlags(guildId, userId) : { serverMute: false, serverDeaf: false };
   }
 
   canConnect(userId: string, channelId: string): boolean {
@@ -35,7 +40,7 @@ export class VoiceModeration {
   /** Kullanıcının bu kanalda yayınlayabileceği kaynaklar */
   sources(userId: string, channelId: string): PublishSources {
     const perms = this.permissions.inChannel(userId, channelId);
-    const flags = this.voice.getServerFlags(userId);
+    const flags = this.flagsIn(userId, channelId);
     const sources: PublishSources = [];
     if (hasPermission(perms, Permission.SPEAK) && !flags.serverMute && !flags.serverDeaf) {
       sources.push(TrackSource.MICROPHONE);
@@ -74,14 +79,21 @@ export class VoiceModeration {
     await this.livekit.setPublishSources(channelId, userId, sources);
   }
 
-  /** Sunucu tarafı susturma/sağırlaştırma: kalıcıdır, kanaldan çıkıp girince de sürer. */
-  async setServerFlags(userId: string, flags: ServerFlags): Promise<void> {
-    this.store.setServerVoiceFlags(userId, flags);
-    this.voice.setServerFlags(userId, flags);
+  /** Sunucu tarafı susturma/sağırlaştırma: o sunucuda kalıcıdır, kanaldan çıkıp girince de sürer. */
+  async setServerFlags(guildId: string, userId: string, flags: ServerFlags): Promise<void> {
+    this.store.setServerVoiceFlags(guildId, userId, flags);
     const state = this.voice.get(userId);
-    if (!state) return;
+    if (!state || this.permissions.guildOf(state.channelId) !== guildId) return;
+    this.voice.setServerFlags(userId, flags);
     if (flags.serverMute || flags.serverDeaf) await this.livekit.muteMicrophone(state.channelId, userId);
     await this.enforce(userId, state.channelId);
+  }
+
+  /** Kişi bu sunucunun bir ses kanalındaysa sesten çıkarır (sunucudan ayrılınca, atılınca). */
+  async disconnectFromGuild(guildId: string, userId: string): Promise<boolean> {
+    const state = this.voice.get(userId);
+    if (!state || this.permissions.guildOf(state.channelId) !== guildId) return false;
+    return this.disconnect(userId);
   }
 
   /** Sesten çıkarır; seste değilse false. */

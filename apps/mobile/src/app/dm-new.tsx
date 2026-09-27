@@ -22,6 +22,8 @@ export default function NewDmScreen() {
   const router = useRouter();
   const selfId = useSession((s) => s.user?.id);
   const users = useGuild((s) => s.users);
+  // DM yalnızca ortak sunucusu olanlarla
+  const reachable = useGuild((s) => s.reachable);
   const online = useGuild((s) => s.online);
   const group = useGuild((s) => (addTo ? s.dms[addTo] : undefined));
   const [query, setQuery] = useState('');
@@ -35,14 +37,14 @@ export default function NewDmScreen() {
   const candidates = useMemo(() => {
     const q = query.trim().toLocaleLowerCase('tr');
     return Object.values(users)
-      .filter((u) => !u.removed && u.id !== selfId && !existing.includes(u.id))
+      .filter((u) => reachable[u.id] && u.id !== selfId && !existing.includes(u.id))
       .filter((u) => !q || u.username.includes(q) || u.displayName.toLocaleLowerCase('tr').includes(q))
       .sort(
         (a, b) =>
           Number(Boolean(online[b.id])) - Number(Boolean(online[a.id])) ||
           a.displayName.localeCompare(b.displayName, 'tr'),
       );
-  }, [users, online, selfId, existing, query]);
+  }, [users, reachable, online, selfId, existing, query]);
 
   const toggle = useCallback(
     (id: string): void => {

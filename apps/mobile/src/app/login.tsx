@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { parseInviteCode } from '@diskort/shared';
 import { api, errorMessage, normalizeServerUrl, useSession } from '@diskort/client-core';
 import { Button, FadeIn, Field, ui } from '../components/ui';
 import { animateNextLayout } from '../motion';
@@ -16,11 +18,13 @@ const TITLES: Record<Mode, [string, string]> = {
 };
 
 export default function LoginScreen() {
-  const [mode, setMode] = useState<Mode>('login');
+  // Davet bağlantısından (diskort://davet/<kod>) gelindiyse kayıt ekranı kodla hazır açılır
+  const params = useLocalSearchParams<{ code?: string }>();
+  const [mode, setMode] = useState<Mode>(params.code ? 'register' : 'login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [code, setCode] = useState('');
+  const [code, setCode] = useState(params.code ?? '');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -38,7 +42,8 @@ export default function LoginScreen() {
           ? await api.login({ username: user, password })
           : mode === 'register'
             ? await api.register({
-                inviteCode: code.trim(),
+                // Davet bağlantısı yapıştırıldıysa içindeki kod
+                inviteCode: parseInviteCode(code) ?? code.trim(),
                 username: user,
                 password,
                 displayName: displayName.trim() || undefined,
@@ -76,7 +81,7 @@ export default function LoginScreen() {
 
             {mode !== 'login' && (
               <Field
-                label={mode === 'register' ? 'Davet kodu' : 'Sıfırlama kodu'}
+                label={mode === 'register' ? 'Davet kodu ya da bağlantısı' : 'Sıfırlama kodu'}
                 value={code}
                 onChangeText={setCode}
                 autoCapitalize="characters"

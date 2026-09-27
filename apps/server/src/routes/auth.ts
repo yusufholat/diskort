@@ -80,16 +80,6 @@ function createLimiter(maxAttempts: number, windowMs: number) {
   };
 }
 
-/** Üye olmayan hesabın girişte gördüğü açıklama */
-const MEMBERSHIP_ERRORS = {
-  kicked: {
-    error: 'kicked',
-    message:
-      'Sunucudan çıkarıldın. Geri dönmek için yeni bir davet koduyla "Kayıt ol" ekranında kendi kullanıcı adın ve şifreni kullan.',
-  },
-  banned: { error: 'banned', message: 'Bu sunucudan yasaklandın.' },
-} as const;
-
 export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void {
   const { store, auth, gateway, push } = ctx;
   const limit = createLimiter(20, 60_000);
@@ -99,25 +89,37 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     const body = parseBody(registerSchema, req.body, reply);
     if (!body) return reply;
 
-    // Atılan hesap, yeni davetle aynı kullanıcı adı ve şifresiyle geri döner (hesap ve mesajları korunur)
+    // Hesabı olan biri sunucu davetiyle "Kayıt ol" ekranından kendi kullanıcı adı ve şifresiyle gelirse
+    // (ör. eskiden atılıp geri dönen) giriş yapılır ve davetin sunucusuna katılır.
     const existing = store.getUserAuthByUsername(body.username);
-    const returning =
-      existing?.removed === true && (await auth.verifyPassword(existing.passwordHash, body.password)) ? existing : null;
-    const result = returning
-      ? store.rejoinWithInvite(body.inviteCode, returning.id)
-      : store.registerWithInvite({
-          code: body.inviteCode,
-          username: body.username,
-          displayName: body.displayName ?? body.username,
-          passwordHash: await auth.hashPassword(body.password),
-        });
+    if (existing && (await auth.verifyPassword(existing.passwordHash, body.password))) {
+      const invite = store.checkInvite(body.inviteCode);
+      if (!invite.ok) return sendError(reply, 400, 'invite', invite.reason);
+      if (!invite.invite.guild_id) return sendError(reply, 409, 'username', 'Bu kullanıcı adı alınmış.');
+      const joined = store.joinWithInvite(body.inviteCode, existing.id);
+      if (!joined.ok) {
+        const banned = joined.reason === 'banned';
+        return sendError(reply, banned ? 403 : 400, banned ? 'banned' : 'invite', joined.message);
+      }
+      if (!joined.alreadyMember) gateway.announceJoin(joined.guildId, existing.id);
+      const user = store.getUser(existing.id)!;
+      const response: AuthResponse = { token: await auth.issueToken(user.id), user };
+      return reply.code(201).send(response);
+    }
+    const result = store.registerWithInvite({
+      code: body.inviteCode,
+      username: body.username,
+      displayName: body.displayName ?? body.username,
+      passwordHash: await auth.hashPassword(body.password),
+    });
     if (!result.ok) {
       const status = result.reason === 'username' ? 409 : result.reason === 'banned' ? 403 : 400;
       return sendError(reply, status, result.reason, result.message);
     }
-    // İlk kayıtla topluluğun sahibi belli olur
-    if (!ctx.guild.ownerId) Object.assign(ctx.guild, store.getGuild());
-    gateway.broadcast({ t: 'USER_UPDATE', d: result.user });
+    // İlk kayıtla ana sunucunun sahibi belli olur
+    if (!ctx.guild.ownerId) Object.assign(ctx.guild, store.getGuild(ctx.guild.id));
+    // Sunucu davetiyle geldiyse o sunucunun üyeleri yeni üyeyi görür
+    if (result.guildId) gateway.announceJoin(result.guildId, result.user.id);
     const response: AuthResponse = { token: await auth.issueToken(result.user.id), user: result.user };
     return reply.code(201).send(response);
   });
@@ -132,9 +134,6 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     if (!record || !valid) {
       return sendError(reply, 401, 'invalid_credentials', 'Kullanıcı adı veya şifre hatalı.');
     }
-    // Şifre doğruysa neden giremediği söylenir
-    const status = store.membership(record.id);
-    if (status !== 'member') return sendError(reply, 403, MEMBERSHIP_ERRORS[status].error, MEMBERSHIP_ERRORS[status].message);
     const { passwordHash: _omit, ...user } = record;
     const response: AuthResponse = { token: await auth.issueToken(user.id), user };
     return response;
@@ -146,7 +145,7 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     const body = parseBody(resetPasswordSchema, req.body, reply);
     if (!body) return reply;
     const userId = store.consumeResetCode(body.username, body.code);
-    if (!userId || store.membership(userId) !== 'member') {
+    if (!userId) {
       return sendError(reply, 400, 'invalid_code', 'Kullanıcı adı veya sıfırlama kodu hatalı ya da kodun süresi dolmuş.');
     }
     store.setPassword(userId, await auth.hashPassword(body.newPassword));
@@ -194,8 +193,8 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     return { devices: await push.sendTest(req.user.id) };
   });
 
-  // Kullanıcı kendi hesabını siler (şifre onayıyla). Sahip, topluluk sahipsiz kalmasın diye önce sahipliği
-  // devretmelidir.
+  // Kullanıcı kendi hesabını siler (şifre onayıyla). Bir sunucunun sahibi, sunucu sahipsiz kalmasın diye
+  // önce sahipliği devretmeli ya da sunucuyu silmelidir.
   app.delete('/api/me', { preHandler: auth.requireUser }, async (req, reply) => {
     if (!limit(req.ip)) return sendError(reply, 429, 'rate_limited', 'Çok fazla deneme. Biraz bekle.');
     const body = parseBody(deleteAccountSchema, req.body, reply);
@@ -204,12 +203,12 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     if (!record || !(await auth.verifyPassword(record.passwordHash, body.password))) {
       return sendError(reply, 400, 'invalid_password', 'Şifre hatalı.');
     }
-    if (ctx.permissions.isOwner(req.user.id)) {
+    if (store.ownedGuildIds(req.user.id).length > 0) {
       return sendError(
         reply,
         400,
         'owner',
-        'Sunucunun sahibi hesabını silemez. Önce Sunucu Ayarları > Genel bölümünden sahipliği başka birine devret.',
+        'Bir sunucunun sahibi hesabını silemez. Önce Sunucu Ayarları > Genel bölümünden sahipliği başka birine devret ya da sunucuyu sil.',
       );
     }
     await removeAccount(ctx, req.user.id, 'Hesabın silindi.');
@@ -220,7 +219,7 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     const body = parseBody(updateMeSchema, req.body, reply);
     if (!body) return reply;
     const user = store.updateUser(req.user.id, body)!;
-    gateway.broadcast({ t: 'USER_UPDATE', d: user });
+    gateway.sendUserUpdate(user);
     return user;
   });
 }

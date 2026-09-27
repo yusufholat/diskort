@@ -17,41 +17,49 @@ const login = (username: string, password = 'sifre12345') =>
   s.app.inject({ method: 'POST', url: '/api/auth/login', payload: { username, password } });
 
 const register = async (username: string, password = 'sifre12345') => {
-  const code = (await s.req(s.owner.token, 'POST', '/api/invites', {})).json().code as string;
+  const code = (await s.req(s.owner.token, 'POST', `/api/guilds/${s.ctx.guild.id}/invites`, {})).json().code as string;
   return s.app.inject({ method: 'POST', url: '/api/auth/register', payload: { inviteCode: code, username, password } });
 };
 
-/** Oturum jetonları saniye hassasiyetinde: atma anı ile yeni jeton aynı saniyeye düşmesin */
-const nextSecond = () => new Promise((r) => setTimeout(r, 1100 - (Date.now() % 1000)));
+const accept = async (token: string) => {
+  const code = (await s.req(s.owner.token, 'POST', `/api/guilds/${s.guildId}/invites`, {})).json().code as string;
+  return s.req(token, 'POST', `/api/invites/${code}/accept`);
+};
+
+const guildIds = async (token: string): Promise<string[]> =>
+  ((await s.req(token, 'GET', '/api/guilds')).json() as { id: string }[]).map((g) => g.id);
 
 describe('atma ve yasaklama', () => {
-  it('atılan üyenin oturumu kapanır; yeni davetle kendi şifresiyle geri döner (roller gelmez)', async () => {
+  it('atılan üye sunucuyu kaybeder ama hesabı durur; davetle geri döner (roller gelmez)', async () => {
     const member = await s.member('uye');
     const role = await s.createRole(s.owner.token, { name: 'Oyuncu' });
     await s.giveRole(s.owner.token, member.user.id, role.id);
     const text = s.channel('text');
     await s.req(member.token, 'POST', `/api/channels/${text.id}/messages`, { content: 'merhaba' });
 
-    expect((await s.req(member.token, 'POST', `/api/users/${s.owner.user.id}/kick`)).statusCode).toBe(403);
-    expect((await s.req(s.owner.token, 'POST', `/api/users/${member.user.id}/kick`)).statusCode).toBe(204);
-    expect((await s.req(member.token, 'GET', '/api/me')).statusCode).toBe(401);
-    const kicked = s.ctx.store.getUser(member.user.id)!;
-    expect(kicked).toMatchObject({ removed: true, roles: [] });
+    expect((await s.req(member.token, 'DELETE', `/api/guilds/${s.guildId}/members/${s.owner.user.id}`)).statusCode).toBe(403);
+    expect((await s.req(s.owner.token, 'DELETE', `/api/guilds/${s.guildId}/members/${member.user.id}`)).statusCode).toBe(204);
+    // Hesap ve oturumu durur; sunucu listesinden kalkar, sunucunun hiçbir şeyine erişemez
+    expect((await s.req(member.token, 'GET', '/api/me')).statusCode).toBe(200);
+    expect(await guildIds(member.token)).toEqual([]);
+    expect((await s.req(member.token, 'GET', `/api/channels/${text.id}/messages`)).statusCode).toBe(404);
+    expect((await s.req(member.token, 'GET', `/api/guilds/${s.guildId}/roles`)).statusCode).toBe(404);
+    expect(s.ctx.store.getMember(s.guildId, member.user.id)).toMatchObject({ removed: true, roles: [] });
     // Mesajı adıyla kalır
     expect(s.ctx.store.listMessages(text.id, null, 10).at(-1)!.authorId).toBe(member.user.id);
+    expect((await login('uye')).statusCode).toBe(200);
+    // Zaten üye olmayanı yeniden atmak anlamsız
+    expect((await s.req(s.owner.token, 'DELETE', `/api/guilds/${s.guildId}/members/${member.user.id}`)).statusCode).toBe(400);
 
-    const denied = await login('uye');
-    expect(denied.statusCode).toBe(403);
-    expect(denied.json().error).toBe('kicked');
-    // Yanlış şifreyle ne olduğu anlaşılmaz
-    expect((await login('uye', 'yanlis-sifre')).statusCode).toBe(401);
+    // Yeni davetle geri döner; roller gelmez
+    const back = await accept(member.token);
+    expect(back.statusCode).toBe(200);
+    expect(back.json()).toMatchObject({ alreadyMember: false, guild: { id: s.guildId } });
+    expect(s.ctx.store.getMember(s.guildId, member.user.id)).toMatchObject({ removed: false, roles: [] });
+    expect(await guildIds(member.token)).toEqual([s.guildId]);
+    // "Kayıt ol" ekranından kendi şifresiyle gelmek de olur (yanlış şifre: ad alınmış)
     expect((await register('uye', 'yanlis-sifre')).statusCode).toBe(409);
-
-    await nextSecond();
-    const back = await register('uye');
-    expect(back.statusCode).toBe(201);
-    expect(back.json().user).toMatchObject({ id: member.user.id, removed: false, roles: [] });
-    expect((await s.req(back.json().token, 'GET', '/api/me')).statusCode).toBe(200);
+    expect((await register('uye')).statusCode).toBe(201);
   });
 
   it('yasaklanan geri dönemez ve giriş yapamaz; yasak kalkınca davetle döner', async () => {
@@ -60,31 +68,35 @@ describe('atma ve yasaklama', () => {
     const modRole = await s.createRole(s.owner.token, { name: 'Mod', permissions: P.BAN_MEMBERS });
     await s.giveRole(s.owner.token, mod.user.id, modRole.id);
 
-    expect((await s.req(mod.token, 'POST', `/api/users/${s.owner.user.id}/ban`, {})).statusCode).toBe(403);
-    expect((await s.req(mod.token, 'POST', `/api/users/${member.user.id}/ban`, { reason: 'spam' })).statusCode).toBe(204);
-    expect((await login('uye')).json().error).toBe('banned');
+    expect((await s.req(mod.token, 'PUT', `/api/guilds/${s.guildId}/bans/${s.owner.user.id}`, {})).statusCode).toBe(403);
+    expect((await s.req(mod.token, 'PUT', `/api/guilds/${s.guildId}/bans/${member.user.id}`, { reason: 'spam' })).statusCode).toBe(204);
+    // Hesap durur, sunucuya dönemez
+    expect((await login('uye')).statusCode).toBe(200);
     const again = await register('uye');
     expect(again.statusCode).toBe(403);
     expect(again.json().error).toBe('banned');
+    const refused = await accept(member.token);
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().error).toBe('banned');
 
-    const bans = (await s.req(mod.token, 'GET', '/api/bans')).json();
+    const bans = (await s.req(mod.token, 'GET', `/api/guilds/${s.guildId}/bans`)).json();
     expect(bans).toEqual([expect.objectContaining({ reason: 'spam', user: expect.objectContaining({ id: member.user.id }) })]);
-    expect((await s.req(member.token, 'GET', '/api/bans')).statusCode).toBe(401);
+    // Yasaklanan artık üye değil: sunucu onun için yok
+    expect((await s.req(member.token, 'GET', `/api/guilds/${s.guildId}/bans`)).statusCode).toBe(404);
+    expect((await s.req(mod.token, 'PUT', `/api/guilds/${s.guildId}/bans/${member.user.id}`, {})).statusCode).toBe(400);
 
-    expect((await s.req(mod.token, 'DELETE', `/api/bans/${member.user.id}`)).statusCode).toBe(204);
-    expect((await login('uye')).json().error).toBe('kicked');
-    await nextSecond();
-    expect((await register('uye')).statusCode).toBe(201);
+    expect((await s.req(mod.token, 'DELETE', `/api/guilds/${s.guildId}/bans/${member.user.id}`)).statusCode).toBe(204);
+    expect((await accept(member.token)).statusCode).toBe(200);
   });
 
   it('atılan üye seste ise sesten çıkarılır; bahsedilemez', async () => {
     const member = await s.member('uye');
     const voice = s.channel('voice');
     s.ctx.voice.join(member.user.id, voice.id);
-    await s.req(s.owner.token, 'POST', `/api/users/${member.user.id}/kick`);
+    await s.req(s.owner.token, 'DELETE', `/api/guilds/${s.guildId}/members/${member.user.id}`);
     expect(s.ctx.voice.get(member.user.id)).toBeUndefined();
     expect(s.livekit.of('removeParticipant')).toContainEqual([voice.id, member.user.id]);
-    expect(s.ctx.store.resolveMentions('@uye', s.owner.user.id)).toEqual([]);
+    expect(s.ctx.store.resolveMentions('@uye', s.owner.user.id, s.guildId)).toEqual([]);
   });
 });
 
@@ -95,9 +107,9 @@ describe('seste yönetim', () => {
     s.ctx.voice.join(member.user.id, voice.id);
 
     // Yetkisiz üye susturamaz
-    expect((await s.req(member.token, 'PATCH', `/api/users/${s.owner.user.id}/voice`, { mute: true })).statusCode).toBe(403);
+    expect((await s.req(member.token, 'PATCH', `/api/guilds/${s.guildId}/members/${s.owner.user.id}/voice`, { mute: true })).statusCode).toBe(403);
 
-    expect((await s.req(s.owner.token, 'PATCH', `/api/users/${member.user.id}/voice`, { mute: true })).statusCode).toBe(204);
+    expect((await s.req(s.owner.token, 'PATCH', `/api/guilds/${s.guildId}/members/${member.user.id}/voice`, { mute: true })).statusCode).toBe(204);
     expect(s.ctx.voice.get(member.user.id)).toMatchObject({ serverMute: true, serverDeaf: false });
     expect(s.livekit.of('muteMicrophone')).toEqual([[voice.id, member.user.id]]);
     expect(s.livekit.of('setPublishSources').at(-1)).toEqual([
@@ -112,11 +124,11 @@ describe('seste yönetim', () => {
     s.ctx.voice.leave(member.user.id, voice.id);
     s.ctx.voice.join(member.user.id, voice.id);
     expect(s.ctx.voice.get(member.user.id)!.serverMute).toBe(true);
-    expect(s.ctx.store.serverVoiceFlags().get(member.user.id)).toEqual({ serverMute: true, serverDeaf: false });
+    expect(s.ctx.store.serverVoiceFlags(s.guildId, member.user.id)).toEqual({ serverMute: true, serverDeaf: false });
 
-    await s.req(s.owner.token, 'PATCH', `/api/users/${member.user.id}/voice`, { mute: false, deaf: true });
+    await s.req(s.owner.token, 'PATCH', `/api/guilds/${s.guildId}/members/${member.user.id}/voice`, { mute: false, deaf: true });
     expect(s.ctx.voice.get(member.user.id)).toMatchObject({ serverMute: false, serverDeaf: true });
-    await s.req(s.owner.token, 'PATCH', `/api/users/${member.user.id}/voice`, { deaf: false });
+    await s.req(s.owner.token, 'PATCH', `/api/guilds/${s.guildId}/members/${member.user.id}/voice`, { deaf: false });
     expect(s.livekit.of('setPublishSources').at(-1)![2]).toContain(TrackSource.MICROPHONE);
   });
 
@@ -126,7 +138,7 @@ describe('seste yönetim', () => {
     const [a, b] = s.ctx.store.listChannels(s.ctx.guild.id).filter((c) => c.type === 'voice');
     s.ctx.voice.join(member.user.id, a!.id);
 
-    expect((await s.req(mover.token, 'PATCH', `/api/users/${member.user.id}/voice`, { channelId: b!.id })).statusCode).toBe(
+    expect((await s.req(mover.token, 'PATCH', `/api/guilds/${s.guildId}/members/${member.user.id}/voice`, { channelId: b!.id })).statusCode).toBe(
       403,
     );
     const role = await s.createRole(s.owner.token, { name: 'DJ', permissions: P.MOVE_MEMBERS });
@@ -135,7 +147,7 @@ describe('seste yönetim', () => {
     // Taşıma istemci aracılığıyla: üyenin istemcisine VOICE_MOVE gider, kanalı istemci değiştirir
     await s.app.listen({ port: 0, host: '127.0.0.1' });
     const client = await connectGateway(s.app, member.token);
-    expect((await s.req(mover.token, 'PATCH', `/api/users/${member.user.id}/voice`, { channelId: b!.id })).statusCode).toBe(
+    expect((await s.req(mover.token, 'PATCH', `/api/guilds/${s.guildId}/members/${member.user.id}/voice`, { channelId: b!.id })).statusCode).toBe(
       204,
     );
     await client.settle();
@@ -156,20 +168,17 @@ describe('seste yönetim', () => {
     await s.req(s.owner.token, 'PATCH', `/api/channels/${a!.id}`, {
       overwrites: [{ roleId: s.ctx.guild.id, allow: 0, deny: P.CONNECT }, { roleId: role.id, allow: P.CONNECT, deny: 0 }],
     });
-    const blocked = await s.req(mover.token, 'PATCH', `/api/users/${member.user.id}/voice`, { channelId: a!.id });
+    const blocked = await s.req(mover.token, 'PATCH', `/api/guilds/${s.guildId}/members/${member.user.id}/voice`, { channelId: a!.id });
     expect(blocked.statusCode).toBe(403);
 
-    // Sesten çıkarma; eski istemcilerin yolu da çalışır
-    expect((await s.req(mover.token, 'PATCH', `/api/users/${member.user.id}/voice`, { channelId: null })).statusCode).toBe(
+    // Sesten çıkarma
+    expect((await s.req(mover.token, 'PATCH', `/api/guilds/${s.guildId}/members/${member.user.id}/voice`, { channelId: null })).statusCode).toBe(
       204,
     );
     expect(s.ctx.voice.get(member.user.id)).toBeUndefined();
-    s.ctx.voice.join(member.user.id, b!.id);
-    expect((await s.req(mover.token, 'POST', `/api/users/${member.user.id}/voice-kick`)).statusCode).toBe(204);
-    expect(s.ctx.voice.get(member.user.id)).toBeUndefined();
     // Hiyerarşi: sahibi taşıyamaz
     s.ctx.voice.join(s.owner.user.id, b!.id);
-    expect((await s.req(mover.token, 'PATCH', `/api/users/${s.owner.user.id}/voice`, { channelId: null })).statusCode).toBe(
+    expect((await s.req(mover.token, 'PATCH', `/api/guilds/${s.guildId}/members/${s.owner.user.id}/voice`, { channelId: null })).statusCode).toBe(
       403,
     );
   });

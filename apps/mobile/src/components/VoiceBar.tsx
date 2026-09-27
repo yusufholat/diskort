@@ -1,7 +1,7 @@
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useGuild } from '@diskort/client-core';
+import { channelById, useGuild } from '@diskort/client-core';
 import { useAppear, useBump } from '../motion';
 import { useSettings } from '../stores/settings';
 import { colors, font, radius, space } from '../theme';
@@ -28,7 +28,7 @@ function VoiceBarInner({ bottomInset }: { bottomInset: number }) {
   const status = useVoice((s) => s.status);
   const quality = useVoice((s) => s.quality);
   const channelId = useVoice((s) => s.channelId);
-  const channel = useGuild((s) => s.channels.find((c) => c.id === channelId));
+  const channel = useGuild((s) => channelById(s, channelId));
   const count = useGuild((s) => {
     let n = 0;
     for (const id in s.voiceStates) if (s.voiceStates[id]!.channelId === channelId) n++;

@@ -316,7 +316,7 @@ describe('mesajdaki GIF', () => {
 
   it('direkt mesajda ve yanıtta GIF: gömülür, yanıt özeti "GIF", READY DM özelliğiyle birlikte gifs bildirir', async () => {
     const { get, token, ctx, text } = await setup();
-    const code = (await app!.inject({ method: 'POST', url: '/api/invites', headers: auth(token), payload: {} })).json()
+    const code = (await app!.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: auth(token), payload: {} })).json()
       .code as string;
     const veli = (
       await app!.inject({ method: 'POST', url: '/api/auth/register', payload: { inviteCode: code, username: 'veli', password: 'sifre12345' } })

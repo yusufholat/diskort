@@ -22,7 +22,7 @@ import {
 } from '../src';
 
 const memory = new Map<string, string>();
-const me = { id: 'u1', username: 'ayse', displayName: 'Ayşe', avatarColor: '#fff', isAdmin: false, roles: [], removed: false };
+const me = { id: 'u1', username: 'ayse', displayName: 'Ayşe', avatarColor: '#fff', isAdmin: false };
 
 const receive = (msg: GatewayServerMessage): void =>
   (gateway as unknown as { handle: (m: GatewayServerMessage, t: string) => void }).handle(msg, 'jeton');
@@ -62,7 +62,18 @@ beforeEach(async () => {
 
 describe('GIF', () => {
   it('READY sunucunun GIF desteğini bildirir; eski sunucuda kapalı', () => {
-    const ready = { user: me, guild: { id: 'g', name: 'G', ownerId: null }, channels: [], users: [], roles: [], voiceStates: [], online: [], lastMessageIds: {}, readStates: {}, mentionCounts: {}, attachmentMaxBytes: 1 } as ReadyPayload;
+    const ready: ReadyPayload = {
+      user: me,
+      guilds: [],
+      users: [],
+      voiceStates: [],
+      online: [],
+      primaryGuildId: null,
+      lastMessageIds: {},
+      readStates: {},
+      mentionCounts: {},
+      attachmentMaxBytes: 1,
+    };
     receive({ t: 'READY', d: { ...ready, features: { gifs: true } } });
     expect(useFeatures.getState().gifs).toBe(true);
     receive({ t: 'READY', d: ready });

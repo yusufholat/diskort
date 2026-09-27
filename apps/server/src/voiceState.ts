@@ -20,7 +20,8 @@ interface VoiceEvents {
  * Kimin hangi ses kanalında olduğunu tutar. Katılma/ayrılma bilgisi LiveKit
  * webhook'larından gelir (tek doğruluk kaynağı); mute/deafen bayrakları
  * istemcinin gateway üzerinden bildirdiği değerlerdir. Sunucu tarafı susturma/sağırlaştırma
- * yetkililerce verilir ve kanaldan çıkınca da sürer (veritabanında saklanır).
+ * yetkililerce verilir ve kanaldan çıkınca da sürer (veritabanında, sunucu başına saklanır; katılırken
+ * kanalın sunucusundaki değer `setFlagResolver` ile okunur).
  */
 export class VoiceStateStore extends EventEmitter<VoiceEvents> {
   private readonly states = new Map<string, VoiceState>();
@@ -28,6 +29,12 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
   private readonly serverFlags = new Map<string, ServerFlags>();
   /** Kullanıcının geçerli LiveKit oturumu (participant SID) */
   private readonly sessions = new Map<string, string>();
+  /** Kanala katılırken kişinin o kanalın sunucusundaki susturma/sağırlaştırma durumu */
+  private flagsOf: ((userId: string, channelId: string) => ServerFlags) | null = null;
+
+  setFlagResolver(fn: (userId: string, channelId: string) => ServerFlags): void {
+    this.flagsOf = fn;
+  }
 
   list(): VoiceState[] {
     return [...this.states.values()];
@@ -43,7 +50,11 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
     if (prev && prev.channelId === channelId) return prev;
     if (prev) this.remove(userId);
     const flags = this.selfFlags.get(userId) ?? { selfMute: false, selfDeaf: false };
-    const server = this.serverFlags.get(userId) ?? NO_SERVER_FLAGS;
+    const server = this.flagsOf ? this.flagsOf(userId, channelId) : (this.serverFlags.get(userId) ?? NO_SERVER_FLAGS);
+    if (this.flagsOf) {
+      if (server.serverMute || server.serverDeaf) this.serverFlags.set(userId, server);
+      else this.serverFlags.delete(userId);
+    }
     const state: VoiceState = { userId, channelId, ...flags, ...server, streaming, joinedAt: Date.now() };
     this.states.set(userId, state);
     this.emit('update', state);
@@ -79,6 +90,7 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
     this.emit('update', next);
   }
 
+  /** Bulunduğu ses kanalının sunucusundaki durumu (seste değilse son bilinen) */
   getServerFlags(userId: string): ServerFlags {
     return this.serverFlags.get(userId) ?? NO_SERVER_FLAGS;
   }

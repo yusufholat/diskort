@@ -27,7 +27,7 @@ const storage: KeyValueStorage = {
   removeItem: (k) => void memory.delete(k),
 };
 
-const me: User = { id: 'u1', username: 'ayse', displayName: 'Ayşe', avatarColor: '#fff', isAdmin: false, roles: [], removed: false };
+const me: User = { id: 'u1', username: 'ayse', displayName: 'Ayşe', avatarColor: '#fff', isAdmin: false };
 const everyone: Role = { id: 'g1', name: '@everyone', color: null, position: 0, hoist: false, permissions: 0 };
 const managerRole: Role = { id: 'r1', name: 'Yönetici', color: null, position: 1, hoist: false, permissions: Permission.MANAGE_GUILD };
 
@@ -56,11 +56,24 @@ let fetchMock: ReturnType<typeof vi.fn>;
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-function setRoles(user: User): void {
+/** Ana sunucuda (g1) kullanıcıya verilen roller */
+function setRoles(user: User, roles: string[] = []): void {
+  const guild = { id: 'g1', name: 'Diskort', ownerId: 'sahip' };
   useGuild.setState({
-    guild: { id: 'g1', name: 'Diskort', ownerId: 'sahip' },
+    primaryGuildId: 'g1',
+    guilds: {
+      g1: {
+        guild,
+        channels: [],
+        roles: { g1: everyone, r1: managerRole },
+        members: { [user.id]: { userId: user.id, roles, joinedAt: 1, removed: false } },
+      },
+    },
+    guildOrder: ['g1'],
+    activeGuildId: 'g1',
+    guild,
     roles: { g1: everyone, r1: managerRole },
-    users: { [user.id]: user },
+    users: { [user.id]: { ...user, roles, removed: false } },
   });
 }
 
@@ -162,9 +175,9 @@ describe('gönderme', () => {
 
 describe('canlı güncellemeler', () => {
   it('yetkili: yeni geri bildirim listeye ve rozete eklenir, durum değişince sayı düşer', async () => {
-    const admin: User = { ...me, id: 'u9', roles: ['r1'] };
+    const admin: User = { ...me, id: 'u9' };
     useSession.getState().setUser(admin);
-    setRoles(admin);
+    setRoles(admin, ['r1']);
     fetchMock.mockResolvedValue(json(200, [feedback(2), feedback(1, { status: 'tamamlandi' })]));
     await loadAllFeedback();
     expect(useFeedback.getState().newCount).toBe(1);

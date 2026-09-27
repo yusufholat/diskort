@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { BackHandler, Keyboard, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Reanimated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -48,6 +48,17 @@ export function ChannelDrawer({ channelId, children }: { channelId: string; chil
     progress.value = withTiming(0, { duration: OPEN_MS, easing: Easing.out(Easing.cubic) });
     setOpen(false);
   }, [progress]);
+
+  // Başka ekrana geçilince (sunucu ekle, direkt mesajlar, ses…) çekmece kapanır; dönünce sohbet görünür
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        progress.value = 0;
+        setOpen(false);
+      },
+      [progress],
+    ),
+  );
 
   // Açıkken geri tuşu önce çekmeceyi kapatır
   useEffect(() => {

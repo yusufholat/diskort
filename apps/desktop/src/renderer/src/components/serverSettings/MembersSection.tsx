@@ -13,6 +13,7 @@ import {
   useCan,
   useGuild,
   useSession,
+  type MemberUser,
 } from '@diskort/client-core';
 import { confirmDialog } from '../../lib/dialog';
 import { memberMenuItems } from '../../lib/memberMenu';
@@ -45,7 +46,7 @@ export function MembersSection() {
     <div>
       <h2 className="mb-2 text-xl font-bold text-text-head">Üyeler</h2>
       <p className="mb-4 text-sm text-text-muted">
-        {total} üye · {Object.keys(online).length} çevrimiçi. Bir üyeye sağ tıklayarak ya da “…” düğmesiyle
+        {total} üye · {list.filter((u) => online[u.id]).length} çevrimiçi. Bir üyeye sağ tıklayarak ya da “…” düğmesiyle
         rollerini, sesli sohbetini ve üyeliğini yönetebilirsin. Yalnızca en üst rolü seninkinden aşağıda olanları
         yönetebilirsin.
       </p>
@@ -89,7 +90,7 @@ function ResetCodeCard({ user, code, expiresAt }: { user: User; code: string; ex
   );
 }
 
-function MemberRow({ user, onResetCode }: { user: User; onResetCode: (code: string, expiresAt: number) => void }) {
+function MemberRow({ user, onResetCode }: { user: MemberUser; onResetCode: (code: string, expiresAt: number) => void }) {
   const selfId = useSession((s) => s.user?.id);
   const isSelf = user.id === selfId;
   const color = useGuild((s) => memberColorOf(s, user.id));
@@ -100,7 +101,10 @@ function MemberRow({ user, onResetCode }: { user: User; onResetCode: (code: stri
     const state = s.voiceStates[user.id];
     return state ? s.channels.find((c) => c.id === state.channelId)?.name : undefined;
   });
-  const isAdmin = useCan(Permission.ADMINISTRATOR);
+  // Hesap yöneticisi (ana sunucunun yöneticisi) hesaplarla ilgili işleri ana sunucunun ayarlarından yapar
+  const instanceAdmin = useSession((s) => s.user?.isAdmin === true);
+  const inPrimary = useGuild((s) => s.activeGuildId === s.primaryGuildId);
+  const isAdmin = instanceAdmin && inPrimary;
   const openContextMenu = useUi((s) => s.openContextMenu);
   const [showPermissions, setShowPermissions] = useState(false);
 
@@ -112,7 +116,7 @@ function MemberRow({ user, onResetCode }: { user: User; onResetCode: (code: stri
     const s = useGuild.getState();
     const above = isSelf || outranksUser(s, selfId, user.id);
     if (isAdmin && above) {
-      items.push({ label: 'Yönetici', heading: true });
+      items.push({ label: 'Hesap', heading: true });
       items.push({
         label: 'Şifre sıfırlama kodu üret',
         onClick: () =>

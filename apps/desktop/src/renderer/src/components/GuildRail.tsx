@@ -1,36 +1,38 @@
 import type { ReactNode } from 'react';
-import { MessageSquareHeart, MessagesSquare } from 'lucide-react';
-import type { DmChannel } from '@diskort/shared';
+import { MessageSquareHeart, MessagesSquare, Plus } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
+import type { DmChannel, Guild } from '@diskort/shared';
 import {
   dmTitle,
-  isUnread,
   useDmUnreadCount,
   useDmUnreadTotal,
   useGuild,
+  useGuildList,
+  useGuildUnread,
+  useMessages,
   useSession,
   useUnreadDms,
 } from '@diskort/client-core';
 import { isDmSection, openDmSection, openGuildSection, useMainView } from '../lib/mainView';
-import { cn, initials } from '../lib/utils';
+import { cn } from '../lib/utils';
 import { useUi } from '../stores/ui';
 import { DmAvatar } from './dms/DmAvatar';
+import { GuildIcon } from './ui/GuildIcon';
 
 /**
- * Sol dikey çubuk: en üstte direkt mesajlar (okunmamış sayısıyla, altında okunmamış konuşmalar), sonra
- * topluluk (şimdilik tek; ileride çoklu sunucu için yer hazır).
+ * Sol dikey çubuk (Discord gibi): en üstte direkt mesajlar (okunmamış sayısıyla, altında okunmamış
+ * konuşmalar), sonra üye olunan sunucular, en altta sunucu ekleme ve geri bildirim.
  */
 export function GuildRail() {
-  const guild = useGuild((s) => s.guild);
+  const guilds = useGuildList();
   const openModal = useUi((s) => s.openModal);
   const view = useMainView();
   const inDms = isDmSection(view);
   const dmUnread = useDmUnreadTotal();
   const unreadDms = useUnreadDms(3);
-  // Direkt mesajlardayken toplulukta okunmamış mesaj olduğu görünsün
-  const guildUnread = useGuild((s) => s.channels.some((c) => c.type === 'text' && isUnread(s, c.id)));
 
   return (
-    <nav className="flex w-[72px] shrink-0 flex-col items-center gap-2 bg-bg-rail py-3">
+    <nav className="flex w-[72px] shrink-0 flex-col items-center gap-2 overflow-y-auto bg-bg-rail py-3 [scrollbar-width:none]">
       <RailItem
         selected={inDms}
         unread={false}
@@ -52,19 +54,23 @@ export function GuildRail() {
         <UnreadDm key={dm.id} dm={dm} />
       ))}
 
-      <div className="h-0.5 w-8 rounded bg-bg-hover" />
+      <div className="h-0.5 w-8 shrink-0 rounded bg-bg-hover" />
 
-      <RailItem selected={!inDms} unread={guildUnread} label={guild?.name ?? ''} onClick={openGuildSection}>
-        <div
-          className={cn(
-            'flex h-12 w-12 items-center justify-center bg-brand text-base font-semibold text-white transition-[border-radius] duration-150',
-            inDms ? 'rounded-3xl group-hover/rail:rounded-2xl' : 'rounded-2xl',
-          )}
-        >
-          {initials(guild?.name ?? 'D')}
-        </div>
-      </RailItem>
-      {/* Geri bildirim: Discord'un "Sunucu ekle" düğmesi gibi, en altta */}
+      {guilds.map((guild) => (
+        <GuildItem key={guild.id} guild={guild} inDms={inDms} />
+      ))}
+
+      <button
+        className="press flex h-12 w-12 shrink-0 items-center justify-center rounded-3xl bg-bg-main text-ok transition-[border-radius,background-color,color] duration-200 hover:rounded-2xl hover:bg-ok hover:text-white"
+        data-tooltip="Sunucu ekle"
+        data-tooltip-side="right"
+        aria-label="Sunucu ekle"
+        onClick={() => openModal({ type: 'addGuild' })}
+      >
+        <Plus size={24} />
+      </button>
+
+      {/* Geri bildirim: en altta */}
       <button
         className="press mt-auto flex h-12 w-12 shrink-0 items-center justify-center rounded-3xl bg-bg-main text-ok transition-[border-radius,background-color,color] duration-200 hover:rounded-2xl hover:bg-ok hover:text-white"
         data-tooltip="Geri bildirim gönder"
@@ -75,6 +81,27 @@ export function GuildRail() {
         <MessageSquareHeart size={22} />
       </button>
     </nav>
+  );
+}
+
+/** Sunucu: simgesi, seçiliyse uzun işaret, okunmamış mesajı varsa kısa işaret, bahsetme sayısı */
+function GuildItem({ guild, inDms }: { guild: Guild; inDms: boolean }) {
+  const selected = useGuild((s) => !inDms && s.activeGuildId === guild.id);
+  const unread = useGuildUnread(guild.id);
+  // Sunucunun kanallarındaki okunmamış bahsetmeler
+  const channelIds = useGuild(useShallow((s) => s.guilds[guild.id]?.channels.map((c) => c.id) ?? []));
+  const mentions = useMessages((s) => channelIds.reduce((n, id) => n + (s.mentionCounts[id] ?? 0), 0));
+  return (
+    <RailItem selected={selected} unread={unread} label={guild.name} badge={mentions} onClick={() => openGuildSection(guild.id)}>
+      <GuildIcon
+        guild={guild}
+        size={48}
+        className={cn(
+          'transition-[border-radius] duration-150',
+          selected ? 'rounded-2xl' : 'rounded-3xl group-hover/rail:rounded-2xl',
+        )}
+      />
+    </RailItem>
   );
 }
 
@@ -115,7 +142,7 @@ function RailItem({
   children: ReactNode;
 }) {
   return (
-    <div className="group/rail relative flex items-center">
+    <div className="group/rail relative flex shrink-0 items-center">
       <span
         className={cn(
           'absolute -left-3 w-1 origin-left rounded-r bg-white transition-[height,opacity] duration-150',

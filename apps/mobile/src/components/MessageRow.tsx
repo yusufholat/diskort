@@ -16,6 +16,7 @@ import {
   type LocalMessage,
 } from '@diskort/client-core';
 import type { User } from '@diskort/shared';
+import type { MemberUser } from '@diskort/client-core';
 import { feedback } from '../haptics';
 import { duration, useAppear } from '../motion';
 import { colors, font, layout, radius, ripple, space } from '../theme';
@@ -55,7 +56,7 @@ function stamp(ts: number): string {
 
 interface Props {
   message: LocalMessage;
-  author: User | undefined;
+  author: MemberUser | undefined;
   compact: boolean;
   /** Bu mesajın üstünde gün ayracı gösterilsin mi */
   dayBreak: boolean;

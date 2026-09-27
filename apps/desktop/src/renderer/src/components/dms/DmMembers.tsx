@@ -24,6 +24,8 @@ export function DmMembers({ dm }: { dm: DmChannel }) {
 const Participant = memo(function Participant({ userId, owner }: { userId: string; owner: boolean }) {
   const user = useGuild((s) => s.users[userId]);
   const online = useGuild((s) => Boolean(s.online[userId]));
+  // Ortak sunucusu kalmayan (ya da seçili olmayan sunucudan tanınan) kişi
+  const reachable = useGuild((s) => Boolean(s.reachable[userId]));
   const color = useMemberColor(userId);
   const selfId = useSession((s) => s.user?.id);
   const openContextMenu = useUi((s) => s.openContextMenu);
@@ -34,7 +36,7 @@ const Participant = memo(function Participant({ userId, owner }: { userId: strin
     <div
       className={cn(
         'flex h-[42px] items-center gap-3 rounded px-2 hover:bg-bg-hover',
-        (!online || user.removed) && 'opacity-40 hover:opacity-100',
+        (!online || !reachable) && 'opacity-40 hover:opacity-100',
       )}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -44,7 +46,7 @@ const Participant = memo(function Participant({ userId, owner }: { userId: strin
         }
       }}
     >
-      <Avatar user={user} size={32} online={user.removed ? undefined : online} />
+      <Avatar user={user} size={32} online={reachable || isSelf ? online : undefined} />
       <div className="min-w-0 flex-1 leading-tight">
         <div className="flex items-center gap-1">
           <span className="truncate font-medium text-text-normal" style={color ? { color } : undefined}>
@@ -52,7 +54,7 @@ const Participant = memo(function Participant({ userId, owner }: { userId: strin
           </span>
           {owner && <Crown size={13} aria-label="Grubun sahibi" className="shrink-0 text-warn" />}
         </div>
-        {user.removed && <div className="truncate text-xs text-text-muted">Artık sunucuda değil</div>}
+        {!reachable && !isSelf && <div className="truncate text-xs text-text-muted">Ortak sunucunuz yok</div>}
       </div>
     </div>
   );

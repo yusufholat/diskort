@@ -599,7 +599,10 @@ gateway.on((msg: GatewayServerMessage) => {
       useMessages.setState({ mentionCounts: msg.d.mentionCounts });
       // Yeniden bağlanınca yüklü kanalları tazele (kopukken gelen mesajlar kaçmasın). Kopukken görülemez olan
       // kanal ya da listeden kalkan konuşma (ör. başka cihazdan gruptan ayrılındı) yüklenmez, önbellekten çıkar.
-      const known = new Set([...msg.d.channels.map((c) => c.id), ...(msg.d.dms ?? []).map((d) => d.id)]);
+      const known = new Set([
+        ...msg.d.guilds.flatMap((g) => g.channels.map((c) => c.id)),
+        ...(msg.d.dms ?? []).map((d) => d.id),
+      ]);
       for (const channelId of Object.keys(useMessages.getState().channels)) {
         if (!known.has(channelId)) {
           useMessages.setState((s) => {
@@ -611,6 +614,20 @@ gateway.on((msg: GatewayServerMessage) => {
         patch(channelId, () => ({ loaded: false }));
         void loadInitial(channelId);
       }
+      break;
+    }
+    case 'GUILD_CREATE':
+      // Katılınan sunucunun okunmamış bahsetmeleri
+      useMessages.setState((s) => ({ mentionCounts: { ...s.mentionCounts, ...msg.d.mentionCounts } }));
+      break;
+    case 'GUILD_DELETE': {
+      // Sunucudan çıkıldı: artık görülemeyen kanalların önbelleği ve sayaçları gider
+      const guild = useGuild.getState();
+      const visible = (id: string): boolean => Boolean(guild.channelGuild[id] || guild.dms[id]);
+      useMessages.setState((s) => ({
+        channels: Object.fromEntries(Object.entries(s.channels).filter(([id]) => visible(id))),
+        mentionCounts: Object.fromEntries(Object.entries(s.mentionCounts).filter(([id]) => visible(id))),
+      }));
       break;
     }
     case 'CHANNEL_DELETE':

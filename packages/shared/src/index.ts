@@ -19,12 +19,12 @@ export interface User {
    * Fotoğraf yoksa null; bu alanı bilmeyen eski sunucularda hiç gelmez. Yoksa baş harfler gösterilir.
    */
   avatarUrl?: string | null;
-  /** Sahip ya da ADMINISTRATOR yetkili bir rolü var (rollerden önceki istemciler bununla çalışır) */
+  /**
+   * Hesap yöneticisi: ana sunucunun (ilk kurulan sunucu) sahibi ya da orada Yönetici yetkili bir rolü var.
+   * Hesaplarla ilgili işleri yapar (şifre sıfırlama kodu, hesap silme, hesap daveti, geri bildirimler).
+   * Sunuculardaki yetkiler rollerden gelir (bkz. GuildMember).
+   */
   isAdmin: boolean;
-  /** Rollerinin kimlikleri (@everyone hariç) */
-  roles: string[];
-  /** Artık üye değil (atıldı ya da yasaklandı); mesajlarında adı görünsün diye listede kalır */
-  removed: boolean;
 }
 
 export interface Guild {
@@ -32,6 +32,49 @@ export interface Guild {
   name: string;
   /** Sahip: herkesin üstündedir, her yetkiye sahiptir */
   ownerId: string | null;
+  /**
+   * Sunucu simgesi: sunucu köküne göre adres (/api/guild-icons/<sunucu>/<özet>.webp; 256×256 WebP).
+   * Kimlik doğrulaması istemez, içerik değişince adres de değişir. Yoksa null: adın baş harfleri gösterilir.
+   */
+  iconUrl?: string | null;
+}
+
+/**
+ * Bir hesabın bir sunucudaki üyeliği. Sunucudan ayrılan, atılan ya da yasaklanan eski üyeler de listede
+ * kalır (`removed`): mesajlarında adları görünsün diye; üye listesinde gösterilmezler.
+ */
+export interface GuildMember {
+  userId: string;
+  /** Rollerinin kimlikleri (@everyone hariç); eski üyede boş */
+  roles: string[];
+  joinedAt: number;
+  /** Artık üye değil (ayrıldı, atıldı ya da yasaklandı) */
+  removed: boolean;
+}
+
+/** Bir sunucunun kullanıcıya görünen hâli (READY'de ve GUILD_CREATE'te) */
+export interface GuildData {
+  guild: Guild;
+  /** Yalnızca kullanıcının görebildiği kanallar */
+  channels: Channel[];
+  /** @everyone dahil tüm roller */
+  roles: Role[];
+  /** Üyeler (eski üyeler `removed` olarak) */
+  members: GuildMember[];
+}
+
+/**
+ * Kullanıcı bir sunucuya katıldı (ya da sunucu kurdu): sunucunun verisi ve ona ait anlık durum. `users`,
+ * kullanıcının henüz tanımadığı üyelerin profillerini de içerir.
+ */
+export interface GuildCreatePayload extends GuildData {
+  users: User[];
+  voiceStates: VoiceState[];
+  /** Bu sunucunun çevrimiçi üyeleri */
+  online: string[];
+  lastMessageIds: Record<string, string>;
+  readStates: Record<string, string>;
+  mentionCounts: Record<string, number>;
 }
 
 export type ChannelType = 'voice' | 'text';
@@ -228,6 +271,8 @@ export interface ReactionEvent {
 
 export interface Invite {
   code: string;
+  /** Katılınacak sunucu; null: yalnızca hesap açtıran davet (sunucuya katılmaz) */
+  guildId: string | null;
   createdBy: string;
   maxUses: number | null;
   uses: number;
@@ -235,9 +280,30 @@ export interface Invite {
   createdAt: number;
 }
 
+/** Davet bağlantısının önizlemesi (giriş gerekmez): hangi sunucuya davet edildiği */
+export interface InvitePreview {
+  code: string;
+  /** Yalnızca hesap daveti ise null */
+  guild: { id: string; name: string; iconUrl: string | null } | null;
+  memberCount: number;
+  expiresAt: number | null;
+}
+
+/** Sunucu davet bağlantısı: https://<sunucu>/davet/<kod> (indirme sayfası kodu gösterir) */
+export const INVITE_LINK_PATH = '/davet/';
+
+/** Yapıştırılan davet bağlantısından ya da koddan davet kodu (geçersizse null) */
+export function parseInviteCode(input: string): string | null {
+  const text = input.trim();
+  const fromLink = /\/davet\/([a-z0-9]+)/i.exec(text)?.[1];
+  const code = (fromLink ?? text).toUpperCase();
+  return /^[A-Z0-9]{4,32}$/.test(code) ? code : null;
+}
+
 // ---------- REST ----------
 
 export interface RegisterRequest {
+  /** Hesap daveti ya da sunucu daveti (sunucu davetiyle kayıt olan o sunucuya da katılır) */
   inviteCode: string;
   username: string;
   password: string;
@@ -285,11 +351,6 @@ export interface ResetCodeResponse {
   expiresAt: number;
 }
 
-/** Rollerden önceki istemciler için: yönetici rolü verilir/alınır */
-export interface UpdateUserRequest {
-  isAdmin?: boolean;
-}
-
 export interface CreateRoleRequest {
   name: string;
   color?: string | null;
@@ -307,6 +368,10 @@ export interface UpdateRoleRequest {
 /** @everyone hariç tüm roller, yukarıdan aşağı yeni sırasıyla */
 export interface ReorderRolesRequest {
   roleIds: string[];
+}
+
+export interface CreateGuildRequest {
+  name: string;
 }
 
 export interface UpdateGuildRequest {
@@ -335,6 +400,13 @@ export interface VoiceModerationRequest {
 export interface CreateInviteRequest {
   maxUses?: number | null;
   expiresInHours?: number | null;
+}
+
+/** Davetle katılınan sunucu (POST /api/invites/:code/accept) */
+export interface AcceptInviteResponse {
+  guild: Guild;
+  /** Zaten üyeydin */
+  alreadyMember: boolean;
 }
 
 export interface CreateChannelRequest {
@@ -400,14 +472,22 @@ export interface ApiErrorBody {
 
 export interface ReadyPayload {
   user: User;
-  guild: Guild;
-  /** Yalnızca kullanıcının görebildiği kanallar */
-  channels: Channel[];
+  /** Kullanıcının üye olduğu sunucular, katılma sırasıyla (hiç yoksa boş) */
+  guilds: GuildData[];
+  /**
+   * Kullanıcının görebildiği hesapların profilleri: ortak sunuculardaki (eski üyeler dahil) ve direkt mesaj
+   * konuşmalarındaki kişiler
+   */
   users: User[];
-  /** @everyone dahil tüm roller */
-  roles: Role[];
+  /** Yalnızca görülebilen ses kanallarındakiler */
   voiceStates: VoiceState[];
+  /** Ortak sunucularda çevrimiçi olanlar */
   online: string[];
+  /**
+   * Ana sunucu (ilk kurulan): hesap yöneticileri onun yöneticileridir, geri bildirimleri onu yönetenler
+   * görür. Kullanıcı üyesi olmasa da bildirilir.
+   */
+  primaryGuildId: string | null;
   /** Metin kanallarındaki en son mesaj kimliği (kanal → mesaj) */
   lastMessageIds: Record<string, string>;
   /** Bu kullanıcının kanal başına okuduğu son mesaj (kanal → mesaj) */
@@ -433,15 +513,26 @@ export type GatewayServerMessage =
   | { t: 'HEARTBEAT_ACK' }
   | { t: 'VOICE_STATE_UPDATE'; d: VoiceState }
   | { t: 'VOICE_STATE_DELETE'; d: { userId: string; channelId: string } }
+  /** Profil değişti (ya da yeni tanınan biri) */
   | { t: 'USER_UPDATE'; d: User }
   | { t: 'USER_DELETE'; d: { id: string } }
   | { t: 'PRESENCE_UPDATE'; d: { userId: string; online: boolean } }
   | { t: 'CHANNEL_CREATE'; d: Channel }
   | { t: 'CHANNEL_UPDATE'; d: Channel }
-  | { t: 'CHANNEL_DELETE'; d: { id: string } }
+  | { t: 'CHANNEL_DELETE'; d: { id: string; guildId?: string } }
+  /** Bir sunucuya katıldın ya da sunucu kurdun */
+  | { t: 'GUILD_CREATE'; d: GuildCreatePayload }
   | { t: 'GUILD_UPDATE'; d: Guild }
-  /** Rollerden biri eklendi, değişti, silindi ya da sıralama değişti: tüm liste */
-  | { t: 'ROLES_UPDATE'; d: { roles: Role[] } }
+  /** Sunucu listenden çıktı: ayrıldın, atıldın, yasaklandın ya da sunucu silindi */
+  | { t: 'GUILD_DELETE'; d: { id: string; reason?: string } }
+  /** Sunucuya biri katıldı (ya da geri döndü) */
+  | { t: 'GUILD_MEMBER_ADD'; d: { guildId: string; member: GuildMember; user: User } }
+  /** Üyenin rolleri değişti */
+  | { t: 'GUILD_MEMBER_UPDATE'; d: { guildId: string; member: GuildMember } }
+  /** Üye sunucudan ayrıldı, atıldı ya da yasaklandı (eski üye olarak kalır) */
+  | { t: 'GUILD_MEMBER_REMOVE'; d: { guildId: string; userId: string } }
+  /** Sunucunun rollerinden biri eklendi, değişti, silindi ya da sıralama değişti: tüm liste */
+  | { t: 'ROLES_UPDATE'; d: { guildId: string; roles: Role[] } }
   /**
    * Yetkili biri seni başka ses kanalına taşıdı: seste olan istemci o kanala geçer. (Kendi sunucumuzdaki
    * LiveKit katılımcı taşımayı desteklemiyor; bu olayı tanımayan eski istemci bir süre sonra sesten çıkarılır.)
@@ -507,6 +598,10 @@ export const USERNAME_PATTERN = /^[a-z0-9_.]{3,32}$/;
 /** Bahsetme sözcükleri kullanıcı adı olamaz */
 export const RESERVED_USERNAMES: readonly string[] = ['everyone', 'here'];
 export const GUILD_NAME_MAX_LENGTH = 48;
+/** Bir hesabın üye olabileceği en fazla sunucu */
+export const MAX_GUILDS_PER_USER = 100;
+/** Bir hesabın sahibi olabileceği en fazla sunucu */
+export const MAX_OWNED_GUILDS = 10;
 export const BAN_REASON_MAX_LENGTH = 200;
 export const PASSWORD_MIN_LENGTH = 8;
 export const DISPLAY_NAME_MAX_LENGTH = 32;

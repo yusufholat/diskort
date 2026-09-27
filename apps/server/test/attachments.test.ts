@@ -41,7 +41,7 @@ async function setup() {
       payload: { inviteCode: bootstrap.code, username: 'admin', password: 'sifre12345' },
     })
   ).json() as { token: string; user: { id: string } };
-  const code = (await app.inject({ method: 'POST', url: '/api/invites', headers: auth(admin.token), payload: {} })).json()
+  const code = (await app.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: auth(admin.token), payload: {} })).json()
     .code as string;
   const member = (
     await app.inject({
