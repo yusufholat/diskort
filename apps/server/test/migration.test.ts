@@ -99,3 +99,44 @@ describe('göç 8: roller', () => {
     }
   });
 });
+
+describe('göç 10: yanıtlar', () => {
+  it('üretimdeki şema 8 veritabanı göçer; eski mesajlar yanıt değildir, yeni yanıtlar özetiyle okunur', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diskort-goc-'));
+    dirs.push(dir);
+    const file = path.join(dir, 'diskort.db');
+    const db = new DatabaseSync(file);
+    for (const sql of MIGRATIONS.slice(0, 8)) db.exec(sql);
+    db.exec('PRAGMA user_version = 8');
+    db.exec(`INSERT INTO guilds (id, name, created_at) VALUES ('g1', 'Eski', 1)`);
+    db.exec(`INSERT INTO channels (id, guild_id, name, type, position, created_at) VALUES ('t1', 'g1', 'genel', 'text', 0, 1)`);
+    db.exec(
+      `INSERT INTO users (id, username, display_name, password_hash, avatar_color, is_admin, created_at)
+       VALUES ('ali', 'ali', 'Ali', 'x', '#5865f2', 0, 1), ('veli', 'veli', 'Veli', 'x', '#5865f2', 0, 2)`,
+    );
+    db.exec(`INSERT INTO messages (channel_id, author_id, content, created_at) VALUES ('t1', 'ali', 'eski mesaj', 1)`);
+    db.close();
+
+    const store = new Store(file);
+    try {
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
+      const [old] = store.listMessages('t1', null, 50);
+      expect(old).toMatchObject({ content: 'eski mesaj', replyToId: null, referencedMessage: null, replyMentionUserId: null });
+      const reply = store.createMessage(
+        't1',
+        'veli',
+        'yanıt',
+        [],
+        { userIds: ['ali'], everyone: false },
+        { toId: Number(old!.id), mentionUserId: 'ali' },
+      )!;
+      expect(reply).toMatchObject({
+        replyToId: old!.id,
+        replyMentionUserId: 'ali',
+        referencedMessage: { id: old!.id, authorId: 'ali', content: 'eski mesaj', hasAttachments: false },
+      });
+    } finally {
+      store.close();
+    }
+  });
+});

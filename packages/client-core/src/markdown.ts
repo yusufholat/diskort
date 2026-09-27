@@ -86,6 +86,38 @@ function parseText(text: string): MdBlock[] {
   return groups.map((g) => ({ type: g.quote ? 'quote' : 'paragraph', children: parseInline(g.lines.join('\n')) }));
 }
 
+/**
+ * Tek satırlık düz metin (yanıtın üstündeki alıntı gibi): biçim işaretleri atılır, satırlar
+ * birleştirilir, bahsetmeler görünen adla yazılır, sürprizler gizli kalır.
+ */
+export function plainText(content: string, displayNameOf: (username: string) => string | undefined): string {
+  const flatten = (nodes: MdInline[]): string =>
+    nodes
+      .map((node) => {
+        switch (node.type) {
+          case 'text':
+          case 'code':
+            return node.text;
+          case 'link':
+            return node.url;
+          case 'mention': {
+            const name = displayNameOf(node.username);
+            return name ? `@${name}` : node.raw;
+          }
+          case 'spoiler':
+            return '▒▒▒▒';
+          default:
+            return flatten(node.children);
+        }
+      })
+      .join('');
+  return parseMarkdown(content)
+    .map((block) => (block.type === 'codeblock' ? block.text : flatten(block.children)))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 const CODE_BLOCK = /```(?:([a-z0-9+#.-]+)\n)?\n?([\s\S]*?)\n?```/gi;
 
 export function parseMarkdown(content: string): MdBlock[] {

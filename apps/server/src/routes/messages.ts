@@ -36,6 +36,8 @@ const createSchema = z
       .max(MESSAGE_MAX_ATTACHMENTS, `Bir mesaja en fazla ${MESSAGE_MAX_ATTACHMENTS} dosya eklenebilir.`)
       .refine((ids) => new Set(ids).size === ids.length, 'Aynı dosya iki kez eklenemez.')
       .optional(),
+    replyToId: z.string().regex(/^\d+$/, 'Geçersiz yanıt.').nullish(),
+    replyMention: z.boolean().optional(),
   })
   .refine((b) => Boolean(b.content) || Boolean(b.attachmentIds?.length), EMPTY_MESSAGE);
 const editSchema = z.object({ content });
@@ -117,17 +119,35 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
       if (body.attachmentIds?.length && !hasPermission(perms, Permission.ATTACH_FILES)) {
         return forbidden(reply, 'Bu kanala dosya gönderme iznin yok.');
       }
+      // Yanıt: asıl mesaj aynı kanalda olmalı (kanalı görebildiği için asıl mesajı da görebilir).
+      // "@ AÇIK"sa asıl yazar da bahsedilmiş sayılır (kendi mesajına yanıtta bildirim yok).
+      let replyTo: { toId: number; mentionUserId: string | null } | null = null;
+      if (body.replyToId) {
+        const target = store.replyTarget(channel.id, Number(body.replyToId));
+        if (!target) {
+          return sendError(reply, 400, 'invalid_reply', 'Yanıt verilen mesaj bulunamadı; silinmiş olabilir.');
+        }
+        const ping = (body.replyMention ?? true) && target.authorId !== null && target.authorId !== req.user.id;
+        replyTo = { toId: target.id, mentionUserId: ping ? target.authorId : null };
+      }
       const content = body.content ?? '';
       // @everyone yalnızca yetkisi olan yazarda herkese bildirim olur; bahsedilenlerden kanalı göremeyenler sayılmaz
       const everyone = mentionsEveryone(content) && hasPermission(perms, Permission.MENTION_EVERYONE);
-      const candidates = everyone
-        ? store.listUsers().filter((u) => !u.removed && u.id !== req.user.id).map((u) => u.id)
-        : store.resolveMentions(content, req.user.id);
+      const candidates = new Set(
+        everyone
+          ? store.listUsers().filter((u) => !u.removed && u.id !== req.user.id).map((u) => u.id)
+          : store.resolveMentions(content, req.user.id),
+      );
+      if (replyTo?.mentionUserId) candidates.add(replyTo.mentionUserId);
       const mentioned = permissions.viewersOf(channel, candidates);
-      const message = store.createMessage(req.params.id, req.user.id, content, body.attachmentIds, {
-        userIds: mentioned,
-        everyone,
-      });
+      const message = store.createMessage(
+        req.params.id,
+        req.user.id,
+        content,
+        body.attachmentIds,
+        { userIds: mentioned, everyone },
+        replyTo,
+      );
       if (!message) {
         return sendError(reply, 400, 'invalid_attachment', 'Dosya bulunamadı ya da süresi doldu; yeniden eklemeyi dene.');
       }

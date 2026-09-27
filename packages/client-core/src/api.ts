@@ -117,14 +117,24 @@ export const api = {
 
   joinVoice: (channelId: string) => request<VoiceJoinResponse>('POST', `/api/voice/${channelId}/join`),
 
-  listMessages: (channelId: string, before?: string) =>
-    request<Message[]>('GET', `/api/channels/${channelId}/messages${before ? `?before=${before}` : ''}`),
-  sendMessage: (channelId: string, content: string, attachmentIds: string[] = []) =>
-    request<Message>(
-      'POST',
-      `/api/channels/${channelId}/messages`,
-      attachmentIds.length ? { content, attachmentIds } : { content },
-    ),
+  listMessages: (channelId: string, before?: string, limit?: number) => {
+    const query = new URLSearchParams();
+    if (before) query.set('before', before);
+    if (limit) query.set('limit', String(limit));
+    const qs = query.toString();
+    return request<Message[]>('GET', `/api/channels/${channelId}/messages${qs ? `?${qs}` : ''}`);
+  },
+  sendMessage: (
+    channelId: string,
+    content: string,
+    attachmentIds: string[] = [],
+    reply?: { replyToId: string; replyMention: boolean },
+  ) =>
+    request<Message>('POST', `/api/channels/${channelId}/messages`, {
+      content,
+      ...(attachmentIds.length ? { attachmentIds } : {}),
+      ...(reply ?? {}),
+    }),
   updateMessage: (id: string, content: string) => request<Message>('PATCH', `/api/messages/${id}`, { content }),
   deleteMessage: (id: string) => request<void>('DELETE', `/api/messages/${id}`),
   addReaction: (messageId: string, emoji: string) =>
