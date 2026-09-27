@@ -16,7 +16,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { DM_GROUP_MAX_PARTICIPANTS, Permission, type DmChannel, type User } from '@diskort/shared';
+import { DM_GROUP_MAX_PARTICIPANTS, Permission, STATUS_LABELS, type DmChannel, type User } from '@diskort/shared';
 import {
   ackChannel,
   clearJump,
@@ -31,9 +31,11 @@ import {
   startReply,
   toggleReaction,
   useCan,
+  useCustomStatus,
   useGuild,
   useMessages,
   useSession,
+  useStatus,
   type LocalMessage,
 } from '@diskort/client-core';
 import { CountBadge } from './Badge';
@@ -490,9 +492,17 @@ function ChannelTitle({ name }: { name: string }) {
 function DmTitle({ dm, name }: { dm: DmChannel; name: string }) {
   const selfId = useSession((s) => s.user?.id);
   const partner = useGuild((s) => dmPartner(dm, s.users, selfId));
-  const online = useGuild((s) => (partner ? Boolean(s.online[partner.id]) : false));
+  const status = useStatus(partner?.id);
+  const custom = useCustomStatus(partner?.id);
   const reachable = useGuild((s) => (partner ? Boolean(s.reachable[partner.id]) : false));
-  const sub = dm.group ? `${dm.participantIds.length} üye` : !reachable ? undefined : online ? 'Çevrimiçi' : 'Çevrimdışı';
+  // Bire bir konuşmada karşı tarafın özel durumu, yoksa durumu
+  const sub = dm.group
+    ? `${dm.participantIds.length} üye`
+    : !reachable
+      ? undefined
+      : custom
+        ? `${custom.emoji ? `${custom.emoji} ` : ''}${custom.text ?? ''}`
+        : STATUS_LABELS[status];
   return (
     <View style={styles.title}>
       <DmAvatar dm={dm} size={30} status surfaceColor={colors.main} />

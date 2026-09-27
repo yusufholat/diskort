@@ -14,15 +14,6 @@ import { useSession } from './session';
 /** Durum noktasının gösterimi: kendi durumunda 'invisible' da olabilir */
 export type DisplayStatus = UserStatus | 'offline';
 
-/** Discord'un durum renkleri (temadan bağımsız) */
-export const STATUS_COLORS: Record<DisplayStatus, string> = {
-  online: '#23a55a',
-  idle: '#f0b232',
-  dnd: '#f23f43',
-  invisible: '#80848e',
-  offline: '#80848e',
-};
-
 /** Kişinin gösterilecek durumu; kendin için seçtiğin görünmezlik de görünür */
 export function displayStatusOf(
   s: Pick<GuildStore, 'presences' | 'selfStatus'>,

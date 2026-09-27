@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight, Pencil, Plus, Smile, X } from 'lucide-react';
 import { create } from 'zustand';
 import { STATUS_DESCRIPTIONS, STATUS_DURATIONS, STATUS_LABELS, type UserStatus } from '@diskort/shared';
@@ -88,7 +88,7 @@ export function SelfProfilePopout() {
       role="dialog"
       aria-label="Profilin"
       className={cn(
-        'fixed z-50 w-[300px] rounded-lg border border-black/30 bg-bg-float shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
+        'fixed z-50 w-[300px] rounded-lg border border-edge bg-bg-float shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
         closing ? 'anim-pop-out pointer-events-none' : 'anim-pop-in',
       )}
       style={{
@@ -145,14 +145,13 @@ export function SelfProfilePopout() {
               onClick={() => setStatusMenu((v) => !v)}
             />
             {statusMenu && (
-              // Menü kartın sağına açılır; aradaki boşluk da menünün parçası (fare geçerken kapanmasın)
-              <div className="absolute top-[-6px] left-full z-10 pl-2">
+              <Submenu>
                 <Menu>
                   {STATUS_ORDER.map((option) => (
                     <StatusOption key={option} status={option} selected={option === current} onChoose={choose} />
                   ))}
                 </Menu>
-              </div>
+              </Submenu>
             )}
           </div>
           <Row
@@ -248,11 +247,31 @@ function Row({
   );
 }
 
+/**
+ * Satırın sağına açılan alt menü; aradaki boşluk da menünün parçası (fare geçerken kapanmasın). Ekranın
+ * altına sığmıyorsa yukarı kayar.
+ */
+function Submenu({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [shift, setShift] = useState(0);
+  useLayoutEffect(() => {
+    const rect = ref.current?.getBoundingClientRect();
+    if (!rect) return;
+    const overflow = rect.bottom - (window.innerHeight - MARGIN);
+    if (overflow > 0) setShift(-Math.min(overflow, rect.top - MARGIN));
+  }, []);
+  return (
+    <div ref={ref} className="absolute top-[-6px] left-full z-10 pl-2" style={{ transform: `translateY(${shift}px)` }}>
+      {children}
+    </div>
+  );
+}
+
 function Menu({ children }: { children: ReactNode }) {
   return (
     <div
       role="menu"
-      className="anim-pop-in w-[260px] rounded-lg border border-black/30 bg-bg-float p-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.45)]"
+      className="anim-pop-in w-[260px] rounded-lg border border-edge bg-bg-float p-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.45)]"
     >
       {children}
     </div>
@@ -294,10 +313,10 @@ function StatusOption({
         {timed && <ChevronRight size={16} className="mt-[1px] shrink-0 opacity-80" />}
       </button>
       {timed && open && (
-        <div className="absolute top-[-6px] left-full z-10 pl-2">
+        <Submenu>
           <div
             role="menu"
-            className="anim-pop-in w-[160px] rounded-lg border border-black/30 bg-bg-float p-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.45)]"
+            className="anim-pop-in w-[160px] rounded-lg border border-edge bg-bg-float p-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.45)]"
           >
             {STATUS_DURATIONS.map((d) => (
               <button
@@ -311,7 +330,7 @@ function StatusOption({
               </button>
             ))}
           </div>
-        </div>
+        </Submenu>
       )}
     </div>
   );

@@ -27,7 +27,7 @@ import { useAppear, useBump, useLayoutAnimationOn, useTimingTo } from '../motion
 import { toast } from '../stores/ui';
 import { colors, createStyles, font, radius, ripple, space, text as textStyles } from '../theme';
 import { fileIcon } from './Attachments';
-import { Avatar } from './Avatar';
+import { PresenceAvatar } from './Avatar';
 import { BottomSheet, SheetHeader } from './BottomSheet';
 import { ExpressionSheet, type ExpressionTab } from './ExpressionSheet';
 import { PressableScale } from './PressableScale';
@@ -188,7 +188,7 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
         <Suggestions>
           {suggestions.map((u) => (
             <Pressable key={u.id} android_ripple={ripple.row} style={styles.suggestion} onPress={() => pick(u)}>
-              <Avatar user={u} size={28} online={!!online[u.id]} surface={colors.side} />
+              <PresenceAvatar userId={u.id} user={u} size={28} surface={colors.side} />
               <Text style={styles.suggestionName}>{u.displayName}</Text>
               <Text style={styles.suggestionUser}>@{u.username}</Text>
             </Pressable>

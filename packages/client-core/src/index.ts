@@ -65,7 +65,6 @@ export {
   formatRemaining,
   setCustomStatus,
   setUserStatus,
-  STATUS_COLORS,
   useCustomStatus,
   useSelfStatus,
   useStatus,

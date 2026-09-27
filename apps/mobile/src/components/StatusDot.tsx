@@ -1,5 +1,10 @@
 import { View } from 'react-native';
-import { STATUS_COLORS, type DisplayStatus } from '@diskort/client-core';
+import type { DisplayStatus } from '@diskort/client-core';
+import { colors } from '../theme';
+
+/** Durum renkleri tema renklerinden (Discord'un yeşil / sarı / kırmızı / gri tonları) */
+const colorOf = (status: DisplayStatus): string =>
+  status === 'online' ? colors.ok : status === 'idle' ? colors.warn : status === 'dnd' ? colors.danger : colors.faint;
 
 /**
  * Discord biçimli durum simgesi (SVG'siz, yalnızca View): çevrim içi dolu yeşil daire, boşta sarı ay,
@@ -7,7 +12,7 @@ import { STATUS_COLORS, type DisplayStatus } from '@diskort/client-core';
  * renginde çizilir (simgenin durduğu zemin).
  */
 export function StatusDot({ status, size, surface }: { status: DisplayStatus; size: number; surface: string }) {
-  const color = STATUS_COLORS[status];
+  const color = colorOf(status);
   return (
     <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color, overflow: 'hidden' }}>
       {status === 'idle' && (

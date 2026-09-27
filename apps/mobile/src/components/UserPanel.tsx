@@ -1,7 +1,8 @@
 import { Animated, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useSession } from '@diskort/client-core';
+import { STATUS_LABELS } from '@diskort/shared';
+import { useCustomStatus, useSession, useStatus } from '@diskort/client-core';
 import { useBump } from '../motion';
 import { useSettings } from '../stores/settings';
 import { colors, createStyles, font, space } from '../theme';
@@ -9,6 +10,7 @@ import { toggleDeafen, toggleMute } from '../voice/actions';
 import { useVoice } from '../voice/voice';
 import { Avatar } from './Avatar';
 import { PressableScale } from './PressableScale';
+import { openStatusPicker } from './StatusPicker';
 import { VoiceBar } from './VoiceBar';
 
 /**
@@ -25,6 +27,8 @@ export function UserPanel({ onSettings }: { onSettings: () => void }) {
   // Ekranın en altında: gezinme çubuğunun arkası da panel renginde olsun
   const insets = useSafeAreaInsets();
   const inVoice = useVoice((s) => s.status !== 'idle');
+  const status = useStatus(user?.id);
+  const custom = useCustomStatus(user?.id);
   if (inVoice) return <VoiceBar bottomInset={insets.bottom} onSettings={onSettings} />;
   if (!user) return null;
   return (
@@ -37,13 +41,22 @@ export function UserPanel({ onSettings }: { onSettings: () => void }) {
         accessibilityRole="button"
         accessibilityLabel={`${user.displayName}, ayarları aç`}
       >
-        <Avatar user={user} size={34} online surface={colors.panel} />
+        {/* Kendi avatarına dokununca durum sayfası (çevrim içi, boşta, rahatsız etmeyin, görünmez, özel durum) */}
+        <PressableScale
+          scaleTo={0.9}
+          onPress={openStatusPicker}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel={`Durumun: ${STATUS_LABELS[status]}. Değiştir`}
+        >
+          <Avatar user={user} size={34} status={status} surface={colors.panel} />
+        </PressableScale>
         <View style={{ flex: 1 }}>
           <Text style={styles.name} numberOfLines={1}>
             {user.displayName}
           </Text>
           <Text style={styles.username} numberOfLines={1}>
-            @{user.username}
+            {custom ? `${custom.emoji ? `${custom.emoji} ` : ''}${custom.text ?? ''}` : `@${user.username}`}
           </Text>
         </View>
       </PressableScale>

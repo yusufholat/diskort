@@ -1,5 +1,14 @@
 import { useId } from 'react';
-import { STATUS_COLORS, type DisplayStatus } from '@diskort/client-core';
+import type { DisplayStatus } from '@diskort/client-core';
+
+/** Durum renkleri tema değişkenlerinden (Discord'un yeşil / sarı / kırmızı / gri tonları) */
+const COLORS: Record<DisplayStatus, string> = {
+  online: 'var(--color-ok)',
+  idle: 'var(--color-warn)',
+  dnd: 'var(--color-danger)',
+  invisible: 'var(--color-text-faint)',
+  offline: 'var(--color-text-faint)',
+};
 
 /**
  * Discord biçimli durum simgesi: çevrim içi dolu yeşil daire, boşta sarı ay, rahatsız etmeyin ortası
@@ -8,7 +17,7 @@ import { STATUS_COLORS, type DisplayStatus } from '@diskort/client-core';
 export function StatusIcon({ status, size = 10, className }: { status: DisplayStatus; size?: number; className?: string }) {
   // useId iki nokta / köşeli tırnak içerir; url(#…) içinde güvenli olsun
   const id = `durum-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
-  const color = STATUS_COLORS[status];
+  const color = COLORS[status];
   if (status === 'online') {
     return (
       <svg width={size} height={size} viewBox="0 0 10 10" className={className} aria-hidden>

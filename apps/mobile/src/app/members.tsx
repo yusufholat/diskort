@@ -4,7 +4,7 @@ import { Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { User } from '@diskort/shared';
-import { memberGroups, useGuild, useMemberColor, useSession } from '@diskort/client-core';
+import { memberGroups, useCustomStatus, useGuild, useMemberColor, useSession, useStatus } from '@diskort/client-core';
 import { Avatar } from '../components/Avatar';
 import { MemberSheet } from '../components/MemberSheet';
 import { ListSkeleton } from '../components/Skeleton';
@@ -82,6 +82,8 @@ const MemberRow = memo(function MemberRow({
   const color = useMemberColor(user.id);
   const inVoice = useGuild((s) => Boolean(s.voiceStates[user.id]));
   const self = useSession((s) => s.user?.id === user.id);
+  const status = useStatus(user.id);
+  const custom = useCustomStatus(user.id);
   return (
     <View style={styles.rowWrap}>
       <Pressable
@@ -94,7 +96,7 @@ const MemberRow = memo(function MemberRow({
         accessibilityLabel={`${user.displayName}${offline ? ', çevrimdışı' : ''}${inVoice ? ', sesli sohbette' : ''}`}
       >
         <View style={offline && styles.offline}>
-          <Avatar user={user} size={38} online={!offline} surface={colors.main} />
+          <Avatar user={user} size={38} status={status} surface={colors.main} />
         </View>
         <View style={[{ flex: 1 }, offline && styles.offline]}>
           <View style={styles.nameRow}>
@@ -115,7 +117,7 @@ const MemberRow = memo(function MemberRow({
             </View>
           ) : (
             <Text style={styles.sub} numberOfLines={1}>
-              @{user.username}
+              {custom ? `${custom.emoji ? `${custom.emoji} ` : ''}${custom.text ?? ''}` : `@${user.username}`}
             </Text>
           )}
         </View>

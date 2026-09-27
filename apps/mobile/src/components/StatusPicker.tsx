@@ -39,6 +39,28 @@ export function StatusPickerHost() {
   return <StatusPickerSheet visible={open} onClose={() => useStatusPicker.setState({ open: false })} />;
 }
 
+/** Ayarlar sayfasında adın altında: şu anki durumun ve özel durumun; dokununca durum sayfası açılır */
+export function StatusChip() {
+  const user = useSession((s) => s.user);
+  const status = useStatus(user?.id);
+  const custom = useCustomStatus(user?.id);
+  return (
+    <Pressable
+      onPress={openStatusPicker}
+      android_ripple={ripple.row}
+      style={styles.chipButton}
+      accessibilityRole="button"
+      accessibilityLabel={`Durumun: ${STATUS_LABELS[status]}. Değiştir`}
+    >
+      <StatusDot status={status} size={12} surface={colors.main} />
+      <Text style={styles.chipButtonText} numberOfLines={1}>
+        {custom ? `${custom.emoji ? `${custom.emoji} ` : ''}${custom.text ?? ''}` : STATUS_LABELS[status]}
+      </Text>
+      <Ionicons name="chevron-down" size={14} color={colors.muted} />
+    </Pressable>
+  );
+}
+
 const STATUS_ORDER: UserStatus[] = ['online', 'idle', 'dnd', 'invisible'];
 
 type Page = { kind: 'main' } | { kind: 'duration'; status: UserStatus } | { kind: 'custom' } | { kind: 'emoji' };
@@ -366,5 +388,19 @@ const styles = createStyles(() => ({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, paddingHorizontal: space.md, marginBottom: space.lg },
   chip: { paddingHorizontal: space.md, paddingVertical: space.sm, borderRadius: radius.pill, backgroundColor: colors.main },
   chipOn: { backgroundColor: colors.brand },
+  chipButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    alignSelf: 'center',
+    maxWidth: '90%',
+    marginTop: space.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: space.xs + 2,
+    borderRadius: radius.pill,
+    backgroundColor: colors.main,
+    overflow: 'hidden',
+  },
+  chipButtonText: { flexShrink: 1, color: colors.text, fontSize: font.small, fontWeight: '600' },
   chipText: { color: colors.text, fontSize: font.small, fontWeight: '600' },
 }));

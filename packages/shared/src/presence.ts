@@ -95,9 +95,12 @@ export function clearAfterMs(option: number | 'today' | null, now: Date = new Da
   return Math.max(STATUS_DURATION_MIN_MS, midnight.getTime() - now.getTime());
 }
 
-/** Kendi durumunun görünen hâli: görünmezken 'invisible', aksi hâlde başkalarının gördüğü (otomatik boşta dahil) */
+/**
+ * Kendi durumunun görünen hâli: seçtiğin durum (görünmez dahil); "Çevrim içi" seçiliyken tüm cihazların
+ * boştaysa otomatik "Boşta". Eski sunucuda (ayar yok) başkalarının gördüğü.
+ */
 export function ownDisplayStatus(self: SelfStatus | null, presence: Presence | undefined): UserStatus | 'offline' {
-  if (self?.status === 'invisible') return 'invisible';
-  if (presence && presence.status !== 'offline') return presence.status;
-  return self?.status ?? 'online';
+  if (!self) return presence && presence.status !== 'offline' ? presence.status : 'online';
+  if (self.status !== 'online') return self.status;
+  return presence?.status === 'idle' ? 'idle' : 'online';
 }

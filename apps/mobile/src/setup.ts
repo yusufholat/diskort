@@ -26,6 +26,8 @@ const secureStorage = {
 
 export { APP_VERSION };
 
+const doNotDisturb = (): boolean => useGuild.getState().selfStatus?.status === 'dnd';
+
 /** Kayıtlı oturum yüklenince çözülür; kök yerleşim o zamana dek açılış ekranını tutar. */
 export const clientReady = configureClient({
   platform: 'android',
@@ -35,7 +37,10 @@ export const clientReady = configureClient({
   notifyError: (message) => toast(message, 'error'),
   isViewingChannel: (channelId) =>
     AppState.currentState === 'active' && useUi.getState().viewingChannelId === channelId,
+  // Rahatsız Etmeyin: uygulama içi bildirim ve titreşim yok (okunmamış işaretleri yine güncellenir;
+  // sunucu da telefona bildirim göndermez)
   onMention: (message) => {
+    if (doNotDisturb()) return;
     const guild = useGuild.getState();
     const author = message.authorId ? guild.users[message.authorId]?.displayName : undefined;
     const channel = guild.channels.find((c) => c.id === message.channelId)?.name;
@@ -45,6 +50,7 @@ export const clientReady = configureClient({
   },
   // Açık olmayan konuşmaya gelen direkt mesaj (uygulama kapalıyken telefon bildirimi gelir)
   onDirectMessage: (message, dm) => {
+    if (doNotDisturb()) return;
     const guild = useGuild.getState();
     const author = (message.authorId ? guild.users[message.authorId]?.displayName : undefined) ?? 'Biri';
     const from = dm.group ? `${author} · ${dmTitle(dm, guild.users, useSession.getState().user?.id)}` : author;

@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { gateway, reportClientError, useSession } from '@diskort/client-core';
+import { StatusPickerHost } from '../components/StatusPicker';
 import { Toast } from '../components/Toast';
 import { Button } from '../components/ui';
 import { UpdateScreen } from '../components/UpdateScreen';
@@ -122,6 +123,8 @@ export default function RootLayout() {
     gateway.connect(); // zaten bağlıysa bir şey yapmaz
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') gateway.resume();
+      // Uygulama arka plandayken (seste değilsen) otomatik "Boşta"; elle seçilen durum değişmez
+      gateway.setIdle(state === 'background' && useVoice.getState().status === 'idle');
     });
     return () => sub.remove();
   }, [ready, token, updateRequired]);
@@ -190,6 +193,7 @@ export default function RootLayout() {
               </Stack.Protected>
             </Stack>
             <Toast key={themeVersion} />
+            <StatusPickerHost />
           </>
         )}
       </SafeAreaProvider>
