@@ -68,7 +68,7 @@ export function ServerSettingsModal({ initial }: { initial?: ServerSettingsSecti
         closing ? 'anim-settings-out pointer-events-none' : 'anim-settings-in',
       )}
     >
-      <nav className="flex w-[30%] min-w-[220px] justify-end overflow-y-auto bg-bg-side py-14 pr-2">
+      <nav className="flex w-[30%] min-w-[220px] justify-end overflow-y-auto border-r border-divider bg-bg-side py-14 pr-2">
         <div className="w-[190px]">
           <div className="truncate px-2.5 pb-1.5 text-xs font-bold text-text-muted uppercase">{guildName}</div>
           {sections.map((s) => (

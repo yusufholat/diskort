@@ -20,7 +20,7 @@ export function MemberList() {
   const groups = useMemo(() => memberGroups({ users, roles, online, guild }), [users, roles, online, guild]);
 
   return (
-    <aside className="w-60 shrink-0 overflow-y-auto bg-bg-side px-2 pb-4" aria-label="Üye listesi">
+    <aside className="w-60 shrink-0 overflow-y-auto border-l border-divider bg-bg-side px-2 pb-4" aria-label="Üye listesi">
       {groups.map((group) => (
         <section key={group.id}>
           <h3 className="px-2 pt-6 pb-1 text-xs font-bold tracking-wide text-text-muted uppercase">

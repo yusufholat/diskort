@@ -55,7 +55,7 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
         closing ? 'anim-settings-out pointer-events-none' : 'anim-settings-in',
       )}
     >
-      <nav className="flex w-[35%] min-w-[220px] justify-end overflow-y-auto bg-bg-side py-14 pr-2">
+      <nav className="flex w-[35%] min-w-[220px] justify-end overflow-y-auto border-r border-divider bg-bg-side py-14 pr-2">
         <div className="w-[190px]">
           <div className="px-2.5 pb-1.5 text-xs font-bold text-text-muted uppercase">Kullanıcı Ayarları</div>
           {SECTIONS.map((s) => (
