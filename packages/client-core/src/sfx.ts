@@ -6,14 +6,17 @@
 // Bu dosya bilerek hiçbir şey içe aktarmaz ve yalnızca silinebilir TypeScript sözdizimi kullanır: Node
 // (tür soyma ile) üretici betikten doğrudan yükleyebilsin.
 //
-// Tasarım: kısa (çoğu 120–450 ms), yuvarlak, yumuşak sesler; Re majör pentatonikte (D E F# A B). Gövde
-// üçgene yakın sinüs (çok hafif üst harmonikler), yumuşak tokmak karakteri. Anlamlar: kendi katılman / sesi
-// açman / yayına başlaman yükselir, ayrılman / susturman / yayını bitirmen iner; aynı olayın başkası için
-// olanı (biri girdi, biri yayına başladı) daha kısa ve biraz daha kısıktır. Çoğu nota hedef perdesine küçük
-// bir kaymayla varır; katılma/ayrılma bilerek düz: iki yakın nota (küçük üçlü), neredeyse kaymasız, eşit ve
-// bağlı. Yumuşak başlangıç (8–16 ms, vuruş/tık yok), notalar üst üste biner, 3 kHz altında boğuk. Kesik
-// yankı yerine birkaç kısa, süzülmüş yansımadan oluşan küçük bir "oda". Tepe -15 dBFS; algılanan seviyeler
-// eşitlenir (en yüksek 50 ms'lik pencerenin RMS'i).
+// Tasarım: kısa (çoğu 100–450 ms), yumuşak marimba/tahta tınılı sesler; Re majör pentatonikte (D E F# A
+// B). Gövde üçgene yakın sinüs (çok hafif üst harmonikler); üstüne marimba çubuğu gibi temelin ~3,99 ve ~9,8
+// katında iki uyumsuz kısmi eklenir, 30 ms ve 9 ms'de söner: kısa, tahtamsı ama yumuşak bir "tok" başlangıç.
+// Bahsedilmede ayrıca hafif bir cam/çan kısmisi var. Anlamlar: kendi katılman / sesi açman / yayına
+// başlaman yükselir, ayrılman / susturman / yayını bitirmen iner; aynı olayın başkası için olanı (biri
+// girdi, biri yayına başladı) daha kısa ve biraz daha kısıktır. Çoğu nota hedef perdesine küçük bir kaymayla
+// varır; katılma/ayrılma iki yakın, bağlı nota (küçük üçlü), neredeyse kaymasız ve diğerlerinden az söner.
+// 5 ms'lik yükseltilmiş kosinüs başlangıç (tık yok), notalar üst üste biner, ~5,5 kHz altında süzülür
+// (karanlık sesler daha kapalı). Kesik yankı yerine birkaç kısa, süzülmüş yansımadan oluşan küçük bir
+// "oda". Algılanan seviyeler eşitlenir (en yüksek 50 ms'lik pencerenin RMS'i, -23 dBFS); tepe hiçbir seste
+// -15 dBFS'i geçmez.
 //
 // Perdeler, aralıklar ve zamanlamalar bu uygulamaya özgü; hiçbir uygulamanın sesi örnek alınmadı ya da
 // kopyalanmadı, sesler yalnızca aşağıdaki sayılardan üretilir.
@@ -102,8 +105,8 @@ interface SoundSpec {
   release: number;
   /** İkinci harmoniğin payı (başta, hızla söner: sıcaklık) */
   h2: number;
-  /** Tokmak kısmisi (4. harmonik, çok kısık, ~12 ms'de söner): "tuk" hissi, sertlik değil */
-  mallet?: number;
+  /** Marimba çubuğu kısmilerinin (BAR_PARTIALS) payı: 1 = tam tahta tınısı, 0 = yalnızca yuvarlak gövde */
+  bar: number;
   /** Çan kısmisi (2,76 oranlı, çok kısık, hızla söner): yalnızca bildirim */
   chime?: number;
   /** Alçak geçiren süzgeç (Hz) */
@@ -127,79 +130,71 @@ const A5 = 81;
 const B5 = 83;
 
 /** Çoğu sesin ortak ayarları */
-const BASE = { attack: 10, decayDb: 20, release: 0.4, h2: 0.12, lowpass: 2600, room: 0.3, trimDb: 0 };
+const BASE = { attack: 5, decayDb: 28, release: 0.4, h2: 0.06, bar: 1, lowpass: 5500, room: 0.3, trimDb: 0 };
 
 const SPECS: Record<SoundName, SoundSpec> = {
-  // Düz ve sakin: küçük üçlü yukarı (Si4 → Re5), bağlı (legato), neredeyse kaymasız; üstteki nota biraz
-  // kısık (vurgu yok), az sönen dolgun gövde: seviye ilk ~150 ms boyunca neredeyse düz. "İçerdesin" der.
+  // Sakin: küçük üçlü yukarı (Si4 → Re5), bağlı (legato), neredeyse kaymasız; üstteki nota biraz kısık
+  // (vurgu yok), diğer seslerden az sönen gövde. "İçerdesin" der.
   join: {
     ...BASE,
     tones: [
       { note: B4, at: 0, dur: 180, from: -0.3, glideMs: 15 },
       { note: D5, at: 80, dur: 290, from: -0.3, glideMs: 15, gain: 0.8 },
     ],
-    attack: 16,
-    decayDb: 12,
+    decayDb: 20,
     release: 0.45,
-    h2: 0.1,
-    lowpass: 2400,
+    h2: 0.05,
   },
-  // Katılmanın aynası, biraz daha pes ve karanlık: küçük üçlü aşağı (La4 → Fa#4), aynı düz, bağlı notalar
+  // Katılmanın aynası, biraz daha pes: küçük üçlü aşağı (La4 → Fa#4), aynı bağlı notalar
   leave: {
     ...BASE,
     tones: [
       { note: A4, at: 0, dur: 180, from: 0.3, glideMs: 15 },
       { note: Fs4, at: 80, dur: 300, from: 0.3, glideMs: 15, gain: 0.8 },
     ],
-    attack: 16,
-    decayDb: 12,
+    decayDb: 20,
     release: 0.45,
-    h2: 0.1,
-    lowpass: 1900,
+    h2: 0.05,
   },
   // Başkası girdi: tek, kısa, kısık "baloncuk" (aşağıdan Re5'e)
   userJoin: {
     ...BASE,
     tones: [{ note: D5, at: 0, dur: 170, from: -4, glideMs: 28 }],
-    h2: 0.08,
+    h2: 0.04,
     room: 0.25,
-    trimDb: -5,
+    trimDb: -3.5,
   },
   // Başkası çıktı: yukarıdan La4'e inen baloncuk
   userLeave: {
     ...BASE,
     tones: [{ note: A4, at: 0, dur: 180, from: 4, glideMs: 28 }],
-    h2: 0.08,
-    lowpass: 2100,
+    h2: 0.04,
     room: 0.25,
-    trimDb: -5,
+    trimDb: -3.5,
   },
-  // Pes, kısa "tuk" (Si4'e hafifçe inerek)
+  // Pes, kısa "tok" (Si4'e hafifçe inerek)
   mute: {
     ...BASE,
     tones: [{ note: B4, at: 0, dur: 120, from: 1.5, glideMs: 15 }],
-    decayDb: 24,
-    mallet: 0.05,
-    lowpass: 2200,
+    decayDb: 32,
     room: 0.15,
   },
-  // Tiz, kısa "tuk" (Fa#5'e hafifçe çıkarak)
+  // Tiz, kısa "tok" (Fa#5'e hafifçe çıkarak)
   unmute: {
     ...BASE,
     tones: [{ note: Fs5, at: 0, dur: 120, from: -1.5, glideMs: 15 }],
-    decayDb: 24,
-    mallet: 0.05,
+    decayDb: 32,
     room: 0.15,
   },
-  // Daha derin: iki nota iner (La4 → Re4), boğuk
+  // Daha derin: iki nota iner (La4 → Re4), biraz boğuk
   deafen: {
     ...BASE,
     tones: [
       { note: A4, at: 0, dur: 130, from: 1.5 },
       { note: D4, at: 60, dur: 230, from: 2 },
     ],
-    h2: 0.18,
-    lowpass: 1500,
+    h2: 0.09,
+    lowpass: 4500,
     room: 0.2,
   },
   // Derin iki nota çıkar (Re4 → La4)
@@ -209,8 +204,7 @@ const SPECS: Record<SoundName, SoundSpec> = {
       { note: D4, at: 0, dur: 130, from: -1.5 },
       { note: A4, at: 60, dur: 230, from: -2 },
     ],
-    h2: 0.18,
-    lowpass: 2000,
+    h2: 0.09,
     room: 0.2,
   },
   // Biraz daha uzun süpürme: Re5'e beş yarım ses aşağıdan yavaşça kayar, üstüne La5 konar
@@ -220,8 +214,7 @@ const SPECS: Record<SoundName, SoundSpec> = {
       { note: D5, at: 0, dur: 240, from: -5, glideMs: 55 },
       { note: A5, at: 140, dur: 230, from: -2 },
     ],
-    decayDb: 16,
-    lowpass: 2800,
+    decayDb: 24,
     room: 0.35,
     trimDb: -1,
   },
@@ -232,8 +225,7 @@ const SPECS: Record<SoundName, SoundSpec> = {
       { note: A5, at: 0, dur: 170, from: 2 },
       { note: D5, at: 100, dur: 270, from: 5, glideMs: 55 },
     ],
-    decayDb: 16,
-    lowpass: 2100,
+    decayDb: 24,
     room: 0.35,
     trimDb: -1,
   },
@@ -244,8 +236,7 @@ const SPECS: Record<SoundName, SoundSpec> = {
       { note: Fs5, at: 0, dur: 110, from: -2 },
       { note: A5, at: 55, dur: 180, from: -2 },
     ],
-    h2: 0.08,
-    lowpass: 2800,
+    h2: 0.04,
     room: 0.25,
     trimDb: -5,
   },
@@ -255,25 +246,24 @@ const SPECS: Record<SoundName, SoundSpec> = {
       { note: A5, at: 0, dur: 110, from: 2 },
       { note: Fs5, at: 55, dur: 190, from: 2 },
     ],
-    h2: 0.08,
-    lowpass: 2300,
+    h2: 0.04,
     room: 0.25,
     trimDb: -5,
   },
-  // Dostça, yumuşak iki "ping" (Fa#5 → Si5), hafif çan kısmisiyle
+  // Dostça iki "ping" (Fa#5 → Si5): tahtaya ek olarak hafif cam/çan kısmisi
   mention: {
     ...BASE,
     tones: [
       { note: Fs5, at: 0, dur: 190, from: -1 },
       { note: B5, at: 90, dur: 300, from: -1 },
     ],
-    decayDb: 22,
-    h2: 0.1,
+    decayDb: 30,
+    h2: 0.05,
     chime: 0.06,
-    lowpass: 3000,
     room: 0.35,
   },
-  // Pes ve karanlık: dizinin dışındaki Fa ile inen üç nota (La4 → Fa4 → Re4), sonuncusu aşağı kayar
+  // Pes ve karanlık: dizinin dışındaki Fa ile inen üç nota (La4 → Fa4 → Re4), sonuncusu aşağı kayar;
+  // süzgeç diğerlerinden kapalı, tahta tınısı az
   disconnect: {
     ...BASE,
     tones: [
@@ -281,10 +271,10 @@ const SPECS: Record<SoundName, SoundSpec> = {
       { note: F4, at: 75, dur: 150, from: 1 },
       { note: D4, at: 150, dur: 300, from: 2, glideMs: 60 },
     ],
-    attack: 12,
-    decayDb: 16,
-    h2: 0.2,
-    lowpass: 1300,
+    decayDb: 24,
+    h2: 0.1,
+    bar: 0.7,
+    lowpass: 3000,
     room: 0.35,
   },
   // Kısa, yukarı iki damla (Re5 → Fa#5): "geri geldin"
@@ -296,21 +286,22 @@ const SPECS: Record<SoundName, SoundSpec> = {
     ],
     trimDb: -2,
   },
-  // Bas-konuş: neredeyse duyulmayan, çok kısa blip'ler (varsayılan kapalı)
+  // Bas-konuş: neredeyse duyulmayan, çok kısa blip'ler (varsayılan kapalı); tahta tınısı yarım
   pttOn: {
     ...BASE,
     tones: [{ note: A5, at: 0, dur: 75, from: -1, glideMs: 12 }],
-    attack: 8,
-    h2: 0.04,
+    h2: 0.02,
+    bar: 0.5,
+    lowpass: 4000,
     room: 0,
     trimDb: -10,
   },
   pttOff: {
     ...BASE,
     tones: [{ note: E5, at: 0, dur: 75, from: 1, glideMs: 12 }],
-    attack: 8,
-    h2: 0.04,
-    lowpass: 2000,
+    h2: 0.02,
+    bar: 0.5,
+    lowpass: 3000,
     room: 0,
     trimDb: -10,
   },
@@ -323,10 +314,11 @@ const TAIL_FLOOR_DB = -48;
 /** Sondaki kapanış (ms): kuyruk zaten sıfıra iner, bu yalnızca güvence */
 const FADE_OUT_MS = 30;
 /**
- * Algılanan seviye hedefi: en yüksek 50 ms'lik pencerenin RMS'i. Çoğu ses tepe sınırına takılır, enerjisi
- * yoğun olanlar bu hedefe göre biraz kısılır; böylece kısa tek notalı sesler uzun olanlardan cılız duyulmaz.
+ * Algılanan seviye hedefi (dBFS): en yüksek 50 ms'lik pencerenin RMS'i. Çoğu ses bu hedefe iner; tahta
+ * kısmilerinin başlangıç tepesi yüksek olan çok kısa sesler (sustur/aç) tepe sınırına takılıp hedefin hemen
+ * altında kalır. Böylece kısa tek notalı sesler uzun olanlardan cılız duyulmaz.
  */
-const TARGET_RMS_DBFS = -20;
+export const SFX_TARGET_RMS_DBFS = -23;
 const RMS_WINDOW_MS = 50;
 /**
  * Küçük oda: tek, belirgin bir yankı (tekrar eden "tık tık") yerine yakın aralıklı, giderek kısılan ve
@@ -343,6 +335,14 @@ const ROOM_LOWPASS = 1400;
 const ROOM_LEVEL = 0.35;
 /** Üçüncü harmoniğin payı (sabit, çok az): saf sinüsten biraz daha dolgun, üçgene yakın gövde */
 const H3 = 0.03;
+/**
+ * Marimba çubuğu kısmileri: temel frekansın tam katı olmayan (uyumsuz) iki kısmi, çabucak söner. Tahta
+ * tınısını ve kısa, yumuşak "tok" başlangıcını bunlar verir; gövde sinüs olarak kalır.
+ */
+const BAR_PARTIALS: readonly { ratio: number; level: number; tauMs: number }[] = [
+  { ratio: 3.99, level: 0.22, tauMs: 30 },
+  { ratio: 9.8, level: 0.07, tauMs: 9 },
+];
 
 const midiHz = (note: number): number => 440 * Math.pow(2, (note - 69) / 12);
 const dbToGain = (db: number): number => Math.pow(10, db / 20);
@@ -372,9 +372,9 @@ function addTone(out: Float32Array, tone: Tone, spec: SoundSpec, rate: number): 
     if (t < attack) env *= 0.5 - 0.5 * Math.cos((Math.PI * t) / attack);
     // Salınım notanın sonunda tam sıfıra iner; sonraki nota bu sırada girer
     if (t > releaseFrom) env *= 0.5 + 0.5 * Math.cos((Math.PI * (t - releaseFrom)) / releaseLen);
-    // Üçgene yakın gövde: temel + başta biraz ikinci, çok az üçüncü harmonik
+    // Üçgene yakın gövde (temel + başta biraz ikinci, çok az üçüncü harmonik) + hızla sönen çubuk kısmileri
     let s = Math.sin(phase) + spec.h2 * Math.exp(-t / (tau * 0.4)) * Math.sin(2 * phase) + H3 * Math.sin(3 * phase);
-    if (spec.mallet) s += spec.mallet * Math.exp(-t / 0.012) * Math.sin(4 * phase);
+    for (const p of BAR_PARTIALS) s += spec.bar * p.level * Math.exp(-t / (p.tauMs / 1000)) * Math.sin(p.ratio * phase);
     if (spec.chime) s += spec.chime * Math.exp(-t / 0.08) * Math.sin(2.76 * phase);
     out[start + i] = (out[start + i] ?? 0) + gain * env * s;
     phase += (2 * Math.PI * f * Math.pow(2, (from * Math.exp(-t / glide)) / 12)) / rate;
@@ -442,7 +442,7 @@ function finish(buf: Float32Array, rate: number, trimDb: number): Float32Array<A
   }
 
   const peakGain = dbToGain(SFX_PEAK_DBFS) / peakOf(out);
-  const rmsGain = dbToGain(TARGET_RMS_DBFS) / maxWindowRms(out, rate);
+  const rmsGain = dbToGain(SFX_TARGET_RMS_DBFS) / maxWindowRms(out, rate);
   const gain = Math.min(peakGain, rmsGain) * dbToGain(Math.min(0, trimDb));
   for (let i = 0; i < out.length; i++) out[i] = (out[i] ?? 0) * gain;
   return out;

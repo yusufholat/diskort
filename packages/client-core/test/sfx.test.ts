@@ -9,6 +9,7 @@ import {
   renderSound,
   SFX_PEAK_DBFS,
   SFX_SAMPLE_RATE,
+  SFX_TARGET_RMS_DBFS,
   SOUND_LABELS,
   SOUND_NAMES,
   type SoundName,
@@ -25,6 +26,19 @@ function maxJump(b: Float32Array): number {
   return jump;
 }
 
+/** Algılanan seviye: en yüksek 50 ms'lik pencerenin RMS'i (dBFS), sfx.ts'teki ölçümle aynı */
+function loudness(b: Float32Array): number {
+  const w = Math.round(0.05 * SFX_SAMPLE_RATE);
+  let sum = 0;
+  let best = 0;
+  for (let i = 0; i < b.length; i++) {
+    sum += b[i]! * b[i]!;
+    if (i >= w) sum -= b[i - w]! * b[i - w]!;
+    best = Math.max(best, sum);
+  }
+  return dbfs(Math.sqrt(best / Math.min(w, b.length)));
+}
+
 /** Ardışık 25 ms'lik pencerelerin RMS'i (dBFS) */
 function envelope(b: Float32Array): number[] {
   const w = Math.round(0.025 * SFX_SAMPLE_RATE);
@@ -37,12 +51,12 @@ function envelope(b: Float32Array): number[] {
   return out;
 }
 
-/** Tasarımdaki seviye ayarları (dB): tepe = -15 dBFS + bu değer */
+/** Tasarımdaki seviye ayarları (dB): algılanan seviye = -23 dBFS + bu değer (tepe sınırı da bu kadar iner) */
 const TRIM_DB: Record<SoundName, number> = {
   join: 0,
   leave: 0,
-  userJoin: -5,
-  userLeave: -5,
+  userJoin: -3.5,
+  userLeave: -3.5,
   mute: 0,
   unmute: 0,
   deafen: 0,
@@ -59,15 +73,29 @@ const TRIM_DB: Record<SoundName, number> = {
 };
 
 describe('arayüz sesleri', () => {
-  it('her sesin adı var, tepe hedefinde (-15 dBFS + sese özel ayar, ±0,5 dB), kırpılma yok', () => {
+  it('her sesin adı var, seviye hedefinde (algılanan -23 dBFS ya da tepe -15 dBFS, + sese özel ayar), kırpılma yok', () => {
     expect(SFX_PEAK_DBFS).toBe(-15);
+    expect(SFX_TARGET_RMS_DBFS).toBe(-23);
     for (const name of SOUND_NAMES) {
       expect(SOUND_LABELS[name], name).toBeTruthy();
       const b = renderSound(name);
       expect(b.every((v) => Number.isFinite(v) && Math.abs(v) < 1), name).toBe(true);
       const p = dbfs(peak(b));
+      const l = loudness(b);
       expect(p, name).toBeLessThanOrEqual(SFX_PEAK_DBFS + 0.01);
-      expect(Math.abs(p - (SFX_PEAK_DBFS + TRIM_DB[name])), name).toBeLessThanOrEqual(0.5);
+      // İki sınırın ikisi de aşılmaz, en az biri tutturulur (±0,5 dB)
+      expect(p, name).toBeLessThanOrEqual(SFX_PEAK_DBFS + TRIM_DB[name] + 0.01);
+      expect(l, name).toBeLessThanOrEqual(SFX_TARGET_RMS_DBFS + TRIM_DB[name] + 0.01);
+      const off = Math.max(p - (SFX_PEAK_DBFS + TRIM_DB[name]), l - (SFX_TARGET_RMS_DBFS + TRIM_DB[name]));
+      expect(off, name).toBeGreaterThanOrEqual(-0.5);
+    }
+  });
+
+  it('algılanan seviyeler dengeli: ayarı 0 olan her ses katılma sesinin 1 dB yakınında (kısa sesler cılız değil)', () => {
+    const ref = loudness(renderSound('join'));
+    for (const name of SOUND_NAMES) {
+      if (TRIM_DB[name] !== 0) continue;
+      expect(Math.abs(loudness(renderSound(name)) - ref), name).toBeLessThanOrEqual(1);
     }
   });
 
@@ -78,25 +106,29 @@ describe('arayüz sesleri', () => {
       expect(ms(b), name).toBeLessThanOrEqual(600);
       expect(Math.abs(b[0]!), name).toBeLessThan(1e-3);
       expect(Math.abs(b[b.length - 1]!), name).toBeLessThan(1e-3);
-      // İlk 1 ms tepenin %5 altında
-      expect(peak(b.subarray(0, Math.round(0.001 * SFX_SAMPLE_RATE))), name).toBeLessThan(0.05 * peak(b));
+      // 5 ms'lik yumuşak başlangıç: ilk 0,5 ms tepenin %5, ilk 1 ms %12 altında (sert vuruş yok)
+      expect(peak(b.subarray(0, Math.round(0.0005 * SFX_SAMPLE_RATE))), name).toBeLessThan(0.05 * peak(b));
+      expect(peak(b.subarray(0, Math.round(0.001 * SFX_SAMPLE_RATE))), name).toBeLessThan(0.12 * peak(b));
       expect(maxJump(b), name).toBeLessThan(0.04);
       const mean = b.reduce((s, v) => s + v, 0) / b.length;
       expect(Math.abs(mean), name).toBeLessThan(1e-4);
     }
   });
 
-  it('katılma/ayrılma düz: ilk 150 ms boyunca seviye 3 dB içinde kalır (zıplayan iki vuruş değil)', () => {
+  it('katılma/ayrılma sakin: ilk 150 ms boyunca seviye 6 dB içinde kalır, ikinci nota vurgulu değil', () => {
     for (const name of ['join', 'leave'] as const) {
       const head = envelope(renderSound(name)).slice(0, 6);
-      expect(Math.max(...head) - Math.min(...head), name).toBeLessThanOrEqual(3);
+      expect(Math.max(...head) - Math.min(...head), name).toBeLessThanOrEqual(6);
+      expect(Math.max(...head.slice(2)), name).toBeLessThanOrEqual(Math.max(...head.slice(0, 2)));
     }
   });
 
-  it('başkalarının olayları kendi katılma/ayrılma sesinden en az 2 dB kısık', () => {
+  it('başkalarının olayları kendi katılma/ayrılma sesinden en az 2 dB kısık (tepe ve algılanan seviye)', () => {
     const own = Math.min(peak(renderSound('join')), peak(renderSound('leave')));
+    const ownLoud = Math.min(loudness(renderSound('join')), loudness(renderSound('leave')));
     for (const name of OTHERS_SOUNDS) {
       expect(dbfs(peak(renderSound(name))), name).toBeLessThan(dbfs(own) - 2);
+      expect(loudness(renderSound(name)), name).toBeLessThan(ownLoud - 2);
     }
   });
 
