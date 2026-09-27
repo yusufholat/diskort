@@ -140,6 +140,7 @@ export {
 } from './permissionInfo';
 export { memberActions, moderation, moveTargets, voiceDropTargets, type MemberActions } from './moderation';
 export { canReorderChannels, reorderChannels, reorderedIds } from './channelOrder';
+export { embedColor, embedHost, embedMediaUrl, embedVideoUrl, visibleLinkEmbeds, youtubePlayerUrl } from './linkEmbeds';
 export {
   ackChannel,
   addFiles,
@@ -156,6 +157,7 @@ export {
   sendGif,
   sendMessage,
   setEditing,
+  suppressEmbeds,
   toggleReaction,
   uploadProgress,
   useMessages,

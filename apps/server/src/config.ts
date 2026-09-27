@@ -29,6 +29,8 @@ export interface Config {
   giphyRating: string;
   /** GIPHY arama dili (GIPHY_LANG, varsayılan tr) */
   giphyLang: string;
+  /** Mesajlardaki bağlantıların önizlemesi (LINK_PREVIEWS=0 kapatır; testlerde varsayılan kapalı) */
+  linkPreviews: boolean;
   isDev: boolean;
 }
 
@@ -79,6 +81,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     giphyApiKey: env.GIPHY_API_KEY?.trim() || null,
     giphyRating,
     giphyLang,
+    linkPreviews: env.LINK_PREVIEWS ? env.LINK_PREVIEWS !== '0' : env.NODE_ENV !== 'test',
     isDev,
   };
 }

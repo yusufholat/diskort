@@ -33,7 +33,7 @@ export const isGiphyMedia = (url: string | null | undefined): url is string => !
  * yazısı gösterilmez, yalnızca GIF gösterilir (Discord gibi).
  */
 export function gifOf(message: Pick<Message, 'embeds'>): GifEmbed | null {
-  const embed = message.embeds?.find((e) => e.type === 'gif');
+  const embed = message.embeds?.find((e): e is GifEmbed => e.type === 'gif');
   return embed && isGiphyMedia(embed.gif) ? embed : null;
 }
 

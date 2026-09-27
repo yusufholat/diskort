@@ -180,7 +180,57 @@ export interface GifEmbed {
   still: string | null;
 }
 
-export type Embed = GifEmbed;
+/** Bağlantı önizlemesindeki resim: her zaman sunucumuz üzerinden (/api/embed-media/...) yüklenir */
+export interface LinkEmbedImage {
+  /** Sunucu köküne göre adres (imzalı; istemci asıl siteye bağlanmaz) */
+  url: string;
+  width: number;
+  height: number;
+}
+
+/** Bağlantı önizlemesinin türü: sayfa kartı, doğrudan resim/GIF, doğrudan video ya da YouTube videosu */
+export type LinkEmbedKind = 'article' | 'image' | 'video' | 'youtube';
+
+/**
+ * Mesajdaki bir bağlantının önizlemesi (Discord'daki "embed"). Mesaj gönderilince/düzenlenince sunucu
+ * bağlantıları arka planda açar (OpenGraph, YouTube oEmbed) ve MESSAGE_UPDATE ile ekler; istemci
+ * gönderemez. Metinler sunucuda temizlenir ve kısaltılır; düz metin olarak gösterilmelidir. Resimler
+ * sunucumuz üzerinden gelir (kullanıcının IP'si sitelere gitmez). Bunu bilmeyen eski istemciler yok sayar
+ * (yalnızca `type: 'gif'` gösterirler).
+ */
+export interface LinkEmbed {
+  type: 'link';
+  kind: LinkEmbedKind;
+  /** Mesajdaki bağlantı (başlığa tıklanınca açılır) */
+  url: string;
+  /** Site adı (og:site_name; ör. "YouTube", "GitHub") */
+  siteName: string | null;
+  title: string | null;
+  description: string | null;
+  /** Yazar / kanal adı (YouTube kanalı, tweet yazarı) */
+  author: string | null;
+  /** Sol şeridin rengi (#rrggbb; sitenin theme-color'ı) */
+  color: string | null;
+  image: LinkEmbedImage | null;
+  /** Resim kartın altında büyük mü (yoksa sağda küçük) gösterilsin */
+  largeImage: boolean;
+  /** kind 'youtube': video kimliği ve başlangıç saniyesi */
+  youtubeId?: string | null;
+  youtubeStart?: number | null;
+  /** kind 'video': doğrudan video dosyası (asıl adres; yalnızca kullanıcı oynatınca yüklenir) */
+  video?: { url: string } | null;
+}
+
+export type Embed = GifEmbed | LinkEmbed;
+
+/** Bir mesajda en fazla bu kadar bağlantı önizlenir */
+export const MESSAGE_MAX_LINK_EMBEDS = 5;
+
+export const isLinkEmbed = (embed: Embed): embed is LinkEmbed => embed.type === 'link';
+
+/** Mesajın bağlantı önizlemeleri (GIF'ler hariç) */
+export const linkEmbedsOf = (message: { embeds?: readonly Embed[] | null }): LinkEmbed[] =>
+  message.embeds?.filter(isLinkEmbed) ?? [];
 
 /** GIF seçicideki bir sonuç: mesajdaki gösterimi ve ızgaradaki küçük önizlemesi */
 export interface GifResult extends Omit<GifEmbed, 'type' | 'provider'> {
@@ -222,8 +272,13 @@ export interface Message {
   attachments: Attachment[];
   /** Tepkiler, ilk verilme sırasına göre */
   reactions: Reaction[];
-  /** Sunucunun eklediği gömülü içerik (şimdilik yalnızca GIPHY GIF'i); eski sunucularda hiç gelmez */
+  /** Sunucunun eklediği gömülü içerik (GIPHY GIF'i, bağlantı önizlemeleri); eski sunucularda hiç gelmez */
   embeds?: Embed[];
+  /**
+   * Bağlantı önizlemeleri kaldırıldı ("Önizlemeyi kaldır"; yazar ya da MANAGE_MESSAGES): düzenlense de
+   * yeniden eklenmez. Eski sunucularda hiç gelmez.
+   */
+  suppressEmbeds?: boolean;
   /** Yazarın yetkisi olan bir @everyone bahsetmesi: kanalı gören herkese bildirim gider */
   mentionEveryone: boolean;
   /**
@@ -738,6 +793,40 @@ export const isGifMessage = (message: { embeds?: readonly Embed[] | null }): boo
 const CODE_SPANS = /```(?:[a-z0-9+#.-]+\n)?\n?[\s\S]*?\n?```|`[^`\n]+`/gi;
 
 const withoutCode = (content: string): string => content.replace(CODE_SPANS, ' ');
+
+/** Metindeki bağlantılar (istemcilerin bağlantı olarak gösterdiği biçim; bkz. client-core markdown) */
+const URL_IN_TEXT = /(<)?(https?:\/\/[^\s<>"]*[^\s<>".,:;'!?)\]])(>)?/gi;
+const SPOILERS = /\|\|[\s\S]+?\|\|/g;
+// Paket DOM/Node türleri olmadan derlenir; URL her ortamda (tarayıcı, Node, Hermes) vardır.
+declare const URL: new (input: string) => { protocol: string; username: string; password: string; hostname: string; href: string };
+/** Önizlenecek bağlantının en fazla uzunluğu */
+export const EMBED_URL_MAX_LENGTH = 2048;
+
+/**
+ * Önizlenecek bağlantılar (en fazla MESSAGE_MAX_LINK_EMBEDS, tekrarsız, metindeki sırayla). Kod blokları,
+ * satır içi kod ve ||sürpriz|| içindekiler ile <https://…> biçiminde yazılanlar (Discord'daki gibi
+ * önizlemeyi kapatma) sayılmaz. Kullanıcı adı/şifre içeren ya da çok uzun adresler atlanır.
+ */
+export function extractEmbedUrls(content: string): string[] {
+  const text = withoutCode(content).replace(SPOILERS, ' ');
+  const urls: string[] = [];
+  for (const m of text.matchAll(URL_IN_TEXT)) {
+    if (m[1] && m[3]) continue;
+    const raw = m[2]!;
+    if (raw.length > EMBED_URL_MAX_LENGTH) continue;
+    let url: InstanceType<typeof URL>;
+    try {
+      url = new URL(raw);
+    } catch {
+      continue;
+    }
+    if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password || !url.hostname) continue;
+    const href = url.href;
+    if (!urls.includes(href)) urls.push(href);
+    if (urls.length >= MESSAGE_MAX_LINK_EMBEDS) break;
+  }
+  return urls;
+}
 
 /** Metinde kod dışında @everyone bahsetmesi var mı (yazarın yetkisi ayrıca denetlenir) */
 export function mentionsEveryone(content: string): boolean {

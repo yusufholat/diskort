@@ -9,10 +9,12 @@ import { ClientVersionPolicy } from './clientVersion.js';
 import type { Config } from './config.js';
 import type { AppContext } from './context.js';
 import { Store } from './db.js';
+import { EmbedMediaService, type Fetcher } from './embedMedia.js';
 import { FeedbackService } from './feedback.js';
 import { FeedbackStore } from './feedbackStore.js';
 import { Gateway } from './gateway.js';
 import { GifService } from './gifs.js';
+import { LinkPreviewService } from './linkPreviews.js';
 import { LiveKitService } from './livekit.js';
 import { OtaService } from './ota.js';
 import { PermissionService } from './permissions.js';
@@ -27,6 +29,7 @@ import { registerClientErrorRoutes } from './routes/clientErrors.js';
 import { registerAvatarRoutes } from './routes/avatars.js';
 import { registerDmRoutes } from './routes/dms.js';
 import { registerDownloadRoutes } from './routes/download.js';
+import { registerEmbedRoutes } from './routes/embeds.js';
 import { registerFeedbackRoutes } from './routes/feedback.js';
 import { registerGifRoutes } from './routes/gifs.js';
 import { registerGuildRoutes } from './routes/guilds.js';
@@ -53,6 +56,10 @@ export interface BuildOptions {
   gifFetch?: typeof fetch;
   /** Geri bildirim ekran görüntülerinin klasörü (varsayılan: <DATA_DIR>/feedback) */
   feedbackDir?: string;
+  /** Önizleme resimlerinin önbellek klasörü (varsayılan: <DATA_DIR>/embed-media) */
+  embedMediaDir?: string;
+  /** Testler için sahte dış istek (verilirse bağlantı önizlemeleri açılır) */
+  linkFetch?: Fetcher;
 }
 
 /** Süresi geçmiş yüklemelerin ve artık dosyaların temizlenme aralığı */
@@ -96,6 +103,14 @@ export async function buildApp(
     app.log,
   );
   const avatars = new AvatarService(store, opts.avatarsDir ?? path.join(config.dataDir, 'avatars'), app.log);
+  const embedMedia = new EmbedMediaService(
+    opts.embedMediaDir ?? path.join(config.dataDir, 'embed-media'),
+    config.jwtSecret,
+    opts.linkFetch,
+    app.log,
+  );
+  const linkPreviews =
+    config.linkPreviews || opts.linkFetch ? new LinkPreviewService(store, embedMedia, opts.linkFetch, app.log) : null;
   const ctx: AppContext = {
     config,
     store,
@@ -110,6 +125,8 @@ export async function buildApp(
     attachments,
     avatars,
     gifs,
+    linkPreviews,
+    embedMedia,
     permissions,
     moderation,
     guild,
@@ -118,6 +135,12 @@ export async function buildApp(
   const sweep = (): void => {
     attachments.sweep().catch((err: unknown) => app.log.warn({ err: String(err) }, 'dosya eki temizliği başarısız'));
     avatars.sweep().catch((err: unknown) => app.log.warn({ err: String(err) }, 'profil fotoğrafı temizliği başarısız'));
+    embedMedia.sweep().catch((err: unknown) => app.log.warn({ err: String(err) }, 'önizleme resmi temizliği başarısız'));
+    try {
+      linkPreviews?.sweep();
+    } catch (err) {
+      app.log.warn({ err: String(err) }, 'bağlantı önizleme önbelleği temizliği başarısız');
+    }
   };
   const sweepTimers = [
     setTimeout(sweep, 60_000),
@@ -134,7 +157,11 @@ export async function buildApp(
   app.addHook('onClose', async () => releases.stopPolling());
 
   app.decorateRequest('user', null as never);
-  app.addHook('onClose', async () => store.close());
+  // Arka planda süren önizlemeler veritabanı kapanmadan bitsin
+  app.addHook('onClose', async () => {
+    await linkPreviews?.idle();
+    store.close();
+  });
 
   // Masaüstü istemcisi file:// veya localhost kökeninden bağlanır; kimlik jetonla taşınır.
   await app.register(cors, { origin: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] });
@@ -152,6 +179,7 @@ export async function buildApp(
   registerRoleRoutes(app, ctx);
   registerStatusRoutes(app, ctx);
   registerAttachmentRoutes(app, ctx);
+  registerEmbedRoutes(app, ctx);
   registerAvatarRoutes(app, ctx);
   registerGifRoutes(app, ctx);
   registerUpdateRoutes(app, ctx);

@@ -9,10 +9,12 @@ import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
 
 /** Resmin tam boyutu: pencereye sığdırılmış, altında ad, boyut ve indirme. */
-export function ImageViewer({ attachment }: { attachment: Attachment }) {
+export function ImageViewer({ attachment, source }: { attachment: Attachment; source?: string }) {
   const close = useUi((s) => s.closeModal);
   const closing = usePresenceClosing();
   const url = attachmentUrl(attachment);
+  // Bağlantı önizlemesindeki resim: tarayıcıda asıl sayfa açılır; boyutu bilinmez
+  const external = source ?? url;
 
   useEscapeLayer(close, !closing);
 
@@ -47,15 +49,15 @@ export function ImageViewer({ attachment }: { attachment: Attachment }) {
           {attachment.name}
         </span>
         <span className="text-white/50">
-          {attachment.width && attachment.height ? `${attachment.width}×${attachment.height} · ` : ''}
-          {formatBytes(attachment.size)}
+          {attachment.width && attachment.height ? `${attachment.width}×${attachment.height}` : ''}
+          {attachment.size > 0 ? `${attachment.width && attachment.height ? ' · ' : ''}${formatBytes(attachment.size)}` : ''}
         </span>
         <button className="flex items-center gap-1 hover:text-white hover:underline" onClick={() => downloadAttachment(attachment)}>
           <Download size={16} /> İndir
         </button>
         <button
           className="flex items-center gap-1 hover:text-white hover:underline"
-          onClick={() => (bridge ? void bridge.openExternal(url) : window.open(url, '_blank'))}
+          onClick={() => (bridge ? void bridge.openExternal(external) : window.open(external, '_blank'))}
         >
           <ExternalLink size={16} /> Tarayıcıda aç
         </button>

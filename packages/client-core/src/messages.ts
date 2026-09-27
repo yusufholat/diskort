@@ -376,6 +376,16 @@ function applyUpdate(channelId: string, updated: MessageUpdate): void {
   }));
 }
 
+/** "Önizlemeyi kaldır": mesajın bağlantı önizlemelerini kaldırır (sunucu herkese MESSAGE_UPDATE gönderir) */
+export async function suppressEmbeds(message: Message): Promise<void> {
+  try {
+    const updated = await api.suppressEmbeds(message.id);
+    applyUpdate(updated.channelId, updated);
+  } catch (err) {
+    env().notifyError(errorMessage(err));
+  }
+}
+
 export async function deleteMessage(message: Message): Promise<void> {
   try {
     await api.deleteMessage(message.id);

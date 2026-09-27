@@ -150,7 +150,7 @@ function MicMeter({ threshold }: { threshold: number | null }) {
   );
 }
 
-function ToggleRow({
+export function ToggleRow({
   label,
   description,
   value,

@@ -89,7 +89,7 @@ export function MainLayout() {
         {modal?.type === 'serverSettings' && hasGuild && <ServerSettingsModal initial={modal.section} />}
         {modal?.type === 'screenPicker' && <ScreenSharePicker />}
         {modal?.type === 'channel' && <ChannelModal channel={modal.channel} channelType={modal.channelType} />}
-        {modal?.type === 'image' && <ImageViewer attachment={modal.attachment} />}
+        {modal?.type === 'image' && <ImageViewer attachment={modal.attachment} source={modal.source} />}
         {modal?.type === 'newDm' && <NewDmModal addTo={modal.addTo} />}
         {modal?.type === 'renameDm' && <RenameDmModal channelId={modal.channelId} />}
         {modal?.type === 'feedback' && <FeedbackModal />}
