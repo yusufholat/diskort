@@ -32,7 +32,7 @@ export function GuildRail() {
   const unreadDms = useUnreadDms(3);
 
   return (
-    <nav className="flex w-[72px] shrink-0 flex-col items-center gap-2 overflow-y-auto border-r border-divider bg-bg-rail py-3 [scrollbar-width:none]">
+    <nav className="flex w-[72px] shrink-0 flex-col items-center gap-2 overflow-y-auto border-r border-divider bg-bg-rail pt-3 pb-[calc(var(--footer-h,0px)+12px)] [scrollbar-width:none]">
       <RailItem
         selected={inDms}
         unread={false}

@@ -8,9 +8,7 @@ import { toast, useUi, type ContextMenuItem } from '../../stores/ui';
 import { useServerSettingsSections } from '../serverSettings/ServerSettingsModal';
 import { DragGhost } from './DragGhost';
 import { TextChannelItem } from './TextChannelItem';
-import { UserPanel } from './UserPanel';
 import { VoiceChannelItem } from './VoiceChannelItem';
-import { VoiceConnectionPanel } from './VoiceConnectionPanel';
 
 export function ChannelSidebar() {
   const guild = useGuild((s) => s.guild);
@@ -80,7 +78,7 @@ export function ChannelSidebar() {
         {menu.length > 0 && <ChevronDown size={18} className="shrink-0" />}
       </button>
 
-      <div className="flex-1 overflow-y-auto px-2 pt-4 pb-2" data-drag-scroll>
+      <div className="flex-1 overflow-y-auto px-2 pt-4 pb-[calc(var(--footer-h,0px)+8px)]" data-drag-scroll>
         <SectionHeader title="Metin Kanalları" type="text" canCreate={canManageChannels} />
         {textChannels.map((channel) => (
           <TextChannelItem
@@ -98,8 +96,6 @@ export function ChannelSidebar() {
       </div>
 
       <DragGhost />
-      <VoiceConnectionPanel />
-      <UserPanel />
     </aside>
   );
 }

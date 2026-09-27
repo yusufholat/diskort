@@ -195,6 +195,9 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
   private denoiserNode: AudioWorkletNode | null = null;
   private host: DenoiseHost | null = null;
   private gate: AudioWorkletNode | null = null;
+  /** Giriş ses seviyesi (Ayarlar > Ses / mikrofon menüsü); gürültü engelleyiciden sonra, eşikten önce */
+  private gain: GainNode | null = null;
+  private inputGain = 1;
   private building: Promise<void> | null = null;
 
   constructor(
@@ -233,6 +236,12 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
     this.gate?.port.postMessage(patch);
   }
 
+  /** Giriş ses seviyesini (0–2) yeniden bağlanmadan değiştirir; zincir kurulmadan önce de çağrılabilir. */
+  setInputGain(value: number): void {
+    this.inputGain = value;
+    if (this.gain && this.ctx) this.gain.gain.setTargetAtTime(value, this.ctx.currentTime, 0.015);
+  }
+
   /** Gürültü engelleme gücünü yeniden bağlanmadan değiştirir. */
   setAttenLimit(db: number): void {
     this.attenLimDb = db;
@@ -263,6 +272,11 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
         markBroken(which, err);
       }
     }
+
+    this.gain = ctx.createGain();
+    this.gain.gain.value = this.inputGain;
+    node.connect(this.gain);
+    node = this.gain;
 
     this.gate = new AudioWorkletNode(ctx, 'diskort-gate', {
       numberOfInputs: 1,
@@ -463,12 +477,14 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
     this.gate?.port.close();
     this.gate?.disconnect();
     this.denoiserNode?.disconnect();
+    this.gain?.disconnect();
     this.host?.close();
     this.source?.disconnect();
     this.processedTrack?.stop();
     await this.ctx?.close().catch(() => undefined);
     this.gate = null;
     this.denoiserNode = null;
+    this.gain = null;
     this.host = null;
     this.source = null;
     this.ctx = null;

@@ -34,6 +34,10 @@ export interface Settings {
   echoCancellation: boolean;
   autoGainControl: boolean;
   audioBitrateKbps: number;
+  /** Giriş (mikrofon) ses seviyesi çarpanı (0–2); mikrofon zincirinde, eşikten önce uygulanır */
+  inputVolume: number;
+  /** Çıkış ses seviyesi çarpanı (0–2); herkesin sesine ve yayın seslerine uygulanır */
+  outputVolume: number;
 
   /** Kişi başı ses seviyesi (0–2), yerel susturma ve yayın sesi seviyesi */
   userVolumes: Record<string, number>;
@@ -77,6 +81,8 @@ const defaults: Settings = {
   echoCancellation: true,
   autoGainControl: true,
   audioBitrateKbps: 64,
+  inputVolume: 1,
+  outputVolume: 1,
   userVolumes: {},
   localMutes: {},
   streamVolumes: {},
@@ -94,8 +100,16 @@ const defaults: Settings = {
   selfDeaf: false,
 };
 
+/** Giriş ve çıkış ses seviyesinin üst sınırı (%200) */
+export const MAX_VOLUME = 2;
 const NOISE_MODES: readonly NoiseMode[] = ['dpdfnet', 'deepfilter', 'standard', 'off'];
 const AUDIO_BITRATES_KBPS = [32, 64, 96, 128] as const;
+
+/** Giriş/çıkış ses seviyesini 0–2 (%0–200) aralığına çeker; geçersiz değer 1 olur. */
+export function clampVolume(v: unknown): number {
+  const n = typeof v === 'number' && Number.isFinite(v) ? v : 1;
+  return Math.min(MAX_VOLUME, Math.max(0, n));
+}
 
 /** Kayıtlı ayarları geçerli değerlere çeker (eski sürümlerden kalan veya bozuk değerler). */
 function sanitize(saved: Partial<Settings>): Partial<Settings> {
@@ -109,6 +123,10 @@ function sanitize(saved: Partial<Settings>): Partial<Settings> {
     const kbps = Number(s.audioBitrateKbps) || defaults.audioBitrateKbps;
     // En yakın seçenek (eşitlikte yüksek olan)
     s.audioBitrateKbps = AUDIO_BITRATES_KBPS.reduce((best, v) => (Math.abs(v - kbps) <= Math.abs(best - kbps) ? v : best));
+  }
+  for (const key of ['inputVolume', 'outputVolume'] as const) {
+    const v = s[key];
+    if (v !== undefined) s[key] = clampVolume(v);
   }
   if (s.screenPreset !== undefined && !SCREEN_PRESET_IDS.includes(s.screenPreset)) s.screenPreset = defaults.screenPreset;
   if (s.theme !== undefined && !isThemeId(s.theme)) s.theme = defaults.theme;

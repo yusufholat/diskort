@@ -367,6 +367,7 @@ class VoiceClient {
         (level) => this.onMicLevel(level),
         () => void this.republishMic(),
       );
+      processor.setInputGain(getSettings().inputVolume);
       await track.setProcessor(processor);
       // Gürültü engelleyici kurulamadıysa mikrofonu tarayıcının gürültü engellemesiyle yeniden aç
       if (processor.denoiserFailed) await track.restartTrack(this.captureOptions(null));
@@ -488,10 +489,12 @@ class VoiceClient {
     const s = getSettings();
     const selfId = useSession.getState().user?.id;
     const deaf = s.selfDeaf || (selfId !== undefined && useGuild.getState().voiceStates[selfId]?.serverDeaf === true);
+    // Çıkış ses seviyesi (mikrofon/kulaklık menüsü) herkesin kendi seviyesiyle çarpılır
+    const master = s.outputVolume;
     for (const p of room.remoteParticipants.values()) {
       const silenced = deaf || s.localMutes[p.identity] === true;
-      p.setVolume(silenced ? 0 : (s.userVolumes[p.identity] ?? 1), Track.Source.Microphone);
-      p.setVolume(deaf ? 0 : (s.streamVolumes[p.identity] ?? 1), Track.Source.ScreenShareAudio);
+      p.setVolume(silenced ? 0 : (s.userVolumes[p.identity] ?? 1) * master, Track.Source.Microphone);
+      p.setVolume(deaf ? 0 : (s.streamVolumes[p.identity] ?? 1) * master, Track.Source.ScreenShareAudio);
     }
   }
 
@@ -513,7 +516,8 @@ class VoiceClient {
     if (
       next.userVolumes !== prev.userVolumes ||
       next.localMutes !== prev.localMutes ||
-      next.streamVolumes !== prev.streamVolumes
+      next.streamVolumes !== prev.streamVolumes ||
+      next.outputVolume !== prev.outputVolume
     ) {
       this.applyVolumes();
     }
@@ -526,6 +530,7 @@ class VoiceClient {
       this.processor?.updateGate(this.gateConfig());
     }
     if (next.noiseStrengthDb !== prev.noiseStrengthDb) this.processor?.setAttenLimit(next.noiseStrengthDb);
+    if (next.inputVolume !== prev.inputVolume) this.processor?.setInputGain(next.inputVolume);
     if (next.outputDeviceId !== prev.outputDeviceId) {
       void this.room?.switchActiveDevice('audiooutput', next.outputDeviceId).catch(() => undefined);
     }

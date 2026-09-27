@@ -12,6 +12,7 @@ import { DropLine } from './TextChannelItem';
 import { toast, useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
 import { VoiceMemberRow } from './VoiceMemberRow';
+import { ElapsedTime } from './ElapsedTime';
 
 export function VoiceChannelItem({ channel }: { channel: Channel }) {
   const voiceStates = useGuild((s) => s.voiceStates);
@@ -22,6 +23,8 @@ export function VoiceChannelItem({ channel }: { channel: Channel }) {
   const openContextMenu = useUi((s) => s.openContextMenu);
   const setView = useUi((s) => s.setView);
   const isActive = activeChannel === channel.id;
+  // Bulunduğun kanalın etkin olduğu süre: içerideki en eski katılım
+  const activeSince = isActive && members.length ? Math.min(...members.map((m) => m.joinedAt)) : null;
   // Katılan üye satırı aşağı doğru açılarak, ayrılan kapanarak görünür
   const rows = usePresenceList(members, (m: VoiceState) => m.userId, 180);
   // Sürükle-bırak: üye bırakma hedefi ve kanal sıralama
@@ -80,6 +83,7 @@ export function VoiceChannelItem({ channel }: { channel: Channel }) {
           )}
         </span>
         <span className="truncate font-medium">{channel.name}</span>
+        {activeSince !== null && <ElapsedTime since={activeSince} />}
       </button>
       {rows.length > 0 && (
         <div className="mt-0.5 mb-1 ml-6 flex flex-col">

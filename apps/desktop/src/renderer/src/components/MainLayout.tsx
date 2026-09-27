@@ -14,13 +14,14 @@ import { DmHome } from './dms/DmHome';
 import { NewDmModal, RenameDmModal } from './dms/DmModals';
 import { DmSidebar } from './dms/DmSidebar';
 import { GuildRail } from './GuildRail';
+import { LeftColumn } from './sidebar/LeftColumn';
 import { VoiceStage } from './stage/VoiceStage';
 import { Welcome } from './stage/Welcome';
 import { AddGuildModal } from './modals/AddGuildModal';
 import { BanModal } from './modals/BanModal';
 import { InviteModal } from './modals/InviteModal';
 import { ReactionsModal } from './modals/ReactionsModal';
-import { NoGuilds } from './NoGuilds';
+import { NoGuilds, NoGuildsSidebar } from './NoGuilds';
 import { ChannelModal } from './modals/ChannelModal';
 import { ScreenSharePicker } from './modals/ScreenSharePicker';
 import { ServerSettingsModal } from './serverSettings/ServerSettingsModal';
@@ -108,7 +109,10 @@ export function MainLayout() {
   if (!hasGuild && !isDmSection(view)) {
     return (
       <div className="relative flex h-full min-h-0">
-        <GuildRail />
+        <LeftColumn>
+          <GuildRail />
+          <NoGuildsSidebar />
+        </LeftColumn>
         <NoGuilds />
         {modals}
       </div>
@@ -117,8 +121,10 @@ export function MainLayout() {
 
   return (
     <div className="relative flex h-full min-h-0">
-      <GuildRail />
-      {isDmSection(view) ? <DmSidebar /> : <ChannelSidebar />}
+      <LeftColumn>
+        <GuildRail />
+        {isDmSection(view) ? <DmSidebar /> : <ChannelSidebar />}
+      </LeftColumn>
       <main className="flex min-w-0 flex-1 flex-col">
         <UpdateReadyBar />
         {status === 'reconnecting' && (

@@ -162,6 +162,7 @@ export class MicTest {
       this.processor?.updateGate(this.gate());
     }
     if (n.noiseStrengthDb !== p.noiseStrengthDb) this.processor?.setAttenLimit(n.noiseStrengthDb);
+    if (n.inputVolume !== p.inputVolume) this.processor?.setInputGain(n.inputVolume);
     if (n.outputDeviceId !== p.outputDeviceId) {
       void setSink(this.loopEl, n.outputDeviceId);
       if (this.playEl) void setSink(this.playEl, n.outputDeviceId);
@@ -218,6 +219,7 @@ export class MicTest {
         if (this.processor === processor) this.rebuild();
       },
     );
+    processor.setInputGain(getSettings().inputVolume);
     this.processor = processor;
     await processor.init({
       kind: Track.Kind.Audio,
