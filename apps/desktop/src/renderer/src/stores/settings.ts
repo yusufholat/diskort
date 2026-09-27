@@ -4,6 +4,12 @@ import type { HotkeyConfig } from '../../../shared/bridge';
 
 export type InputMode = 'vad' | 'ptt';
 export type NoiseMode = 'deepfilter' | 'standard' | 'off';
+/**
+ * DeepFilterNet bastırma sınırı (dB): gürültü en fazla bu kadar kısılır, özgün sesin bir kısmı korunur
+ * ve konuşma doğal kalır. 100 = sınırsız (sesi robotikleştirebilir).
+ */
+export const NOISE_STRENGTHS_DB = [12, 24, 40, 100] as const;
+export type NoiseStrengthDb = (typeof NOISE_STRENGTHS_DB)[number];
 const SCREEN_PRESET_IDS = ['720p30', '1080p30', '1080p60', '1440p60'] as const;
 export type ScreenPresetId = (typeof SCREEN_PRESET_IDS)[number];
 const SCREEN_CODEC_IDS = ['h264', 'vp9', 'vp8', 'av1'] as const;
@@ -22,6 +28,8 @@ export interface Settings {
   vadThresholdDb: number;
   pttReleaseMs: number;
   noise: NoiseMode;
+  /** DeepFilterNet gürültü engelleme gücü (bastırma sınırı, dB) */
+  noiseStrengthDb: NoiseStrengthDb;
   echoCancellation: boolean;
   autoGainControl: boolean;
   audioBitrateKbps: number;
@@ -62,6 +70,7 @@ const defaults: Settings = {
   vadThresholdDb: -50,
   pttReleaseMs: 150,
   noise: 'deepfilter',
+  noiseStrengthDb: 24,
   echoCancellation: true,
   autoGainControl: true,
   audioBitrateKbps: 64,
@@ -89,6 +98,9 @@ function sanitize(saved: Partial<Settings>): Partial<Settings> {
   const s = { ...saved };
   // RNNoise kaldırıldı; eski 'rnnoise' seçimi yerini alan DeepFilterNet'e taşınır.
   if (s.noise !== undefined && !NOISE_MODES.includes(s.noise)) s.noise = 'deepfilter';
+  if (s.noiseStrengthDb !== undefined && !(NOISE_STRENGTHS_DB as readonly number[]).includes(s.noiseStrengthDb)) {
+    s.noiseStrengthDb = defaults.noiseStrengthDb;
+  }
   if (s.audioBitrateKbps !== undefined && !(AUDIO_BITRATES_KBPS as readonly number[]).includes(s.audioBitrateKbps)) {
     const kbps = Number(s.audioBitrateKbps) || defaults.audioBitrateKbps;
     // En yakın seçenek (eşitlikte yüksek olan)
@@ -108,11 +120,16 @@ export const useSettings = create<SettingsStore>()(
     }),
     {
       name: 'diskort-settings',
-      version: 2,
+      version: 3,
       storage: createJSONStorage(() => localStorage),
       partialize: ({ set: _set, ...rest }) => rest,
       // Sürüm 1 → 2: gürültü engelleme RNNoise → DeepFilterNet 3 (sanitize içinde)
-      migrate: (saved) => saved as Settings,
+      // Sürüm 2 → 3: DeepFilterNet sınırsız bastırıyordu (100 dB, robotik ses); herkes yeni varsayılana (Dengeli) geçer.
+      migrate: (saved, version) => {
+        const s = { ...(saved as Partial<Settings>) };
+        if (version < 3) s.noiseStrengthDb = defaults.noiseStrengthDb;
+        return s as Settings;
+      },
       merge: (saved, current) => ({ ...current, ...sanitize((saved ?? {}) as Partial<Settings>) }),
     },
   ),

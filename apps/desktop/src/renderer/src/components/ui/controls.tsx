@@ -125,6 +125,38 @@ export function RadioCards<T extends string>({
   );
 }
 
+/** Yan yana birkaç seçenekten birini seçtiren bölümlü düğme grubu. */
+export function Segmented<T extends string | number>({
+  value,
+  options,
+  onChange,
+  'aria-label': ariaLabel,
+}: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+  'aria-label'?: string;
+}) {
+  return (
+    <div role="radiogroup" aria-label={ariaLabel} className="flex gap-1 rounded-[3px] bg-bg-side p-1">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          role="radio"
+          aria-checked={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={cn(
+            'min-w-0 flex-1 truncate rounded-[3px] px-2 py-1.5 text-sm font-medium transition-colors',
+            value === o.value ? 'bg-brand text-white' : 'text-text-muted hover:bg-bg-hover hover:text-text-normal',
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function SectionTitle({ children }: { children: ReactNode }) {
   return <h3 className="mt-6 mb-2 text-xs font-bold tracking-wide text-text-muted uppercase">{children}</h3>;
 }

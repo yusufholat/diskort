@@ -3,9 +3,9 @@ import { voice } from '../../features/voice/voiceClient';
 import { bridge } from '../../lib/bridge';
 import { errorMessage } from '@diskort/client-core';
 import { cn, clamp } from '../../lib/utils';
-import { useSettings, type NoiseMode } from '../../stores/settings';
+import { useSettings, type NoiseMode, type NoiseStrengthDb } from '../../stores/settings';
 import { useVoice } from '../../stores/voice';
-import { Button, Divider, RadioCards, SectionTitle, Select, Toggle } from '../ui/controls';
+import { Button, Divider, RadioCards, SectionTitle, Segmented, Select, Toggle } from '../ui/controls';
 import { Slider } from '../ui/Slider';
 import { KeybindInput } from './KeybindInput';
 
@@ -51,6 +51,20 @@ function useDevices(): { inputs: Device[]; outputs: Device[] } {
 
   return devices;
 }
+
+const NOISE_STRENGTH_OPTIONS: { value: NoiseStrengthDb; label: string }[] = [
+  { value: 12, label: 'Hafif' },
+  { value: 24, label: 'Dengeli' },
+  { value: 40, label: 'Güçlü' },
+  { value: 100, label: 'Maksimum' },
+];
+
+const NOISE_STRENGTH_HINTS: Record<NoiseStrengthDb, string> = {
+  12: 'Gürültüyü en fazla 12 dB kısar; ses en doğal hâlinde kalır, arka plan hafifçe duyulabilir.',
+  24: 'Önerilen: gürültünün çoğunu bastırır, sesini doğal bırakır.',
+  40: 'Gürültülü ortamlar için; ses biraz daha işlenmiş duyulabilir.',
+  100: 'Sınırsız bastırma: gürültü tamamen kesilir ama ses robotik duyulabilir.',
+};
 
 /** Discord tarzı seviye göstergesi + hassasiyet eşiği. */
 function MicMeter({ editable }: { editable: boolean }) {
@@ -229,6 +243,18 @@ export function VoiceSettings() {
           { value: 'off', label: 'Kapalı', description: 'Stüdyo mikrofonları veya müzik için.' },
         ]}
       />
+      {s.noise === 'deepfilter' && (
+        <>
+          <SectionTitle>Gürültü engelleme gücü</SectionTitle>
+          <Segmented<NoiseStrengthDb>
+            aria-label="Gürültü engelleme gücü"
+            value={s.noiseStrengthDb}
+            onChange={(noiseStrengthDb) => s.set({ noiseStrengthDb })}
+            options={NOISE_STRENGTH_OPTIONS}
+          />
+          <p className="mt-2 text-xs text-text-muted">{NOISE_STRENGTH_HINTS[s.noiseStrengthDb]}</p>
+        </>
+      )}
       <div className="mt-3">
         <Toggle
           label="Yankı engelleme"
