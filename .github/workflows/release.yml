@@ -4,6 +4,10 @@
 #
 # Kullanım: apps/desktop ve apps/mobile package.json'daki "version"u artır (aynı olmalı), commit'le, sonra
 #   git tag v0.1.1 && git push origin v0.1.1
+#
+# Windows kod imzası (SignPath Foundation): SIGNPATH_API_TOKEN ve SIGNPATH_ORGANIZATION_ID gizli
+# değerleri ile SIGNPATH_PROJECT_SLUG değişkeni tanımlıysa Windows işi Diskort.exe'yi ve kurulum
+# dosyasını SignPath'e imzalatır; tanımlı değilse eskisi gibi imzasız yayınlar. Ayrıntılar: docs/kod-imzalama.md
 name: Sürüm derle
 
 on:
@@ -51,9 +55,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Windows
-            os: windows-latest
-            args: --win
           - name: Linux
             os: ubuntu-latest
             args: --linux
@@ -97,6 +98,176 @@ jobs:
             exit 1
           fi
           echo "Uygulama 20 saniye boyunca sorunsuz çalıştı."
+
+  # Windows ayrı iş: SignPath ayarlıysa imzalı, değilse (eskisi gibi) imzasız paket.
+  #
+  # İmzalı yol neden birkaç adım: electron-builder latest.yml'e kurulum dosyasının sha512'sini yazar ve
+  # fark güncellemesi için .blockmap üretir. Dosya bundan SONRA imzalanırsa baytları değişir ve kurulu
+  # uygulamalar güncellemeyi "sha512 checksum mismatch" ile reddeder. Bu yüzden:
+  #   1. uygulama paketlenir, yalnızca Diskort.exe SignPath'e imzalatılır (1. onay),
+  #   2. kurulum dosyası imzalı uygulama klasöründen (--prepackaged) derlenir,
+  #   3. kurulum dosyası SignPath'e imzalatılır (2. onay),
+  #   4. latest.yml ve .blockmap imzalı dosyadan yeniden üretilir (scripts/win-update-info.mjs),
+  #   5. üç dosya taslak sürüme yüklenir.
+  windows:
+    name: Windows
+    needs: draft
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      # SignPath bağlayıcısı GitHub belirteciyle iş ayrıntılarını okur ve yüklenen dosyayı indirir
+      actions: read
+    env:
+      SIGNPATH_ENABLED: ${{ secrets.SIGNPATH_API_TOKEN != '' && secrets.SIGNPATH_ORGANIZATION_ID != '' && vars.SIGNPATH_PROJECT_SLUG != '' }}
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Derle
+        run: pnpm --filter @diskort/desktop exec electron-vite build
+
+      - name: Paketle ve taslağa yükle (imzasız)
+        if: env.SIGNPATH_ENABLED != 'true'
+        run: |
+          echo "::notice::SignPath ayarlı değil; Windows paketi imzasız yayınlanıyor (docs/kod-imzalama.md)"
+          pnpm --filter @diskort/desktop exec electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # ─── İmzalı yol ───
+
+      - name: Sürümü oku
+        id: ver
+        if: env.SIGNPATH_ENABLED == 'true'
+        run: echo "version=$(node -p "require('./apps/desktop/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # --dir yerine tam derleme: app-update.yml (güncelleyici ayarı) yalnızca nsis hedefiyle yazılır.
+      # Bu aşamanın imzasız kurulum dosyası atılır.
+      - name: Uygulamayı paketle
+        if: env.SIGNPATH_ENABLED == 'true'
+        working-directory: apps/desktop
+        env:
+          V: ${{ steps.ver.outputs.version }}
+        run: |
+          pnpm exec electron-builder --win --publish never
+          test -f "release/$V/win-unpacked/resources/app-update.yml"
+          rm -rf release/win-unpacked-signed
+          mv "release/$V/win-unpacked" release/win-unpacked-signed
+          rm -rf "release/$V"
+
+      - name: Diskort.exe'yi SignPath'e yükle
+        id: upload-app
+        if: env.SIGNPATH_ENABLED == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: diskort-app-unsigned
+          path: apps/desktop/release/win-unpacked-signed/Diskort.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Diskort.exe'yi imzala (SignPath onayı bekler)
+        if: env.SIGNPATH_ENABLED == 'true'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_APP_CONFIGURATION_SLUG || 'app' }}
+          github-artifact-id: ${{ steps.upload-app.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(steps.ver.outputs.version) }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: apps/desktop/release/signed-app
+
+      - name: İmzalı Diskort.exe'yi yerleştir
+        if: env.SIGNPATH_ENABLED == 'true'
+        shell: pwsh
+        working-directory: apps/desktop/release
+        run: |
+          Copy-Item signed-app/Diskort.exe win-unpacked-signed/Diskort.exe -Force
+          $sig = Get-AuthenticodeSignature win-unpacked-signed/Diskort.exe
+          if ($sig.Status -ne 'Valid') { Write-Output "::error::Diskort.exe imzası geçersiz: $($sig.Status)"; exit 1 }
+          Write-Output "Diskort.exe imzalı: $($sig.SignerCertificate.Subject)"
+
+      # Hazır (imzalı) uygulama klasöründen yalnızca kurulum dosyası, latest.yml ve blockmap üretilir;
+      # electron-builder bu modda Diskort.exe'ye dokunmaz, app-update.yml 1. aşamadan gelir.
+      - name: Kurulum dosyasını derle
+        if: env.SIGNPATH_ENABLED == 'true'
+        working-directory: apps/desktop
+        env:
+          V: ${{ steps.ver.outputs.version }}
+        run: |
+          pnpm exec electron-builder --win --prepackaged release/win-unpacked-signed --publish never
+          test -f "release/$V/Diskort-Setup-$V.exe"
+          test -f "release/$V/latest.yml"
+
+      - name: Kurulum dosyasını SignPath'e yükle
+        id: upload-installer
+        if: env.SIGNPATH_ENABLED == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: diskort-installer-unsigned
+          path: apps/desktop/release/${{ steps.ver.outputs.version }}/Diskort-Setup-${{ steps.ver.outputs.version }}.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Kurulum dosyasını imzala (SignPath onayı bekler)
+        if: env.SIGNPATH_ENABLED == 'true'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_INSTALLER_CONFIGURATION_SLUG || 'installer' }}
+          github-artifact-id: ${{ steps.upload-installer.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(steps.ver.outputs.version) }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: apps/desktop/release/signed-installer
+
+      - name: İmzalı kurulum dosyasını yerleştir
+        if: env.SIGNPATH_ENABLED == 'true'
+        shell: pwsh
+        working-directory: apps/desktop/release
+        env:
+          V: ${{ steps.ver.outputs.version }}
+        run: |
+          $name = "Diskort-Setup-$env:V.exe"
+          Copy-Item "signed-installer/$name" "$env:V/$name" -Force
+          $sig = Get-AuthenticodeSignature "$env:V/$name"
+          if ($sig.Status -ne 'Valid') { Write-Output "::error::$name imzası geçersiz: $($sig.Status)"; exit 1 }
+          Write-Output "$name imzalı: $($sig.SignerCertificate.Subject)"
+
+      # İmza dosyanın baytlarını değiştirdi: sha512/boyut (latest.yml) ve blockmap yeniden hesaplanır.
+      - name: Güncelleme bilgisini yeniden üret
+        if: env.SIGNPATH_ENABLED == 'true'
+        run: node scripts/win-update-info.mjs "apps/desktop/release/${{ steps.ver.outputs.version }}"
+
+      - name: Taslağa yükle
+        if: env.SIGNPATH_ENABLED == 'true'
+        working-directory: apps/desktop/release/${{ steps.ver.outputs.version }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.ver.outputs.version }}
+        run: |
+          gh release upload "v$V" -R "$GITHUB_REPOSITORY" --clobber \
+            "Diskort-Setup-$V.exe" "Diskort-Setup-$V.exe.blockmap" latest.yml
 
   android:
     name: Android

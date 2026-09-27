@@ -70,7 +70,7 @@ export function MainLayout() {
         <AudioLines size={48} className="animate-pulse text-brand" />
         <div>{status === 'reconnecting' ? 'Sunucuya ulaşılamıyor, tekrar deneniyor…' : 'Bağlanıyor…'}</div>
         <button
-          className="text-sm text-[#00a8fc] hover:underline"
+          className="text-sm text-link hover:underline"
           onClick={() => {
             gateway.disconnect();
             useSession.getState().logout();

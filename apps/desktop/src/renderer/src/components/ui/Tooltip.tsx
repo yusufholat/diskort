@@ -238,7 +238,7 @@ function Bubble({ tip, closing }: { tip: Tip; closing: boolean }) {
       role="tooltip"
       className={cn(
         // İnce kenar: ipucu, sahne gibi aynı koyulukta zeminlerde de seçilsin
-        'pointer-events-none fixed z-[100] max-w-[260px] rounded-md border border-white/[0.08] bg-bg-float px-2.5 py-1.5 text-sm font-semibold break-words text-text-normal shadow-[0_4px_16px_rgb(0_0_0/0.35)]',
+        'pointer-events-none fixed z-[100] max-w-[260px] rounded-md border border-float-edge bg-bg-float px-2.5 py-1.5 text-sm font-semibold break-words text-text-normal shadow-[0_4px_16px_rgb(0_0_0/0.35)]',
         closing ? 'anim-pop-out' : 'anim-pop-in',
       )}
       style={{
@@ -255,7 +255,7 @@ function Bubble({ tip, closing }: { tip: Tip; closing: boolean }) {
     >
       {tip.text}
       <span
-        className={cn('absolute h-3 w-3 rotate-45 rounded-[2px] border-white/[0.08] bg-bg-float', ARROW_BORDER[side])}
+        className={cn('absolute h-3 w-3 rotate-45 rounded-[2px] border-float-edge bg-bg-float', ARROW_BORDER[side])}
         style={
           vertical
             ? { left: (placement?.arrow ?? 0) - 6, [side === 'top' ? 'bottom' : 'top']: -5 }

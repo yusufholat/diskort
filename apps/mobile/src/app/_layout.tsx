@@ -132,7 +132,7 @@ export default function RootLayout() {
   if (!ready) {
     return launchUpdating ? (
       <SafeAreaProvider>
-        <StatusBar style="light" />
+        <StatusBar style={colors.statusBar} />
         <UpdateScreen />
       </SafeAreaProvider>
     ) : null;
@@ -142,7 +142,7 @@ export default function RootLayout() {
     // Kaydırma hareketleri (sol panel, kaydırarak yanıtlama) için kök görünüm
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StatusBar style="light" />
+        <StatusBar style={colors.statusBar} />
         {showUpdate ? (
           <UpdateScreen key={themeVersion} requiredVersion={updateRequired} />
         ) : (

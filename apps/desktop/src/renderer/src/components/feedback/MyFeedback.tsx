@@ -31,7 +31,7 @@ export function MyFeedback() {
       </Button>
 
       {error ? (
-        <div className="text-sm text-[#fa777c]">{error}</div>
+        <div className="text-sm text-danger-text">{error}</div>
       ) : mine === null ? (
         <div className="flex flex-col gap-2" role="status" aria-label="Yükleniyor">
           {[0, 1, 2].map((i) => (

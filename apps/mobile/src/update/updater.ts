@@ -92,7 +92,7 @@ async function downloadOta(version: string, apply: boolean): Promise<boolean> {
 export async function applyOta(): Promise<void> {
   if (useAppUpdate.getState().ota.kind !== 'downloaded') return;
   await Updates.reloadAsync({
-    reloadScreenOptions: { backgroundColor: colors.rail, spinner: { color: '#ffffff' }, fade: true },
+    reloadScreenOptions: { backgroundColor: colors.rail, spinner: { color: colors.head }, fade: true },
   });
 }
 

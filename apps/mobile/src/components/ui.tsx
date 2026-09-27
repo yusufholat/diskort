@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppear, useShake } from '../motion';
-import { colors, createStyles, font, radius, ripple, space } from '../theme';
+import { brandTint, colors, createStyles, font, radius, ripple, space, tint } from '../theme';
 import { PressableScale } from './PressableScale';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
@@ -29,7 +29,7 @@ function buttonColors(variant: Variant): [string, string] {
     case 'danger':
       return [colors.danger, colors.dangerPressed];
     case 'ghost':
-      return ['transparent', 'rgba(255,255,255,0.06)'];
+      return ['transparent', tint(0.06)];
   }
 }
 
@@ -41,6 +41,8 @@ export function Button({
   ...rest
 }: PressableProps & { title: string; variant?: Variant; busy?: boolean }) {
   const [bg, pressed] = buttonColors(variant);
+  // Renkli düğmelerde beyaz; ikincil (gri) ve yalın düğmelerde temanın yazı rengi (açık temada koyu)
+  const fg = variant === 'secondary' ? colors.onControl : variant === 'ghost' ? colors.head : '#fff';
   return (
     <PressableScale
       scaleTo={0.97}
@@ -52,7 +54,7 @@ export function Button({
         { backgroundColor: p ? pressed : bg, opacity: disabled ? 0.5 : 1 },
       ]}
     >
-      {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{title}</Text>}
+      {busy ? <ActivityIndicator color={fg} /> : <Text style={[styles.buttonText, { color: fg }]}>{title}</Text>}
     </PressableScale>
   );
 }
@@ -61,7 +63,7 @@ export function Field({ label, error, ...rest }: TextInputProps & { label: strin
   const [focused, setFocused] = useState(false);
   return (
     <View style={styles.field}>
-      <Text style={[styles.label, error ? { color: '#fa777c' } : null]}>{label}</Text>
+      <Text style={[styles.label, error ? { color: colors.dangerText } : null]}>{label}</Text>
       <TextInput
         placeholderTextColor={colors.faint}
         selectionColor={colors.brand}
@@ -184,7 +186,7 @@ export const ui = createStyles(() => ({
     padding: 10,
     marginBottom: 12,
   },
-  errorText: { color: '#fa777c', fontSize: 14 },
+  errorText: { color: colors.dangerText, fontSize: 14 },
 }));
 
 const styles = createStyles(() => ({
@@ -209,10 +211,10 @@ const styles = createStyles(() => ({
     borderWidth: 1,
     borderColor: 'transparent',
   },
-  inputFocused: { borderColor: 'rgba(88,101,242,0.7)' },
+  inputFocused: { borderColor: brandTint(0.7) },
   inputError: { borderColor: colors.danger },
   errorRow: { marginTop: 6 },
-  error: { color: '#fa777c', fontSize: 13 },
+  error: { color: colors.dangerText, fontSize: 13 },
   section: {
     color: colors.muted,
     fontSize: font.caption,

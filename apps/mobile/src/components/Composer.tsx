@@ -25,7 +25,7 @@ import {
 import { pickDocuments, pickMedia } from '../attachments';
 import { useAppear, useBump, useLayoutAnimationOn, useTimingTo } from '../motion';
 import { toast } from '../stores/ui';
-import { colors, createStyles, font, radius, ripple, space, text as textStyles } from '../theme';
+import { brandTint, colors, createStyles, font, radius, ripple, space, text as textStyles, tint } from '../theme';
 import { fileIcon } from './Attachments';
 import { PresenceAvatar } from './Avatar';
 import { BottomSheet, SheetHeader } from './BottomSheet';
@@ -243,7 +243,7 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
           <PressableScale
             scaleTo={0.86}
             onPress={() => setAttachMenu(true)}
-            ripple={{ color: 'rgba(255,255,255,0.14)', borderless: true, radius: 21 }}
+            ripple={{ color: tint(0.14), borderless: true, radius: 21 }}
             style={styles.circle}
             accessibilityLabel="Dosya ekle"
           >
@@ -262,7 +262,7 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
             selection={forcedSelection}
             placeholder={placeholder ?? `#${channel.name} kanalına mesaj gönder`}
             placeholderTextColor={colors.faint}
-            selectionColor="rgba(88,101,242,0.5)"
+            selectionColor={brandTint(0.5)}
             cursorColor={colors.head}
             multiline
             maxLength={MESSAGE_MAX_LENGTH * 2}
@@ -283,7 +283,7 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
           <PressableScale
             scaleTo={0.85}
             onPress={() => setExpressions('emoji')}
-            ripple={{ color: 'rgba(255,255,255,0.14)', borderless: true, radius: 18 }}
+            ripple={{ color: tint(0.14), borderless: true, radius: 18 }}
             hitSlop={4}
             style={styles.fieldIcon}
             accessibilityLabel="Emoji"

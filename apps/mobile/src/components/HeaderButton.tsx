@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, createStyles } from '../theme';
+import { colors, createStyles, tint } from '../theme';
 import { PressableScale } from './PressableScale';
 
 /** Başlık çubuğundaki simge düğmesi: 40 px dokunma alanı, yuvarlak dalga, basınca küçülme */
@@ -24,7 +24,7 @@ export function HeaderButton({
   return (
     <PressableScale
       scaleTo={0.86}
-      ripple={{ color: 'rgba(255,255,255,0.12)', borderless: true, radius: 20 }}
+      ripple={{ color: tint(0.12), borderless: true, radius: 20 }}
       hitSlop={4}
       onPress={onPress}
       accessibilityRole="button"

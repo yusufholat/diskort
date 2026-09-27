@@ -1,17 +1,31 @@
-import { useSettings, type ThemeId } from '../stores/settings';
+import type { CSSProperties } from 'react';
+import { THEME_IDS, THEME_INFO, THEME_PALETTES, THEME_TOKENS, type ThemeId } from '../../../shared/themes';
+import { useSettings } from '../stores/settings';
 import { bridge } from './bridge';
 
 /**
- * Tema: renk belirteçleri styles.css'te; siyah tema <html data-theme="black"> ile etkinleşir.
- * Ayar değişince beklemeden uygulanır, pencerenin başlık çubuğu ve zemini de uyar.
+ * Tema: renk belirteçlerinin değerleri src/shared/themes.ts'te. Seçili temanın değerleri <html> üzerine
+ * CSS değişkeni olarak yazılır (styles.css'teki @theme varsayılanlarını ezer). Ayar değişince beklemeden
+ * uygulanır; pencerenin başlık çubuğu ve zemini de uyar.
  */
-export const THEMES: { id: ThemeId; label: string; description: string }[] = [
-  { id: 'dark', label: 'Koyu', description: 'Varsayılan koyu gri tema' },
-  { id: 'black', label: 'Siyah (OLED)', description: 'Simsiyah zemin; OLED ekranlarda daha koyu ve pil dostu' },
-];
+export const THEMES: { id: ThemeId; label: string; description: string }[] = THEME_IDS.map((id) => ({
+  id,
+  ...THEME_INFO[id],
+}));
+
+/** Bir temanın belirteçleri, bir öğenin `style`'ına verilecek CSS değişkenleri olarak (önizlemeler için) */
+export function themeVars(theme: ThemeId): CSSProperties {
+  const p = THEME_PALETTES[theme];
+  return Object.fromEntries(THEME_TOKENS.map((t) => [`--color-${t}`, p[t]])) as CSSProperties;
+}
 
 function applyTheme(theme: ThemeId): void {
-  document.documentElement.dataset.theme = theme;
+  const root = document.documentElement;
+  const p = THEME_PALETTES[theme];
+  for (const t of THEME_TOKENS) root.style.setProperty(`--color-${t}`, p[t]);
+  root.dataset.theme = theme;
+  // Tarayıcının kendi çizdiği parçalar (takvim, kaydırma okları vb.) için
+  root.style.colorScheme = theme === 'light' ? 'light' : 'dark';
   bridge?.setTheme(theme);
 }
 

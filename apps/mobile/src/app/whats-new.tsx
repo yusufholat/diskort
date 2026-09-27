@@ -119,7 +119,7 @@ const ReleaseCard = memo(function ReleaseCard({ release, latest }: { release: Re
         )}
         {installed && (
           <View style={[styles.tag, { backgroundColor: colors.okSoft }]}>
-            <Text style={[styles.tagText, { color: '#2dc770' }]}>Yüklü</Text>
+            <Text style={[styles.tagText, { color: colors.okText }]}>Yüklü</Text>
           </View>
         )}
         <Text style={styles.date}>{formatDate(release.publishedAt)}</Text>

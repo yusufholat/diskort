@@ -25,7 +25,7 @@ function Spoiler({ children }: { children: ReactNode }) {
     <span
       className={cn(
         'rounded px-0.5 transition-colors',
-        shown ? 'bg-white/10' : 'cursor-pointer bg-bg-input text-transparent select-none hover:bg-bg-panel',
+        shown ? 'bg-tint' : 'cursor-pointer bg-bg-input text-transparent select-none hover:bg-bg-panel',
       )}
       onClick={() => setShown(true)}
       data-tooltip={shown ? undefined : 'Göstermek için tıkla'}
@@ -55,7 +55,7 @@ function renderInline(nodes: MdInline[], ctx: MarkdownContext, key: string): Rea
         );
       case 'link':
         return (
-          <a key={k} href={node.url} target="_blank" rel="noreferrer" className="text-[#00a8fc] hover:underline">
+          <a key={k} href={node.url} target="_blank" rel="noreferrer" className="text-link hover:underline">
             {node.url}
           </a>
         );
@@ -65,7 +65,7 @@ function renderInline(nodes: MdInline[], ctx: MarkdownContext, key: string): Rea
           return (
             <span
               key={k}
-              className="rounded-[3px] bg-brand/20 px-0.5 font-medium text-[#c9cdfb]"
+              className="rounded-[3px] bg-brand/20 px-0.5 font-medium text-mention"
               data-tooltip={BROADCAST_TOOLTIP[broadcast]}
             >
               @{broadcast}
@@ -80,8 +80,8 @@ function renderInline(nodes: MdInline[], ctx: MarkdownContext, key: string): Rea
             className={cn(
               'rounded-[3px] px-0.5 font-medium',
               user.id === ctx.selfId
-                ? 'bg-brand/40 text-white'
-                : 'bg-brand/20 text-[#c9cdfb] hover:bg-brand hover:text-white',
+                ? 'bg-brand/40 text-text-head'
+                : 'bg-brand/20 text-mention hover:bg-brand hover:text-white',
             )}
             data-tooltip={`@${user.username}`}
           >

@@ -198,5 +198,5 @@ const styles = createStyles(() => ({
   meterTrack: { height: 8, borderRadius: 4, backgroundColor: colors.control, overflow: 'hidden' },
   meterFill: { position: 'absolute', top: 0, bottom: 0, left: 0, backgroundColor: colors.warn },
   meterOpen: { backgroundColor: colors.ok },
-  meterMark: { position: 'absolute', top: 1, bottom: 1, width: 2, marginLeft: -1, backgroundColor: 'rgba(255,255,255,0.8)' },
+  meterMark: { position: 'absolute', top: 1, bottom: 1, width: 2, marginLeft: -1, backgroundColor: colors.head, opacity: 0.8 },
 }));

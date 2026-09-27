@@ -1,46 +1,33 @@
-import { useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
-import { colors, createStyles } from '../theme';
-import { useVoice, voice, type VoiceQuality } from '../voice/voice';
+import { useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
+import type { LinkQuality } from '@diskort/client-core';
+import { colors, createStyles, tint } from '../theme';
+import { useConnectionStats, useLastPing } from '../voice/connectionStats';
+import { useVoice, type VoiceQuality } from '../voice/voice';
+import { ConnectionSheet } from './ConnectionSheet';
 
-const PING_INTERVAL_MS = 3000;
-
-/** Gecikme ölçümü (yalnızca gösteren bileşen ekrandayken, birkaç saniyede bir) */
-export function useVoicePing(enabled: boolean): number | null {
-  const [ping, setPing] = useState<number | null>(null);
-  useEffect(() => {
-    if (!enabled) {
-      setPing(null);
-      return;
-    }
-    let alive = true;
-    const tick = (): void =>
-      void voice
-        .pingMs()
-        .then((ms) => alive && setPing(ms))
-        .catch(() => undefined);
-    tick();
-    const timer = setInterval(tick, PING_INTERVAL_MS);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, [enabled]);
-  return ping;
-}
-
-/** Kalite ve gecikmeden renk ve dolu çubuk sayısı (gecikme varsa o belirleyicidir; masaüstüyle aynı eşikler) */
-export function qualityLevel(quality: VoiceQuality, ping: number | null, connected: boolean): { bars: number; color: string } {
+/**
+ * Renk ve dolu çubuk sayısı: ölçülen ping ve giden paket kaybından (masaüstüyle aynı eşikler: 120 ms / %3
+ * sarı, 250 ms / %10 kırmızı). Ölçüm yoksa LiveKit'in bildirdiği kalite kullanılır.
+ */
+export function qualityLevel(quality: VoiceQuality, link: LinkQuality, connected: boolean): { bars: number; color: string } {
   if (!connected) return { bars: 1, color: colors.warn };
   if (quality === 'lost') return { bars: 0, color: colors.danger };
-  if (ping !== null) {
-    if (ping < 120) return { bars: 3, color: colors.ok };
-    if (ping < 250) return { bars: 2, color: colors.warn };
-    return { bars: 1, color: colors.danger };
-  }
+  if (link === 'good') return { bars: 3, color: colors.ok };
+  if (link === 'fair') return { bars: 2, color: colors.warn };
+  if (link === 'poor') return { bars: 1, color: colors.danger };
   if (quality === 'poor') return { bars: 1, color: colors.danger };
   if (quality === 'good') return { bars: 2, color: colors.ok };
   return { bars: 3, color: colors.ok };
+}
+
+/** Ses bağlantısının göstergesi: çubuk sayısı, renk ve son ping */
+export function useVoiceLevel(): { bars: number; color: string; ping: number | null; connected: boolean } {
+  const connected = useVoice((s) => s.status === 'connected');
+  const quality = useVoice((s) => s.quality);
+  const link = useConnectionStats((s) => s.quality);
+  const ping = useLastPing();
+  return { ...qualityLevel(quality, link, connected), ping: connected ? ping : null, connected };
 }
 
 /** Üç çubuklu bağlantı göstergesi */
@@ -55,7 +42,7 @@ export function SignalBars({ bars, color, size = 16 }: { bars: number; color: st
             width,
             height: Math.round(size * h),
             borderRadius: width / 2,
-            backgroundColor: i < bars ? color : 'rgba(255,255,255,0.18)',
+            backgroundColor: i < bars ? color : tint(0.18),
           }}
         />
       ))}
@@ -63,13 +50,11 @@ export function SignalBars({ bars, color, size = 16 }: { bars: number; color: st
   );
 }
 
-/** Başlıkta: çubuklar ve gecikme ("42 ms") */
+/** Başlıkta: çubuklar ve gecikme ("42 ms"); dokununca bağlantı paneli açılır */
 export function ConnectionQualityBadge() {
-  const status = useVoice((s) => s.status);
   const quality = useVoice((s) => s.quality);
-  const connected = status === 'connected';
-  const ping = useVoicePing(connected);
-  const level = qualityLevel(quality, ping, connected);
+  const { bars, color, ping, connected } = useVoiceLevel();
+  const [open, setOpen] = useState(false);
   const label = !connected
     ? 'Bağlanıyor'
     : quality === 'lost'
@@ -78,15 +63,25 @@ export function ConnectionQualityBadge() {
         ? `Gecikme ${ping} milisaniye`
         : 'Bağlı';
   return (
-    <View style={styles.badge} accessible accessibilityLabel={`Bağlantı: ${label}`}>
-      <SignalBars bars={level.bars} color={level.color} />
-      {connected && ping !== null && <Text style={[styles.ping, { color: level.color }]}>{ping} ms</Text>}
-    </View>
+    <>
+      <Pressable
+        style={styles.badge}
+        onPress={() => setOpen(true)}
+        hitSlop={8}
+        android_ripple={{ color: tint(0.12), borderless: true, radius: 36 }}
+        accessibilityRole="button"
+        accessibilityLabel={`Bağlantı: ${label}. Bağlantı bilgisini aç`}
+      >
+        <SignalBars bars={bars} color={color} />
+        {connected && ping !== null && <Text style={[styles.ping, { color }]}>{ping} ms</Text>}
+      </Pressable>
+      <ConnectionSheet visible={open} onClose={() => setOpen(false)} />
+    </>
   );
 }
 
 const styles = createStyles(() => ({
   bars: { flexDirection: 'row', alignItems: 'flex-end' },
-  badge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8 },
+  badge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 6 },
   ping: { fontSize: 12.5, fontWeight: '700', fontVariant: ['tabular-nums'] },
 }));

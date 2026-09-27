@@ -80,7 +80,7 @@ export function FeedbackAdminSection() {
       </div>
 
       {error ? (
-        <div className="text-sm text-[#fa777c]">{error}</div>
+        <div className="text-sm text-danger-text">{error}</div>
       ) : all === null ? (
         <div className="flex flex-col gap-2" role="status" aria-label="Yükleniyor">
           {[0, 1, 2, 3].map((i) => (
