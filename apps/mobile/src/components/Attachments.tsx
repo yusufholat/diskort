@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { isImageAttachment, type Attachment } from '@diskort/shared';
+import { isImageAttachment, isVideoAttachment, type Attachment } from '@diskort/shared';
 import { attachmentUrl, discardMessage, formatBytes, type LocalMessage } from '@diskort/client-core';
 import { openAttachment } from '../attachments';
 import { colors } from '../theme';
+import { VideoAttachment } from './VideoAttachment';
 
 /** Mesaj satırında avatar sütunu ve sağ boşluk (MessageRow ile aynı) */
 const ROW_INSET = 64 + 14;
@@ -28,7 +29,7 @@ function fit(a: Attachment, maxWidth: number): { width: number; height: number }
   return { width: Math.max(1, Math.round(a.width * scale)), height: Math.max(1, Math.round(a.height * scale)) };
 }
 
-/** Onaylanmış mesajın dosyaları: resimler satır içinde (dokununca tam ekran), diğerleri kart. */
+/** Onaylanmış mesajın dosyaları: resimler (dokununca tam ekran) ve videolar satır içinde, diğerleri kart. */
 export function AttachmentList({ attachments }: { attachments: Attachment[] }) {
   const { width } = useWindowDimensions();
   const [viewing, setViewing] = useState<Attachment | null>(null);
@@ -40,6 +41,8 @@ export function AttachmentList({ attachments }: { attachments: Attachment[] }) {
           <Pressable key={a.id} onPress={() => setViewing(a)} style={[styles.image, fit(a, maxWidth)]}>
             <Image source={{ uri: attachmentUrl(a) }} style={StyleSheet.absoluteFill} resizeMode="contain" />
           </Pressable>
+        ) : isVideoAttachment(a) ? (
+          <VideoAttachment key={a.id} attachment={a} maxWidth={maxWidth} />
         ) : (
           <Pressable
             key={a.id}

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { importPKCS8, SignJWT } from 'jose';
-import type { DmChannel, Message } from '@diskort/shared';
+import { GIF_SNIPPET, isGifMessage, type DmChannel, type Message } from '@diskort/shared';
 import type { Store } from './db.js';
 
 interface ServiceAccount {
@@ -64,7 +64,7 @@ export class PushService {
 
     const author = message.authorId ? this.store.getUser(message.authorId) : null;
     // Yalnızca dosyalı bir yanıtın metni boş olabilir
-    const body = this.readable(message.content) || (message.attachments.length ? '📎 Dosya gönderdi' : '');
+    const body = this.text(message) || (message.attachments.length ? '📎 Dosya gönderdi' : '');
     await Promise.all(
       tokens.map((t) =>
         this.send(t.token, {
@@ -98,7 +98,7 @@ export class PushService {
 
     const author = message.authorId ? this.store.getUser(message.authorId) : null;
     const authorName = author?.displayName ?? 'Biri';
-    const text = this.readable(message.content) || attachmentSummary(message.attachments.length);
+    const text = this.text(message) || attachmentSummary(message.attachments.length);
     const body = text.length > BODY_MAX ? `${text.slice(0, BODY_MAX)}…` : text;
     await Promise.all(
       tokens.map((t) =>
@@ -148,6 +148,11 @@ export class PushService {
   }
 
   /** @kullanıcıadı yerine görünen ad */
+  /** Bildirimde gösterilen metin: GIF mesajında bağlantı yerine "GIF" */
+  private text(message: Message): string {
+    return isGifMessage(message) ? GIF_SNIPPET : this.readable(message.content);
+  }
+
   private readable(content: string): string {
     return content.replace(/(?<![\w.@])@([a-z0-9_.]*[a-z0-9_])/gi, (raw, name: string) => {
       const user = this.store.getUserAuthByUsername(name.toLowerCase());

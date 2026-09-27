@@ -46,6 +46,10 @@ services:
       FCM_SERVICE_ACCOUNT_FILE: ${FCM_SERVICE_ACCOUNT_FILE:-}
       # Tek dosya ekinin en büyük boyutu (MB); dosyalar diskort-data biriminde /data/attachments altında
       ATTACHMENT_MAX_MB: ${ATTACHMENT_MAX_MB:-25}
+      # GIF araması (GIPHY); anahtar yoksa kapalı
+      GIPHY_API_KEY: ${GIPHY_API_KEY:-}
+      GIPHY_RATING: ${GIPHY_RATING:-pg-13}
+      GIPHY_LANG: ${GIPHY_LANG:-tr}
     volumes:
       - diskort-data:/data
       - ./secrets:/run/secrets:ro

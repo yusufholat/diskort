@@ -350,6 +350,12 @@ taşınır (adlarında eski sürüm numarası kalır); böylece yalnızca arayü
   teslimat yapar. Sunucuda `infra/secrets/fcm.json` (Firebase → Proje ayarları → Service accounts →
   Generate new private key, `chmod 600`) ve `.env`'de `FCM_SERVICE_ACCOUNT_FILE=/run/secrets/fcm.json`.
   Uygulama tarafı `google-services.json` GitHub gizli değişkeni `GOOGLE_SERVICES_JSON`'dan (base64) derlemede yazılır.
+- **GIF araması (GIPHY):** sunucu `.env`'de `GIPHY_API_KEY` (developers.giphy.com → Create an App → **API**)
+  tanımlıysa mesaj kutusunda GIF düğmesi çıkar; yoksa gizlenir. İstemciler GIPHY'ye değil sunucuya sorar
+  (`/api/gifs/search`, `/api/gifs/trending`; anahtar sunucuda kalır, sonuçlar 5 dk önbellekte, kişi başı dakikada
+  30 istek). GIF'ler GIPHY'nin sunucularından doğrudan yüklenir. İçerik sınırı `GIPHY_RATING` (varsayılan
+  `pg-13`), arama dili `GIPHY_LANG` (varsayılan `tr`). Deneme ("beta") anahtarı saatte ~100 istekle sınırlıdır;
+  sınır aşılırsa arama bir dakika yalnızca önbellekten yanıt verir.
 
 ### Sürüm yayınlama
 

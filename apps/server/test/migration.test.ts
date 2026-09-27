@@ -178,8 +178,7 @@ describe('göç 10: yanıtlar', () => {
   it('şema 8 veritabanı 9 ve 10 ile göçer; eski mesajlar yanıt değildir, yeni yanıtlar özetiyle okunur', () => {
     const store = new Store(schema8Database());
     try {
-      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 10 });
-      expect(MIGRATIONS).toHaveLength(10);
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
       const [first, second] = store.listMessages('t1', null, 50, 'u1');
       expect(first).toMatchObject({ content: 'selam', replyToId: null, referencedMessage: null, replyMentionUserId: null });
       expect(second).toMatchObject({ content: 'naber', replyToId: null });
@@ -199,6 +198,62 @@ describe('göç 10: yanıtlar', () => {
         referencedMessage: { id: first!.id, authorId: 'u1', content: 'selam', hasAttachments: true },
       });
       expect(store.mentionCounts('u1')).toEqual({ t1: 1 });
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe('göç 11: GIF ve videolar', () => {
+  it('şema 8 veritabanı 9, 10 ve 11 ile göçer; eski kayıtlar korunur, GIF ve video bilgisi saklanır', () => {
+    const store = new Store(schema8Database());
+    try {
+      expect(MIGRATIONS).toHaveLength(11);
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 11 });
+      expect(store.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+      const [first, second] = store.listMessages('t1', null, 50, 'u1');
+      expect(first).toMatchObject({ content: 'selam', embeds: [], replyToId: null });
+      expect(first!.attachments).toEqual([
+        expect.objectContaining({ id: 'a1', name: 'not.txt', contentType: 'text/plain', duration: null }),
+      ]);
+      expect(first!.reactions).toHaveLength(1);
+      expect(second).toMatchObject({ content: 'naber', embeds: [] });
+
+      // GIF mesajı ve ona yanıt: özette bağlantı yerine "GIF"
+      const gif = store.createMessage('t1', 'u1', 'https://giphy.com/gifs/kedi1', [], { userIds: [], everyone: false })!;
+      const embed = {
+        type: 'gif' as const,
+        provider: 'giphy' as const,
+        id: 'kedi1',
+        url: 'https://giphy.com/gifs/kedi1',
+        title: '',
+        width: 480,
+        height: 270,
+        gif: 'https://media.giphy.com/media/kedi1/giphy.gif',
+        mp4: null,
+        webp: null,
+        still: null,
+      };
+      store.setMessageEmbeds(Number(gif.id), [embed]);
+      expect(store.getMessage(Number(gif.id))!.embeds).toEqual([embed]);
+      const reply = store.createMessage('t1', 'u2', 'güzel', [], { userIds: [], everyone: false }, {
+        toId: Number(gif.id),
+        mentionUserId: null,
+      })!;
+      expect(reply.referencedMessage).toEqual({ id: gif.id, authorId: 'u1', content: 'GIF', hasAttachments: false });
+
+      store.createAttachment({
+        id: 'b'.repeat(32),
+        channelId: 't1',
+        uploaderId: 'u1',
+        name: 'v.mp4',
+        size: 10,
+        contentType: 'video/mp4',
+        width: 1920,
+        height: 1080,
+        duration: 12.5,
+      });
+      expect(store.getAttachment('b'.repeat(32))!.attachment).toMatchObject({ duration: 12.5, width: 1920 });
     } finally {
       store.close();
     }

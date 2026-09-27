@@ -10,6 +10,7 @@ import {
   type GatewayClientMessage,
   type GatewayServerMessage,
   type Guild,
+  type ServerFeatures,
   type User,
 } from '@diskort/shared';
 import type { AuthService } from './auth.js';
@@ -54,6 +55,7 @@ export class Gateway {
     private readonly permissions: PermissionService,
     private readonly clientVersions?: ClientVersionPolicy,
     private readonly attachmentMaxBytes = DEFAULT_ATTACHMENT_MAX_BYTES,
+    private readonly features: ServerFeatures = { gifs: false },
   ) {
     // Kişi kendi ses durumunu her zaman alır (kanalı görme yetkisini kaybedip çıkarılırken de)
     voice.on('update', (state) =>
@@ -304,6 +306,7 @@ export class Gateway {
         readStates: onlyVisible(this.store.readStates(user.id)),
         mentionCounts: onlyVisible(this.store.mentionCounts(user.id)),
         attachmentMaxBytes: this.attachmentMaxBytes,
+        features: this.features,
         ...(dms ? { dms } : {}),
       },
     });

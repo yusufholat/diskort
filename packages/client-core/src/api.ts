@@ -45,7 +45,8 @@ export function normalizeServerUrl(url: string): string {
   return /^https?:\/\//.test(trimmed) ? trimmed : `http://${trimmed}`;
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+/** Oturum jetonuyla JSON isteği; hata durumunda ApiError atar. */
+export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = useSession.getState().token;
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;

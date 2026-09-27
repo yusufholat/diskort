@@ -1,6 +1,7 @@
 // Uygulamanın her şeyden önce çalışan kurulumu (index.ts'te ilk içe aktarılır).
 import { registerGlobals } from '@livekit/react-native';
 import { configureClient, dmTitle, reportClientError, useGuild, useSession } from '@diskort/client-core';
+import { GIF_SNIPPET, isGifMessage } from '@diskort/shared';
 import * as SecureStore from 'expo-secure-store';
 import { AppState, Vibration } from 'react-native';
 import { uploadFromDevice } from './attachments';
@@ -43,7 +44,7 @@ export const clientReady = configureClient({
     const guild = useGuild.getState();
     const author = (message.authorId ? guild.users[message.authorId]?.displayName : undefined) ?? 'Biri';
     const from = dm.group ? `${author} · ${dmTitle(dm, guild.users, useSession.getState().user?.id)}` : author;
-    const text = message.content || (message.attachments.length ? '📎 Dosya gönderdi' : '');
+    const text = isGifMessage(message) ? GIF_SNIPPET : message.content || (message.attachments.length ? '📎 Dosya gönderdi' : '');
     Vibration.vibrate(60);
     toast(`${from}: ${text.length > 80 ? `${text.slice(0, 80)}…` : text}`);
   },

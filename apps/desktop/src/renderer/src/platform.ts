@@ -1,7 +1,7 @@
 // Masaüstünün ortak çekirdeğe (@diskort/client-core) verdiği platform ayrıntıları.
 // main.tsx'te arayüzden önce içe aktarılır.
 import { configureClient, dmTitle, useGuild, useSession } from '@diskort/client-core';
-import type { DmChannel, Message } from '@diskort/shared';
+import { GIF_SNIPPET, isGifMessage, type DmChannel, type Message } from '@diskort/shared';
 import { bridge } from './lib/bridge';
 import { currentView } from './lib/mainView';
 import { playSound } from './lib/sfx';
@@ -11,6 +11,7 @@ import { useUpdate } from './stores/update';
 
 /** Bildirim metni: mesajın başı, yalnızca dosya varsa dosya bilgisi */
 function preview(message: Message): string {
+  if (isGifMessage(message)) return GIF_SNIPPET;
   if (message.content) return message.content.length > 140 ? `${message.content.slice(0, 140)}…` : message.content;
   const files = message.attachments.length;
   return files > 1 ? `📎 ${files} dosya gönderdi` : files === 1 ? '📎 Bir dosya gönderdi' : '';

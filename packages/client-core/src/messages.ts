@@ -8,7 +8,9 @@ import {
   referenceOf,
   TYPING_TIMEOUT_MS,
   type Attachment,
+  type Embed,
   type GatewayServerMessage,
+  type GifResult,
   type Message,
   type MessageUpdate,
   type Reaction,
@@ -16,6 +18,7 @@ import {
 import { api, ApiError, errorMessage } from './api';
 import { env, type LocalFile } from './env';
 import { gateway } from './gateway';
+import { gifEmbed } from './gifs';
 import { useGuild } from './guild';
 import { useSession } from './session';
 import { formatBytes, uploadFile } from './uploads';
@@ -225,10 +228,23 @@ function takeReply(channelId: string, authorId: string): Partial<Message> {
  * yanıt varsa mesaj ona yanıt olur.
  */
 export function sendMessage(channelId: string, content: string): void {
-  const authorId = selfId();
-  if (!authorId) return;
+  if (!selfId()) return;
   const files = takeFiles(channelId);
   if (!content && files.length === 0) return;
+  startSending(channelId, content, files);
+}
+
+/**
+ * Seçicideki GIF'i hemen gönderir (Discord gibi): mesajın metni GIF'in GIPHY bağlantısıdır, GIF'i
+ * sunucu ekler. Yazma kutusundaki metin ve dosyalar yerinde kalır. Onay gelene kadar GIF ekranda gösterilir.
+ */
+export function sendGif(channelId: string, gif: GifResult): void {
+  startSending(channelId, gif.url, [], [gifEmbed(gif)]);
+}
+
+function startSending(channelId: string, content: string, files: LocalFile[], embeds: Embed[] = []): void {
+  const authorId = selfId();
+  if (!authorId) return;
   const nonce = `yerel-${Date.now()}-${++nonceCounter}`;
   const pending: LocalMessage = {
     id: nonce,
@@ -244,6 +260,7 @@ export function sendMessage(channelId: string, content: string): void {
     status: 'pending',
     nonce,
     ...(files.length ? { uploads: files.map((file) => ({ file, sent: 0 })) } : {}),
+    ...(embeds.length ? { embeds } : {}),
   };
   patch(channelId, (c) => ({ messages: [...c.messages, pending] }));
   // Gönderilen mesaj karşı tarafta "yazıyor"u kapatır; hemen yeniden yazmaya başlanırsa tekrar bildirilsin

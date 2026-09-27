@@ -50,6 +50,7 @@ export {
   notifyTyping,
   removeFile,
   retryMessage,
+  sendGif,
   sendMessage,
   setEditing,
   toggleReaction,
@@ -95,4 +96,20 @@ export {
 } from './dms';
 export { attachmentUrl, avatarUrl, formatBytes, removeAvatar, uploadAvatar } from './uploads';
 export { EMOJI_CATEGORIES, QUICK_REACTIONS, type EmojiCategory } from './emoji';
+export {
+  closeGifPicker,
+  fitBox,
+  gifEmbed,
+  gifOf,
+  isGiphyMedia,
+  loadMoreGifs,
+  openGifPicker,
+  retryGifs,
+  searchGifs,
+  setGifQuery,
+  trendingGifs,
+  useFeatures,
+  useGifPicker,
+  type GifPickerState,
+} from './gifs';
 export { parseInline, parseMarkdown, plainText, type MdBlock, type MdInline, type MdStyle } from './markdown';

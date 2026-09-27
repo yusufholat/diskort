@@ -14,6 +14,7 @@ import {
   type Channel,
   type ChannelType,
   type DmChannel,
+  type Embed,
   type Guild,
   type Invite,
   type Message,
@@ -248,6 +249,12 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE messages ADD COLUMN reply_to_id INTEGER;
   ALTER TABLE messages ADD COLUMN reply_mention_user_id TEXT;
   `,
+  // 11: GIF'ler ve videolar. embeds: mesaja sunucunun eklediği gömülü içerik (GIPHY GIF'i; JSON dizi,
+  // yoksa boş). duration: videonun süresi (saniye).
+  `
+  ALTER TABLE messages ADD COLUMN embeds TEXT;
+  ALTER TABLE attachments ADD COLUMN duration REAL;
+  `,
 ];
 
 type Param = string | number | null;
@@ -372,6 +379,18 @@ interface MessageRow {
   mention_everyone: number;
   reply_to_id: number | null;
   reply_mention_user_id: string | null;
+  embeds: string | null;
+}
+
+/** Saklanan gömülü içerik (sunucunun kendi yazdığı JSON); okunamazsa boş */
+function parseEmbeds(raw: string | null): Embed[] {
+  if (!raw) return [];
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return Array.isArray(value) ? (value as Embed[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 const toMessage = (r: MessageRow): Message => ({
@@ -384,6 +403,7 @@ const toMessage = (r: MessageRow): Message => ({
   attachments: [],
   reactions: [],
   mentionEveryone: r.mention_everyone === 1,
+  embeds: parseEmbeds(r.embeds),
   replyToId: r.reply_to_id === null ? null : String(r.reply_to_id),
   referencedMessage: null,
   replyMentionUserId: r.reply_mention_user_id,
@@ -405,6 +425,7 @@ interface AttachmentRow {
   content_type: string;
   width: number | null;
   height: number | null;
+  duration: number | null;
 }
 
 const toAttachment = (r: AttachmentRow): Attachment => ({
@@ -414,6 +435,7 @@ const toAttachment = (r: AttachmentRow): Attachment => ({
   contentType: r.content_type,
   width: r.width,
   height: r.height,
+  duration: r.duration ?? null,
   url: `/api/attachments/${r.id}/${encodeURIComponent(r.name)}`,
 });
 
@@ -1398,12 +1420,16 @@ export class Store {
     const ids = [...new Set(messages.map((m) => m.replyToId).filter((id): id is string => Boolean(id)))];
     const map = new Map<string, ReferencedMessage>();
     if (ids.length === 0) return map;
-    for (const r of this.all<{ id: number; author_id: string | null; content: string; files: number }>(
-      `SELECT m.id, m.author_id, m.content, EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id) AS files
+    for (const r of this.all<{ id: number; author_id: string | null; content: string; embeds: string | null; files: number }>(
+      `SELECT m.id, m.author_id, m.content, m.embeds,
+         EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id) AS files
        FROM messages m WHERE m.id IN (${ids.map(() => '?').join(',')})`,
       ...ids.map(Number),
     )) {
-      const reference = referenceOf({ id: String(r.id), authorId: r.author_id, content: r.content }, r.files === 1);
+      const reference = referenceOf(
+        { id: String(r.id), authorId: r.author_id, content: r.content, embeds: parseEmbeds(r.embeds) },
+        r.files === 1,
+      );
       map.set(reference.id, reference);
     }
     return map;
@@ -1513,6 +1539,11 @@ export class Store {
     return ids;
   }
 
+  /** Mesajın gömülü içeriğini (GIF) değiştirir; boş dizi hepsini kaldırır. */
+  setMessageEmbeds(id: number, embeds: Embed[]): void {
+    this.run('UPDATE messages SET embeds = ? WHERE id = ?', embeds.length ? JSON.stringify(embeds) : null, id);
+  }
+
   updateMessage(id: number, content: string, viewerId: string | null = null): Message | null {
     this.run('UPDATE messages SET content = ?, edited_at = ? WHERE id = ?', content, Date.now(), id);
     return this.getMessage(id, viewerId);
@@ -1538,10 +1569,12 @@ export class Store {
     contentType: string;
     width: number | null;
     height: number | null;
+    /** Videolarda süre (saniye) */
+    duration?: number | null;
   }): Attachment {
     this.run(
-      `INSERT INTO attachments (id, channel_id, uploader_id, name, size, content_type, width, height, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO attachments (id, channel_id, uploader_id, name, size, content_type, width, height, duration, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       a.id,
       a.channelId,
       a.uploaderId,
@@ -1550,6 +1583,7 @@ export class Store {
       a.contentType,
       a.width,
       a.height,
+      a.duration ?? null,
       Date.now(),
     );
     return this.getAttachment(a.id)!.attachment;
