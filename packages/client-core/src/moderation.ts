@@ -18,16 +18,31 @@ async function run(action: () => Promise<unknown>): Promise<boolean> {
   }
 }
 
+/** İşlemin yapılacağı sunucu: seçili sunucu (üye yönetimi hep seçili sunucunun ekranlarından yapılır) */
+const activeGuild = (): string => useGuild.getState().activeGuildId ?? '';
+
+/**
+ * Sesli sohbetteki üyenin sunucusu: seste olduğu kanalın sunucusu (başka sunucunun kanalındaysa oradaki
+ * yetkiyle), değilse seçili sunucu
+ */
+const voiceGuild = (userId: string): string => {
+  const s = useGuild.getState();
+  const channelId = s.voiceStates[userId]?.channelId;
+  return (channelId && s.channelGuild[channelId]) || activeGuild();
+};
+
 export const moderation = {
-  kick: (userId: string) => run(() => api.kickMember(userId)),
-  ban: (userId: string, reason?: string) => run(() => api.banMember(userId, reason)),
-  unban: (userId: string) => run(() => api.unban(userId)),
-  setServerMute: (userId: string, mute: boolean) => run(() => api.moderateVoice(userId, { mute })),
-  setServerDeaf: (userId: string, deaf: boolean) => run(() => api.moderateVoice(userId, { deaf })),
-  move: (userId: string, channelId: string) => run(() => api.moderateVoice(userId, { channelId })),
-  disconnect: (userId: string) => run(() => api.moderateVoice(userId, { channelId: null })),
+  kick: (userId: string) => run(() => api.kickMember(activeGuild(), userId)),
+  ban: (userId: string, reason?: string) => run(() => api.banMember(activeGuild(), userId, reason)),
+  unban: (userId: string) => run(() => api.unban(activeGuild(), userId)),
+  setServerMute: (userId: string, mute: boolean) => run(() => api.moderateVoice(voiceGuild(userId), userId, { mute })),
+  setServerDeaf: (userId: string, deaf: boolean) => run(() => api.moderateVoice(voiceGuild(userId), userId, { deaf })),
+  move: (userId: string, channelId: string) => run(() => api.moderateVoice(voiceGuild(userId), userId, { channelId })),
+  disconnect: (userId: string) => run(() => api.moderateVoice(voiceGuild(userId), userId, { channelId: null })),
   setRole: (userId: string, roleId: string, add: boolean) =>
-    run(() => (add ? api.addMemberRole(userId, roleId) : api.removeMemberRole(userId, roleId))),
+    run(() =>
+      add ? api.addMemberRole(activeGuild(), userId, roleId) : api.removeMemberRole(activeGuild(), userId, roleId),
+    ),
 };
 
 /** Oturumdaki kullanıcının bir üyeye yapabilecekleri (arayüzde hangi düğmelerin görüneceği) */

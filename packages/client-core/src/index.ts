@@ -26,7 +26,32 @@ export {
 export { reportVoiceLog, SpuriousDuplicateGuard } from './voiceDiagnostics';
 export { gateway } from './gateway';
 export { useSession } from './session';
-export { isUnread, membersOf, useGuild, type GatewayStatus, type GuildStore } from './guild';
+export {
+  channelById,
+  isGuildUnread,
+  isUnread,
+  membersOf,
+  useGuild,
+  type GatewayStatus,
+  type GuildState,
+  type GuildStore,
+  type MemberUser,
+} from './guild';
+export {
+  createGuild,
+  deleteGuild,
+  guildIconUrl,
+  guildInitials,
+  guildInvites,
+  inviteLink,
+  isGuildOwner,
+  joinGuild,
+  leaveGuild,
+  removeGuildIcon,
+  uploadGuildIcon,
+  useGuildList,
+  useGuildUnread,
+} from './guilds';
 export {
   can,
   canAssignRole,
@@ -37,6 +62,7 @@ export {
   memberGroups,
   outranksUser,
   overwriteState,
+  permissionsInGuild,
   permissionsOf,
   roleIsBelowFor,
   rolePermissionSource,

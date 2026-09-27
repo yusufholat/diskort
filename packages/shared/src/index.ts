@@ -483,6 +483,11 @@ export interface ReadyPayload {
   voiceStates: VoiceState[];
   /** Ortak sunucularda çevrimiçi olanlar */
   online: string[];
+  /**
+   * Ana sunucu (ilk kurulan): hesap yöneticileri onun yöneticileridir, geri bildirimleri onu yönetenler
+   * görür. Kullanıcı üyesi olmasa da bildirilir.
+   */
+  primaryGuildId: string | null;
   /** Metin kanallarındaki en son mesaj kimliği (kanal → mesaj) */
   lastMessageIds: Record<string, string>;
   /** Bu kullanıcının kanal başına okuduğu son mesaj (kanal → mesaj) */

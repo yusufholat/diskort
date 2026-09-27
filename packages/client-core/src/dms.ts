@@ -117,15 +117,19 @@ export async function addDmParticipant(id: string, userId: string): Promise<bool
   }
 }
 
-/** Konuşmaya mesaj yazılabiliyor mu değilse neden (arayüzde yazma kutusu yerine gösterilir) */
+/**
+ * Konuşmaya mesaj yazılabiliyor mu değilse neden (arayüzde yazma kutusu yerine gösterilir). Bire bir
+ * konuşmada karşı tarafla en az bir ortak sunucu olmalı (`reachable`: ortak sunucusu olanlar).
+ */
 export function dmBlockedReason(
   dm: Pick<DmChannel, 'participantIds' | 'group'>,
   users: Record<string, User>,
   selfId: string | undefined,
+  reachable: Record<string, true>,
 ): string | null {
   if (dm.group) return null;
   const partner = dmPartner(dm, users, selfId);
   if (!partner) return 'Bu kullanıcının hesabı silindi; artık mesaj gönderemezsin.';
-  if (partner.removed) return `${partner.displayName} artık sunucuda değil; mesaj gönderemezsin.`;
+  if (!reachable[partner.id]) return `${partner.displayName} ile artık ortak bir sunucunuz yok; mesaj gönderemezsin.`;
   return null;
 }

@@ -22,15 +22,14 @@ import {
   useMessages,
   useSession,
 } from '../src';
+import { member, profile, toReady, type TestUser } from './fixtures';
 
-const user = (id: string, extra: Partial<User> = {}): User => ({
+const user = (id: string, extra: Partial<TestUser> = {}): TestUser => ({
   id,
   username: id,
   displayName: id.toUpperCase(),
   avatarColor: '#fff',
   isAdmin: false,
-  roles: [],
-  removed: false,
   ...extra,
 });
 
@@ -62,6 +61,12 @@ const receive = (msg: GatewayServerMessage): void =>
   (gateway as unknown as { handle: (m: GatewayServerMessage, t: string) => void }).handle(msg, 'jeton');
 
 const ready = (extra: Partial<ReadyPayload> = {}): ReadyPayload => ({
+  ...readyBase(),
+  ...extra,
+});
+
+const readyBase = (): ReadyPayload =>
+  toReady({
   user: user('ben'),
   guild: { id: 'g', name: 'G', ownerId: 'sahip' },
   channels: [{ id: 'genel', guildId: 'g', name: 'genel', type: 'text', position: 0, overwrites: [] }],
@@ -74,8 +79,7 @@ const ready = (extra: Partial<ReadyPayload> = {}): ReadyPayload => ({
   mentionCounts: { d1: 2 },
   attachmentMaxBytes: 1,
   dms: [dm('d1', ['ben', 'ali'], { lastMessageId: '5', lastActivityAt: 50 })],
-  ...extra,
-});
+  });
 
 const directs: { message: Message; dm: DmChannel }[] = [];
 const mentions: Message[] = [];
@@ -174,10 +178,11 @@ describe('direkt mesajlar', () => {
     expect(permissionsOf(s, 'sahip', 'genel')).toBe(ALL_PERMISSIONS);
     expect(DM_PERMISSIONS & P.MANAGE_MESSAGES).toBe(0);
 
-    receive({ t: 'USER_UPDATE', d: user('ali', { removed: true }) });
+    // Ali tek ortak sunucudan ayrıldı: konuşma okunur, yazılamaz
+    receive({ t: 'GUILD_MEMBER_REMOVE', d: { guildId: 'g', userId: 'ali' } });
     const after = useGuild.getState();
     expect(permissionsOf(after, 'ben', 'd1')).toBe(P.VIEW_CHANNEL);
-    expect(dmBlockedReason(after.dms.d1!, after.users, 'ben')).toContain('artık sunucuda değil');
+    expect(dmBlockedReason(after.dms.d1!, after.users, 'ben', after.reachable)).toContain('ortak bir sunucunuz yok');
   });
 
   it('konuşmanın adı: grup adı, yoksa diğer kişilerin adları', () => {

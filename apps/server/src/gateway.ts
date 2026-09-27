@@ -395,6 +395,7 @@ export class Gateway {
         users: this.store.usersByIds(this.store.visibleUserIds(user.id)),
         voiceStates: this.voice.list().filter((v) => visible.has(v.channelId)),
         online: [...this.byUser.keys()].filter((id) => coMembers.has(id)),
+        primaryGuildId: this.permissions.primaryGuildId,
         lastMessageIds: onlyVisible(this.store.lastMessageIds()),
         readStates: onlyVisible(this.store.readStates(user.id)),
         mentionCounts: onlyVisible(this.store.mentionCounts(user.id)),

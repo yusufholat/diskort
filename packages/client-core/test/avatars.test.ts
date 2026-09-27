@@ -29,8 +29,6 @@ const me: User = {
   displayName: 'Ayşe',
   avatarColor: '#fff',
   isAdmin: false,
-  roles: [],
-  removed: false,
 };
 const withPhoto: User = { ...me, avatarUrl: '/api/avatars/u1/0123456789abcdef0123456789abcdef.webp' };
 
@@ -48,7 +46,7 @@ beforeEach(async () => {
     upload: (req) => uploadImpl(req),
   });
   useSession.getState().setSession('jeton', me);
-  useGuild.setState({ users: { u1: me } });
+  useGuild.setState({ profiles: { u1: me }, users: { u1: { ...me, roles: [], removed: true } } });
 });
 
 describe('profil fotoğrafı', () => {
@@ -72,7 +70,7 @@ describe('profil fotoğrafı', () => {
       headers: { Authorization: 'Bearer jeton', 'Content-Type': 'image/jpeg' },
     });
     expect(useSession.getState().user).toEqual(withPhoto);
-    expect(useGuild.getState().users.u1).toEqual(withPhoto);
+    expect(useGuild.getState().users.u1).toMatchObject(withPhoto);
   });
 
   it('sunucu hatası iletilir; sınırı aşan dosya hiç gönderilmez', async () => {

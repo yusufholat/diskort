@@ -16,14 +16,15 @@ import {
   type Role,
   type User,
 } from '@diskort/shared';
-import { useGuild, type GuildStore } from './guild';
+import { useGuild, type GuildState, type GuildStore } from './guild';
 import { PERMISSION_GROUPS, type PermissionInfo } from './permissionInfo';
 import { useSession } from './session';
 
 // Yetkiler sunucudakiyle aynı kodla hesaplanır (@diskort/shared). İstemci bunları yalnızca yapılamayacak
 // işleri gizlemek/kapatmak için kullanır; asıl denetim sunucudadır.
 
-type PermissionState = Pick<GuildStore, 'guild' | 'roles' | 'users' | 'channels'> & Partial<Pick<GuildStore, 'dms'>>;
+type PermissionState = Pick<GuildStore, 'guild' | 'roles' | 'users' | 'channels'> &
+  Partial<Pick<GuildStore, 'dms' | 'guilds' | 'channelGuild' | 'reachable'>>;
 
 let cached: { guild: GuildStore['guild']; roles: GuildStore['roles']; ctx: PermissionContext } | null = null;
 
@@ -37,6 +38,28 @@ export function permissionContext(s: Pick<GuildStore, 'guild' | 'roles'>): Permi
 
 export const rolesOf = (s: Pick<GuildStore, 'users'>, userId: string): readonly string[] => s.users[userId]?.roles ?? [];
 
+const guildContexts = new WeakMap<Record<string, Role>, PermissionContext>();
+
+/** Seçili olmayan bir sunucunun yetki bağlamı (aynı roller için aynı nesne) */
+function contextOf(g: GuildState): PermissionContext {
+  const cachedCtx = guildContexts.get(g.roles);
+  if (cachedCtx && cachedCtx.guildId === g.guild.id && cachedCtx.ownerId === g.guild.ownerId) return cachedCtx;
+  const ctx: PermissionContext = { guildId: g.guild.id, ownerId: g.guild.ownerId, roles: g.roles };
+  guildContexts.set(g.roles, ctx);
+  return ctx;
+}
+
+/** Bir sunucudaki yetkiler (seçili olmasa da): kanal verilirse o kanalda, verilmezse sunucu genelinde */
+export function permissionsInGuild(g: GuildState | undefined, userId: string | undefined, channelId?: string): number {
+  if (!g || !userId) return 0;
+  const member = g.members[userId];
+  if (!member || member.removed) return 0;
+  const ctx = contextOf(g);
+  if (channelId === undefined) return basePermissions(ctx, userId, member.roles);
+  const channel = g.channels.find((c) => c.id === channelId);
+  return channel ? channelPermissions(ctx, userId, member.roles, channel) : 0;
+}
+
 /** Sunucu rolleri göndermiyorsa (çok eski sunucu) yöneticilik bayrağına göre tahmin */
 function legacyPermissions(s: PermissionState, userId: string): number {
   return s.users[userId]?.isAdmin ? ALL_PERMISSIONS : DEFAULT_EVERYONE_PERMISSIONS;
@@ -47,9 +70,20 @@ function legacyPermissions(s: PermissionState, userId: string): number {
  * Direkt mesaj konuşmasında roller uygulanmaz: katılımcıların sabit yetkileri (bkz. dmPermissions).
  */
 export function permissionsOf(s: PermissionState, userId: string | undefined, channelId?: string): number {
-  if (!userId || !s.guild) return 0;
-  const dm = channelId === undefined ? undefined : s.dms?.[channelId];
-  if (dm) return dmPermissions(dm, userId, (id) => s.users[id]?.removed === false);
+  if (!userId) return 0;
+  if (channelId !== undefined) {
+    const dm = s.dms?.[channelId];
+    // Bire bir konuşmada karşı tarafla ortak sunucu kalmadıysa yazılamaz
+    if (dm) {
+      return dmPermissions(dm, userId, (id) =>
+        id === userId || (s.reachable ? Boolean(s.reachable[id]) : s.users[id]?.removed === false),
+      );
+    }
+    // Seçili olmayan bir sunucunun kanalı (ör. bağlı olunan ses kanalı): o sunucunun verisiyle
+    const guildId = s.channelGuild?.[channelId];
+    if (guildId && guildId !== s.guild?.id && s.guilds) return permissionsInGuild(s.guilds[guildId], userId, channelId);
+  }
+  if (!s.guild) return 0;
   const user = s.users[userId];
   if (user?.removed) return 0;
   const channel = channelId === undefined ? undefined : s.channels.find((c) => c.id === channelId);

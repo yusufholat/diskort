@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import {
   FEEDBACK_MAX_SCREENSHOTS,
   FEEDBACK_SCREENSHOT_MAX_BYTES,
+  hasPermission,
   Permission,
   type CreateFeedbackRequest,
   type Feedback,
@@ -19,7 +20,7 @@ import { env, type LocalFile } from './env';
 import { recentClientErrors } from './errors';
 import { gateway } from './gateway';
 import { useGuild } from './guild';
-import { can } from './permissions';
+import { permissionsInGuild } from './permissions';
 import { useSession } from './session';
 import { formatBytes, sendFile } from './uploads';
 
@@ -53,8 +54,15 @@ export const useFeedback = create<FeedbackStore>()(initial);
 
 const selfId = (): string | undefined => useSession.getState().user?.id;
 
-/** Oturumdaki kullanıcı geri bildirimleri yönetebilir mi (Sunucuyu Yönet ya da Yönetici) */
-export const canManageFeedback = (): boolean => can(useGuild.getState(), selfId(), Permission.MANAGE_GUILD);
+/**
+ * Oturumdaki kullanıcı geri bildirimleri yönetebilir mi: ana sunucuda (hesap yöneticilerinin sunucusu)
+ * Sunucuyu Yönet ya da Yönetici yetkisi
+ */
+export const canManageFeedback = (): boolean => {
+  const s = useGuild.getState();
+  const primary = s.primaryGuildId ? s.guilds[s.primaryGuildId] : undefined;
+  return hasPermission(permissionsInGuild(primary, selfId()), Permission.MANAGE_GUILD);
+};
 
 const countNew = (list: Feedback[]): number => list.filter((f) => f.status === 'yeni').length;
 
