@@ -14,7 +14,7 @@
 //
 // Yerel modül yalnızca yeni APK'larda var: yoksa (ör. eski APK) ses sessizce atlanır, titreşim sürer.
 
-import { OTHERS_SOUNDS, useGuild, useSession, type SoundName } from '@diskort/client-core';
+import { OTHERS_SOUNDS, SOUND_ALIASES, useGuild, useSession, type SoundName } from '@diskort/client-core';
 import { requireOptionalNativeModule } from 'expo';
 import { Platform } from 'react-native';
 import type * as ExpoAudio from 'expo-audio';
@@ -28,23 +28,24 @@ export type MobileSoundName = Exclude<SoundName, 'pttOn' | 'pttOff'>;
 const FILES: Record<MobileSoundName, number> = {
   join: require('../assets/sounds/join.wav'),
   leave: require('../assets/sounds/leave.wav'),
-  userJoin: require('../assets/sounds/userJoin.wav'),
-  userLeave: require('../assets/sounds/userLeave.wav'),
+  // Başkasının girip çıkması ve yayını kendininkiyle aynı sesi çalar (SOUND_ALIASES)
+  userJoin: require('../assets/sounds/join.wav'),
+  userLeave: require('../assets/sounds/leave.wav'),
   mute: require('../assets/sounds/mute.wav'),
   unmute: require('../assets/sounds/unmute.wav'),
   deafen: require('../assets/sounds/deafen.wav'),
   undeafen: require('../assets/sounds/undeafen.wav'),
   streamStart: require('../assets/sounds/streamStart.wav'),
   streamStop: require('../assets/sounds/streamStop.wav'),
-  userStreamStart: require('../assets/sounds/userStreamStart.wav'),
-  userStreamStop: require('../assets/sounds/userStreamStop.wav'),
+  userStreamStart: require('../assets/sounds/streamStart.wav'),
+  userStreamStop: require('../assets/sounds/streamStop.wav'),
   mention: require('../assets/sounds/mention.wav'),
   disconnect: require('../assets/sounds/disconnect.wav'),
   reconnected: require('../assets/sounds/reconnected.wav'),
 };
 
 /** Ayarlardaki dinleme listesi */
-export const MOBILE_SOUND_NAMES = Object.keys(FILES) as MobileSoundName[];
+export const MOBILE_SOUND_NAMES = (Object.keys(FILES) as MobileSoundName[]).filter((name) => !SOUND_ALIASES[name]);
 
 /** Olay → ses. Hoparlör, yönetim ve hata olaylarının sesi yok (masaüstünde de yok), yalnızca titreşim. */
 const EVENT_SOUND: Partial<Record<SoundEvent, MobileSoundName>> = {

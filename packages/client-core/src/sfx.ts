@@ -45,16 +45,16 @@ export type SoundName = (typeof SOUND_NAMES)[number];
 
 /** Ayarlardaki ses listesi (dinleme düğmeleri) için adlar */
 export const SOUND_LABELS: Record<SoundName, string> = {
-  join: 'Ses kanalına katıldın',
-  leave: 'Ses kanalından ayrıldın',
+  join: 'Kanala katılma (sen ya da başkası)',
+  leave: 'Kanaldan ayrılma (sen ya da başkası)',
   userJoin: 'Biri kanala girdi',
   userLeave: 'Biri kanaldan çıktı',
   mute: 'Susturuldun',
   unmute: 'Mikrofon açıldı',
   deafen: 'Sağırlaştırıldın',
   undeafen: 'Sağırlaştırma kalktı',
-  streamStart: 'Yayına başladın',
-  streamStop: 'Yayını bitirdin',
+  streamStart: 'Yayın başladı',
+  streamStop: 'Yayın bitti',
   userStreamStart: 'Biri yayına başladı',
   userStreamStop: 'Birinin yayını bitti',
   mention: 'Bahsedilme / direkt mesaj',
@@ -63,6 +63,20 @@ export const SOUND_LABELS: Record<SoundName, string> = {
   pttOn: 'Bas-konuş: basıldı',
   pttOff: 'Bas-konuş: bırakıldı',
 };
+
+/**
+ * Discord'daki gibi başkasının kanala girip çıkması ve yayın açıp kapaması, kendininkiyle aynı sesi çalar. Adlar ayrı
+ * kalır (sağırken başkalarınınki çalmaz, aynı anda gelenler tek sese indirilir, bkz. ChannelSoundGate); ses aynıdır.
+ */
+export const SOUND_ALIASES: Partial<Record<SoundName, SoundName>> = {
+  userJoin: 'join',
+  userLeave: 'leave',
+  userStreamStart: 'streamStart',
+  userStreamStop: 'streamStop',
+};
+
+/** Ayrı sesi olanlar (dinleme listesi, telefondaki WAV dosyaları) */
+export const PREVIEW_SOUND_NAMES: readonly SoundName[] = SOUND_NAMES.filter((name) => !SOUND_ALIASES[name]);
 
 /**
  * Başkalarıyla ilgili kanal sesleri: sağırlaştırılmışken çalınmaz (kanalı duymak istemiyorsun).
@@ -132,7 +146,7 @@ const B5 = 83;
 /** Çoğu sesin ortak ayarları */
 const BASE = { attack: 5, decayDb: 28, release: 0.4, h2: 0.06, bar: 1, lowpass: 5500, room: 0.3, trimDb: 0 };
 
-const SPECS: Record<SoundName, SoundSpec> = {
+const SPECS: Partial<Record<SoundName, SoundSpec>> = {
   // Sakin: küçük üçlü yukarı (Si4 → Re5), bağlı (legato), neredeyse kaymasız; üstteki nota biraz kısık
   // (vurgu yok), diğer seslerden az sönen gövde. "İçerdesin" der.
   join: {
@@ -155,22 +169,6 @@ const SPECS: Record<SoundName, SoundSpec> = {
     decayDb: 20,
     release: 0.45,
     h2: 0.05,
-  },
-  // Başkası girdi: tek, kısa, kısık "baloncuk" (aşağıdan Re5'e)
-  userJoin: {
-    ...BASE,
-    tones: [{ note: D5, at: 0, dur: 170, from: -4, glideMs: 28 }],
-    h2: 0.04,
-    room: 0.25,
-    trimDb: -3.5,
-  },
-  // Başkası çıktı: yukarıdan La4'e inen baloncuk
-  userLeave: {
-    ...BASE,
-    tones: [{ note: A4, at: 0, dur: 180, from: 4, glideMs: 28 }],
-    h2: 0.04,
-    room: 0.25,
-    trimDb: -3.5,
   },
   // Pes, kısa "tok" (Si4'e hafifçe inerek)
   mute: {
@@ -228,27 +226,6 @@ const SPECS: Record<SoundName, SoundSpec> = {
     decayDb: 24,
     room: 0.35,
     trimDb: -1,
-  },
-  // Başkasının yayını: iki küçük, tiz damla (Fa#5 → La5), kısık
-  userStreamStart: {
-    ...BASE,
-    tones: [
-      { note: Fs5, at: 0, dur: 110, from: -2 },
-      { note: A5, at: 55, dur: 180, from: -2 },
-    ],
-    h2: 0.04,
-    room: 0.25,
-    trimDb: -5,
-  },
-  userStreamStop: {
-    ...BASE,
-    tones: [
-      { note: A5, at: 0, dur: 110, from: 2 },
-      { note: Fs5, at: 55, dur: 190, from: 2 },
-    ],
-    h2: 0.04,
-    room: 0.25,
-    trimDb: -5,
   },
   // Dostça iki "ping" (Fa#5 → Si5): tahtaya ek olarak hafif cam/çan kısmisi
   mention: {
@@ -452,7 +429,7 @@ function finish(buf: Float32Array, rate: number, trimDb: number): Float32Array<A
  * Sesi üretir: mono, [-1, 1], tepe en çok SFX_PEAK_DBFS. Aynı ad ve hız için her zaman aynı örnekler döner.
  */
 export function renderSound(name: SoundName, rate: number = SFX_SAMPLE_RATE): Float32Array<ArrayBuffer> {
-  const spec = SPECS[name];
+  const spec = SPECS[SOUND_ALIASES[name] ?? name]!;
   const endMs = Math.max(...spec.tones.map((t) => t.at + t.dur));
   const lastTap = ROOM_TAPS[ROOM_TAPS.length - 1]?.ms ?? 0;
   const tailMs = spec.room > 0 ? lastTap + 40 : 0;

@@ -279,6 +279,8 @@ export {
   renderSound,
   SFX_PEAK_DBFS,
   SFX_SAMPLE_RATE,
+  PREVIEW_SOUND_NAMES,
+  SOUND_ALIASES,
   SOUND_LABELS,
   SOUND_NAMES,
   type SoundName,

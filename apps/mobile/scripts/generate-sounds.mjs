@@ -18,12 +18,13 @@ for (const dir of dirs) {
   mkdirSync(dir, { recursive: true });
   // Artık tanımlı olmayan eski sesler silinir
   for (const file of readdirSync(dir)) {
-    if (file.endsWith('.wav') && !sfx.SOUND_NAMES.includes(file.slice(0, -4))) rmSync(join(dir, file));
+    if (file.endsWith('.wav') && !sfx.PREVIEW_SOUND_NAMES.includes(file.slice(0, -4))) rmSync(join(dir, file));
   }
-  for (const name of sfx.SOUND_NAMES) {
+  // Başkalarının sesleri kendininkiyle aynı (SOUND_ALIASES): ayrı dosyası yok
+  for (const name of sfx.PREVIEW_SOUND_NAMES) {
     writeFileSync(join(dir, `${name}.wav`), sfx.encodeWav(sfx.renderSound(name), sfx.SFX_SAMPLE_RATE));
   }
-  console.log(`${sfx.SOUND_NAMES.length} ses yazıldı: ${dir}`);
+  console.log(`${sfx.PREVIEW_SOUND_NAMES.length} ses yazıldı: ${dir}`);
 }
 // Ses paketleri kaldırıldı: eski paket klasörleri (assets/sounds/soft, assets/sounds/classic) silinir
 for (const pack of ['soft', 'classic']) rmSync(join(assets, pack), { recursive: true, force: true });

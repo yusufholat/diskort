@@ -1,5 +1,5 @@
 import { Play } from 'lucide-react';
-import { SOUND_LABELS, SOUND_NAMES } from '@diskort/client-core';
+import { PREVIEW_SOUND_NAMES, SOUND_LABELS } from '@diskort/client-core';
 import { useEffect, useRef, useState } from 'react';
 import { voice } from '../../features/voice/voiceClient';
 import { MIC_TEST_RECORD_MS, type MicTest, type MicTestPhase } from '../../features/voice/micTest';
@@ -395,7 +395,7 @@ function SoundSettings() {
       </div>
       <SectionTitle>Sesleri Dinle</SectionTitle>
       <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-        {SOUND_NAMES.map((name) => (
+        {PREVIEW_SOUND_NAMES.map((name) => (
           <button
             key={name}
             type="button"

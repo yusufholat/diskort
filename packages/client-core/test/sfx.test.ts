@@ -6,10 +6,12 @@ import {
   encodeWav,
   OTHERS_QUIET_MS,
   OTHERS_SOUNDS,
+  PREVIEW_SOUND_NAMES,
   renderSound,
   SFX_PEAK_DBFS,
   SFX_SAMPLE_RATE,
   SFX_TARGET_RMS_DBFS,
+  SOUND_ALIASES,
   SOUND_LABELS,
   SOUND_NAMES,
   type SoundName,
@@ -55,16 +57,16 @@ function envelope(b: Float32Array): number[] {
 const TRIM_DB: Record<SoundName, number> = {
   join: 0,
   leave: 0,
-  userJoin: -3.5,
-  userLeave: -3.5,
+  userJoin: 0,
+  userLeave: 0,
   mute: 0,
   unmute: 0,
   deafen: 0,
   undeafen: 0,
   streamStart: -1,
   streamStop: -1,
-  userStreamStart: -5,
-  userStreamStop: -5,
+  userStreamStart: -1,
+  userStreamStop: -1,
   mention: 0,
   disconnect: 0,
   reconnected: -2,
@@ -124,13 +126,13 @@ describe('arayüz sesleri', () => {
     }
   });
 
-  it('başkalarının olayları kendi katılma/ayrılma sesinden en az 2 dB kısık (tepe ve algılanan seviye)', () => {
-    const own = Math.min(peak(renderSound('join')), peak(renderSound('leave')));
-    const ownLoud = Math.min(loudness(renderSound('join')), loudness(renderSound('leave')));
+  it('başkalarının girip çıkması ve yayını kendininkiyle aynı ses (Discord gibi)', () => {
     for (const name of OTHERS_SOUNDS) {
-      expect(dbfs(peak(renderSound(name))), name).toBeLessThan(dbfs(own) - 2);
-      expect(loudness(renderSound(name)), name).toBeLessThan(ownLoud - 2);
+      const base = SOUND_ALIASES[name];
+      expect(base, name).toBeDefined();
+      expect(renderSound(name), name).toEqual(renderSound(base!));
     }
+    expect(PREVIEW_SOUND_NAMES.some((name) => SOUND_ALIASES[name])).toBe(false);
   });
 
   it('her çalışta aynı örnekler', () => {
@@ -184,7 +186,7 @@ describe('arayüz sesleri', () => {
 
   it('telefondaki hazır sesler güncel (değişince: node apps/mobile/scripts/generate-sounds.mjs)', () => {
     const dir = join(__dirname, '..', '..', '..', 'apps', 'mobile', 'assets', 'sounds');
-    for (const name of SOUND_NAMES) {
+    for (const name of PREVIEW_SOUND_NAMES) {
       const file = readFileSync(join(dir, `${name}.wav`));
       const expected = encodeWav(renderSound(name));
       expect(file.length, name).toBe(expected.length);
