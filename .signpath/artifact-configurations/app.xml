@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration "app": Diskort.exe (the Electron application executable).
+  Paste into SignPath: Project "diskort" > Artifact Configurations > new configuration, slug "app".
+
+  Input: GitHub Actions artifact "diskort-app-unsigned" uploaded by .github/workflows/release.yml,
+  a ZIP with only Diskort.exe at its root. Third-party binaries (Electron DLLs, native modules,
+  elevate.exe) are intentionally NOT signed (SignPath Foundation: sign own binaries only).
+
+  Parameter "version" is passed by the workflow (apps/desktop/package.json, e.g. 0.6.5).
+  electron-builder writes the exe's Windows ProductVersion as "<version>.0" (e.g. 0.6.5.0).
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file path="Diskort.exe" product-name="Diskort" product-version="${version}.0">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>
