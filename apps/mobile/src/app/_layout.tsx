@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
-import { AppState } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import { AppState, StyleSheet, Text, View } from 'react-native';
+import { Stack, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { gateway, useSession } from '@diskort/client-core';
+import { gateway, reportClientError, useSession } from '@diskort/client-core';
 import { Toast } from '../components/Toast';
+import { Button } from '../components/ui';
 import { UpdateScreen } from '../components/UpdateScreen';
 import { channelFromResponse, registerForPush } from '../notifications';
 import { clientReady } from '../setup';
@@ -16,6 +17,33 @@ import { colors } from '../theme';
 import { useVoice, voice } from '../voice/voice';
 
 void SplashScreen.preventAutoHideAsync();
+
+/**
+ * Ekran çizilirken bir hata olursa (ör. bir ekranın kodunda hata) uygulama kapanmak yerine bunu gösterir
+ * ve hatayı sunucu kayıtlarına bildirir.
+ */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  useEffect(() => reportClientError(error, 'ekran'), [error]);
+  return (
+    <View style={errorStyles.page}>
+      <Text style={errorStyles.title}>Bir şeyler ters gitti</Text>
+      <Text style={errorStyles.text}>Hata bildirildi, en kısa sürede düzeltilecek.</Text>
+      <Text style={errorStyles.detail} selectable numberOfLines={4}>
+        {error.message}
+      </Text>
+      <View style={{ alignSelf: 'stretch', marginTop: 24 }}>
+        <Button title="Tekrar dene" onPress={() => void retry()} />
+      </View>
+    </View>
+  );
+}
+
+const errorStyles = StyleSheet.create({
+  page: { flex: 1, backgroundColor: colors.rail, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  title: { color: colors.head, fontSize: 21, fontWeight: '700', textAlign: 'center' },
+  text: { color: colors.muted, fontSize: 15, textAlign: 'center', marginTop: 10 },
+  detail: { color: colors.faint, fontSize: 12.5, textAlign: 'center', marginTop: 14 },
+});
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);

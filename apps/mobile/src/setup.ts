@@ -1,6 +1,6 @@
 // Uygulamanın her şeyden önce çalışan kurulumu (index.ts'te ilk içe aktarılır).
 import { registerGlobals } from '@livekit/react-native';
-import { configureClient, useGuild } from '@diskort/client-core';
+import { configureClient, reportClientError, useGuild } from '@diskort/client-core';
 import * as SecureStore from 'expo-secure-store';
 import { AppState, Vibration } from 'react-native';
 import { uploadFromDevice } from './attachments';
@@ -42,4 +42,12 @@ export const clientReady = configureClient({
   // uygulanır; yeni APK gerekiyorsa güncelleme ekranı çıkar (sesteyse sesten çıkınca)
   onUpdateAvailable: () => void checkForUpdate(true),
   upload: uploadFromDevice,
+});
+
+// Beklenmedik hatalar sunucu kayıtlarına bildirilir: telefonda hata ayıklama aracı yok, hatayı görmenin
+// tek yolu bu. Ekran çizimindeki hatalar ayrıca _layout.tsx'teki ErrorBoundary'de yakalanır.
+const previousHandler = ErrorUtils.getGlobalHandler();
+ErrorUtils.setGlobalHandler((error, isFatal) => {
+  reportClientError(error, isFatal ? 'ölümcül' : 'genel');
+  previousHandler(error, isFatal);
 });

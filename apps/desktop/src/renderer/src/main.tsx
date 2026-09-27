@@ -5,13 +5,17 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { installTurnPortRewrite } from './features/voice/turnPort';
 import { voice } from './features/voice/voiceClient';
-import { useGuild, useMessages, useSession } from '@diskort/client-core';
+import { reportClientError, useGuild, useMessages, useSession } from '@diskort/client-core';
 import { useSettings } from './stores/settings';
 import { useVoice } from './stores/voice';
 import './styles.css';
 
 // Herhangi bir WebRTC bağlantısı kurulmadan önce (bkz. turnPort.ts)
 installTurnPortRewrite();
+
+// Beklenmedik hatalar sunucu kayıtlarına bildirilir (kullanıcılardaki sorunları görebilmek için)
+window.addEventListener('error', (e) => reportClientError(e.error ?? e.message, 'pencere'));
+window.addEventListener('unhandledrejection', (e) => reportClientError(e.reason, 'promise'));
 
 // Yalnızca geliştirme: otomatik testlerin iç duruma erişebilmesi için.
 if (import.meta.env.DEV) {
