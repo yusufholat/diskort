@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, BackHandler, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Animated, BackHandler, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,7 +16,7 @@ import { VoiceStateIcon } from '../components/VoiceStateIcon';
 import { UserVolume } from '../components/VolumeControl';
 import { useAppear, useLayoutAnimationOn, useTimingTo } from '../motion';
 import { useSettings } from '../stores/settings';
-import { colors, font, radius, space } from '../theme';
+import { colors, createStyles, font, radius, space } from '../theme';
 import { leaveVoice, toggleDeafen, toggleMute, toggleScreenShare, toggleSpeaker } from '../voice/actions';
 import { useVoice, voice, type ScreenShareStats } from '../voice/voice';
 
@@ -353,7 +353,7 @@ const MemberTile = memo(function MemberTile({
   );
 });
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.deep },
   sharing: {
     backgroundColor: colors.okSoft,
@@ -426,4 +426,4 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
   },
-});
+}));

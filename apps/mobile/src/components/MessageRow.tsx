@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Reanimated, { interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -19,7 +19,7 @@ import type { User } from '@diskort/shared';
 import type { MemberUser } from '@diskort/client-core';
 import { feedback } from '../haptics';
 import { duration, useAppear } from '../motion';
-import { colors, font, layout, radius, ripple, space } from '../theme';
+import { colors, createStyles, font, layout, radius, ripple, space } from '../theme';
 import { Avatar } from './Avatar';
 import { AttachmentList, UploadList } from './Attachments';
 import { GifEmbed } from './GifEmbed';
@@ -257,7 +257,7 @@ function Separator({ day, unread }: { day: number | null; unread: boolean }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   row: { flexDirection: 'row', paddingRight: 14 },
   full: { paddingTop: 12, paddingBottom: 2, marginTop: 4 },
   compact: { paddingVertical: 2 },
@@ -288,4 +288,4 @@ const styles = StyleSheet.create({
   dayText: { color: colors.muted, fontSize: font.caption, fontWeight: '700' },
   newTag: { backgroundColor: colors.danger, borderRadius: radius.sm, paddingHorizontal: 5, paddingVertical: 1, marginLeft: -space.sm },
   newTagText: { color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.3 },
-});
+}));

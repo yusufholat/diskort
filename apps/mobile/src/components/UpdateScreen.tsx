@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
-import { Linking, StyleSheet, Text, View } from 'react-native';
+import { Linking, Text, View } from 'react-native';
 import { useUpdates } from 'expo-updates';
 import { applyOta, installUpdate, resolveRequiredUpdate, useAppUpdate } from '../update/updater';
 import { DEFAULT_SERVER_URL } from '../stores/settings';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 import { Button } from './ui';
 
 const mb = (bytes: number): string => (bytes / 1048576).toFixed(1).replace('.', ',');
@@ -85,7 +85,7 @@ export function UpdateScreen({ requiredVersion }: { requiredVersion?: string | n
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.rail, alignItems: 'center', justifyContent: 'center', padding: 32 },
   badge: {
     width: 80,
@@ -103,4 +103,4 @@ const styles = StyleSheet.create({
   fill: { height: '100%', backgroundColor: colors.brand, borderRadius: 3 },
   action: { marginTop: 24, alignSelf: 'stretch' },
   note: { color: colors.faint, fontSize: 12.5, textAlign: 'center', marginTop: 28, lineHeight: 18 },
-});
+}));

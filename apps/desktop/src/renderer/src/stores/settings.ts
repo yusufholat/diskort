@@ -9,6 +9,8 @@ export type ScreenPresetId = (typeof SCREEN_PRESET_IDS)[number];
 const SCREEN_CODEC_IDS = ['h264', 'vp9', 'vp8', 'av1'] as const;
 export type ScreenCodec = (typeof SCREEN_CODEC_IDS)[number];
 export type ScreenContent = 'motion' | 'detail';
+export const THEME_IDS = ['dark', 'black'] as const;
+export type ThemeId = (typeof THEME_IDS)[number];
 
 export interface Settings {
   serverUrl: string;
@@ -38,6 +40,8 @@ export interface Settings {
   minimizeToTray: boolean;
   openAtLogin: boolean;
   sounds: boolean;
+  /** Arayüz teması: koyu (varsayılan) ya da OLED ekranlar için simsiyah */
+  theme: ThemeId;
 
   selfMute: boolean;
   selfDeaf: boolean;
@@ -72,6 +76,7 @@ const defaults: Settings = {
   minimizeToTray: true,
   openAtLogin: false,
   sounds: true,
+  theme: 'dark',
   selfMute: false,
   selfDeaf: false,
 };
@@ -90,6 +95,7 @@ function sanitize(saved: Partial<Settings>): Partial<Settings> {
     s.audioBitrateKbps = AUDIO_BITRATES_KBPS.reduce((best, v) => (Math.abs(v - kbps) <= Math.abs(best - kbps) ? v : best));
   }
   if (s.screenPreset !== undefined && !SCREEN_PRESET_IDS.includes(s.screenPreset)) s.screenPreset = defaults.screenPreset;
+  if (s.theme !== undefined && !THEME_IDS.includes(s.theme)) s.theme = defaults.theme;
   if (s.screenCodec !== undefined && !SCREEN_CODEC_IDS.includes(s.screenCodec)) s.screenCodec = defaults.screenCodec;
   return s;
 }

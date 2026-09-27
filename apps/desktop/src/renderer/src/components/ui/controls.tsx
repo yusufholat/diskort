@@ -5,7 +5,7 @@ type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'success';
 
 const variants: Record<ButtonVariant, string> = {
   primary: 'bg-brand hover:bg-brand-hover text-white',
-  secondary: 'bg-[#4e5058] hover:bg-[#6d6f78] text-white',
+  secondary: 'bg-control hover:bg-control-hover text-white',
   danger: 'bg-danger hover:bg-danger-hover text-white',
   success: 'bg-ok hover:bg-[#1a8b4c] text-white',
   ghost: 'bg-transparent hover:underline text-text-normal',
@@ -35,7 +35,7 @@ export function TextInput({ className, ...rest }: InputHTMLAttributes<HTMLInputE
   return (
     <input
       className={cn(
-        'h-10 w-full rounded-[3px] border border-transparent bg-bg-input px-2.5 text-[15px] text-text-normal outline-none transition-colors placeholder:text-text-faint hover:border-black/60 focus:border-brand/70',
+        'h-10 w-full rounded-[3px] border border-transparent bg-bg-input px-2.5 text-[15px] text-text-normal outline-none transition-colors placeholder:text-text-faint hover:border-edge-strong focus:border-brand/70',
         className,
       )}
       {...rest}

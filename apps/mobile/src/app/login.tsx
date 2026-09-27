@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { parseInviteCode } from '@diskort/shared';
@@ -7,7 +7,7 @@ import { api, errorMessage, normalizeServerUrl, useSession } from '@diskort/clie
 import { Button, FadeIn, Field, ui } from '../components/ui';
 import { animateNextLayout } from '../motion';
 import { DEFAULT_SERVER_URL, useSettings } from '../stores/settings';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 
 type Mode = 'login' | 'register' | 'reset';
 
@@ -164,7 +164,7 @@ function Link({ text, onPress, muted }: { text: string; onPress: () => void; mut
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.rail },
   scroll: { flexGrow: 1, justifyContent: 'center', padding: 20 },
   logo: {
@@ -182,4 +182,4 @@ const styles = StyleSheet.create({
   title: { color: colors.head, fontSize: 24, fontWeight: '700', textAlign: 'center' },
   subtitle: { color: colors.muted, fontSize: 15, textAlign: 'center', marginTop: 6, marginBottom: 22 },
   links: { marginTop: 4 },
-});
+}));

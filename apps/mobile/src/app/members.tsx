@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useState } from 'react';
-import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
+import { Pressable, SectionList, Text, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,7 +10,7 @@ import { MemberSheet } from '../components/MemberSheet';
 import { ListSkeleton } from '../components/Skeleton';
 import { EmptyState } from '../components/States';
 import { useLayoutAnimationOn } from '../motion';
-import { colors, font, radius, ripple, space, text } from '../theme';
+import { colors, createStyles, font, radius, ripple, space, text } from '../theme';
 
 /** Üye listesi: ayrı gösterilen rollere göre gruplar, çevrimiçi, çevrimdışı. Dokununca üye menüsü. */
 export default function MembersScreen() {
@@ -124,7 +124,7 @@ const MemberRow = memo(function MemberRow({
   );
 });
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.main },
   section: { ...text.section, paddingHorizontal: space.lg, paddingTop: space.xl, paddingBottom: space.sm - 2 },
   rowWrap: { paddingHorizontal: space.sm, paddingVertical: 1 },
@@ -144,4 +144,4 @@ const styles = StyleSheet.create({
   sub: { color: colors.muted, fontSize: font.caption + 0.5, marginTop: 1 },
   youTag: { backgroundColor: colors.brandSoft, borderRadius: radius.sm, paddingHorizontal: 5, paddingVertical: 1 },
   youText: { color: colors.brandText, fontSize: 9.5, fontWeight: '800' },
-});
+}));

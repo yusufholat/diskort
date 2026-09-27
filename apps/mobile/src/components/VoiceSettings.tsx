@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, Switch, Text, View } from 'react-native';
 import { feedback, soundCue, useHapticsAvailable } from '../haptics';
 import { useSettings } from '../stores/settings';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 import { useVoice, voice } from '../voice/voice';
 import { Slider } from './Slider';
 import { Card, SectionTitle } from './ui';
@@ -176,7 +176,7 @@ function ToggleRow({
       <Switch
         value={value}
         onValueChange={onChange}
-        trackColor={{ false: '#4e5058', true: colors.brand }}
+        trackColor={{ false: colors.control, true: colors.brand }}
         thumbColor="#fff"
       />
     </Pressable>
@@ -185,7 +185,7 @@ function ToggleRow({
 
 const THUMB_PAD = 9;
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   card: { paddingHorizontal: 16, paddingVertical: 4 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
   label: { color: colors.text, fontSize: 15.5, fontWeight: '500' },
@@ -195,8 +195,8 @@ const styles = StyleSheet.create({
   hint: { color: colors.muted, fontSize: 12.5, lineHeight: 18, marginTop: 6 },
   // Kaydırıcıyla hizalı olsun diye iki yanda başparmak payı bırakılır
   meter: { height: 22, justifyContent: 'center', marginHorizontal: THUMB_PAD, marginTop: 6 },
-  meterTrack: { height: 8, borderRadius: 4, backgroundColor: '#4e5058', overflow: 'hidden' },
+  meterTrack: { height: 8, borderRadius: 4, backgroundColor: colors.control, overflow: 'hidden' },
   meterFill: { position: 'absolute', top: 0, bottom: 0, left: 0, backgroundColor: colors.warn },
   meterOpen: { backgroundColor: colors.ok },
   meterMark: { position: 'absolute', top: 1, bottom: 1, width: 2, marginLeft: -1, backgroundColor: 'rgba(255,255,255,0.8)' },
-});
+}));

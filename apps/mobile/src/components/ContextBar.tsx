@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
-import { Animated, StyleSheet } from 'react-native';
+import { Animated } from 'react-native';
 import { useAppear } from '../motion';
-import { colors, radius, space } from '../theme';
+import { colors, createStyles, radius, space } from '../theme';
 
 /** Yazma kutusunun üstündeki şerit (düzenleme, yanıt): yukarı kayarak belirir */
 export function ContextBar({ children }: { children: ReactNode }) {
@@ -18,7 +18,7 @@ export function ContextBar({ children }: { children: ReactNode }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   contextBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -30,4 +30,4 @@ const styles = StyleSheet.create({
     backgroundColor: colors.side,
     borderRadius: radius.lg - 4,
   },
-});
+}));

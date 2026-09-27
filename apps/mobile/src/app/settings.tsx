@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { api, errorMessage, gateway, removeAvatar, uploadAvatar, useSession } from '@diskort/client-core';
@@ -7,13 +7,14 @@ import { pickAvatar } from '../attachments';
 import { Avatar } from '../components/Avatar';
 import { PressableScale } from '../components/PressableScale';
 import { Button, Card, FadeIn, Field, NavRow, SectionTitle, ui } from '../components/ui';
+import { ThemePicker } from '../components/ThemePicker';
 import { VoiceSettings } from '../components/VoiceSettings';
 import { animateNextLayout } from '../motion';
 import { registerForPush, unregisterPush, usePushState } from '../notifications';
 import { APP_VERSION, NATIVE_VERSION } from '../version';
 import { DEFAULT_SERVER_URL, useSettings } from '../stores/settings';
 import { toast } from '../stores/ui';
-import { colors, font, radius, space } from '../theme';
+import { colors, createStyles, font, radius, space } from '../theme';
 import { voice } from '../voice/voice';
 
 export default function SettingsScreen() {
@@ -97,6 +98,9 @@ export default function SettingsScreen() {
           onPress={() => void saveName()}
         />
       </Card>
+
+      <SectionTitle>Görünüm</SectionTitle>
+      <ThemePicker />
 
       <NotificationSettings />
 
@@ -307,7 +311,7 @@ function DeleteAccount({ onDeleted }: { onDeleted: () => void }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.main },
   content: { padding: space.lg, paddingBottom: 48 },
   profile: { backgroundColor: colors.side, borderRadius: radius.lg, overflow: 'hidden' },
@@ -337,4 +341,4 @@ const styles = StyleSheet.create({
   pushRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm + 2, marginBottom: space.md },
   pushDot: { width: 10, height: 10, borderRadius: 5, marginTop: 5 },
   warning: { color: colors.muted, fontSize: font.small, lineHeight: 20, marginBottom: space.md },
-});
+}));

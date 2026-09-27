@@ -1,6 +1,6 @@
-import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { EMOJI_CATEGORIES } from '@diskort/client-core';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 
 const COLUMNS = 8;
 const PADDING = 12;
@@ -31,7 +31,7 @@ export function EmojiGrid({ onPick }: { onPick: (emoji: string) => void }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   title: {
     color: colors.muted,
     fontSize: 12,
@@ -44,4 +44,4 @@ const styles = StyleSheet.create({
   cell: { alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
   pressed: { backgroundColor: colors.hover },
   emoji: { fontSize: 26 },
-});
+}));

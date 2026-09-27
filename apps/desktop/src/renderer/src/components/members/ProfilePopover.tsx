@@ -119,7 +119,7 @@ export function ProfilePopover() {
       role="dialog"
       aria-label={`${user.displayName} profili`}
       className={cn(
-        'fixed z-50 w-[300px] overflow-hidden rounded-lg border border-black/30 bg-bg-float shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
+        'fixed z-50 w-[300px] overflow-hidden rounded-lg border border-edge bg-bg-float shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
         closing ? 'anim-pop-out pointer-events-none' : 'anim-pop-in',
       )}
       style={pos ? { left: pos.x, top: pos.y, transformOrigin: pos.origin } : { left: -9999, top: -9999 }}

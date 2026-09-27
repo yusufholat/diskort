@@ -22,7 +22,7 @@ export type Modal =
   | { type: 'invite' }
   | null;
 
-export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app' | 'feedback' | 'whatsNew';
+export type SettingsSection = 'account' | 'appearance' | 'voice' | 'stream' | 'keybinds' | 'app' | 'feedback' | 'whatsNew';
 
 export type ServerSettingsSection = 'overview' | 'roles' | 'members' | 'invites' | 'bans' | 'feedback';
 

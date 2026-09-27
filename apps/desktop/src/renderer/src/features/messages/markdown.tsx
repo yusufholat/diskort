@@ -25,7 +25,7 @@ function Spoiler({ children }: { children: ReactNode }) {
     <span
       className={cn(
         'rounded px-0.5 transition-colors',
-        shown ? 'bg-white/10' : 'cursor-pointer bg-[#1e1f22] text-transparent select-none hover:bg-[#232428]',
+        shown ? 'bg-white/10' : 'cursor-pointer bg-bg-input text-transparent select-none hover:bg-bg-panel',
       )}
       onClick={() => setShown(true)}
       data-tooltip={shown ? undefined : 'Göstermek için tıkla'}
@@ -43,7 +43,7 @@ function renderInline(nodes: MdInline[], ctx: MarkdownContext, key: string): Rea
         return node.text;
       case 'code':
         return (
-          <code key={k} className="rounded bg-[#1e1f22] px-1 py-px font-mono text-[0.85em] text-text-normal">
+          <code key={k} className="rounded bg-bg-input px-1 py-px font-mono text-[0.85em] text-text-normal">
             {node.text}
           </code>
         );
@@ -113,7 +113,7 @@ export function renderMarkdown(content: string, ctx: MarkdownContext): ReactNode
         return [
           <pre
             key={k}
-            className="my-1 max-w-full overflow-x-auto rounded border border-black/30 bg-[#2b2d31] p-2 font-mono text-[0.85em] leading-snug whitespace-pre text-text-normal"
+            className="my-1 max-w-full overflow-x-auto rounded border border-edge bg-bg-side p-2 font-mono text-[0.85em] leading-snug whitespace-pre text-text-normal"
           >
             {block.text}
           </pre>,

@@ -45,7 +45,7 @@ export function VoiceStage() {
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col bg-bg-deep">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-black/40 px-4">
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-edge px-4">
         <Volume2 size={22} className="text-text-muted" />
         <span className="font-semibold text-text-head">{channel?.name}</span>
         <span className="text-sm text-text-muted">· {members.length} kişi</span>
@@ -130,7 +130,7 @@ function ParticipantTile({ state, compact }: { state: VoiceState; compact?: bool
         'tile-ring relative flex h-full w-full items-center justify-center overflow-hidden rounded-lg',
         speaking && 'tile-speaking',
       )}
-      style={{ background: `color-mix(in srgb, ${user?.avatarColor ?? '#5865f2'} 35%, #1e1f22)` }}
+      style={{ background: `color-mix(in srgb, ${user?.avatarColor ?? '#5865f2'} 35%, var(--color-bg-rail))` }}
       onContextMenu={(e) => {
         e.preventDefault();
         const isSelf = state.userId === selfId;
@@ -168,7 +168,7 @@ function StreamTile({ userId, compact }: { userId: string; compact?: boolean }) 
       </div>
       {!compact && <div className="text-sm text-text-muted">{user?.displayName} ekranını paylaşıyor</div>}
       <button
-        className="press flex items-center gap-2 rounded bg-[#4e5058] px-4 py-2 text-sm font-medium text-white hover:bg-[#6d6f78]"
+        className="press flex items-center gap-2 rounded bg-control px-4 py-2 text-sm font-medium text-white hover:bg-control-hover"
         onClick={() => voice.watchStream(userId)}
       >
         <Eye size={16} /> Yayını İzle
@@ -252,7 +252,7 @@ function RoundButton({
             ? 'bg-white text-bg-rail hover:bg-[#e3e5e8]'
             : active
               ? 'bg-ok hover:bg-[#1a8b4c]'
-              : 'bg-[#2b2d31] hover:bg-[#404249]',
+              : 'bg-bg-raised hover:bg-bg-raised-hover',
       )}
     >
       {/* Simge değişince kısa bir dönüşle yenisine geçer */}

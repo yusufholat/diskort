@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { colors } from '../theme';
+import { Text, View } from 'react-native';
+import { colors, createStyles } from '../theme';
 import { useVoice, voice, type VoiceQuality } from '../voice/voice';
 
 const PING_INTERVAL_MS = 3000;
@@ -85,8 +85,8 @@ export function ConnectionQualityBadge() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   bars: { flexDirection: 'row', alignItems: 'flex-end' },
   badge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8 },
   ping: { fontSize: 12.5, fontWeight: '700', fontVariant: ['tabular-nums'] },
-});
+}));

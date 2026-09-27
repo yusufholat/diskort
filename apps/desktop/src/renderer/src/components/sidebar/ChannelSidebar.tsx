@@ -68,7 +68,7 @@ export function ChannelSidebar() {
   return (
     <aside className="flex w-60 shrink-0 flex-col bg-bg-side">
       <button
-        className="flex h-12 shrink-0 items-center justify-between border-b border-black/30 px-4 font-semibold text-text-head shadow-sm transition-colors hover:bg-bg-hover"
+        className="flex h-12 shrink-0 items-center justify-between border-b border-edge px-4 font-semibold text-text-head shadow-sm transition-colors hover:bg-bg-hover"
         onClick={(e) => {
           if (menu.length === 0) return;
           const rect = e.currentTarget.getBoundingClientRect();

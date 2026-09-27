@@ -14,17 +14,24 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppear, useShake } from '../motion';
-import { colors, font, radius, ripple, space } from '../theme';
+import { colors, createStyles, font, radius, ripple, space } from '../theme';
 import { PressableScale } from './PressableScale';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
-const BG: Record<Variant, [string, string]> = {
-  primary: [colors.brand, colors.brandPressed],
-  secondary: [colors.control, colors.controlPressed],
-  danger: [colors.danger, colors.dangerPressed],
-  ghost: ['transparent', 'rgba(255,255,255,0.06)'],
-};
+/** Düğme zemini ve basılıyken zemini (çizim sırasında okunur: tema değişebilir) */
+function buttonColors(variant: Variant): [string, string] {
+  switch (variant) {
+    case 'primary':
+      return [colors.brand, colors.brandPressed];
+    case 'secondary':
+      return [colors.control, colors.controlPressed];
+    case 'danger':
+      return [colors.danger, colors.dangerPressed];
+    case 'ghost':
+      return ['transparent', 'rgba(255,255,255,0.06)'];
+  }
+}
 
 export function Button({
   title,
@@ -33,7 +40,7 @@ export function Button({
   disabled,
   ...rest
 }: PressableProps & { title: string; variant?: Variant; busy?: boolean }) {
-  const [bg, pressed] = BG[variant];
+  const [bg, pressed] = buttonColors(variant);
   return (
     <PressableScale
       scaleTo={0.97}
@@ -170,7 +177,7 @@ export function NavRow({
   );
 }
 
-export const ui = StyleSheet.create({
+export const ui = createStyles(() => ({
   errorBox: {
     backgroundColor: 'rgba(242,63,67,0.15)',
     borderRadius: radius.sm,
@@ -178,9 +185,9 @@ export const ui = StyleSheet.create({
     marginBottom: 12,
   },
   errorText: { color: '#fa777c', fontSize: 14 },
-});
+}));
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   button: {
     height: 46,
     borderRadius: radius.md,
@@ -223,4 +230,4 @@ const styles = StyleSheet.create({
   navLabel: { color: colors.head, fontSize: font.row, fontWeight: '500' },
   navDetail: { color: colors.muted, fontSize: font.caption + 0.5, marginTop: 1, lineHeight: 17 },
   navValue: { color: colors.muted, fontSize: font.small + 0.5, maxWidth: '45%' },
-});
+}));

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 import { PressableScale } from './PressableScale';
 
 /** Başlık çubuğundaki simge düğmesi: 40 px dokunma alanı, yuvarlak dalga, basınca küçülme */
@@ -37,7 +37,7 @@ export function HeaderButton({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   button: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   extra: { position: 'absolute', top: 1, right: -3 },
-});
+}));

@@ -10,7 +10,7 @@ import { EmptyState } from '../components/States';
 import { Button } from '../components/ui';
 import { animateNextLayout, useBump } from '../motion';
 import { showChat } from '../stores/nav';
-import { colors, font, radius, ripple, space } from '../theme';
+import { colors, createStyles, font, radius, ripple, space } from '../theme';
 
 const NOBODY: string[] = [];
 
@@ -229,7 +229,7 @@ const CandidateRow = memo(function CandidateRow({
   );
 });
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.main },
   hint: { color: colors.muted, fontSize: font.small, paddingHorizontal: space.lg, paddingTop: 14, lineHeight: 20 },
   chips: { gap: space.sm, paddingHorizontal: space.md, paddingTop: space.md },
@@ -293,4 +293,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 16,
   },
-});
+}));

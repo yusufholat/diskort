@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { Animated, Easing, StyleSheet, View } from 'react-native';
+import { Animated, Easing, View } from 'react-native';
 import { prefersReducedMotion } from '../motion';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 
 /** "Yazıyor" üç noktası: sırayla yükselip parlar (yerel sürücüde; JS'yi meşgul etmez) */
 export function TypingDots({ color = colors.text, size = 5 }: { color?: string; size?: number }) {
@@ -40,6 +40,6 @@ export function TypingDots({ color = colors.text, size = 5 }: { color?: string; 
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   row: { flexDirection: 'row', alignItems: 'center' },
-});
+}));

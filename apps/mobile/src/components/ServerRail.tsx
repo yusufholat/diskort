@@ -1,5 +1,5 @@
 import { memo, useState, type ReactNode } from 'react';
-import { Alert, Image, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useShallow } from 'zustand/react/shallow';
@@ -26,7 +26,7 @@ import {
 import { feedback } from '../haptics';
 import { openChat, selectGuildInPanel, selectHome, useNav } from '../stores/nav';
 import { toast } from '../stores/ui';
-import { colors, space } from '../theme';
+import { colors, createStyles, space } from '../theme';
 import { CountBadge } from './Badge';
 import { DmAvatar } from './DmAvatar';
 import { PressableScale } from './PressableScale';
@@ -234,7 +234,7 @@ async function shareInvite(guild: Guild): Promise<void> {
   }
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   rail: { width: RAIL_WIDTH, flexGrow: 0, backgroundColor: colors.rail },
   railContent: { alignItems: 'center', gap: space.sm, paddingTop: space.sm, paddingBottom: space.lg },
   item: { width: RAIL_WIDTH, alignItems: 'center' },
@@ -248,7 +248,7 @@ const styles = StyleSheet.create({
   },
   pillSelected: { top: 4, bottom: 4 },
   pillUnread: { top: ICON / 2 - 4, height: 8 },
-  home: { width: ICON, height: ICON, backgroundColor: colors.main, alignItems: 'center', justifyContent: 'center' },
+  home: { width: ICON, height: ICON, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
   separator: { width: 32, height: 2, borderRadius: 1, backgroundColor: colors.line },
   icon: { backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   iconText: { color: colors.white, fontWeight: '800' },
@@ -257,8 +257,8 @@ const styles = StyleSheet.create({
     width: ICON,
     height: ICON,
     borderRadius: ICON / 2,
-    backgroundColor: colors.main,
+    backgroundColor: colors.raised,
     alignItems: 'center',
     justifyContent: 'center',
   },
-});
+}));

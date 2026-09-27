@@ -1,12 +1,12 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { Animated, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Animated, FlatList, RefreshControl, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api, errorMessage, parseReleaseNotes, type NotePart } from '@diskort/client-core';
 import type { ReleaseNotes } from '@diskort/shared';
 import { Bone, Pulse, TextSkeleton } from '../components/Skeleton';
 import { EmptyState, ErrorState } from '../components/States';
 import { useAppear } from '../motion';
-import { colors, font, radius, space } from '../theme';
+import { colors, createStyles, font, radius, space } from '../theme';
 import { APP_VERSION } from '../version';
 
 const dateFormat = new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -166,7 +166,7 @@ function Parts({ parts }: { parts: NotePart[] }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.main },
   list: { padding: space.md, gap: space.md },
   card: {
@@ -197,4 +197,4 @@ const styles = StyleSheet.create({
   paragraph: { marginVertical: 3 },
   bold: { color: colors.head, fontWeight: '700' },
   inlineError: { color: colors.dangerText, fontSize: font.small, textAlign: 'center', marginBottom: space.xs },
-});
+}));

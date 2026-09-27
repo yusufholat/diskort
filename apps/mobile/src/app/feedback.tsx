@@ -31,7 +31,7 @@ import { TextSkeleton } from '../components/Skeleton';
 import { Button, FadeIn, Field, SectionTitle, ui } from '../components/ui';
 import { animateNextLayout } from '../motion';
 import { toast } from '../stores/ui';
-import { colors, radius, ripple } from '../theme';
+import { colors, createStyles, radius, ripple } from '../theme';
 import { NATIVE_VERSION } from '../version';
 import { useVoice } from '../voice/voice';
 
@@ -386,7 +386,7 @@ function MyFeedbackItem({ item, open, onToggle }: { item: Feedback; open: boolea
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.main },
   content: { padding: 16, paddingBottom: 48 },
   intro: { color: colors.muted, fontSize: 14.5, lineHeight: 20, marginBottom: 14 },
@@ -460,4 +460,4 @@ const styles = StyleSheet.create({
   itemText: { color: colors.text, fontSize: 14.5, lineHeight: 20 },
   note: { marginTop: 10, borderLeftWidth: 3, borderLeftColor: colors.brand, backgroundColor: colors.rail, padding: 10, borderRadius: radius.sm },
   noteLabel: { color: colors.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', marginBottom: 2 },
-});
+}));

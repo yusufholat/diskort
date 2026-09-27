@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   cancelReply,
@@ -8,7 +8,7 @@ import {
   useMemberColor,
   useMessages,
 } from '@diskort/client-core';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 import { ContextBar } from './ContextBar';
 
 /**
@@ -48,11 +48,11 @@ export function ReplyBar({ channelId }: { channelId: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   text: { flex: 1, color: colors.muted, fontSize: 13.5 },
   name: { color: colors.text, fontWeight: '700' },
   toggle: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6 },
   toggleOnBg: { backgroundColor: 'rgba(0,168,252,0.12)' },
   toggleText: { color: colors.muted, fontSize: 12, fontWeight: '800' },
   toggleOn: { color: colors.link },
-});
+}));

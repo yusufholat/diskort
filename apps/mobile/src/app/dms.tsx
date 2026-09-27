@@ -4,7 +4,7 @@ import { StyleSheet } from 'react-native';
 import { DmList } from '../components/DmList';
 import { HeaderButton } from '../components/HeaderButton';
 import { showChat } from '../stores/nav';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 
 /**
  * Direkt mesajlar ekranı. Ana gezinmede konuşmalar sol panelde (ana sayfa düğmesi) listelenir; bu ekran
@@ -25,6 +25,6 @@ export default function DmListScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.main },
-});
+}));

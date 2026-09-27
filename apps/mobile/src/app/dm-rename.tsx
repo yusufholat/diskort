@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DM_NAME_MAX_LENGTH } from '@diskort/shared';
 import { renameDm, useGuild } from '@diskort/client-core';
 import { Button, Field } from '../components/ui';
 import { toast } from '../stores/ui';
-import { colors } from '../theme';
+import { colors, createStyles } from '../theme';
 
 /** Grup konuşmasının adını değiştirmek (boş bırakılırsa üyelerin adları görünür) */
 export default function RenameDmScreen() {
@@ -47,7 +47,7 @@ export default function RenameDmScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.main },
   body: { padding: 16 },
-});
+}));

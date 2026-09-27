@@ -27,6 +27,7 @@ import { HotkeyManager } from './hotkeys';
 import { Splash } from './splash';
 import { consumeLaunchMode, rememberLaunchMode, runStartupGate, type LaunchMode } from './startup';
 import { UpdateManager } from './updater';
+import { isAppTheme, savedWindowTheme, saveWindowTheme, WINDOW_COLORS } from './windowTheme';
 
 const isMac = process.platform === 'darwin';
 const isWindows = process.platform === 'win32';
@@ -140,19 +141,20 @@ function setupDisplayMedia(): void {
 // ---------- Pencere ----------
 
 function createWindow(launch: LaunchMode = 'normal'): void {
+  const windowColors = WINDOW_COLORS[savedWindowTheme()];
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 940,
     minHeight: 560,
     show: false,
-    backgroundColor: '#1e1f22',
+    backgroundColor: windowColors.background,
     title: 'Diskort',
     icon: join(__dirname, '../../resources/icon.png'),
     autoHideMenuBar: true,
     // Windows'ta Discord gibi özel başlık çubuğu; Linux'ta yerel çerçeve (en uyumlu), macOS'ta gömülü trafik ışıkları.
     ...(isWindows
-      ? { titleBarStyle: 'hidden' as const, titleBarOverlay: { color: '#1e1f22', symbolColor: '#b5bac1', height: 30 } }
+      ? { titleBarStyle: 'hidden' as const, titleBarOverlay: { color: windowColors.background, symbolColor: windowColors.symbol, height: 30 } }
       : isMac
         ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 12, y: 9 } }
         : {}),
@@ -287,6 +289,13 @@ function registerIpc(): void {
   // Temalı metin kutusu menüsünden gelen düzenleme komutları (Kes/Kopyala/Yapıştır…)
   ipcMain.on('app:edit', (e, command: EditCommand) => {
     if (EDIT_COMMANDS.has(command)) e.sender[command]();
+  });
+  ipcMain.on('app:set-theme', (_e, theme: unknown) => {
+    if (!isAppTheme(theme)) return;
+    saveWindowTheme(theme);
+    const { background, symbol } = WINDOW_COLORS[theme];
+    mainWindow?.setBackgroundColor(background);
+    if (isWindows) mainWindow?.setTitleBarOverlay({ color: background, symbolColor: symbol, height: 30 });
   });
   ipcMain.on('app:request-attention', () => {
     if (!mainWindow || mainWindow.isFocused()) return;
