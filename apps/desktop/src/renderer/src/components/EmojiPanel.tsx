@@ -70,7 +70,7 @@ export function EmojiPanel({
               {c.emojis.map((emoji) => (
                 <button
                   key={emoji}
-                  className="emoji flex h-10 w-10 items-center justify-center rounded text-[24px] transition-[background-color,transform] duration-100 hover:scale-110 hover:bg-bg-hover active:scale-95"
+                  className="emoji flex h-11 w-11 items-center justify-center rounded-md text-[32px] leading-none transition-[background-color,transform] duration-100 hover:scale-110 hover:bg-bg-hover active:scale-95"
                   onMouseDown={keepFocus}
                   onClick={(e) => onPick(emoji, e.shiftKey)}
                 >

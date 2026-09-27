@@ -11,6 +11,7 @@ import type {
   Guild,
   PushTokenRequest,
   Message,
+  ReactionUsersPage,
   CreateChannelRequest,
   CreateGuildRequest,
   CreateInviteRequest,
@@ -170,6 +171,17 @@ export const api = {
     request<void>('PUT', `/api/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`),
   removeReaction: (messageId: string, emoji: string) =>
     request<void>('DELETE', `/api/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`),
+  /** Bu emojiyle tepki verenler (sayfalı; after: önceki sayfanın next değeri) */
+  reactionUsers: (messageId: string, emoji: string, after?: string, limit?: number) => {
+    const query = new URLSearchParams();
+    if (after) query.set('after', after);
+    if (limit) query.set('limit', String(limit));
+    const qs = query.toString();
+    return request<ReactionUsersPage>(
+      'GET',
+      `/api/messages/${messageId}/reactions/${encodeURIComponent(emoji)}${qs ? `?${qs}` : ''}`,
+    );
+  },
   ack: (channelId: string, messageId: string) =>
     request<void>('POST', `/api/channels/${channelId}/ack`, { messageId }),
 

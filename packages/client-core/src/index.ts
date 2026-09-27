@@ -4,6 +4,14 @@
 export { configureClient } from './configure';
 export type { ClientEnvironment, KeyValueStorage, LocalFile, UploadRequest, UploadResponse } from './env';
 export { api, ApiError, errorMessage, normalizeServerUrl } from './api';
+export {
+  forgetReactionUsers,
+  loadReactionUsers,
+  reactionSummary,
+  reactionUsersKey,
+  useReactionUsers,
+  type ReactionUsersEntry,
+} from './reactions';
 export { recentClientErrors, reportClientError } from './errors';
 export { parseReleaseNotes, type NoteBlock, type NotePart } from './releaseNotes';
 export {
@@ -182,7 +190,15 @@ export {
   useUnreadDms,
 } from './dms';
 export { attachmentUrl, avatarUrl, formatBytes, removeAvatar, uploadAvatar } from './uploads';
-export { EMOJI_CATEGORIES, QUICK_REACTIONS, type EmojiCategory } from './emoji';
+export {
+  EMOJI_CATEGORIES,
+  isJumboEmoji,
+  JUMBO_EMOJI_MAX,
+  QUICK_REACTIONS,
+  splitEmoji,
+  type EmojiCategory,
+  type TextPart,
+} from './emoji';
 export {
   closeGifPicker,
   fitBox,

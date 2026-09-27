@@ -38,6 +38,7 @@ import {
 } from '@diskort/client-core';
 import { CountBadge } from './Badge';
 import { BottomSheet, SheetGroup, SheetItem } from './BottomSheet';
+import { openReactionsSheet, ReactionsSheet } from './ReactionsSheet';
 import { Composer } from './Composer';
 import { ConnectionBanner } from './ConnectionBanner';
 import { DmAvatar } from './DmAvatar';
@@ -446,6 +447,7 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
         onClose={() => setMenuFor(null)}
         onEdit={(m) => setEditing(m)}
       />
+      <ReactionsSheet />
     </View>
   );
 }
@@ -742,6 +744,19 @@ function MessageMenu({
                 }}
               />
             )}
+            {reactions.length > 0 ? (
+              <SheetItem
+                key="reactions"
+                icon="people-outline"
+                label="Tepkiler"
+                onPress={() => {
+                  const target = shown ? { channelId: shown.channelId, messageId: shown.id } : null;
+                  close();
+                  // Menü kapandıktan sonra açılır (iki sayfa üst üste açılmasın)
+                  if (target) setTimeout(() => openReactionsSheet(target), 230);
+                }}
+              />
+            ) : null}
             {shown?.content ? (
               <SheetItem
                 key="copy"

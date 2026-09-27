@@ -261,6 +261,15 @@ export interface ReferencedMessage {
 /** Gateway'deki mesaj güncellemesi: tepkiler kişiye özel (`me`) olduğundan taşınmaz */
 export type MessageUpdate = Omit<Message, 'reactions'>;
 
+/**
+ * Bir mesajda belirli bir emojiyle tepki verenlerin bir sayfası (GET /api/messages/:id/reactions/:emoji),
+ * tepki verilme sırasına göre. `next` doluysa sonraki sayfa için `?after=<next>` ile istenir.
+ */
+export interface ReactionUsersPage {
+  users: User[];
+  next: string | null;
+}
+
 /** Bir kullanıcı bir mesaja tepki verdi ya da tepkisini geri aldı */
 export interface ReactionEvent {
   messageId: string;
@@ -615,6 +624,9 @@ export const MESSAGE_PAGE_SIZE = 50;
 export const REPLY_EXCERPT_LENGTH = 200;
 /** Bir mesajdaki en fazla farklı emoji tepkisi sayısı */
 export const MESSAGE_MAX_REACTIONS = 20;
+/** Tepki verenler listesinin varsayılan ve en büyük sayfa boyutu */
+export const REACTION_USERS_PAGE_SIZE = 50;
+export const REACTION_USERS_MAX_PAGE_SIZE = 100;
 /** Bir mesajdaki en fazla dosya sayısı */
 export const MESSAGE_MAX_ATTACHMENTS = 10;
 /** Sunucu ayarı yoksa tek dosyanın en büyük boyutu */

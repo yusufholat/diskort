@@ -19,6 +19,7 @@ import { Welcome } from './stage/Welcome';
 import { AddGuildModal } from './modals/AddGuildModal';
 import { BanModal } from './modals/BanModal';
 import { InviteModal } from './modals/InviteModal';
+import { ReactionsModal } from './modals/ReactionsModal';
 import { NoGuilds } from './NoGuilds';
 import { ChannelModal } from './modals/ChannelModal';
 import { ScreenSharePicker } from './modals/ScreenSharePicker';
@@ -93,6 +94,9 @@ export function MainLayout() {
         {modal?.type === 'feedback' && <FeedbackModal />}
         {modal?.type === 'addGuild' && <AddGuildModal tab={modal.tab} code={modal.code} />}
         {modal?.type === 'invite' && hasGuild && <InviteModal />}
+        {modal?.type === 'reactions' && (
+          <ReactionsModal channelId={modal.channelId} messageId={modal.messageId} emoji={modal.emoji} />
+        )}
       </PresenceProvider>
       <BanModal />
     </>

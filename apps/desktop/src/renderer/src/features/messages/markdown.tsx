@@ -41,6 +41,12 @@ function renderInline(nodes: MdInline[], ctx: MarkdownContext, key: string): Rea
     switch (node.type) {
       case 'text':
         return node.text;
+      case 'emoji':
+        return (
+          <span key={k} className="emoji emoji-inline">
+            {node.text}
+          </span>
+        );
       case 'code':
         return (
           <code key={k} className="rounded bg-bg-input px-1 py-px font-mono text-[0.85em] text-text-normal">
