@@ -75,7 +75,7 @@ class DiskortDeepFilterProcessor extends AudioWorkletProcessor {
     } catch (err) {
       this.port.postMessage({ type: 'error', message: String((err && err.message) || err) });
     }
-    // Geliştirme/deneme: bastırma sınırı ve son filtre çalışırken değiştirilebilir
+    // Bastırma sınırı (gürültü engelleme gücü ayarı) ve son filtre çalışırken değiştirilebilir
     this.port.onmessage = (e) => {
       if (!this.ok) return;
       if (typeof e.data.attenLimDb === 'number') this.w.dfw_set_atten_lim(this.st, e.data.attenLimDb);

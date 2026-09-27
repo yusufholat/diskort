@@ -13,8 +13,7 @@ export interface GateConfig {
   ptt: boolean;
 }
 
-/** DeepFilterNet ayarları: 100 dB = bastırma sınırı yok, son filtre kapalı (konuşmayı daha doğal bırakır). */
-const DF_ATTEN_LIM_DB = 100;
+/** Son filtre kapalı (konuşmayı daha doğal bırakır). Bastırma sınırı ayarlardan gelir (gürültü engelleme gücü). */
 const DF_POST_FILTER_BETA = 0;
 /** Model ses iş parçacığında kurulur (~0,2–1 sn); takılırsa standart engellemeye dönülür. */
 const DF_READY_TIMEOUT_MS = 10_000;
@@ -96,6 +95,8 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
   constructor(
     private gateConfig: GateConfig,
     private useDeepFilter: boolean,
+    /** DeepFilterNet bastırma sınırı (dB); 100 = sınırsız. Sınır, özgün sesin bir kısmını koruyarak doğal bırakır. */
+    private attenLimDb: number,
     private readonly onLevel: (level: MicLevel) => void,
     /** DeepFilterNet çalışırken hata verirse çağrılır (standart engellemeyle yeniden başlatmak için) */
     private readonly onDenoiserFailed?: () => void,
@@ -125,6 +126,12 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
   updateGate(patch: Partial<GateConfig>): void {
     this.gateConfig = { ...this.gateConfig, ...patch };
     this.gate?.port.postMessage(patch);
+  }
+
+  /** Gürültü engelleme gücünü yeniden bağlanmadan değiştirir. */
+  setAttenLimit(db: number): void {
+    this.attenLimDb = db;
+    this.deepFilter?.port.postMessage({ attenLimDb: db });
   }
 
   private async build(track: MediaStreamTrack): Promise<void> {
@@ -176,7 +183,7 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
       processorOptions: {
         wasmModule: assets.module,
         modelBytes: assets.model,
-        attenLimDb: DF_ATTEN_LIM_DB,
+        attenLimDb: this.attenLimDb,
         postFilterBeta: DF_POST_FILTER_BETA,
       },
     });
