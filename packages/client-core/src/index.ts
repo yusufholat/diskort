@@ -6,13 +6,41 @@ export type { ClientEnvironment, KeyValueStorage, LocalFile, UploadRequest, Uplo
 export { api, ApiError, errorMessage, normalizeServerUrl } from './api';
 export { gateway } from './gateway';
 export { useSession } from './session';
-export { isUnread, membersOf, useGuild, type GatewayStatus } from './guild';
+export { isUnread, membersOf, useGuild, type GatewayStatus, type GuildStore } from './guild';
+export {
+  can,
+  canAssignRole,
+  canManageRole,
+  isOwner,
+  memberColorOf,
+  memberGroups,
+  outranksUser,
+  overwriteState,
+  permissionsOf,
+  rolesOf,
+  setOverwriteState,
+  sortedRoles,
+  useCan,
+  useMemberColor,
+  usePermissions,
+  type MemberGroup,
+  type OverwriteState,
+} from './permissions';
+export {
+  channelPermissionInfos,
+  PERMISSION_GROUPS,
+  permissionInfo,
+  type PermissionGroup,
+  type PermissionInfo,
+} from './permissionInfo';
+export { memberActions, moderation, moveTargets, type MemberActions } from './moderation';
 export {
   ackChannel,
   addFiles,
   deleteMessage,
   discardMessage,
   editMessage,
+  isMentioned,
   loadInitial,
   loadOlder,
   mentions,

@@ -115,6 +115,13 @@ describe('gateway olayları', () => {
     receive({ t: 'MESSAGE_CREATE', d: message('11', '@ayse tekrar') });
     expect(useMessages.getState().mentionCounts.c1).toBe(1);
     expect(useMessages.getState().channels.c1!.messages.map((m) => m.id)).toEqual(['10', '11']);
+
+    // Yetkili yazarın @everyone bahsetmesi de sayılır (sunucu işaretler); işaretsiz olan sayılmaz
+    viewing = null;
+    receive({ t: 'MESSAGE_CREATE', d: { ...message('12', '@everyone akşam?'), mentionEveryone: true } });
+    receive({ t: 'MESSAGE_CREATE', d: message('13', '@everyone yetkisiz') });
+    expect(useMessages.getState().mentionCounts.c1).toBe(2);
+    expect(mentioned.map((m) => m.id)).toEqual(['10', '12']);
   });
 
   it('silinen ve düzenlenen mesajlar listeye yansır', () => {

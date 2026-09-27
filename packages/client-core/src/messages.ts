@@ -413,6 +413,10 @@ function setTyping(channelId: string, userId: string, until: number | null): voi
 /** İçerikte bu kullanıcıdan bahsediliyor mu (sunucudaki sayımla aynı kural) */
 export const mentions = (content: string, username: string): boolean => extractMentions(content).includes(username);
 
+/** Mesaj bu kullanıcıyı ilgilendiriyor mu: adıyla ya da (yetkili bir yazarın) @everyone bahsetmesiyle */
+export const isMentioned = (message: Pick<Message, 'content' | 'mentionEveryone' | 'authorId'>, user: { id: string; username: string }): boolean =>
+  message.authorId !== user.id && (message.mentionEveryone === true || mentions(message.content, user.username));
+
 function notifyMention(message: Message): void {
   if (env().isViewingChannel?.(message.channelId)) return;
   useMessages.setState((s) => ({
@@ -444,7 +448,7 @@ gateway.on((msg: GatewayServerMessage) => {
           return { messages: merge(rest, [m]) };
         });
       }
-      if (me && m.authorId !== me.id && mentions(m.content, me.username)) notifyMention(m);
+      if (me && isMentioned(m, me)) notifyMention(m);
       break;
     }
     case 'MESSAGE_UPDATE':

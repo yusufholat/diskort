@@ -1,9 +1,12 @@
 import type {
   ApiErrorBody,
   AuthResponse,
+  Ban,
   Channel,
   ChangePasswordRequest,
+  CreateRoleRequest,
   DeleteAccountRequest,
+  Guild,
   PushTokenRequest,
   Message,
   CreateChannelRequest,
@@ -13,11 +16,15 @@ import type {
   RegisterRequest,
   ResetCodeResponse,
   ResetPasswordRequest,
+  Role,
   UpdateChannelRequest,
+  UpdateGuildRequest,
   UpdateMeRequest,
+  UpdateRoleRequest,
   UpdateUserRequest,
   User,
   VoiceJoinResponse,
+  VoiceModerationRequest,
 } from '@diskort/shared';
 import { env } from './env';
 import { useSession } from './session';
@@ -80,6 +87,24 @@ export const api = {
   updateUser: (userId: string, body: UpdateUserRequest) => request<User>('PATCH', `/api/users/${userId}`, body),
   kickFromVoice: (userId: string) => request<void>('POST', `/api/users/${userId}/voice-kick`),
   deleteUser: (userId: string) => request<void>('DELETE', `/api/users/${userId}`),
+  /** Sesli sohbette yönetim: sunucuda sustur/sağırlaştır, taşı (channelId) ya da sesten çıkar (null) */
+  moderateVoice: (userId: string, body: VoiceModerationRequest) =>
+    request<void>('PATCH', `/api/users/${userId}/voice`, body),
+  kickMember: (userId: string) => request<void>('POST', `/api/users/${userId}/kick`),
+  banMember: (userId: string, reason?: string) =>
+    request<void>('POST', `/api/users/${userId}/ban`, reason ? { reason } : {}),
+  listBans: () => request<Ban[]>('GET', '/api/bans'),
+  unban: (userId: string) => request<void>('DELETE', `/api/bans/${userId}`),
+
+  updateGuild: (body: UpdateGuildRequest) => request<Guild>('PATCH', '/api/guild', body),
+  createRole: (body: CreateRoleRequest) => request<Role>('POST', '/api/roles', body),
+  updateRole: (id: string, body: UpdateRoleRequest) => request<Role>('PATCH', `/api/roles/${id}`, body),
+  deleteRole: (id: string) => request<void>('DELETE', `/api/roles/${id}`),
+  /** @everyone hariç tüm roller, yukarıdan aşağı */
+  reorderRoles: (roleIds: string[]) => request<Role[]>('PUT', '/api/roles/order', { roleIds }),
+  addMemberRole: (userId: string, roleId: string) => request<User>('PUT', `/api/users/${userId}/roles/${roleId}`),
+  removeMemberRole: (userId: string, roleId: string) =>
+    request<User>('DELETE', `/api/users/${userId}/roles/${roleId}`),
 
   listInvites: () => request<Invite[]>('GET', '/api/invites'),
   createInvite: (body: CreateInviteRequest) => request<Invite>('POST', '/api/invites', body),
