@@ -14,6 +14,7 @@ import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
+import { Permission } from '@diskort/shared';
 import {
   ackChannel,
   deleteMessage,
@@ -21,6 +22,7 @@ import {
   loadOlder,
   QUICK_REACTIONS,
   toggleReaction,
+  useCan,
   useGuild,
   useMessages,
   useSession,
@@ -55,6 +57,9 @@ export default function TextChannelScreen() {
   const lastId = useGuild((s) => (id ? s.lastMessageIds[id] : undefined));
   const readId = useGuild((s) => (id ? s.readStates[id] : undefined));
   const typing = useMessages((s) => (id ? s.typing[id] : undefined));
+  // Başkasının mesajını silmek ve yeni tepki eklemek kanaldaki yetkiye bağlı
+  const canManageMessages = useCan(Permission.MANAGE_MESSAGES, id);
+  const canReact = useCan(Permission.ADD_REACTIONS, id);
 
   const [atBottom, setAtBottom] = useState(true);
   const [active, setActive] = useState(AppState.currentState === 'active');
@@ -200,7 +205,14 @@ export default function TextChannelScreen() {
       </KeyboardAvoidingView>
       <VoiceBar />
 
-      <MessageMenu message={menuFor} self={self} onClose={() => setMenuFor(null)} onEdit={(m) => setEditing(m)} />
+      <MessageMenu
+        message={menuFor}
+        self={self}
+        canManageMessages={canManageMessages}
+        canReact={canReact}
+        onClose={() => setMenuFor(null)}
+        onEdit={(m) => setEditing(m)}
+      />
     </SafeAreaView>
   );
 }
@@ -212,11 +224,17 @@ const MENU_REACTIONS = QUICK_REACTIONS.slice(0, 6);
 function MessageMenu({
   message,
   self,
+  canManageMessages,
+  canReact,
   onClose,
   onEdit,
 }: {
   message: LocalMessage | null;
   self: User;
+  /** Kanalda başkalarının mesajlarını silebilir mi */
+  canManageMessages: boolean;
+  /** Yeni tepki ekleyebilir mi (var olan tepkilere katılmak her zaman serbest) */
+  canReact: boolean;
   onClose: () => void;
   onEdit: (m: LocalMessage) => void;
 }) {
@@ -227,7 +245,7 @@ function MessageMenu({
   if (message) last.current = message;
   const shown = message ?? last.current;
   const canEdit = shown?.authorId === self.id;
-  const canDelete = shown?.authorId === self.id || self.isAdmin;
+  const canDelete = shown?.authorId === self.id || canManageMessages;
 
   // Her açılışta menü baştan başlar
   useEffect(() => {
@@ -245,14 +263,17 @@ function MessageMenu({
     onClose();
   };
   const mine = (emoji: string): boolean => reactions.some((r) => r.emoji === emoji && r.me);
+  const existing = (emoji: string): boolean => reactions.some((r) => r.emoji === emoji);
+  // Yetki yoksa yalnızca mesajdaki tepkiler gösterilir
+  const quick = canReact ? MENU_REACTIONS : MENU_REACTIONS.filter(existing);
   return (
     <BottomSheet visible={message !== null} onClose={onClose}>
       {allEmojis ? (
         <EmojiGrid onPick={react} />
       ) : (
         <>
-          <View style={styles.quickRow}>
-            {MENU_REACTIONS.map((emoji) => (
+          <View style={[styles.quickRow, quick.length === 0 && !canReact && { display: 'none' }]}>
+            {quick.map((emoji) => (
               <PressableScale
                 key={emoji}
                 scaleTo={0.85}
@@ -262,17 +283,19 @@ function MessageMenu({
                 <Text style={styles.quickEmoji}>{emoji}</Text>
               </PressableScale>
             ))}
-            <PressableScale
-              scaleTo={0.85}
-              accessibilityLabel="Tüm emojiler"
-              onPress={() => {
-                animateNextLayout(220);
-                setAllEmojis(true);
-              }}
-              style={({ pressed }) => [styles.quick, pressed && styles.quickPressed]}
-            >
-              <Ionicons name="add" size={26} color={colors.text} />
-            </PressableScale>
+            {canReact && (
+              <PressableScale
+                scaleTo={0.85}
+                accessibilityLabel="Tüm emojiler"
+                onPress={() => {
+                  animateNextLayout(220);
+                  setAllEmojis(true);
+                }}
+                style={({ pressed }) => [styles.quick, pressed && styles.quickPressed]}
+              >
+                <Ionicons name="add" size={26} color={colors.text} />
+              </PressableScale>
+            )}
           </View>
           <MessageMenuItems
             message={shown}

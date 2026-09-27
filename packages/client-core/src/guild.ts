@@ -5,17 +5,22 @@ import {
   type GatewayServerMessage,
   type Guild,
   type ReadyPayload,
+  type Role,
   type User,
   type VoiceState,
 } from '@diskort/shared';
 
 export type GatewayStatus = 'idle' | 'connecting' | 'ready' | 'reconnecting';
 
-interface GuildStore {
+export interface GuildStore {
   status: GatewayStatus;
   guild: Guild | null;
+  /** Yalnızca kullanıcının görebildiği kanallar (sunucu süzer) */
   channels: Channel[];
+  /** Atılan/yasaklananlar dahil (mesajlarda adları görünsün diye); üye listesinde `removed` olanlar gösterilmez */
   users: Record<string, User>;
+  /** @everyone dahil tüm roller (@everyone'ın kimliği topluluk kimliğidir) */
+  roles: Record<string, Role>;
   voiceStates: Record<string, VoiceState>;
   online: Record<string, true>;
   /** Metin kanalı → en son mesaj kimliği */
@@ -35,11 +40,15 @@ interface GuildStore {
 const sortChannels = (channels: Channel[]): Channel[] =>
   [...channels].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, 'tr'));
 
+const byId = <T extends { id: string }>(items: T[]): Record<string, T> =>
+  Object.fromEntries(items.map((item) => [item.id, item]));
+
 const initial = {
   status: 'idle' as GatewayStatus,
   guild: null,
   channels: [],
   users: {},
+  roles: {},
   voiceStates: {},
   online: {},
   lastMessageIds: {},
@@ -47,7 +56,7 @@ const initial = {
   attachmentMaxBytes: DEFAULT_ATTACHMENT_MAX_BYTES,
 };
 
-/** Gateway'den gelen topluluk durumu: kanallar, kullanıcılar, kim hangi ses kanalında. */
+/** Gateway'den gelen topluluk durumu: kanallar, kullanıcılar, roller, kim hangi ses kanalında. */
 export const useGuild = create<GuildStore>()((set) => ({
   ...initial,
   setStatus: (status) => set({ status }),
@@ -56,7 +65,8 @@ export const useGuild = create<GuildStore>()((set) => ({
       status: 'ready',
       guild: p.guild,
       channels: sortChannels(p.channels),
-      users: Object.fromEntries(p.users.map((u) => [u.id, u])),
+      users: byId(p.users),
+      roles: byId(p.roles ?? []),
       voiceStates: Object.fromEntries(p.voiceStates.map((v) => [v.userId, v])),
       online: Object.fromEntries(p.online.map((id) => [id, true as const])),
       lastMessageIds: p.lastMessageIds,
@@ -103,8 +113,17 @@ export const useGuild = create<GuildStore>()((set) => ({
         case 'CHANNEL_CREATE':
         case 'CHANNEL_UPDATE':
           return { channels: sortChannels([...s.channels.filter((c) => c.id !== msg.d.id), msg.d]) };
-        case 'CHANNEL_DELETE':
-          return { channels: s.channels.filter((c) => c.id !== msg.d.id) };
+        case 'CHANNEL_DELETE': {
+          // Kanal silindi ya da artık görülemiyor: oradaki ses durumları da gider
+          const voiceStates = Object.fromEntries(
+            Object.entries(s.voiceStates).filter(([, v]) => v.channelId !== msg.d.id),
+          );
+          return { channels: s.channels.filter((c) => c.id !== msg.d.id), voiceStates };
+        }
+        case 'GUILD_UPDATE':
+          return { guild: msg.d };
+        case 'ROLES_UPDATE':
+          return { roles: byId(msg.d.roles) };
         case 'MESSAGE_CREATE':
           return Number(msg.d.id) > Number(s.lastMessageIds[msg.d.channelId] ?? 0)
             ? { lastMessageIds: { ...s.lastMessageIds, [msg.d.channelId]: msg.d.id } }

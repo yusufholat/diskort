@@ -3,20 +3,47 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { nanoid, customAlphabet } from 'nanoid';
 import {
+  ALL_PERMISSIONS,
+  DEFAULT_EVERYONE_PERMISSIONS,
   extractMentions,
+  hasPermission,
   MESSAGE_MAX_REACTIONS,
+  Permission,
+  basePermissions,
   type Attachment,
   type Channel,
   type ChannelType,
   type Guild,
   type Invite,
   type Message,
+  type PermissionContext,
+  type PermissionOverwrite,
   type Reaction,
+  type Role,
   type User,
 } from '@diskort/shared';
 import { AVATAR_COLORS } from '@diskort/shared';
 
-const MIGRATIONS: string[] = [
+/**
+ * Göç 8'de @everyone'a verilen yetkiler: rollerden önce herkesin yapabildikleri (+ yeni @everyone
+ * bahsetmesi). Bit değerleri kalıcı olduğundan göç her zaman aynı sonucu verir.
+ */
+const V8_EVERYONE =
+  Permission.VIEW_CHANNEL |
+  Permission.SEND_MESSAGES |
+  Permission.ATTACH_FILES |
+  Permission.ADD_REACTIONS |
+  Permission.MENTION_EVERYONE |
+  Permission.CONNECT |
+  Permission.SPEAK |
+  Permission.STREAM;
+
+/** Göçte ve yeni toplulukta oluşturulan yönetici rolü */
+const ADMIN_ROLE_NAME = 'Yönetici';
+const ADMIN_ROLE_COLOR = '#e67e22';
+
+/** Testler eski şemadan göçü sınayabilsin diye dışa açık */
+export const MIGRATIONS: string[] = [
   `
   CREATE TABLE users (
     id            TEXT PRIMARY KEY,
@@ -129,6 +156,53 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE users ADD COLUMN avatar_hash TEXT;
   `,
+  // 8: roller ve yetkiler. @everyone rolünün kimliği topluluğun kimliğidir. Yöneticiler "Yönetici" rolüne
+  // (ADMINISTRATOR) geçer, en eski yönetici topluluğun sahibi olur; diğer herkesin bugünkü yetkileri
+  // @everyone'da kalır. users.is_admin artık rollerden hesaplanıp güncel tutulur (eski sürüme dönülürse
+  // diye). Atılan/yasaklanan hesap silinmez (mesajları adıyla kalsın): removed_at doluysa üye değildir.
+  `
+  CREATE TABLE roles (
+    id          TEXT PRIMARY KEY,
+    guild_id    TEXT NOT NULL REFERENCES guilds(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    color       TEXT,
+    position    INTEGER NOT NULL,
+    hoist       INTEGER NOT NULL DEFAULT 0,
+    permissions INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL
+  );
+  CREATE TABLE member_roles (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, role_id)
+  ) WITHOUT ROWID;
+  CREATE INDEX member_roles_by_role ON member_roles(role_id);
+  CREATE TABLE channel_overwrites (
+    channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    role_id    TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    allow      INTEGER NOT NULL DEFAULT 0,
+    deny       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (channel_id, role_id)
+  ) WITHOUT ROWID;
+  ALTER TABLE guilds ADD COLUMN owner_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+  ALTER TABLE users ADD COLUMN removed_at INTEGER;
+  ALTER TABLE users ADD COLUMN banned_at INTEGER;
+  ALTER TABLE users ADD COLUMN ban_reason TEXT;
+  ALTER TABLE users ADD COLUMN server_mute INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE users ADD COLUMN server_deaf INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE messages ADD COLUMN mention_everyone INTEGER NOT NULL DEFAULT 0;
+  INSERT INTO roles (id, guild_id, name, color, position, hoist, permissions, created_at)
+    SELECT g.id, g.id, '@everyone', NULL, 0, 0, ${V8_EVERYONE}, CAST(strftime('%s', 'now') AS INTEGER) * 1000
+    FROM guilds g;
+  INSERT INTO roles (id, guild_id, name, color, position, hoist, permissions, created_at)
+    SELECT lower(hex(randomblob(6))), g.id, '${ADMIN_ROLE_NAME}', '${ADMIN_ROLE_COLOR}', 1, 1, ${Permission.ADMINISTRATOR},
+      CAST(strftime('%s', 'now') AS INTEGER) * 1000
+    FROM guilds g;
+  INSERT INTO member_roles (user_id, role_id)
+    SELECT u.id, r.id FROM users u JOIN roles r ON r.position = 1 AND r.name = '${ADMIN_ROLE_NAME}'
+    WHERE u.is_admin = 1;
+  UPDATE guilds SET owner_id = (SELECT id FROM users ORDER BY is_admin DESC, created_at, rowid LIMIT 1);
+  `,
 ];
 
 type Param = string | number | null;
@@ -142,7 +216,50 @@ interface UserRow {
   is_admin: number;
   sessions_valid_after: number;
   avatar_hash: string | null;
+  removed_at: number | null;
+  banned_at: number | null;
+  ban_reason: string | null;
+  server_mute: number;
+  server_deaf: number;
 }
+
+interface RoleRow {
+  id: string;
+  guild_id: string;
+  name: string;
+  color: string | null;
+  position: number;
+  hoist: number;
+  permissions: number;
+}
+
+const toRole = (r: RoleRow): Role => ({
+  id: r.id,
+  name: r.name,
+  color: r.color,
+  position: r.position,
+  hoist: r.hoist === 1,
+  permissions: r.permissions,
+});
+
+/** Yetki hesaplaması için topluluğun anlık görüntüsü (her yazma işleminden sonra yeniden okunur) */
+export interface PermissionData extends PermissionContext {
+  /** Üye → rolleri (@everyone hariç); rolü olmayan üye listede yoktur */
+  memberRoles: ReadonlyMap<string, readonly string[]>;
+  /** Üye olmayan hesaplar (atıldı ya da yasaklandı) */
+  removed: ReadonlySet<string>;
+  /** Kanallar, izinleriyle */
+  channels: ReadonlyMap<string, Channel>;
+}
+
+export interface BanRow {
+  user: User;
+  reason: string | null;
+  bannedAt: number;
+}
+
+/** Giriş denetimi: hesap üye değilse neden */
+export type MembershipStatus = 'member' | 'kicked' | 'banned';
 
 interface InviteRow {
   code: string;
@@ -162,14 +279,6 @@ interface ChannelRow {
   position: number;
 }
 
-const toUser = (r: UserRow): User => ({
-  id: r.id,
-  username: r.username,
-  displayName: r.display_name,
-  avatarColor: r.avatar_color,
-  avatarUrl: r.avatar_hash ? `/api/avatars/${r.id}/${r.avatar_hash}.webp` : null,
-  isAdmin: r.is_admin === 1,
-});
 
 const toInvite = (r: InviteRow): Invite => ({
   code: r.code,
@@ -187,6 +296,7 @@ interface MessageRow {
   content: string;
   created_at: number;
   edited_at: number | null;
+  mention_everyone: number;
 }
 
 const toMessage = (r: MessageRow): Message => ({
@@ -198,6 +308,7 @@ const toMessage = (r: MessageRow): Message => ({
   editedAt: r.edited_at,
   attachments: [],
   reactions: [],
+  mentionEveryone: r.mention_everyone === 1,
 });
 
 interface AttachmentRow {
@@ -225,12 +336,13 @@ const toAttachment = (r: AttachmentRow): Attachment => ({
 export type AddReactionResult = 'added' | 'exists' | 'limit';
 
 
-const toChannel = (r: ChannelRow): Channel => ({
+const toChannel = (r: ChannelRow, overwrites: PermissionOverwrite[] = []): Channel => ({
   id: r.id,
   guildId: r.guild_id,
   name: r.name,
   type: r.type,
   position: r.position,
+  overwrites,
 });
 
 const inviteCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 8);
@@ -238,12 +350,14 @@ const inviteCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 8);
 export type InviteCheck = { ok: true; invite: InviteRow } | { ok: false; reason: string };
 
 export type RegisterResult =
-  | { ok: true; user: User }
-  | { ok: false; reason: 'invite' | 'username'; message: string };
+  | { ok: true; user: User; rejoined: boolean }
+  | { ok: false; reason: 'invite' | 'username' | 'banned'; message: string };
 
 /** SQLite (node:sqlite) üzerinde kalıcı veri erişimi. */
 export class Store {
   readonly db: DatabaseSync;
+  /** Yetki anlık görüntüsü; her yazma işleminde silinir, gerekince yeniden okunur */
+  private permissionCache: PermissionData | null = null;
 
   constructor(file: string) {
     if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -267,6 +381,7 @@ export class Store {
   }
 
   private tx<T>(fn: () => T): T {
+    this.permissionCache = null;
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const result = fn();
@@ -274,6 +389,8 @@ export class Store {
       return result;
     } catch (err) {
       this.db.exec('ROLLBACK');
+      // İşlem sırasında okunan (geri alınan) durum önbellekte kalmasın
+      this.permissionCache = null;
       throw err;
     }
   }
@@ -287,7 +404,23 @@ export class Store {
   }
 
   private run(sql: string, ...params: Param[]): number {
+    this.permissionCache = null;
     return Number(this.db.prepare(sql).run(...params).changes);
+  }
+
+  private toUser(r: UserRow, data = this.permissionData()): User {
+    const roles = [...(data.memberRoles.get(r.id) ?? [])];
+    const removed = r.removed_at !== null;
+    return {
+      id: r.id,
+      username: r.username,
+      displayName: r.display_name,
+      avatarColor: r.avatar_color,
+      avatarUrl: r.avatar_hash ? `/api/avatars/${r.id}/${r.avatar_hash}.webp` : null,
+      isAdmin: !removed && hasPermission(basePermissions(data, r.id, roles), Permission.ADMINISTRATOR),
+      roles,
+      removed,
+    };
   }
 
   // ---------- Kullanıcılar ----------
@@ -298,16 +431,28 @@ export class Store {
 
   getUser(id: string): User | null {
     const row = this.one<UserRow>('SELECT * FROM users WHERE id = ?', id);
-    return row ? toUser(row) : null;
+    return row ? this.toUser(row) : null;
   }
 
   getUserAuthByUsername(username: string): (User & { passwordHash: string }) | null {
     const row = this.one<UserRow>('SELECT * FROM users WHERE username = ?', username);
-    return row ? { ...toUser(row), passwordHash: row.password_hash } : null;
+    return row ? { ...this.toUser(row), passwordHash: row.password_hash } : null;
   }
 
+  /** Atılan ve yasaklananlar dahil tüm hesaplar (mesajlarda adları görünsün diye) */
   listUsers(): User[] {
-    return this.all<UserRow>('SELECT * FROM users ORDER BY created_at').map(toUser);
+    const data = this.permissionData();
+    return this.all<UserRow>('SELECT * FROM users ORDER BY created_at').map((r) => this.toUser(r, data));
+  }
+
+  /** Hesap topluluğun üyesi mi; değilse atıldı mı yasaklandı mı */
+  membership(userId: string): MembershipStatus {
+    const row = this.one<{ removed_at: number | null; banned_at: number | null }>(
+      'SELECT removed_at, banned_at FROM users WHERE id = ?',
+      userId,
+    );
+    if (!row || row.removed_at === null) return 'member';
+    return row.banned_at === null ? 'kicked' : 'banned';
   }
 
   /** Bu andan önce verilmiş oturum jetonları geçersizdir (ms, saniyeye yuvarlanmış). */
@@ -320,15 +465,6 @@ export class Store {
     const validAfter = Math.floor(Date.now() / 1000) * 1000;
     this.run('UPDATE users SET password_hash = ?, sessions_valid_after = ? WHERE id = ?', passwordHash, validAfter, userId);
     this.run('DELETE FROM reset_codes WHERE user_id = ?', userId);
-  }
-
-  setAdmin(userId: string, isAdmin: boolean): User | null {
-    this.run('UPDATE users SET is_admin = ? WHERE id = ?', isAdmin ? 1 : 0, userId);
-    return this.getUser(userId);
-  }
-
-  countAdmins(): number {
-    return this.one<{ n: number }>('SELECT COUNT(*) AS n FROM users WHERE is_admin = 1')!.n;
   }
 
   deleteUser(userId: string): boolean {
@@ -399,7 +535,10 @@ export class Store {
     );
   }
 
-  /** Davet kodunu kullanarak kullanıcı oluşturur; kodu aynı transaction içinde tüketir. */
+  /**
+   * Davet kodunu kullanarak kullanıcı oluşturur; kodu aynı transaction içinde tüketir. İlk kullanıcı
+   * (ya da başlangıç davetiyle gelen) topluluğun sahibi olur ve yönetici rolünü alır.
+   */
   registerWithInvite(input: {
     code: string;
     username: string;
@@ -414,21 +553,264 @@ export class Store {
       }
       const id = nanoid(16);
       const color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]!;
-      const isAdmin = check.invite.grants_admin === 1 || this.countUsers() === 0;
+      const founder = check.invite.grants_admin === 1 || this.countUsers() === 0;
       this.run(
         `INSERT INTO users (id, username, display_name, password_hash, avatar_color, is_admin, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, 0, ?)`,
         id,
         input.username,
         input.displayName,
         input.passwordHash,
         color,
-        isAdmin ? 1 : 0,
         Date.now(),
       );
+      if (founder) {
+        this.run('UPDATE guilds SET owner_id = ? WHERE owner_id IS NULL', id);
+        const adminRole = this.one<{ id: string }>(
+          `SELECT id FROM roles WHERE (permissions & ${Permission.ADMINISTRATOR}) != 0 ORDER BY position DESC LIMIT 1`,
+        );
+        if (adminRole) this.run('INSERT OR IGNORE INTO member_roles (user_id, role_id) VALUES (?, ?)', id, adminRole.id);
+      }
       this.run('UPDATE invites SET uses = uses + 1 WHERE code = ?', check.invite.code);
-      return { ok: true, user: this.getUser(id)! };
+      this.syncAdminFlags();
+      return { ok: true, user: this.getUser(id)!, rejoined: false };
     });
+  }
+
+  /**
+   * Atılan hesap yeni bir davet koduyla geri döner (şifresi doğrulandıktan sonra). Yasaklı hesap dönemez;
+   * önce yasağın kaldırılması gerekir. Roller geri gelmez (Discord'daki gibi).
+   */
+  rejoinWithInvite(code: string, userId: string): RegisterResult {
+    return this.tx((): RegisterResult => {
+      const status = this.membership(userId);
+      if (status === 'banned') return { ok: false, reason: 'banned', message: 'Bu hesap sunucudan yasaklandı.' };
+      if (status === 'member') return { ok: false, reason: 'username', message: 'Bu kullanıcı adı alınmış.' };
+      const check = this.checkInvite(code);
+      if (!check.ok) return { ok: false, reason: 'invite', message: check.reason };
+      // Atıldığı saniye içinde dönse de yeni oturum jetonu geçerli olsun (jetonlar saniye hassasiyetinde)
+      this.run(
+        'UPDATE users SET removed_at = NULL, sessions_valid_after = MIN(sessions_valid_after, ?) WHERE id = ?',
+        Math.floor(Date.now() / 1000) * 1000,
+        userId,
+      );
+      this.run('UPDATE invites SET uses = uses + 1 WHERE code = ?', check.invite.code);
+      return { ok: true, user: this.getUser(userId)!, rejoined: true };
+    });
+  }
+
+  /**
+   * Hesabı topluluktan çıkarır (atma), `ban` verilirse yasaklar. Hesap ve mesajları kalır; oturumları,
+   * rolleri, bildirim jetonları ve sıfırlama kodları silinir.
+   */
+  removeMember(userId: string, ban: { reason: string | null } | null): User | null {
+    const now = Date.now();
+    this.tx(() => {
+      this.run(
+        'UPDATE users SET removed_at = COALESCE(removed_at, ?), sessions_valid_after = ? WHERE id = ?',
+        now,
+        Math.ceil(now / 1000) * 1000,
+        userId,
+      );
+      if (ban) this.run('UPDATE users SET banned_at = ?, ban_reason = ? WHERE id = ?', now, ban.reason, userId);
+      this.run('DELETE FROM member_roles WHERE user_id = ?', userId);
+      this.run('DELETE FROM push_tokens WHERE user_id = ?', userId);
+      this.run('DELETE FROM reset_codes WHERE user_id = ?', userId);
+      this.syncAdminFlags();
+    });
+    return this.getUser(userId);
+  }
+
+  /** Yasağı kaldırır: hesap yeni bir davetle geri dönebilir. */
+  unban(userId: string): boolean {
+    return (
+      this.run('UPDATE users SET banned_at = NULL, ban_reason = NULL WHERE id = ? AND banned_at IS NOT NULL', userId) > 0
+    );
+  }
+
+  listBans(): BanRow[] {
+    const data = this.permissionData();
+    return this.all<UserRow>('SELECT * FROM users WHERE banned_at IS NOT NULL ORDER BY banned_at DESC').map((r) => ({
+      user: this.toUser(r, data),
+      reason: r.ban_reason,
+      bannedAt: r.banned_at!,
+    }));
+  }
+
+  /** Sunucu tarafı susturma/sağırlaştırma (kalıcı: kanaldan çıkıp girince de sürer) */
+  setServerVoiceFlags(userId: string, flags: { serverMute: boolean; serverDeaf: boolean }): void {
+    this.run(
+      'UPDATE users SET server_mute = ?, server_deaf = ? WHERE id = ?',
+      flags.serverMute ? 1 : 0,
+      flags.serverDeaf ? 1 : 0,
+      userId,
+    );
+  }
+
+  serverVoiceFlags(): Map<string, { serverMute: boolean; serverDeaf: boolean }> {
+    return new Map(
+      this.all<{ id: string; server_mute: number; server_deaf: number }>(
+        'SELECT id, server_mute, server_deaf FROM users WHERE server_mute = 1 OR server_deaf = 1',
+      ).map((r) => [r.id, { serverMute: r.server_mute === 1, serverDeaf: r.server_deaf === 1 }]),
+    );
+  }
+
+  // ---------- Roller ve yetkiler ----------
+
+  /** Yetki hesaplaması için roller, üyelerin rolleri, kanal izinleri ve sahip (önbellekli). */
+  permissionData(): PermissionData {
+    if (this.permissionCache) return this.permissionCache;
+    const guild = this.one<{ id: string; owner_id: string | null }>(
+      'SELECT id, owner_id FROM guilds ORDER BY created_at LIMIT 1',
+    );
+    const guildId = guild?.id ?? '';
+    const roles: Record<string, Role> = {};
+    for (const r of this.all<RoleRow>('SELECT * FROM roles WHERE guild_id = ?', guildId)) roles[r.id] = toRole(r);
+    const memberRoles = new Map<string, string[]>();
+    for (const r of this.all<{ user_id: string; role_id: string }>(
+      'SELECT mr.user_id, mr.role_id FROM member_roles mr JOIN roles r ON r.id = mr.role_id ORDER BY r.position DESC',
+    )) {
+      const list = memberRoles.get(r.user_id) ?? [];
+      list.push(r.role_id);
+      memberRoles.set(r.user_id, list);
+    }
+    const removed = new Set(
+      this.all<{ id: string }>('SELECT id FROM users WHERE removed_at IS NOT NULL').map((r) => r.id),
+    );
+    const channels = new Map(this.listChannels(guildId).map((c) => [c.id, c]));
+    const data: PermissionData = { guildId, ownerId: guild?.owner_id ?? null, roles, memberRoles, removed, channels };
+    this.permissionCache = data;
+    return data;
+  }
+
+  /**
+   * users.is_admin sütununu rollerden hesaplanan duruma eşitler. Sunucu yalnızca rollere bakar; sütun,
+   * eski sürüme dönülürse yöneticiler yönetici kalsın diye tutulur.
+   */
+  private syncAdminFlags(): void {
+    const data = this.permissionData();
+    for (const r of this.all<{ id: string; is_admin: number; removed_at: number | null }>(
+      'SELECT id, is_admin, removed_at FROM users',
+    )) {
+      const admin =
+        r.removed_at === null &&
+        hasPermission(basePermissions(data, r.id, data.memberRoles.get(r.id) ?? []), Permission.ADMINISTRATOR);
+      if ((r.is_admin === 1) !== admin) this.run('UPDATE users SET is_admin = ? WHERE id = ?', admin ? 1 : 0, r.id);
+    }
+  }
+
+  getRole(id: string): Role | null {
+    return this.permissionData().roles[id] ?? null;
+  }
+
+  /** Yeni rol en alta (@everyone'ın hemen üstüne) eklenir; diğerleri bir sıra yukarı kayar. */
+  createRole(guildId: string, input: { name: string; color: string | null; hoist: boolean; permissions: number }): Role {
+    const id = nanoid(12);
+    this.tx(() => {
+      this.run('UPDATE roles SET position = position + 1 WHERE guild_id = ? AND position >= 1', guildId);
+      this.run(
+        `INSERT INTO roles (id, guild_id, name, color, position, hoist, permissions, created_at)
+         VALUES (?, ?, ?, ?, 1, ?, ?, ?)`,
+        id,
+        guildId,
+        input.name,
+        input.color,
+        input.hoist ? 1 : 0,
+        input.permissions & ALL_PERMISSIONS,
+        Date.now(),
+      );
+    });
+    return this.getRole(id)!;
+  }
+
+  updateRole(
+    id: string,
+    patch: { name?: string; color?: string | null; hoist?: boolean; permissions?: number },
+  ): Role | null {
+    this.tx(() => {
+      if (patch.name !== undefined) this.run('UPDATE roles SET name = ? WHERE id = ?', patch.name, id);
+      if (patch.color !== undefined) this.run('UPDATE roles SET color = ? WHERE id = ?', patch.color, id);
+      if (patch.hoist !== undefined) this.run('UPDATE roles SET hoist = ? WHERE id = ?', patch.hoist ? 1 : 0, id);
+      if (patch.permissions !== undefined) {
+        this.run('UPDATE roles SET permissions = ? WHERE id = ?', patch.permissions & ALL_PERMISSIONS, id);
+      }
+      this.syncAdminFlags();
+    });
+    return this.getRole(id);
+  }
+
+  /** Rolü siler (@everyone silinemez); kalan rollerin sırası boşluksuz yeniden numaralanır. */
+  deleteRole(guildId: string, id: string): boolean {
+    if (id === guildId) return false;
+    return this.tx(() => {
+      if (this.run('DELETE FROM roles WHERE id = ? AND guild_id = ?', id, guildId) === 0) return false;
+      const rest = this.all<{ id: string }>(
+        'SELECT id FROM roles WHERE guild_id = ? AND id != ? ORDER BY position DESC',
+        guildId,
+        guildId,
+      );
+      rest.forEach((r, i) => this.run('UPDATE roles SET position = ? WHERE id = ?', rest.length - i, r.id));
+      this.syncAdminFlags();
+      return true;
+    });
+  }
+
+  /** Rollerin yeni sırası: `roleIds` yukarıdan aşağı, @everyone hariç tüm roller. */
+  setRoleOrder(roleIds: string[]): void {
+    this.tx(() => {
+      roleIds.forEach((id, i) => this.run('UPDATE roles SET position = ? WHERE id = ?', roleIds.length - i, id));
+    });
+  }
+
+  /** Üyeye rol verir; zaten varsa false. */
+  addMemberRole(userId: string, roleId: string): boolean {
+    return this.tx(() => {
+      const added = this.run('INSERT OR IGNORE INTO member_roles (user_id, role_id) VALUES (?, ?)', userId, roleId) > 0;
+      if (added) this.syncAdminFlags();
+      return added;
+    });
+  }
+
+  /** Üyeden rolü alır; yoksa false. */
+  removeMemberRole(userId: string, roleId: string): boolean {
+    return this.tx(() => {
+      const removed = this.run('DELETE FROM member_roles WHERE user_id = ? AND role_id = ?', userId, roleId) > 0;
+      if (removed) this.syncAdminFlags();
+      return removed;
+    });
+  }
+
+  /** Kanalın tüm rol izinlerini verilenlerle değiştirir (boş izinler kaydedilmez). */
+  setChannelOverwrites(channelId: string, overwrites: PermissionOverwrite[]): Channel | null {
+    this.tx(() => {
+      this.run('DELETE FROM channel_overwrites WHERE channel_id = ?', channelId);
+      for (const o of overwrites) {
+        if (o.allow === 0 && o.deny === 0) continue;
+        this.run(
+          'INSERT INTO channel_overwrites (channel_id, role_id, allow, deny) VALUES (?, ?, ?, ?)',
+          channelId,
+          o.roleId,
+          o.allow,
+          o.deny,
+        );
+      }
+    });
+    return this.getChannel(channelId);
+  }
+
+  private overwritesByChannel(guildId: string): Map<string, PermissionOverwrite[]> {
+    const map = new Map<string, PermissionOverwrite[]>();
+    for (const r of this.all<{ channel_id: string; role_id: string; allow: number; deny: number }>(
+      `SELECT o.channel_id, o.role_id, o.allow, o.deny FROM channel_overwrites o
+       JOIN channels c ON c.id = o.channel_id JOIN roles r ON r.id = o.role_id
+       WHERE c.guild_id = ? ORDER BY r.position`,
+      guildId,
+    )) {
+      const list = map.get(r.channel_id) ?? [];
+      list.push({ roleId: r.role_id, allow: r.allow, deny: r.deny });
+      map.set(r.channel_id, list);
+    }
+    return map;
   }
 
   // ---------- Davetler ----------
@@ -490,13 +872,20 @@ export class Store {
 
   // ---------- Sunucu (guild) ve kanallar ----------
 
-  /** Tek topluluk modeli: ilk açılışta varsayılan guild ve ses kanallarını oluşturur. */
+  /**
+   * Tek topluluk modeli: ilk açılışta varsayılan guild'i, kanalları ve rolleri (@everyone, Yönetici)
+   * oluşturur.
+   */
   ensureGuild(name: string): Guild {
-    const row = this.one<Guild>('SELECT id, name FROM guilds ORDER BY created_at LIMIT 1');
-    if (row) return { id: row.id, name: row.name };
-    const guild: Guild = { id: nanoid(12), name };
+    const row = this.one<{ id: string }>('SELECT id FROM guilds ORDER BY created_at LIMIT 1');
+    if (row) {
+      this.ensureRoles(row.id);
+      return this.getGuild()!;
+    }
+    const id = nanoid(12);
     this.tx(() => {
-      this.run('INSERT INTO guilds (id, name, created_at) VALUES (?, ?, ?)', guild.id, name, Date.now());
+      this.run('INSERT INTO guilds (id, name, created_at) VALUES (?, ?, ?)', id, name, Date.now());
+      this.ensureRoles(id);
       const defaults: [string, ChannelType][] = [
         ['genel-sohbet', 'text'],
         ['Genel', 'voice'],
@@ -507,7 +896,7 @@ export class Store {
         this.run(
           'INSERT INTO channels (id, guild_id, name, type, position, created_at) VALUES (?, ?, ?, ?, ?, ?)',
           nanoid(12),
-          guild.id,
+          id,
           channelName,
           type,
           i,
@@ -515,19 +904,67 @@ export class Store {
         );
       });
     });
-    return guild;
+    return this.getGuild()!;
+  }
+
+  /** @everyone yoksa oluşturur; hiç başka rol yoksa yönetici rolünü de (yeni topluluk). */
+  private ensureRoles(guildId: string): void {
+    if (this.one('SELECT 1 FROM roles WHERE id = ?', guildId)) return;
+    const now = Date.now();
+    this.run(
+      `INSERT INTO roles (id, guild_id, name, color, position, hoist, permissions, created_at)
+       VALUES (?, ?, '@everyone', NULL, 0, 0, ?, ?)`,
+      guildId,
+      guildId,
+      DEFAULT_EVERYONE_PERMISSIONS,
+      now,
+    );
+    if (this.one('SELECT 1 FROM roles WHERE guild_id = ? AND id != ?', guildId, guildId)) return;
+    this.run(
+      `INSERT INTO roles (id, guild_id, name, color, position, hoist, permissions, created_at)
+       VALUES (?, ?, ?, ?, 1, 1, ?, ?)`,
+      nanoid(12),
+      guildId,
+      ADMIN_ROLE_NAME,
+      ADMIN_ROLE_COLOR,
+      Permission.ADMINISTRATOR,
+      now,
+    );
+  }
+
+  getGuild(): Guild | null {
+    const row = this.one<{ id: string; name: string; owner_id: string | null }>(
+      'SELECT id, name, owner_id FROM guilds ORDER BY created_at LIMIT 1',
+    );
+    return row ? { id: row.id, name: row.name, ownerId: row.owner_id } : null;
+  }
+
+  updateGuild(patch: { name?: string; ownerId?: string }): Guild | null {
+    this.tx(() => {
+      if (patch.name !== undefined) this.run('UPDATE guilds SET name = ?', patch.name);
+      if (patch.ownerId !== undefined) this.run('UPDATE guilds SET owner_id = ?', patch.ownerId);
+      this.syncAdminFlags();
+    });
+    return this.getGuild();
   }
 
   listChannels(guildId: string): Channel[] {
+    const overwrites = this.overwritesByChannel(guildId);
     return this.all<ChannelRow>(
       'SELECT * FROM channels WHERE guild_id = ? ORDER BY position, created_at',
       guildId,
-    ).map(toChannel);
+    ).map((r) => toChannel(r, overwrites.get(r.id)));
   }
 
   getChannel(id: string): Channel | null {
     const row = this.one<ChannelRow>('SELECT * FROM channels WHERE id = ?', id);
-    return row ? toChannel(row) : null;
+    if (!row) return null;
+    const overwrites = this.all<{ role_id: string; allow: number; deny: number }>(
+      `SELECT o.role_id, o.allow, o.deny FROM channel_overwrites o JOIN roles r ON r.id = o.role_id
+       WHERE o.channel_id = ? ORDER BY r.position`,
+      id,
+    ).map((o) => ({ roleId: o.role_id, allow: o.allow, deny: o.deny }));
+    return toChannel(row, overwrites);
   }
 
   createChannel(guildId: string, name: string, type: ChannelType): Channel {
@@ -676,7 +1113,16 @@ export class Store {
    * henüz kullanılmamış dosyalar olmalı; değilse null döner). Bahsedilen kullanıcıların okunmamış
    * bahsetme sayısını artırır.
    */
-  createMessage(channelId: string, authorId: string, content: string, attachmentIds: string[] = []): Message | null {
+  createMessage(
+    channelId: string,
+    authorId: string,
+    content: string,
+    attachmentIds: string[] = [],
+    mentions: { userIds: string[]; everyone: boolean } = {
+      userIds: this.resolveMentions(content, authorId),
+      everyone: false,
+    },
+  ): Message | null {
     return this.tx((): Message | null => {
       for (const attachmentId of attachmentIds) {
         const row = this.one<AttachmentRow>('SELECT * FROM attachments WHERE id = ?', attachmentId);
@@ -684,13 +1130,15 @@ export class Store {
       }
       const id = Number(
         this.db
-          .prepare('INSERT INTO messages (channel_id, author_id, content, created_at) VALUES (?, ?, ?, ?)')
-          .run(channelId, authorId, content, Date.now()).lastInsertRowid,
+          .prepare(
+            'INSERT INTO messages (channel_id, author_id, content, created_at, mention_everyone) VALUES (?, ?, ?, ?, ?)',
+          )
+          .run(channelId, authorId, content, Date.now(), mentions.everyone ? 1 : 0).lastInsertRowid,
       );
       attachmentIds.forEach((attachmentId, position) => {
         this.run('UPDATE attachments SET message_id = ?, position = ? WHERE id = ?', id, position, attachmentId);
       });
-      for (const userId of this.resolveMentions(content, authorId)) {
+      for (const userId of mentions.userIds) {
         this.run(
           `INSERT INTO read_states (user_id, channel_id, last_read_id, mention_count) VALUES (?, ?, 0, 1)
            ON CONFLICT (user_id, channel_id) DO UPDATE SET mention_count = mention_count + 1`,
@@ -702,11 +1150,14 @@ export class Store {
     });
   }
 
-  /** Metinde bahsedilen (var olan) kullanıcıların kimlikleri; yazar hariç. */
+  /** Metinde bahsedilen (var olan, üye) kullanıcıların kimlikleri; yazar hariç. */
   resolveMentions(content: string, authorId: string | null): string[] {
     const ids: string[] = [];
     for (const username of extractMentions(content)) {
-      const user = this.one<{ id: string }>('SELECT id FROM users WHERE username = ?', username);
+      const user = this.one<{ id: string }>(
+        'SELECT id FROM users WHERE username = ? AND removed_at IS NULL',
+        username,
+      );
       if (user && user.id !== authorId) ids.push(user.id);
     }
     return ids;

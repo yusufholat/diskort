@@ -31,6 +31,8 @@ interface VoiceStore {
   sharing: boolean;
   shareHasAudio: boolean;
   pttActive: boolean;
+  /** Kanalda konuşma izni var mı (yetki ya da sunucuda susturma; LiveKit izninden gelir) */
+  micAllowed: boolean;
   micLevel: MicLevel;
   error: string | null;
 }
@@ -48,6 +50,7 @@ export const useVoice = create<VoiceStore>()(() => ({
   sharing: false,
   shareHasAudio: false,
   pttActive: false,
+  micAllowed: true,
   micLevel: { db: -100, threshold: -50, open: false },
   error: null,
 }));

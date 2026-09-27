@@ -2,6 +2,9 @@ import { EventEmitter } from 'node:events';
 import type { VoiceState } from '@diskort/shared';
 
 type SelfFlags = { selfMute: boolean; selfDeaf: boolean };
+export type ServerFlags = { serverMute: boolean; serverDeaf: boolean };
+
+const NO_SERVER_FLAGS: ServerFlags = { serverMute: false, serverDeaf: false };
 
 export interface VoiceSnapshotEntry {
   channelId: string;
@@ -16,11 +19,13 @@ interface VoiceEvents {
 /**
  * Kimin hangi ses kanalında olduğunu tutar. Katılma/ayrılma bilgisi LiveKit
  * webhook'larından gelir (tek doğruluk kaynağı); mute/deafen bayrakları
- * istemcinin gateway üzerinden bildirdiği değerlerdir.
+ * istemcinin gateway üzerinden bildirdiği değerlerdir. Sunucu tarafı susturma/sağırlaştırma
+ * yetkililerce verilir ve kanaldan çıkınca da sürer (veritabanında saklanır).
  */
 export class VoiceStateStore extends EventEmitter<VoiceEvents> {
   private readonly states = new Map<string, VoiceState>();
   private readonly selfFlags = new Map<string, SelfFlags>();
+  private readonly serverFlags = new Map<string, ServerFlags>();
   /** Kullanıcının geçerli LiveKit oturumu (participant SID) */
   private readonly sessions = new Map<string, string>();
 
@@ -38,7 +43,8 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
     if (prev && prev.channelId === channelId) return prev;
     if (prev) this.remove(userId);
     const flags = this.selfFlags.get(userId) ?? { selfMute: false, selfDeaf: false };
-    const state: VoiceState = { userId, channelId, ...flags, streaming, joinedAt: Date.now() };
+    const server = this.serverFlags.get(userId) ?? NO_SERVER_FLAGS;
+    const state: VoiceState = { userId, channelId, ...flags, ...server, streaming, joinedAt: Date.now() };
     this.states.set(userId, state);
     this.emit('update', state);
     return state;
@@ -68,6 +74,20 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
     this.selfFlags.set(userId, flags);
     const prev = this.states.get(userId);
     if (!prev || (prev.selfMute === flags.selfMute && prev.selfDeaf === flags.selfDeaf)) return;
+    const next = { ...prev, ...flags };
+    this.states.set(userId, next);
+    this.emit('update', next);
+  }
+
+  getServerFlags(userId: string): ServerFlags {
+    return this.serverFlags.get(userId) ?? NO_SERVER_FLAGS;
+  }
+
+  setServerFlags(userId: string, flags: ServerFlags): void {
+    if (flags.serverMute || flags.serverDeaf) this.serverFlags.set(userId, flags);
+    else this.serverFlags.delete(userId);
+    const prev = this.states.get(userId);
+    if (!prev || (prev.serverMute === flags.serverMute && prev.serverDeaf === flags.serverDeaf)) return;
     const next = { ...prev, ...flags };
     this.states.set(userId, next);
     this.emit('update', next);

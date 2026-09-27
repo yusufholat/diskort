@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
-import { Hash, Upload } from 'lucide-react';
-import type { Channel } from '@diskort/shared';
-import { ackChannel, addFiles, loadInitial, useMessages, useGuild, useSession } from '@diskort/client-core';
-import { useUi } from '../../stores/ui';
+import { Hash, Upload, Users } from 'lucide-react';
+import { Permission, type Channel } from '@diskort/shared';
+import { ackChannel, addFiles, loadInitial, useCan, useMessages, useGuild, useSession } from '@diskort/client-core';
+import { cn } from '../../lib/utils';
+import { toast, useUi } from '../../stores/ui';
+import { MemberList } from '../members/MemberList';
 import { toLocalFiles } from '../../features/messages/files';
 import { Composer, type ComposerHandle } from './Composer';
 import { MessageList } from './MessageList';
@@ -19,6 +21,8 @@ export function TextChannelView({ channel }: { channel: Channel }) {
   const [focused, setFocused] = useState(() => document.hasFocus());
   const [scrollSignal, setScrollSignal] = useState(0);
   const composer = useRef<ComposerHandle>(null);
+  const canAttach = useCan(Permission.SEND_MESSAGES | Permission.ATTACH_FILES, channel.id);
+  const memberListOpen = useUi((s) => s.memberListOpen);
 
   // Kanal açıldığında okunmamış ilk mesajın üstüne "YENİ" ayracı konur.
   const readAtOpen = useRef(readId);
@@ -84,13 +88,13 @@ export function TextChannelView({ channel }: { channel: Channel }) {
   const dragDepth = useRef(0);
   const dropHandlers = {
     onDragEnter: (e: DragEvent): void => {
-      if (!hasFiles(e)) return;
+      if (!hasFiles(e) || !canAttach) return;
       e.preventDefault();
       dragDepth.current++;
       setDragging(true);
     },
     onDragOver: (e: DragEvent): void => {
-      if (!hasFiles(e)) return;
+      if (!hasFiles(e) || !canAttach) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
     },
@@ -102,6 +106,10 @@ export function TextChannelView({ channel }: { channel: Channel }) {
     onDrop: (e: DragEvent): void => {
       if (!hasFiles(e)) return;
       e.preventDefault();
+      if (!canAttach) {
+        toast('Bu kanala dosya gönderme iznin yok.', 'error');
+        return;
+      }
       dragDepth.current = 0;
       setDragging(false);
       addFiles(channel.id, toLocalFiles(e.dataTransfer.files));
@@ -110,50 +118,65 @@ export function TextChannelView({ channel }: { channel: Channel }) {
   };
 
   return (
-    <div className="anim-fade-in relative flex h-full min-w-0 flex-1 flex-col bg-bg-main" {...dropHandlers}>
-      {dragging && (
-        <div className="anim-fade-in pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/60">
-          <div className="anim-modal-in flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-white/60 bg-brand px-10 py-8 text-white shadow-2xl">
-            <Upload size={40} />
-            <div className="text-lg font-bold">#{channel.name} kanalına yükle</div>
-            <div className="text-sm text-white/80">Göndermeden önce bir not ekleyebilirsin.</div>
+    <div className="flex h-full min-w-0 flex-1">
+      <div className="anim-fade-in relative flex h-full min-w-0 flex-1 flex-col bg-bg-main" {...dropHandlers}>
+        {dragging && (
+          <div className="anim-fade-in pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/60">
+            <div className="anim-modal-in flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-white/60 bg-brand px-10 py-8 text-white shadow-2xl">
+              <Upload size={40} />
+              <div className="text-lg font-bold">#{channel.name} kanalına yükle</div>
+              <div className="text-sm text-white/80">Göndermeden önce bir not ekleyebilirsin.</div>
+            </div>
           </div>
-        </div>
-      )}
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-black/30 px-4 shadow-sm">
-        <Hash size={22} className="text-text-muted" />
-        <span className="font-semibold text-text-head">{channel.name}</span>
-      </header>
-
-      <div className="relative flex min-h-0 flex-1 flex-col">
-        {unreadBelow && (
-          <button
-            className="anim-bar-in absolute top-0 right-4 left-4 z-10 flex items-center justify-between rounded-b-lg bg-brand px-3 py-1 text-sm font-medium text-white shadow transition-colors hover:bg-brand-hover"
-            onClick={() => setScrollSignal((n) => n + 1)}
-          >
-            <span>Yeni mesajların var</span>
-            <span>Şimdiye atla ↓</span>
-          </button>
         )}
-        <MessageList
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-black/30 px-4 shadow-sm">
+          <Hash size={22} className="text-text-muted" />
+          <span className="min-w-0 flex-1 truncate font-semibold text-text-head">{channel.name}</span>
+          <button
+            data-tooltip={memberListOpen ? 'Üye listesini gizle' : 'Üye listesini göster'}
+            aria-label={memberListOpen ? 'Üye listesini gizle' : 'Üye listesini göster'}
+            aria-pressed={memberListOpen}
+            className={cn(
+              'press-icon rounded p-1',
+              memberListOpen ? 'text-text-head' : 'text-text-muted hover:text-text-normal',
+            )}
+            onClick={() => useUi.getState().toggleMemberList()}
+          >
+            <Users size={22} />
+          </button>
+        </header>
+
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          {unreadBelow && (
+            <button
+              className="anim-bar-in absolute top-0 right-4 left-4 z-10 flex items-center justify-between rounded-b-lg bg-brand px-3 py-1 text-sm font-medium text-white shadow transition-colors hover:bg-brand-hover"
+              onClick={() => setScrollSignal((n) => n + 1)}
+            >
+              <span>Yeni mesajların var</span>
+              <span>Şimdiye atla ↓</span>
+            </button>
+          )}
+          <MessageList
+            channel={channel}
+            self={self}
+            dividerId={dividerId}
+            onAtBottomChange={setAtBottom}
+            scrollToBottomSignal={scrollSignal}
+          />
+        </div>
+
+        <Composer
+          ref={composer}
           channel={channel}
           self={self}
-          dividerId={dividerId}
-          onAtBottomChange={setAtBottom}
-          scrollToBottomSignal={scrollSignal}
+          onSend={() => {
+            setDividerId(null);
+            setScrollSignal((n) => n + 1);
+          }}
         />
+        <TypingIndicator channelId={channel.id} selfId={self.id} />
       </div>
-
-      <Composer
-        ref={composer}
-        channel={channel}
-        self={self}
-        onSend={() => {
-          setDividerId(null);
-          setScrollSignal((n) => n + 1);
-        }}
-      />
-      <TypingIndicator channelId={channel.id} selfId={self.id} />
+      {memberListOpen && <MemberList />}
     </div>
   );
 }

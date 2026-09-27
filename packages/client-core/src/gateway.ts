@@ -107,6 +107,8 @@ class GatewayClient {
         this.awaitingAck = false;
         break;
       case 'INVALID_SESSION':
+        // Ör. "Sunucudan çıkarıldın.", "Hesabın bir yönetici tarafından silindi."
+        if (msg.d?.reason && useSession.getState().token) env().notifyError(msg.d.reason);
         useSession.getState().logout();
         break;
       case 'UPDATE_REQUIRED':

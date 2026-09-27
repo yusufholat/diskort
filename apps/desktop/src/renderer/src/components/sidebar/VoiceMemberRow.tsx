@@ -1,9 +1,9 @@
 import { HeadphoneOff, MicOff } from 'lucide-react';
-import type { VoiceState } from '@diskort/shared';
+import { Permission, type VoiceState } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
-import { adminVoiceItems } from '../../lib/adminMenu';
+import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
-import { useGuild, useSession } from '@diskort/client-core';
+import { can, useGuild, useMemberColor, useSession } from '@diskort/client-core';
 import { useSettings } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
@@ -19,8 +19,44 @@ export function LiveBadge({ className }: { className?: string }) {
   );
 }
 
+/** Üyenin bulunduğu kanalda konuşma yetkisi yok (yalnızca dinliyor) */
+export function useSuppressed(state: VoiceState): boolean {
+  return useGuild((s) => !can(s, state.userId, Permission.SPEAK, state.channelId));
+}
+
+/**
+ * Ses durumu simgeleri: kendi susturması gri; yerel susturma, sunucuda susturma/sağırlaştırma ve kanalda
+ * konuşma yetkisi olmaması kırmızı (Discord gibi).
+ */
+export function VoiceStateIcons({ state, localMuted, size = 15 }: { state: VoiceState; localMuted?: boolean; size?: number }) {
+  const suppressed = useSuppressed(state);
+  const deaf = state.selfDeaf || state.serverDeaf;
+  const mutedByOthers = state.serverMute || localMuted || suppressed;
+  return (
+    <>
+      {(state.selfMute || mutedByOthers) && !deaf && (
+        <MicOff
+          size={size}
+          aria-label={
+            state.serverMute ? 'Sunucuda susturuldu' : suppressed ? 'Bu kanalda konuşma izni yok' : 'Susturuldu'
+          }
+          className={cn('anim-pill-in', mutedByOthers ? 'text-danger' : 'text-text-muted')}
+        />
+      )}
+      {deaf && (
+        <HeadphoneOff
+          size={size}
+          aria-label={state.serverDeaf ? 'Sunucuda sağırlaştırıldı' : 'Sağırlaştırıldı'}
+          className={cn('anim-pill-in', state.serverDeaf && 'text-danger')}
+        />
+      )}
+    </>
+  );
+}
+
 export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMyChannel: boolean }) {
   const user = useGuild((s) => s.users[state.userId]);
+  const color = useMemberColor(state.userId);
   const speaking = useVoice((s) => inMyChannel && s.speaking[state.userId] === true);
   const localMuted = useSettings((s) => s.localMutes[state.userId] === true);
   const selfId = useSession((s) => s.user?.id);
@@ -32,12 +68,13 @@ export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMy
       className="group flex h-8 items-center gap-2 rounded px-2 text-text-muted transition-colors duration-150 hover:bg-bg-hover hover:text-text-normal"
       onContextMenu={(e) => {
         e.preventDefault();
-        if (!isSelf) {
+        const items = memberMenuItems(state.userId);
+        if (!isSelf || items.length > 0) {
           openContextMenu({
             x: e.clientX,
             y: e.clientY,
-            userId: state.userId,
-            items: adminVoiceItems(state.userId, user?.displayName),
+            userId: isSelf ? undefined : state.userId,
+            items,
           });
         }
       }}
@@ -46,12 +83,14 @@ export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMy
       }}
     >
       <Avatar user={user} size={24} speaking={speaking} />
-      <span className={cn('flex-1 truncate text-sm transition-colors duration-200', speaking && 'text-text-head')}>{user?.displayName ?? '…'}</span>
+      <span
+        className={cn('flex-1 truncate text-sm transition-colors duration-200', speaking && 'text-text-head')}
+        style={color ? { color } : undefined}
+      >
+        {user?.displayName ?? '…'}
+      </span>
       {state.streaming && <LiveBadge />}
-      {(state.selfMute || localMuted) && !state.selfDeaf && (
-        <MicOff size={15} className={cn('anim-pill-in', localMuted ? 'text-danger' : 'text-text-muted')} />
-      )}
-      {state.selfDeaf && <HeadphoneOff size={15} className="anim-pill-in" />}
+      <VoiceStateIcons state={state} localMuted={localMuted} />
     </div>
   );
 }

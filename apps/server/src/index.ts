@@ -10,6 +10,8 @@ const { app, ctx } = await buildApp(config);
 async function reconcile(): Promise<void> {
   try {
     ctx.voice.reconcile(await ctx.livekit.snapshot());
+    // Eşitlemeyle eklenenlerin (ör. kaçan katılma bildirimi) izinleri de güncel olsun
+    await ctx.moderation.enforceAll();
   } catch (err) {
     app.log.warn({ err: (err as Error).message }, 'LiveKit eşitlemesi başarısız (LiveKit çalışıyor mu?)');
   }

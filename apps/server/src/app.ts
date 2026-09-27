@@ -12,8 +12,10 @@ import { Store } from './db.js';
 import { Gateway } from './gateway.js';
 import { LiveKitService } from './livekit.js';
 import { OtaService } from './ota.js';
+import { PermissionService } from './permissions.js';
 import { PushService } from './push.js';
 import { ReleaseService } from './releases.js';
+import { VoiceModeration } from './voiceModeration.js';
 import { VoiceStateStore } from './voiceState.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerAttachmentRoutes } from './routes/attachments.js';
@@ -21,6 +23,7 @@ import { registerAuthRoutes } from './routes/auth.js';
 import { registerAvatarRoutes } from './routes/avatars.js';
 import { registerDownloadRoutes } from './routes/download.js';
 import { registerMessageRoutes } from './routes/messages.js';
+import { registerRoleRoutes } from './routes/roles.js';
 import { registerUpdateRoutes } from './routes/updates.js';
 import { registerVoiceRoutes } from './routes/voice.js';
 
@@ -54,12 +57,14 @@ export async function buildApp(
 
   const store = new Store(opts.dbFile ?? path.join(config.dataDir, 'diskort.db'));
   const guild = store.ensureGuild(config.guildName);
-  const auth = new AuthService(config.jwtSecret, store);
+  const permissions = new PermissionService(store);
+  const auth = new AuthService(config.jwtSecret, store, permissions);
   const voice = new VoiceStateStore();
   const livekit = opts.livekit ?? new LiveKitService(config);
   const releases = opts.releases ?? new ReleaseService(config.githubRepo);
   const clientVersions = new ClientVersionPolicy(releases, config.enforceClientVersion, config.minMobileVersions);
-  const gateway = new Gateway(store, auth, voice, guild, clientVersions, config.attachmentMaxBytes);
+  const gateway = new Gateway(store, auth, voice, guild, permissions, clientVersions, config.attachmentMaxBytes);
+  const moderation = new VoiceModeration(store, voice, livekit, permissions, gateway);
   const push = opts.push ?? new PushService(store, config.fcmServiceAccountFile, app.log);
   const ota = new OtaService(releases, app.log, opts.otaFetch);
   const attachments = new AttachmentService(
@@ -82,6 +87,8 @@ export async function buildApp(
     push,
     attachments,
     avatars,
+    permissions,
+    moderation,
     guild,
   };
 
@@ -112,6 +119,7 @@ export async function buildApp(
   registerVoiceRoutes(app, ctx);
   registerDownloadRoutes(app, ctx);
   registerMessageRoutes(app, ctx);
+  registerRoleRoutes(app, ctx);
   registerAttachmentRoutes(app, ctx);
   registerAvatarRoutes(app, ctx);
   registerUpdateRoutes(app, ctx);

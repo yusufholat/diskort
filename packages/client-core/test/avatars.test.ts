@@ -23,7 +23,15 @@ const storage: KeyValueStorage = {
 
 let uploadImpl: (req: UploadRequest) => Promise<UploadResponse> = async () => ({ status: 0, body: '' });
 
-const me: User = { id: 'u1', username: 'ayse', displayName: 'Ayşe', avatarColor: '#fff', isAdmin: false };
+const me: User = {
+  id: 'u1',
+  username: 'ayse',
+  displayName: 'Ayşe',
+  avatarColor: '#fff',
+  isAdmin: false,
+  roles: [],
+  removed: false,
+};
 const withPhoto: User = { ...me, avatarUrl: '/api/avatars/u1/0123456789abcdef0123456789abcdef.webp' };
 
 const receive = (msg: GatewayServerMessage): void =>

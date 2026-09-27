@@ -1,15 +1,16 @@
 import { useMemo } from 'react';
-import { AudioLines } from 'lucide-react';
+import { AudioLines, Lock } from 'lucide-react';
+import { Permission, type Channel } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
-import { membersOf, useGuild } from '@diskort/client-core';
-import { useUi } from '../../stores/ui';
+import { membersOf, useCan, useGuild } from '@diskort/client-core';
+import { cn } from '../../lib/utils';
+import { toast, useUi } from '../../stores/ui';
 
 /** Ses kanalına bağlı değilken ana alan. */
 export function Welcome() {
   const guild = useGuild((s) => s.guild);
   const allChannels = useGuild((s) => s.channels);
   const channels = useMemo(() => allChannels.filter((c) => c.type === 'voice'), [allChannels]);
-  const voiceStates = useGuild((s) => s.voiceStates);
   const onlineCount = useGuild((s) => Object.keys(s.online).length);
 
   return (
@@ -20,24 +21,39 @@ export function Welcome() {
       <h1 className="text-2xl font-bold text-text-head">{guild?.name}</h1>
       <p className="mt-2 text-text-muted">{onlineCount} kişi çevrimiçi. Konuşmaya başlamak için bir ses kanalına katıl.</p>
       <div className="mt-6 flex flex-wrap justify-center gap-3">
-        {channels.map((c) => {
-          const count = membersOf(voiceStates, c.id).length;
-          return (
-            <button
-              key={c.id}
-              onMouseEnter={() => voice.prefetch(c.id)}
-              onClick={() => {
-                void voice.join(c.id);
-                useUi.getState().setView({ kind: 'voice' });
-              }}
-              className="min-w-40 rounded-lg bg-bg-side px-5 py-4 text-left transition-colors hover:bg-bg-hover"
-            >
-              <div className="font-semibold text-text-head">{c.name}</div>
-              <div className="text-sm text-text-muted">{count > 0 ? `${count} kişi içeride` : 'Boş'}</div>
-            </button>
-          );
-        })}
+        {channels.map((c) => (
+          <VoiceChannelCard key={c.id} channel={c} />
+        ))}
       </div>
     </div>
+  );
+}
+
+function VoiceChannelCard({ channel }: { channel: Channel }) {
+  const voiceStates = useGuild((s) => s.voiceStates);
+  const count = useMemo(() => membersOf(voiceStates, channel.id).length, [voiceStates, channel.id]);
+  const canConnect = useCan(Permission.CONNECT, channel.id);
+  return (
+    <button
+      onMouseEnter={() => canConnect && voice.prefetch(channel.id)}
+      onClick={() => {
+        if (!canConnect) {
+          toast('Bu ses kanalına bağlanma iznin yok.', 'error');
+          return;
+        }
+        void voice.join(channel.id);
+        useUi.getState().setView({ kind: 'voice' });
+      }}
+      className={cn(
+        'min-w-40 rounded-lg bg-bg-side px-5 py-4 text-left transition-colors hover:bg-bg-hover',
+        !canConnect && 'opacity-60',
+      )}
+    >
+      <div className="flex items-center gap-1.5 font-semibold text-text-head">
+        {!canConnect && <Lock size={14} aria-label="Bağlanma iznin yok" />}
+        {channel.name}
+      </div>
+      <div className="text-sm text-text-muted">{count > 0 ? `${count} kişi içeride` : 'Boş'}</div>
+    </button>
   );
 }

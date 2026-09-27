@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
@@ -10,7 +11,7 @@ import { AVATAR_MAX_BYTES, type GatewayServerMessage, type ReadyPayload, type Us
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import type { AppContext } from '../src/context.js';
-import { Store } from '../src/db.js';
+import { MIGRATIONS, Store } from '../src/db.js';
 
 const config = loadConfig({ NODE_ENV: 'test', DATA_DIR: '.' });
 
@@ -339,16 +340,20 @@ describe('profil fotoğrafı', () => {
 
   it('şema güncellemesi: mevcut kullanıcılar fotoğrafsız başlar', () => {
     const file = path.join(dir, 'eski.db');
-    const old = new Store(file);
-    const invite = old.ensureBootstrapInvite()!;
-    old.registerWithInvite({ code: invite.code, username: 'eski', displayName: 'Eski', passwordHash: 'x' });
-    // Önceki sürümün şeması: sütun yok, sürüm bir eksik
-    const version = (old.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-    old.db.exec(`ALTER TABLE users DROP COLUMN avatar_hash; PRAGMA user_version = ${version - 1}`);
+    // Profil fotoğraflarından önceki sürümün şeması (6): sütun yok
+    const old = new DatabaseSync(file);
+    for (const sql of MIGRATIONS.slice(0, 6)) old.exec(sql);
+    old.exec(`PRAGMA user_version = 6`);
+    old.exec(
+      `INSERT INTO users (id, username, display_name, password_hash, avatar_color, is_admin, created_at)
+       VALUES ('u1', 'eski', 'Eski', 'x', '#5865f2', 1, 1)`,
+    );
     old.close();
 
     const upgraded = new Store(file);
-    expect((upgraded.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(version);
+    expect((upgraded.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(
+      MIGRATIONS.length,
+    );
     expect(upgraded.listUsers()).toMatchObject([{ username: 'eski', avatarUrl: null }]);
     upgraded.close();
   });

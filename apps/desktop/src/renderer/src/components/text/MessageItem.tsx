@@ -1,15 +1,17 @@
 import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { Pencil, SmilePlus, Trash2 } from 'lucide-react';
-import { isImageAttachment, MESSAGE_MAX_LENGTH, MESSAGE_MAX_REACTIONS, type User } from '@diskort/shared';
+import { isImageAttachment, MESSAGE_MAX_LENGTH, MESSAGE_MAX_REACTIONS, Permission, type User } from '@diskort/shared';
 import {
   deleteMessage,
   discardMessage,
   editMessage,
-  mentions,
+  isMentioned,
   QUICK_REACTIONS,
   retryMessage,
   setEditing,
   toggleReaction,
+  useCan,
+  useMemberColor,
   type LocalMessage,
 } from '@diskort/client-core';
 import { renderMarkdown, type MarkdownContext } from '../../features/messages/markdown';
@@ -57,9 +59,14 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
   // Mesaj ekrandayken eklenen tepkiler animasyonla belirir
   const mounted = useMountedRef();
   const own = message.authorId === self.id;
-  const canDelete = own || self.isAdmin;
+  // Başkasının mesajını kanalda MANAGE_MESSAGES yetkisi olan siler
+  const canManage = useCan(Permission.MANAGE_MESSAGES, message.channelId);
+  // Yeni tepki eklemek yetki ister; var olan tepkiye katılmak serbest
+  const canReact = useCan(Permission.ADD_REACTIONS, message.channelId);
+  const authorColor = useMemberColor(message.authorId);
+  const canDelete = own || canManage;
   const confirmed = !message.status;
-  const mentioned = !own && mentions(message.content, self.username);
+  const mentioned = isMentioned(message, self);
   const react = (emoji: string): void => void toggleReaction(message.channelId, message.id, emoji);
   const pickReaction = (anchor: EmojiPickerAnchor): void => openEmojiPicker({ anchor, onPick: react });
 
@@ -75,7 +82,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
       x: e.clientX,
       y: e.clientY,
       items: [
-        { label: 'Tepki Ekle', onClick: () => pickReaction(point) },
+        ...(canReact ? [{ label: 'Tepki Ekle', onClick: () => pickReaction(point) }] : []),
         ...(attachment
           ? [
               {
@@ -127,7 +134,10 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
       <div className="min-w-0 flex-1">
         {!compact && (
           <div className="flex items-baseline gap-2 leading-snug">
-            <span className={cn('font-medium', author ? 'text-text-head' : 'text-text-muted italic')}>
+            <span
+              className={cn('font-medium', author ? 'text-text-head' : 'text-text-muted italic')}
+              style={author && authorColor ? { color: authorColor } : undefined}
+            >
               {author?.displayName ?? 'Silinmiş Kullanıcı'}
             </span>
             <span className="text-xs text-text-faint" data-tooltip={formatFull(message.createdAt)}>
@@ -188,7 +198,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
                 onToggle={() => react(r.emoji)}
               />
             ))}
-            {message.reactions.length < MESSAGE_MAX_REACTIONS && (
+            {canReact && message.reactions.length < MESSAGE_MAX_REACTIONS && (
               <button
                 data-tooltip="Tepki ekle"
                 aria-label="Tepki ekle"
@@ -202,28 +212,31 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
         )}
       </div>
 
-      {confirmed && !editing && (
+      {confirmed && !editing && (canReact || own || canDelete) && (
         // Üstüne gelince hafifçe belirip yükselen düğme şeridi
         <div className="pointer-events-none absolute -top-4 right-4 flex translate-y-1 overflow-hidden rounded-md border border-black/30 bg-bg-main opacity-0 shadow transition-[opacity,translate] duration-100 ease-out group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
-          {HOVER_REACTIONS.map((emoji) => (
+          {canReact &&
+            HOVER_REACTIONS.map((emoji) => (
+              <button
+                key={emoji}
+                className="emoji flex w-8 items-center justify-center text-lg hover:bg-bg-hover"
+                data-tooltip={`${emoji} tepkisi ver`}
+                aria-label={`${emoji} tepkisi ver`}
+                onClick={() => react(emoji)}
+              >
+                <span className="transition-transform duration-150 ease-out hover:scale-125">{emoji}</span>
+              </button>
+            ))}
+          {canReact && (
             <button
-              key={emoji}
-              className="emoji flex w-8 items-center justify-center text-lg hover:bg-bg-hover"
-              data-tooltip={`${emoji} tepkisi ver`}
-              aria-label={`${emoji} tepkisi ver`}
-              onClick={() => react(emoji)}
+              className="p-1.5 text-text-muted transition-colors hover:bg-bg-hover hover:text-text-head"
+              data-tooltip="Tepki ekle"
+              aria-label="Tepki ekle"
+              onClick={(e) => pickReaction(e.currentTarget.getBoundingClientRect())}
             >
-              <span className="transition-transform duration-150 ease-out hover:scale-125">{emoji}</span>
+              <SmilePlus size={18} />
             </button>
-          ))}
-          <button
-            className="p-1.5 text-text-muted transition-colors hover:bg-bg-hover hover:text-text-head"
-            data-tooltip="Tepki ekle"
-            aria-label="Tepki ekle"
-            onClick={(e) => pickReaction(e.currentTarget.getBoundingClientRect())}
-          >
-            <SmilePlus size={18} />
-          </button>
+          )}
           {own && (
             <button
               className="p-1.5 text-text-muted transition-colors hover:bg-bg-hover hover:text-text-head"

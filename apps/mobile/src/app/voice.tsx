@@ -5,12 +5,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { VideoTrack } from '@livekit/react-native';
 import { Track } from 'livekit-client';
-import { membersOf, useGuild, useSession } from '@diskort/client-core';
-import type { VoiceState } from '@diskort/shared';
+import { membersOf, useCan, useGuild, useMemberColor, useSession } from '@diskort/client-core';
+import { Permission, type VoiceState } from '@diskort/shared';
 import { Avatar } from '../components/Avatar';
+import { MemberSheet } from '../components/MemberSheet';
 import { SpeakingRing } from '../components/SpeakingRing';
 import { IconButton } from '../components/VoiceBar';
+import { VoiceStateIcon } from '../components/VoiceStateIcon';
 import { useAppear, useLayoutAnimationOn } from '../motion';
+import { toast } from '../stores/ui';
 import { useSettings } from '../stores/settings';
 import { colors } from '../theme';
 import { useVoice, voice, type ScreenShareStats } from '../voice/voice';
@@ -28,7 +31,11 @@ export default function VoiceScreen() {
   const selfDeaf = useSettings((s) => s.selfDeaf);
   const speaker = useSettings((s) => s.speaker);
   const sharing = useVoice((s) => s.sharing);
+  const micAllowed = useVoice((s) => s.micAllowed);
+  const canStream = useCan(Permission.STREAM, channelId ?? undefined);
   const [fullscreen, setFullscreen] = useState(false);
+  // Uzun basılan (yönetilecek) üye
+  const [member, setMember] = useState<string | null>(null);
   // Katılan/ayrılan kutucukta diğerleri yumuşakça yer değiştirir
   // (yeni kutucuğun kendisi Animated ile büyür; LayoutAnimation yalnızca kaymayı ve çıkışı yapar)
   useLayoutAnimationOn(members.map((m) => m.userId).join(','), 220, false);
@@ -51,6 +58,11 @@ export default function VoiceScreen() {
       {status !== 'connected' && (
         <View style={styles.banner}>
           <Text style={styles.bannerText}>{status === 'connecting' ? 'Bağlanıyor…' : 'Bağlantı koptu, yeniden bağlanılıyor…'}</Text>
+        </View>
+      )}
+      {!micAllowed && (
+        <View style={[styles.banner, { backgroundColor: colors.side }]}>
+          <Text style={[styles.bannerText, { color: colors.text }]}>{voice.micBlockedReason()} Yalnızca dinliyorsun.</Text>
         </View>
       )}
       {listenOnly && (
@@ -79,7 +91,7 @@ export default function VoiceScreen() {
 
       <ScrollView contentContainerStyle={styles.grid}>
         {members.map((m) => (
-          <Member key={m.userId} state={m} />
+          <Member key={m.userId} state={m} onLongPress={() => setMember(m.userId)} />
         ))}
       </ScrollView>
 
@@ -88,10 +100,19 @@ export default function VoiceScreen() {
         <IconButton
           icon={sharing ? 'stop-circle-outline' : 'phone-portrait-outline'}
           on={sharing}
-          onPress={() => void voice.toggleScreenShare()}
+          onPress={() =>
+            sharing || canStream
+              ? void voice.toggleScreenShare()
+              : toast('Bu kanalda ekran paylaşma iznin yok.', 'error')
+          }
           size={24}
         />
-        <IconButton icon={selfMute || selfDeaf ? 'mic-off' : 'mic'} active={selfMute || selfDeaf} onPress={() => voice.toggleMute()} size={24} />
+        <IconButton
+          icon={selfMute || selfDeaf || !micAllowed ? 'mic-off' : 'mic'}
+          active={selfMute || selfDeaf || !micAllowed}
+          onPress={() => voice.toggleMute()}
+          size={24}
+        />
         <IconButton icon={selfDeaf ? 'volume-mute' : 'headset'} active={selfDeaf} onPress={() => voice.toggleDeafen()} size={24} />
         <IconButton
           icon="call"
@@ -103,6 +124,8 @@ export default function VoiceScreen() {
           }}
         />
       </View>
+
+      <MemberSheet userId={member} onClose={() => setMember(null)} />
 
       <Modal visible={fullscreen && Boolean(watching)} animationType="fade" supportedOrientations={['portrait', 'landscape']} onRequestClose={() => setFullscreen(false)}>
         <StatusBar hidden />
@@ -167,8 +190,9 @@ function StreamVideo({ userId }: { userId: string }) {
   );
 }
 
-function Member({ state }: { state: VoiceState }) {
+function Member({ state, onLongPress }: { state: VoiceState; onLongPress: () => void }) {
   const user = useGuild((s) => s.users[state.userId]);
+  const color = useMemberColor(state.userId);
   const selfId = useSession((s) => s.user?.id);
   const speaking = useVoice((s) => Boolean(s.speaking[state.userId]));
   const hasStream = useVoice((s) => Boolean(s.streams[state.userId]));
@@ -176,6 +200,7 @@ function Member({ state }: { state: VoiceState }) {
   // Katılan kişinin kutucuğu büyüyerek belirir
   const appear = useAppear(true, 260);
   return (
+    <Pressable onLongPress={onLongPress} delayLongPress={300}>
     <Animated.View
       style={[
         styles.member,
@@ -190,12 +215,11 @@ function Member({ state }: { state: VoiceState }) {
         <Avatar user={user} size={72} />
       </SpeakingRing>
       <View style={styles.memberNameRow}>
-        {state.selfDeaf ? (
-          <Ionicons name="volume-mute" size={14} color={colors.danger} />
-        ) : state.selfMute ? (
-          <Ionicons name="mic-off" size={14} color={colors.danger} />
-        ) : null}
-        <Text style={[styles.memberName, state.userId === selfId && { color: colors.head }]} numberOfLines={1}>
+        <VoiceStateIcon state={state} size={14} />
+        <Text
+          style={[styles.memberName, state.userId === selfId && { color: colors.head }, color ? { color } : null]}
+          numberOfLines={1}
+        >
           {user?.displayName ?? '…'}
         </Text>
       </View>
@@ -210,6 +234,7 @@ function Member({ state }: { state: VoiceState }) {
         </Pressable>
       )}
     </Animated.View>
+    </Pressable>
   );
 }
 

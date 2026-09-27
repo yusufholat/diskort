@@ -4,6 +4,8 @@ import {
   DEFAULT_ATTACHMENT_MAX_BYTES,
   GATEWAY_CLOSE_UPDATE_REQUIRED,
   GATEWAY_HEARTBEAT_INTERVAL_MS,
+  Permission,
+  sortRoles,
   type GatewayClientMessage,
   type GatewayServerMessage,
   type Guild,
@@ -12,6 +14,7 @@ import {
 import type { AuthService } from './auth.js';
 import type { ClientVersionPolicy } from './clientVersion.js';
 import type { Store } from './db.js';
+import type { PermissionService } from './permissions.js';
 import type { VoiceStateStore } from './voiceState.js';
 
 const IDENTIFY_TIMEOUT_MS = 10_000;
@@ -27,9 +30,13 @@ interface Session {
   lastTyping: Map<string, number>;
 }
 
+/** Kullanıcı → gördüğü kanallar (yetki değişikliğinden önceki durum) */
+export type Visibility = Map<string, Set<string>>;
+
 /**
  * Gerçek zamanlı olay kanalı: kanal/kullanıcı/ses durumu değişikliklerini
- * bağlı tüm istemcilere iletir (Discord "gateway" benzeri).
+ * bağlı istemcilere iletir (Discord "gateway" benzeri). Bir kanala ait olaylar (mesajlar, tepkiler,
+ * "yazıyor", ses durumları, kanalın kendisi) yalnızca o kanalı görebilenlere gider.
  */
 export class Gateway {
   private readonly sessions = new Set<Session>();
@@ -41,11 +48,15 @@ export class Gateway {
     private readonly auth: AuthService,
     private readonly voice: VoiceStateStore,
     private readonly guild: Guild,
+    private readonly permissions: PermissionService,
     private readonly clientVersions?: ClientVersionPolicy,
     private readonly attachmentMaxBytes = DEFAULT_ATTACHMENT_MAX_BYTES,
   ) {
-    voice.on('update', (state) => this.broadcast({ t: 'VOICE_STATE_UPDATE', d: state }));
-    voice.on('delete', (d) => this.broadcast({ t: 'VOICE_STATE_DELETE', d }));
+    // Kişi kendi ses durumunu her zaman alır (kanalı görme yetkisini kaybedip çıkarılırken de)
+    voice.on('update', (state) =>
+      this.dispatchChannel(state.channelId, { t: 'VOICE_STATE_UPDATE', d: state }, { include: state.userId }),
+    );
+    voice.on('delete', (d) => this.dispatchChannel(d.channelId, { t: 'VOICE_STATE_DELETE', d }, { include: d.userId }));
   }
 
   register(app: FastifyInstance): void {
@@ -75,6 +86,85 @@ export class Gateway {
     for (const s of this.sessions) {
       if (!s.userId || s.userId === exceptUserId) continue;
       if (s.socket.readyState === s.socket.OPEN) s.socket.send(data);
+    }
+  }
+
+  /** Yalnızca kanalı görebilen kullanıcılara gönderir. */
+  dispatchChannel(
+    channelId: string,
+    msg: GatewayServerMessage,
+    opts: { except?: string; include?: string } = {},
+  ): void {
+    const data = JSON.stringify(msg);
+    const allowed = new Map<string, boolean>();
+    for (const s of this.sessions) {
+      if (!s.userId || s.userId === opts.except) continue;
+      let ok = allowed.get(s.userId);
+      if (ok === undefined) {
+        ok = s.userId === opts.include || this.permissions.canView(s.userId, channelId);
+        allowed.set(s.userId, ok);
+      }
+      if (ok && s.socket.readyState === s.socket.OPEN) s.socket.send(data);
+    }
+  }
+
+  /** Belirli kullanıcılara gönderir (ör. kanal silinmeden önce onu görebilenler). */
+  sendToUsers(userIds: Iterable<string>, msg: GatewayServerMessage): void {
+    const data = JSON.stringify(msg);
+    for (const userId of new Set(userIds)) {
+      for (const s of this.byUser.get(userId) ?? []) {
+        if (s.socket.readyState === s.socket.OPEN) s.socket.send(data);
+      }
+    }
+  }
+
+  /** Bağlı kullanıcıların kimlikleri */
+  connectedUserIds(): string[] {
+    return [...this.byUser.keys()];
+  }
+
+  /** Bağlı kullanıcıların şu an gördüğü kanallar; yetkileri değiştirmeden önce alınır (bkz. syncVisibility). */
+  visibility(): Visibility {
+    const result: Visibility = new Map();
+    for (const userId of this.byUser.keys()) result.set(userId, this.permissions.visibleChannelIds(userId));
+    return result;
+  }
+
+  /**
+   * Yetki değişikliğinden sonra her bağlı kullanıcının görünümünü günceller: görmeyi kaybettiği kanal
+   * için CHANNEL_DELETE (+ oradaki ses durumlarının silinmesi), yeni gördüğü kanal için CHANNEL_CREATE
+   * (+ oradaki ses durumları). `updated` kanallar (izinleri değişen) görmeye devam edenlere CHANNEL_UPDATE
+   * olarak gider. Eski istemciler de kanal ekleme/silme olaylarını tanıdığı için doğru görünür.
+   */
+  syncVisibility(before: Visibility, updated: Iterable<string> = []): void {
+    const updatedIds = new Set(updated);
+    const channels = this.store.permissionData().channels;
+    const states = this.voice.list();
+    for (const userId of this.byUser.keys()) {
+      const prev = before.get(userId);
+      if (!prev) continue; // değişiklik sırasında bağlandı: READY zaten güncel
+      const next = this.permissions.visibleChannelIds(userId);
+      const out: GatewayServerMessage[] = [];
+      for (const id of prev) {
+        if (next.has(id)) continue;
+        for (const v of states) {
+          if (v.channelId === id && v.userId !== userId) {
+            out.push({ t: 'VOICE_STATE_DELETE', d: { userId: v.userId, channelId: id } });
+          }
+        }
+        out.push({ t: 'CHANNEL_DELETE', d: { id } });
+      }
+      for (const id of next) {
+        const channel = channels.get(id);
+        if (!channel) continue;
+        if (!prev.has(id)) {
+          out.push({ t: 'CHANNEL_CREATE', d: channel });
+          for (const v of states) if (v.channelId === id) out.push({ t: 'VOICE_STATE_UPDATE', d: v });
+        } else if (updatedIds.has(id)) {
+          out.push({ t: 'CHANNEL_UPDATE', d: channel });
+        }
+      }
+      for (const msg of out) this.sendToUsers([userId], msg);
     }
   }
 
@@ -157,9 +247,10 @@ export class Gateway {
         const channelId = String(msg.d?.channelId ?? '');
         const now = Date.now();
         if (now - (s.lastTyping.get(channelId) ?? 0) < TYPING_MIN_INTERVAL_MS) break;
-        if (this.store.getChannel(channelId)?.type !== 'text') break;
+        if (this.store.permissionData().channels.get(channelId)?.type !== 'text') break;
+        if (!this.permissions.can(s.userId, Permission.VIEW_CHANNEL | Permission.SEND_MESSAGES, channelId)) break;
         s.lastTyping.set(channelId, now);
-        this.broadcast({ t: 'TYPING_START', d: { channelId, userId: s.userId } }, s.userId);
+        this.dispatchChannel(channelId, { t: 'TYPING_START', d: { channelId, userId: s.userId } }, { except: s.userId });
         break;
       }
     }
@@ -172,18 +263,24 @@ export class Gateway {
     if (!set) this.byUser.set(user.id, (set = new Set()));
     set.add(s);
 
+    // Kullanıcı yalnızca görebildiği kanalları ve onlara ait bilgileri alır
+    const channels = this.permissions.visibleChannels(user.id);
+    const visible = new Set(channels.map((c) => c.id));
+    const onlyVisible = <T>(byChannel: Record<string, T>): Record<string, T> =>
+      Object.fromEntries(Object.entries(byChannel).filter(([channelId]) => visible.has(channelId)));
     this.send(s, {
       t: 'READY',
       d: {
         user,
-        guild: this.guild,
-        channels: this.store.listChannels(this.guild.id),
+        guild: this.store.getGuild() ?? this.guild,
+        channels,
         users: this.store.listUsers(),
-        voiceStates: this.voice.list(),
+        roles: sortRoles(Object.values(this.store.permissionData().roles)),
+        voiceStates: this.voice.list().filter((v) => visible.has(v.channelId)),
         online: [...this.byUser.keys()],
-        lastMessageIds: this.store.lastMessageIds(),
-        readStates: this.store.readStates(user.id),
-        mentionCounts: this.store.mentionCounts(user.id),
+        lastMessageIds: onlyVisible(this.store.lastMessageIds()),
+        readStates: onlyVisible(this.store.readStates(user.id)),
+        mentionCounts: onlyVisible(this.store.mentionCounts(user.id)),
         attachmentMaxBytes: this.attachmentMaxBytes,
       },
     });

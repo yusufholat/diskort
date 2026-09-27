@@ -31,7 +31,7 @@ const mentioned: Message[] = [];
 let viewing: string | null = null;
 let uploadImpl: (req: UploadRequest) => Promise<UploadResponse> = async () => ({ status: 0, body: '' });
 
-const me = { id: 'u1', username: 'ayse', displayName: 'Ayşe', avatarColor: '#fff', isAdmin: false };
+const me = { id: 'u1', username: 'ayse', displayName: 'Ayşe', avatarColor: '#fff', isAdmin: false, roles: [], removed: false };
 
 const message = (id: string, content: string, authorId = 'u2'): Message => ({
   id,
@@ -42,6 +42,7 @@ const message = (id: string, content: string, authorId = 'u2'): Message => ({
   editedAt: null,
   attachments: [],
   reactions: [],
+  mentionEveryone: false,
 });
 
 /** Gateway'den mesaj gelmiş gibi yap */
@@ -114,6 +115,13 @@ describe('gateway olayları', () => {
     receive({ t: 'MESSAGE_CREATE', d: message('11', '@ayse tekrar') });
     expect(useMessages.getState().mentionCounts.c1).toBe(1);
     expect(useMessages.getState().channels.c1!.messages.map((m) => m.id)).toEqual(['10', '11']);
+
+    // Yetkili yazarın @everyone bahsetmesi de sayılır (sunucu işaretler); işaretsiz olan sayılmaz
+    viewing = null;
+    receive({ t: 'MESSAGE_CREATE', d: { ...message('12', '@everyone akşam?'), mentionEveryone: true } });
+    receive({ t: 'MESSAGE_CREATE', d: message('13', '@everyone yetkisiz') });
+    expect(useMessages.getState().mentionCounts.c1).toBe(2);
+    expect(mentioned.map((m) => m.id)).toEqual(['10', '12']);
   });
 
   it('silinen ve düzenlenen mesajlar listeye yansır', () => {

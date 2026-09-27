@@ -110,6 +110,7 @@ export default function RootLayout() {
               <Stack.Screen name="channel/[id]" />
               {/* Ses ekranı alttan yükselir; ayarlar ve giriş yumuşakça belirir */}
               <Stack.Screen name="voice" options={{ title: 'Ses', animation: 'slide_from_bottom' }} />
+              <Stack.Screen name="members" options={{ title: 'Üyeler' }} />
               <Stack.Screen name="settings" options={{ title: 'Ayarlar' }} />
             </Stack.Protected>
             <Stack.Protected guard={!token}>

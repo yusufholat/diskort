@@ -14,7 +14,7 @@ import {
   type RemoteVideoTrack,
 } from 'livekit-client';
 import type { VoiceJoinResponse } from '@diskort/shared';
-import { api, errorMessage, useSession, gateway } from '@diskort/client-core';
+import { api, errorMessage, useGuild, useSession, gateway } from '@diskort/client-core';
 import { bridge } from '../../lib/bridge';
 import { playSound, sharedAudioContext } from '../../lib/sfx';
 import { getSettings, useSettings, type Settings } from '../../stores/settings';
@@ -36,7 +36,11 @@ export interface ScreenShareOptions {
 const STATS_INTERVAL_MS = 2000;
 const PREFETCH_TTL_MS = 60_000;
 
+/** LiveKit protokolündeki kaynak numaraları (ParticipantPermission.canPublishSources) */
+const PROTO_SOURCE = { microphone: 2, screenShare: 3 } as const;
+
 const RESET_ROOM_STATE = {
+  micAllowed: true,
   speaking: {},
   streams: {},
   watching: {},
@@ -77,6 +81,8 @@ class VoiceClient {
   private joinSeq = 0;
   private remoteSpeaking = new Set<string>();
   private selfSpeaking = false;
+  /** Katılırken ya da izin gelince mikrofon yayınlanıyor (iki kez yayınlanmasın) */
+  private micStarting = false;
   private prefetched: { channelId: string; at: number; response: Promise<VoiceJoinResponse> } | null = null;
   private readonly audioSink: HTMLDivElement;
 
@@ -88,6 +94,13 @@ class VoiceClient {
     useSettings.subscribe((next, prev) => this.onSettingsChanged(next, prev));
     gateway.on((msg) => {
       if (msg.t === 'READY') this.syncVoiceState();
+      // Yetkili biri seni başka ses kanalına taşıdı: o kanala geç
+      if (msg.t === 'VOICE_MOVE' && useVoice.getState().channelId) void this.join(msg.d.channelId);
+    });
+    // Sunucuda sağırlaştırılınca kimse duyulmaz (dinleme LiveKit'te kesilmez, istemci uygular)
+    useGuild.subscribe((next, prev) => {
+      const selfId = useSession.getState().user?.id;
+      if (selfId && next.voiceStates[selfId]?.serverDeaf !== prev.voiceStates[selfId]?.serverDeaf) this.applyVolumes();
     });
   }
 
@@ -146,11 +159,11 @@ class VoiceClient {
         for (const pub of p.trackPublications.values()) this.onPublication(pub, p);
       }
       this.applyVolumes();
-      setVoice({ status: 'connected' });
+      setVoice({ status: 'connected', micAllowed: this.canPublish(room, PROTO_SOURCE.microphone) });
       playSound('join');
       this.startStats();
       this.syncVoiceState();
-      await this.publishMic(room);
+      await this.startMic(room);
     } catch (err) {
       if (seq !== this.joinSeq) return;
       await this.teardownRoom();
@@ -228,7 +241,60 @@ class VoiceClient {
     };
   }
 
+  /**
+   * LiveKit bu kaynağı yayınlamaya izin veriyor mu. Sunucu izni kanaldaki yetkilere göre verir
+   * (SPEAK → mikrofon, STREAM → ekran) ve sunucuda susturulunca mikrofon iznini alır.
+   */
+  private canPublish(room: Room, source: number): boolean {
+    const p = room.localParticipant.permissions;
+    if (!p) return true;
+    return p.canPublish && (p.canPublishSources.length === 0 || p.canPublishSources.includes(source as never));
+  }
+
+  /** Mikrofon açılamıyorsa kullanıcıya gösterilecek neden */
+  micBlockedReason(): string {
+    const selfId = useSession.getState().user?.id;
+    const state = selfId ? useGuild.getState().voiceStates[selfId] : undefined;
+    return state?.serverMute || state?.serverDeaf
+      ? 'Sunucuda susturuldun; mikrofonunu yalnızca yetkili biri açabilir.'
+      : 'Bu kanalda konuşma iznin yok.';
+  }
+
+  /** İzinler değişti (rol, kanal izni, sunucuda susturma): mikrofonu ve yayını ona göre aç/kapat. */
+  private async onPermissionsChanged(room: Room): Promise<void> {
+    const micAllowed = this.canPublish(room, PROTO_SOURCE.microphone);
+    setVoice({ micAllowed });
+    if (!micAllowed && this.mic) {
+      const old = this.mic;
+      const oldProcessor = this.processor;
+      this.mic = null;
+      this.processor = null;
+      await room.localParticipant.unpublishTrack(old, true).catch(() => undefined);
+      old.stop();
+      await oldProcessor?.destroy().catch(() => undefined);
+      if (this.selfSpeaking) {
+        this.selfSpeaking = false;
+        this.publishSpeaking();
+      }
+    } else if (micAllowed && !this.mic && useVoice.getState().status === 'connected') {
+      await this.startMic(room);
+    }
+    if (this.screen && !this.canPublish(room, PROTO_SOURCE.screenShare)) await this.stopScreenShare();
+  }
+
+  private async startMic(room: Room): Promise<void> {
+    if (this.micStarting) return;
+    this.micStarting = true;
+    try {
+      await this.publishMic(room);
+    } finally {
+      this.micStarting = false;
+    }
+  }
+
   private async publishMic(room: Room): Promise<void> {
+    // Konuşma izni yoksa (ya da sunucuda susturulduysa) yalnızca dinlenir; izin gelince yayınlanır
+    if (!this.canPublish(room, PROTO_SOURCE.microphone)) return;
     const s = getSettings();
     let track: LocalAudioTrack | null = null;
     try {
@@ -305,6 +371,10 @@ class VoiceClient {
 
   toggleMute(): void {
     const s = getSettings();
+    if (!useVoice.getState().micAllowed && useVoice.getState().status !== 'idle') {
+      setVoice({ error: this.micBlockedReason() });
+      return;
+    }
     if (s.selfDeaf) {
       s.set({ selfDeaf: false, selfMute: false });
       playSound('undeafen');
@@ -353,10 +423,12 @@ class VoiceClient {
     const room = this.room;
     if (!room) return;
     const s = getSettings();
+    const selfId = useSession.getState().user?.id;
+    const deaf = s.selfDeaf || (selfId !== undefined && useGuild.getState().voiceStates[selfId]?.serverDeaf === true);
     for (const p of room.remoteParticipants.values()) {
-      const silenced = s.selfDeaf || s.localMutes[p.identity] === true;
+      const silenced = deaf || s.localMutes[p.identity] === true;
       p.setVolume(silenced ? 0 : (s.userVolumes[p.identity] ?? 1), Track.Source.Microphone);
-      p.setVolume(s.selfDeaf ? 0 : (s.streamVolumes[p.identity] ?? 1), Track.Source.ScreenShareAudio);
+      p.setVolume(deaf ? 0 : (s.streamVolumes[p.identity] ?? 1), Track.Source.ScreenShareAudio);
     }
   }
 
@@ -444,6 +516,9 @@ class VoiceClient {
       })
       .on(RoomEvent.AudioPlaybackStatusChanged, () => {
         if (!room.canPlaybackAudio) void room.startAudio().catch(() => undefined);
+      })
+      .on(RoomEvent.ParticipantPermissionsChanged, (_prev, p) => {
+        if (p.isLocal && room === this.room) void this.onPermissionsChanged(room);
       })
       .on(RoomEvent.Disconnected, (reason) => {
         if (room !== this.room) return; // kendi başlattığımız ayrılma

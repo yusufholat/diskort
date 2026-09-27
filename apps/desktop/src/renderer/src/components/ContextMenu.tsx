@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Check } from 'lucide-react';
 import { useGuild } from '@diskort/client-core';
 import { useSettings } from '../stores/settings';
 import { useUi } from '../stores/ui';
@@ -61,36 +62,62 @@ export function ContextMenu() {
       ref={ref}
       role="menu"
       className={cn(
-        'fixed z-50 min-w-[200px] rounded-md border border-black/30 bg-bg-float p-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
+        'fixed z-50 max-h-[calc(100vh-16px)] min-w-[200px] overflow-y-auto rounded-md border border-black/30 bg-bg-float p-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
         closing ? 'anim-pop-out pointer-events-none' : 'anim-pop-in',
       )}
       style={{ left: pos.x, top: pos.y, transformOrigin: pos.origin }}
       onContextMenu={(e) => e.preventDefault()}
     >
       {shown.userId && <UserAudioControls userId={shown.userId} />}
-      {shown.userId && shown.items?.length ? <div className="mx-1 my-1 h-px bg-line/70" /> : null}
-      {shown.items?.map((item) => (
-        <button
-          key={item.label}
-          role="menuitem"
-          disabled={item.disabled}
-          className={cn(
-            'flex w-full items-center gap-4 rounded-[3px] px-2 py-1.5 text-left text-sm transition-colors duration-75 outline-none disabled:cursor-default disabled:opacity-40',
-            item.danger
-              ? 'text-danger enabled:hover:bg-danger enabled:hover:text-white enabled:focus-visible:bg-danger enabled:focus-visible:text-white'
-              : 'enabled:hover:bg-brand enabled:hover:text-white enabled:focus-visible:bg-brand enabled:focus-visible:text-white',
-          )}
-          // Odak olduğu yerde kalsın (ör. sağ tıklanan metin kutusunda "Yapıştır" için)
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            close();
-            item.onClick();
-          }}
-        >
-          <span className="flex-1">{item.label}</span>
-          {item.hint && <span className="text-xs opacity-60">{item.hint}</span>}
-        </button>
-      ))}
+      {shown.userId && shown.items?.length && !shown.items[0]?.heading ? <div className="mx-1 my-1 h-px bg-line/70" /> : null}
+      {shown.items?.map((item, i) =>
+        item.heading ? (
+          <div
+            key={`${i}-${item.label}`}
+            className={cn(
+              'px-2 pt-1.5 pb-1 text-[11px] font-bold text-text-muted uppercase',
+              (i > 0 || shown.userId) && 'mt-1 border-t border-line/60 pt-2',
+            )}
+          >
+            {item.label}
+          </div>
+        ) : (
+          <button
+            key={`${i}-${item.label}`}
+            role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+            aria-checked={item.checked}
+            disabled={item.disabled}
+            className={cn(
+              'group/item flex w-full items-center gap-2 rounded-[3px] px-2 py-1.5 text-left text-sm transition-colors duration-75 outline-none disabled:cursor-default disabled:opacity-40',
+              item.danger
+                ? 'text-danger enabled:hover:bg-danger enabled:hover:text-white enabled:focus-visible:bg-danger enabled:focus-visible:text-white'
+                : 'enabled:hover:bg-brand enabled:hover:text-white enabled:focus-visible:bg-brand enabled:focus-visible:text-white',
+            )}
+            // Odak olduğu yerde kalsın (ör. sağ tıklanan metin kutusunda "Yapıştır" için)
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              close();
+              item.onClick?.();
+            }}
+          >
+            {item.color !== undefined && (
+              <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: item.color ?? '#99aab5' }} />
+            )}
+            <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            {item.hint && <span className="ml-2 text-xs opacity-60">{item.hint}</span>}
+            {item.checked !== undefined && (
+              <span
+                className={cn(
+                  'flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] border',
+                  item.checked ? 'border-brand bg-brand text-white group-hover/item:border-white' : 'border-text-muted',
+                )}
+              >
+                {item.checked && <Check size={12} strokeWidth={3} />}
+              </span>
+            )}
+          </button>
+        ),
+      )}
     </div>
   );
 }

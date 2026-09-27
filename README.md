@@ -29,7 +29,11 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
   sunucu 256×256 WebP'ye çevirir (konum dahil üst veriler silinir), değişiklik herkese anında yansır.
   Fotoğraf yoksa baş harfler ve profil rengi
 - **Davet kodu + hesap** sistemi; **şifre sıfırlama** (yöneticinin verdiği tek kullanımlık kodla) ve şifre değiştirme
-- **Yönetici paneli:** davetler, kanallar, üyeler (sıfırlama kodu, yöneticilik, sesten atma, hesap silme)
+- **Roller ve yetkiler** (Discord gibi): renkli, sıralı roller, üye listesinde ayrı gösterme, 19 yetki,
+  kanal başına rol izinleri (özel, salt okunur kanallar, yalnızca bazı rollerin girebildiği ses kanalları),
+  hiyerarşi; sunucuda susturma/sağırlaştırma, başka kanala taşıma, sesten çıkarma, atma ve yasaklama
+  (ayrıntılar: [Roller ve yetkiler](#roller-ve-yetkiler))
+- **Sunucu Ayarları** (sunucu adının yanındaki menü): genel, roller, üyeler, davetler, yasaklar
 - **Yedek bağlantı:** doğrudan UDP kurulamayan ağlarda TURN/UDP 3478, yalnızca 443'e izin veren ağlarda
   (okul, yurt, iş yeri) TURN/TLS 443 — röle üzerinden gecikme doğrudan bağlantıya göre ~2 ms fazla (ölçüldü)
 - Tepsiye küçültme, başlangıçta açılma, otomatik güncelleme
@@ -39,12 +43,71 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
 | Ses, mute/deafen | ✅ | ✅ | ✅ | ✅ (hoparlör/ahize, ekran kilitliyken de) |
 | Metin kanalları | ✅ | ✅ | ✅ | ✅ |
 | Tepkiler, dosya/resim paylaşımı | ✅ | ✅ | ✅ | ✅ |
+| Rol renkleri, üye listesi, gizli kanallar | ✅ | ✅ | ✅ | ✅ |
+| Seste yönetim (sustur, taşı, çıkar), at/yasakla, mesaj silme | ✅ | ✅ | ✅ | ✅ (uzun basınca) |
+| Rol ve kanal izni düzenleme (Sunucu Ayarları) | ✅ | ✅ | ✅ | ❌ (şimdilik masaüstünde) |
 | Ekran/pencere paylaşımı | ✅ | ✅ (Wayland'da sistem seçicisi) | ✅ (sistem seçicisi) | yalnızca izleme (paylaşma planlı) |
 | Yayına sistem sesi | ✅ | ❌ (planlı) | ❌ (planlı) | — |
 | Global kısayollar / bas-konuş | ✅ | ✅ X11 · ⚠️ Wayland | ✅ (Erişilebilirlik izni) | — |
 | Paket | NSIS kurulum (x64) | AppImage, .deb (x64) | .dmg (Apple Silicon, Intel) | APK (Android 7+) |
 | Otomatik güncelleme | ✅ | ✅ | ❌ (Apple imzası gerekir; indirme sayfasından) | ✅ arayüz kablosuz (OTA), yerel kısım APK ile |
 | Kod imzası | ❌ (SmartScreen uyarısı, yalnızca ilk kurulumda) | — | ad-hoc (ilk açılışta “Yine de Aç”) | kendi anahtarımız |
+
+## Roller ve yetkiler
+
+Discord'un modeli, 10–20 kişilik bir arkadaş grubuna göre sadeleştirildi. Hesaplama sunucuda ve istemcilerde
+aynı koddur (`packages/shared/src/permissions.ts`); sunucu her isteği ve gateway olayını denetler, istemciler
+yalnızca yapılamayacak düğmeleri gizler.
+
+- **Roller:** ad, renk, sıra, "üyeleri ayrı göster" ve yetkiler. Herkeste örtük **@everyone** rolü vardır
+  (kimliği topluluğun kimliğidir). Üyenin adının rengi renkli rollerinden en üsttekinin rengidir; üye listesi
+  ayrı gösterilen en üst rolüne göre gruplanır.
+- **Sahip:** ilk kayıt olan (eski kurulumlarda en eski yönetici). Her yetkiye sahiptir, herkesin üstündedir;
+  kimse onu atamaz, yasaklayamaz, rollerini değiştiremez. Hesabını silmeden önce Sunucu Ayarları > Genel'den
+  sahipliği devretmelidir.
+- **Hiyerarşi:** yalnızca kendi en üst rolünün altındaki rolleri düzenleyip verebilir, yalnızca en üst rolü
+  kendisininkinden aşağıda olan üyeleri yönetebilir (at, yasakla, sustur, taşı…). Kimse kendinde olmayan bir
+  yetkiyi (rol ya da kanal izni yoluyla) veremez; yönetici hariç.
+
+| Grup | Yetki | @everyone'da |
+|---|---|---|
+| Genel | Yönetici (her şey, kanal izinlerini aşar), Sunucuyu Yönet (ad), Rolleri Yönet (roller + kanal izinleri), Kanalları Yönet, Davetleri Yönet, Üyeleri At, Üyeleri Yasakla | yok |
+| Metin | Kanalları Gör, Mesaj Gönder, Dosya Ekle, Tepki Ekle | var |
+| Metin | @everyone Bahset (kanalı gören herkese bildirim) | var |
+| Metin | Mesajları Yönet (başkasının mesajını sil) | yok |
+| Ses | Bağlan, Konuş, Ekran Paylaş | var |
+| Ses | Üyeleri Sustur, Üyeleri Sağırlaştır, Üyeleri Taşı (sesten çıkarma dahil) | yok |
+
+**Kanal izinleri** rol başına "izin ver / varsayılan / engelle"dir. Sıra Discord'daki gibi: @everyone'ın rol
+yetkileri → kanalın @everyone izni → üyenin rollerinin kanal izinleri (izin verme engellemeye üstün gelir).
+Kanalı göremeyen kanalda hiçbir şey yapamaz; mesaj gönderemeyen dosya ekleyemez ve @everyone kullanamaz;
+bağlanamayan ses yetkilerini kullanamaz. Kanal düzenleme penceresindeki "Özel kanal" kısayolu @everyone'dan
+kanalı görmeyi alır.
+
+**Görünürlük:** kullanıcı yalnızca görebildiği kanalları, onların mesajlarını, tepkilerini, "yazıyor"unu ve ses
+durumlarını alır (READY ve tüm gateway olayları süzülür, REST 404 döner). Rol ya da izin değişince bağlı herkesin
+görünümü anında güncellenir (kanal eklenir/kalkar). Dosya ekleri kimlik doğrulamasız ama tahmin edilemeyen
+adreslerdendir: adresi önceden bilen, kanalı göremez olsa da dosyayı açabilir.
+
+**Ses:** LiveKit jetonu ve bağlı katılımcının izni kanaldaki yetkilerden gelir (Konuş → mikrofon, Ekran Paylaş →
+ekran ve sesi). Sunucuda susturulan üyenin mikrofon izni LiveKit'te alınır (mikrofonu kendisi açamaz, değiştirilmiş
+bir istemciyle de); sunucuda sağırlaştırma mikrofonu da alır, duymayı ise uygulama keser. Susturma kalıcıdır
+(kanaldan çıkıp girince de sürer). Kendi sunucumuzdaki LiveKit katılımcı taşımayı desteklemediği için **taşıma**
+istemci üzerindendir: sunucu hedef kanala bağlanabildiğini denetler, istemciye `VOICE_MOVE` gönderir, istemci o
+kanala geçer. Bağlanma yetkisini kaybeden (ya da atılan) sesten çıkarılır.
+
+**Atma ve yasaklama** (tek topluluk, hesap = üyelik): atılanın oturumları kapanır, rolleri ve bildirim
+jetonları silinir; hesabı ve mesajları (adıyla) kalır. Geri dönmek için yeni bir davet koduyla "Kayıt ol"
+ekranında **kendi kullanıcı adı ve şifresiyle** kaydolur (hesap geri gelir, roller gelmez). Yasaklanan ayrıca
+giriş yapamaz ve davetle dönemez; yasak Sunucu Ayarları > Yasaklar'dan kaldırılınca atılmış sayılır. Yasak hesaba
+bağlıdır: davet kodu olmadan kimse yeni hesap açamadığı için ona yeni davet verilmemesi yeterlidir. "Hesabı sil"
+(yalnızca yönetici) ise hesabı kalıcı olarak siler.
+
+**Rollerden önceki sürümlerden geçiş (şema 8):** yöneticiler "Yönetici" rolüne (Yönetici yetkisi) geçer, en eski
+yönetici sahip olur; diğer herkesin bugünkü yetkileri @everyone'da kalır ve hiçbir kanalın izni olmadığından
+herkes her kanalı görmeye devam eder. `users.is_admin` artık rollerden hesaplanır ve eski sürüme dönülürse diye
+güncel tutulur. Rollerden önceki istemciler çalışmaya devam eder (`isAdmin` alanı ve "yönetici yap" isteği
+yönetici rolünü verir/alır; yeni olayları tanımadan geçerler).
 
 ## Mimari
 
@@ -285,7 +348,7 @@ Yalnızca Windows paketini kendi bilgisayarından yüklemek için: `pnpm release
 
 - Kod imzalama (Windows: Certum Open Source veya SignPath Foundation; macOS: Apple Developer ID)
 - Mesaj arama, özel (sunucuya ait) emojiler, satır içi video oynatma
-- Roller ve yetkiler, özel mesajlar (DM)
+- Özel mesajlar (DM); Android'de rol ve kanal izni düzenleme
 - Kamera, Linux/macOS'ta yayın sesi, mobil uygulama
 - Birden çok topluluk (sunucu) desteği — veri modeli hazır (`guilds` tablosu)
 

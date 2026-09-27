@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
-import { discardMessage, mentions, retryMessage, toggleReaction, type LocalMessage } from '@diskort/client-core';
+import { discardMessage, isMentioned, retryMessage, toggleReaction, useMemberColor, type LocalMessage } from '@diskort/client-core';
 import type { User } from '@diskort/shared';
 import { useAppear } from '../motion';
 import { colors } from '../theme';
@@ -50,7 +50,8 @@ export const MessageRow = memo(function MessageRow({
   onLongPress,
   animateIn = false,
 }: Props) {
-  const mentioned = message.authorId !== self.id && mentions(message.content, self.username);
+  const mentioned = isMentioned(message, self);
+  const authorColor = useMemberColor(message.authorId);
   const appear = useAppear(animateIn, 240);
   // Satır ekrandayken eklenen tepkiler animasyonla belirir
   const mounted = useRef(false);
@@ -85,7 +86,10 @@ export const MessageRow = memo(function MessageRow({
         <View style={styles.body}>
           {!compact && (
             <View style={styles.header}>
-              <Text style={[styles.author, !author && styles.deleted]} numberOfLines={1}>
+              <Text
+                style={[styles.author, !author && styles.deleted, author && authorColor ? { color: authorColor } : null]}
+                numberOfLines={1}
+              >
                 {author?.displayName ?? 'Silinmiş Kullanıcı'}
               </Text>
               <Text style={styles.time}>{stamp(message.createdAt)}</Text>
