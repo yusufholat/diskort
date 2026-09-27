@@ -1,5 +1,5 @@
 import { Children, Fragment, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Animated, Keyboard, Modal, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Keyboard, Modal, PanResponder, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EASE_IN, prefersReducedMotion, timing, usePresence } from '../motion';
@@ -27,6 +27,7 @@ export function BottomSheet({
   avoidKeyboard?: boolean;
 }) {
   const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
   const mounted = usePresence(visible, CLOSE_MS);
   const progress = useRef(new Animated.Value(0)).current;
   const drag = useRef(new Animated.Value(0)).current;
@@ -76,7 +77,8 @@ export function BottomSheet({
         onLayout={(e) => setHeight(e.nativeEvent.layout.height)}
         style={[
           styles.sheet,
-          { paddingBottom: insets.bottom + 16, transform: [{ translateY }] },
+          // Her sayfanın yüksekliği sınırlı: içerik ne kadar uzun olursa olsun tutamaç ve başlık ekranda kalır
+          { paddingBottom: insets.bottom + 16, maxHeight: window.height - insets.top - 24, transform: [{ translateY }] },
           keyboard.overlap > 0 && {
             bottom: keyboard.overlap,
             paddingBottom: 8,

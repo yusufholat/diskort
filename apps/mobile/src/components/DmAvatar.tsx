@@ -14,12 +14,30 @@ function groupColor(id: string): string {
 }
 
 /** Konuşmanın resmi: bire bir konuşmada karşı tarafın profil fotoğrafı (çevrimiçi noktasıyla), grupta simge */
-export function DmAvatar({ dm, size = 40, status = false }: { dm: DmChannel; size?: number; status?: boolean }) {
+export function DmAvatar({
+  dm,
+  size = 40,
+  status = false,
+  surfaceColor,
+}: {
+  dm: DmChannel;
+  size?: number;
+  status?: boolean;
+  /** Çevrimiçi noktasının halkası: avatarın durduğu yüzeyin rengi */
+  surfaceColor?: string;
+}) {
   const selfId = useSession((s) => s.user?.id);
   const partner = useGuild((s) => dmPartner(dm, s.users, selfId));
   const online = useGuild((s) => (partner ? Boolean(s.online[partner.id]) : false));
   if (!dm.group) {
-    return <Avatar user={partner} size={size} online={status && partner && !partner.removed ? online : undefined} />;
+    return (
+      <Avatar
+        user={partner}
+        size={size}
+        online={status && partner && !partner.removed ? online : undefined}
+        surface={surfaceColor}
+      />
+    );
   }
   return (
     <View

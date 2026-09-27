@@ -1,20 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Animated,
   AppState,
   FlatList,
-  KeyboardAvoidingView,
   Pressable,
   StyleSheet,
   Text,
   View,
+  type ListRenderItem,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  type ViewToken,
 } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
-import { Ionicons } from '@expo/vector-icons';
-import { DM_GROUP_MAX_PARTICIPANTS, Permission } from '@diskort/shared';
+import { Feather, Ionicons } from '@expo/vector-icons';
+import { DM_GROUP_MAX_PARTICIPANTS, Permission, type DmChannel, type User } from '@diskort/shared';
 import {
   ackChannel,
   clearJump,
@@ -33,18 +35,24 @@ import {
   useSession,
   type LocalMessage,
 } from '@diskort/client-core';
-import type { User } from '@diskort/shared';
-import { BottomSheet } from '../../components/BottomSheet';
+import { CountBadge } from '../../components/Badge';
+import { BottomSheet, SheetGroup, SheetItem } from '../../components/BottomSheet';
 import { Composer } from '../../components/Composer';
-import { PressableScale } from '../../components/PressableScale';
-import { MessageSkeleton } from '../../components/Skeleton';
-import { animateNextLayout } from '../../motion';
+import { ConnectionBanner } from '../../components/ConnectionBanner';
+import { DmAvatar } from '../../components/DmAvatar';
 import { EmojiGrid } from '../../components/EmojiGrid';
+import { HeaderButton } from '../../components/HeaderButton';
 import type { MarkdownContext } from '../../components/Markdown';
 import { MessageRow, sameDay } from '../../components/MessageRow';
+import { PressableScale } from '../../components/PressableScale';
+import { MessageSkeleton } from '../../components/Skeleton';
+import { ErrorState } from '../../components/States';
+import { TypingDots } from '../../components/TypingDots';
 import { VoiceBar } from '../../components/VoiceBar';
+import { useKeyboardInset } from '../../keyboard';
+import { animateNextLayout, useSpringTo, useTimingTo } from '../../motion';
 import { toast, useUi } from '../../stores/ui';
-import { colors } from '../../theme';
+import { colors, font, radius, space } from '../../theme';
 
 const GROUP_WINDOW_MS = 7 * 60_000;
 const EMPTY: LocalMessage[] = [];
@@ -52,11 +60,24 @@ const EMPTY: LocalMessage[] = [];
 // yani ekranın açılamamasına yol açar.
 const NO_REACTIONS: NonNullable<LocalMessage['reactions']> = [];
 const keyOf = (m: LocalMessage): string => m.nonce ?? m.id;
+/** Alttan bu kadar yukarıdaysa "en altta" sayılmaz (aşağı atla düğmesi görünür) */
+const BOTTOM_THRESHOLD = 60;
+/** Yazıyor şeridinin yüksekliği: listenin altında bu kadar boşluk bırakılır, son mesaj örtülmez */
+const TYPING_HEIGHT = 22;
+
+/** Listede bir satır: mesaj ve üstündeki ayraçlar/gruplama (ters sırada; en yeni en başta) */
+interface Row {
+  message: LocalMessage;
+  compact: boolean;
+  dayBreak: boolean;
+  newDivider: boolean;
+}
 
 /** Metin kanalı ya da direkt mesaj konuşması (kimlik bir konuşmanınsa) */
 export default function TextChannelScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const channel = useGuild((s) => s.channels.find((c) => c.id === id));
   const self = useSession((s) => s.user);
   const dm = useGuild((s) => (id ? s.dms[id] : undefined));
@@ -77,7 +98,6 @@ export default function TextChannelScreen() {
   const loading = useMessages((s) => (id ? s.channels[id]?.loading : false) ?? false);
   const lastId = useGuild((s) => (id ? s.lastMessageIds[id] : undefined));
   const readId = useGuild((s) => (id ? s.readStates[id] : undefined));
-  const typing = useMessages((s) => (id ? s.typing[id] : undefined));
   // Başkasının mesajını silmek ve yeni tepki eklemek kanaldaki yetkiye bağlı
   const canManageMessages = useCan(Permission.MANAGE_MESSAGES, id);
   const canReact = useCan(Permission.ADD_REACTIONS, id);
@@ -90,11 +110,17 @@ export default function TextChannelScreen() {
   const [active, setActive] = useState(AppState.currentState === 'active');
   const [menuFor, setMenuFor] = useState<LocalMessage | null>(null);
   const [editing, setEditing] = useState<LocalMessage | null>(null);
-  const list = useRef<FlatList<LocalMessage>>(null);
+  // Geçmiş yüklenemedi (bağlantı yok): iskelet yerine hata ve "Tekrar dene"
+  const [failed, setFailed] = useState(false);
+  const list = useRef<FlatList<Row>>(null);
+  const keyboard = useKeyboardInset();
 
-  useEffect(() => {
-    if (id) void loadInitial(id);
+  const load = useCallback(() => {
+    if (!id) return;
+    setFailed(false);
+    void loadInitial(id).then(() => setFailed(!useMessages.getState().channels[id]?.loaded));
   }, [id]);
+  useEffect(load, [load]);
 
   // Bu kanal ekrandayken bahsetmeler bildirim yerine doğrudan okunur
   useFocusEffect(
@@ -109,28 +135,87 @@ export default function TextChannelScreen() {
     return () => sub.remove();
   }, []);
 
+  const watching = active && atBottom;
+
   // Ekran açık, uygulama önde ve en alttayken okundu say
   useEffect(() => {
-    if (id && loaded && active && atBottom && lastId && Number(lastId) > Number(readId ?? 0)) ackChannel(id);
-  }, [id, loaded, active, atBottom, lastId, readId]);
+    if (id && loaded && watching && lastId && Number(lastId) > Number(readId ?? 0)) ackChannel(id);
+  }, [id, loaded, watching, lastId, readId]);
+
+  // Kanal açıldığında okunmamış ilk mesajın üstüne "YENİ" ayracı konur (masaüstündeki gibi);
+  // bakmıyorken (aşağıda değilken ya da uygulama arkadayken) gelen ilk mesaj için de.
+  const readAtOpen = useRef(readId);
+  const dividerDecided = useRef(false);
+  const [dividerId, setDividerId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!loaded || !self) return;
+    if (!dividerDecided.current) {
+      dividerDecided.current = true;
+      const first = messages.find(
+        (m) => !m.status && m.authorId !== self.id && Number(m.id) > Number(readAtOpen.current ?? 0),
+      );
+      setDividerId(first?.id ?? null);
+      return;
+    }
+    if (!watching && dividerId === null && lastId && Number(lastId) > Number(readId ?? 0)) {
+      const first = messages.find((m) => !m.status && m.authorId !== self.id && Number(m.id) > Number(readId ?? 0));
+      if (first) setDividerId(first.id);
+    }
+  }, [loaded, messages, watching, dividerId, lastId, readId, self]);
 
   const md: MarkdownContext = useMemo(
     () => ({ usersByName: Object.fromEntries(Object.values(users).map((u) => [u.username, u])), selfId: self?.id }),
     [users, self?.id],
   );
 
-  // Ters liste: en yeni mesaj en altta (indeks 0)
-  const data = useMemo(() => [...messages].reverse(), [messages]);
+  // Ters liste: en yeni mesaj en altta (indeks 0). Gruplama ve ayraçlar burada bir kez hesaplanır;
+  // satır bileşenine yalnızca ilkel değerler gider (memo'lu satırlar gereksiz yere çizilmez).
+  const rows = useMemo(() => {
+    const out: Row[] = [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const item = messages[i]!;
+      const older = messages[i - 1];
+      const dayBreak = !older || !sameDay(older.createdAt, item.createdAt);
+      const newDivider = dividerId !== null && item.id === dividerId;
+      // Yanıt her zaman başlıklı gösterilir (üstünde alıntısı olur); "YENİ" ayracından sonra da
+      const compact =
+        !!older &&
+        !dayBreak &&
+        !newDivider &&
+        !item.replyToId &&
+        older.authorId === item.authorId &&
+        older.status !== 'failed' &&
+        item.createdAt - older.createdAt < GROUP_WINDOW_MS;
+      out.push({ message: item, compact, dayBreak, newDivider });
+    }
+    return out;
+  }, [messages, dividerId]);
+
+  const dividerIndex = useMemo(() => (dividerId ? rows.findIndex((r) => r.message.id === dividerId) : -1), [rows, dividerId]);
+  // Ayraç ekranda göründü mü (göründüyse üstteki "yeni mesajlar" şeridi kapanır)
+  const [dividerSeen, setDividerSeen] = useState(false);
+  const dividerRef = useRef(dividerIndex);
+  dividerRef.current = dividerIndex;
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken<Row>[] }) => {
+    const at = dividerRef.current;
+    if (at < 0) return;
+    if (viewableItems.some((v) => v.index !== null && v.index >= at)) setDividerSeen(true);
+  }).current;
 
   // Yanıtın alıntısına dokununca asıl mesaja kaydır (yüklü değilse çekirdek önce geçmişi yükler)
+  const pendingPosition = useRef(0.5);
+  const scrollToRow = useCallback((index: number, viewPosition: number) => {
+    pendingPosition.current = viewPosition;
+    list.current?.scrollToIndex({ index, viewPosition, animated: true });
+  }, []);
   useEffect(() => {
     if (!jump || jump.channelId !== id) return;
-    const index = data.findIndex((m) => m.id === jump.messageId && !m.status);
+    const index = rows.findIndex((r) => r.message.id === jump.messageId && !r.message.status);
     if (index < 0) return;
     clearJump(jump.seq);
-    list.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+    scrollToRow(index, 0.5);
     setFlash({ id: jump.messageId, seq: jump.seq });
-  }, [jump, data, id]);
+  }, [jump, rows, id, scrollToRow]);
 
   // Yeni gelen mesajlar animasyonla belirir; geçmiş yüklenirken, eski mesajlar eklenirken ve
   // bekleyen mesajımız onaylanırken (anahtarı değişir) oynatılmaz.
@@ -159,134 +244,178 @@ export default function TextChannelScreen() {
     armed.current = loaded;
   }, [messages, loaded]);
 
-  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>): void => {
-    setAtBottom(e.nativeEvent.contentOffset.y < 40);
-  };
+  // Aşağıdan ayrılınca gelen (başkalarının) mesajları sayılır: aşağı atla düğmesindeki sayı
+  const [leftAt, setLeftAt] = useState<string | null>(null);
+  const unseen = useMemo(() => {
+    if (atBottom || leftAt === null) return 0;
+    let n = 0;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]!;
+      if (m.status) continue;
+      if (Number(m.id) <= Number(leftAt)) break;
+      if (m.authorId !== self?.id) n++;
+    }
+    return n;
+  }, [atBottom, leftAt, messages, self?.id]);
 
-  const typingNames = Object.keys(typing ?? {})
-    .filter((uid) => uid !== self?.id)
-    .map((uid) => users[uid]?.displayName)
-    .filter(Boolean) as string[];
+  const atBottomRef = useRef(true);
+  const onScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>): void => {
+      const bottom = e.nativeEvent.contentOffset.y < BOTTOM_THRESHOLD;
+      if (bottom === atBottomRef.current) return;
+      atBottomRef.current = bottom;
+      if (!bottom) {
+        // Ayrılırken görülen en yeni mesaj: bundan sonra gelenler sayılır
+        const all = (id ? useMessages.getState().channels[id]?.messages : undefined) ?? EMPTY;
+        let newest = '0';
+        for (let i = all.length - 1; i >= 0; i--) {
+          if (!all[i]!.status) {
+            newest = all[i]!.id;
+            break;
+          }
+        }
+        setLeftAt(newest);
+      }
+      setAtBottom(bottom);
+    },
+    [id],
+  );
+
+  const scrollToBottom = useCallback(() => list.current?.scrollToOffset({ offset: 0, animated: true }), []);
+
+  const typingNames = useTypingNames(id, self?.id);
+
+  const renderItem: ListRenderItem<Row> = useCallback(
+    ({ item }) => (
+      <MessageRow
+        message={item.message}
+        author={item.message.authorId ? users[item.message.authorId] : undefined}
+        compact={item.compact}
+        dayBreak={item.dayBreak}
+        newDivider={item.newDivider}
+        self={self!}
+        md={md}
+        onLongPress={setMenuFor}
+        animateIn={fresh.has(keyOf(item.message))}
+        flash={flash?.id === item.message.id ? flash.seq : 0}
+      />
+    ),
+    [users, self, md, fresh, flash],
+  );
+
+  const canAddPeople = dm?.group === true && dm.participantIds.length < DM_GROUP_MAX_PARTICIPANTS;
+  // Başlık seçenekleri yalnızca değişince yeniden verilir (her mesajda başlık çubuğu yeniden kurulmaz)
+  const screenOptions = useMemo(
+    () => ({
+      headerTitle: () => (dm ? <DmTitle dm={dm} name={dmName} /> : <ChannelTitle name={channel?.name ?? ''} />),
+      headerRight: () =>
+        dm ? (
+          canAddPeople ? (
+            <HeaderButton
+              icon="person-add"
+              label="Kişi ekle"
+              size={21}
+              onPress={() => router.push({ pathname: '/dm-new', params: { addTo: dm.id } })}
+            />
+          ) : null
+        ) : (
+          <HeaderButton icon="people" label="Üyeler" size={22} onPress={() => router.push('/members')} />
+        ),
+    }),
+    [dm, dmName, channel?.name, canAddPeople, router],
+  );
 
   if (!target || !self || !id) {
     return <View style={styles.page} />;
   }
 
-  const canAddPeople = dm?.group === true && dm.participantIds.length < DM_GROUP_MAX_PARTICIPANTS;
+  const showNewBar = dividerIndex >= 8 && !dividerSeen;
 
   return (
-    <SafeAreaView style={styles.page} edges={['bottom']}>
-      <Stack.Screen
-        options={{
-          title: channel ? `# ${channel.name}` : label,
-          headerRight:
-            canAddPeople && dm
-              ? () => (
-                  <PressableScale
-                    scaleTo={0.8}
-                    hitSlop={10}
-                    accessibilityLabel="Kişi ekle"
-                    onPress={() => router.push({ pathname: '/dm-new', params: { addTo: dm.id } })}
-                  >
-                    <Ionicons name="person-add" size={21} color={colors.muted} />
-                  </PressableScale>
-                )
-              : undefined,
+    <View
+      ref={keyboard.ref}
+      onLayout={keyboard.onLayout}
+      style={[styles.page, { paddingBottom: keyboard.open ? keyboard.inset : insets.bottom }]}
+    >
+      <Stack.Screen options={screenOptions} />
+      <ConnectionBanner />
+      <View style={styles.listArea}>
+        {failed && messages.length === 0 ? (
+          <ErrorState text="Mesajlar yüklenemedi. Bağlantını denetleyip yeniden dene." onRetry={load} />
+        ) : (
+          <FlatList
+            ref={list}
+            inverted
+            data={rows}
+            keyExtractor={(r) => keyOf(r.message)}
+            renderItem={renderItem}
+            onScroll={onScroll}
+            scrollEventThrottle={64}
+            onEndReached={() => void loadOlder(id)}
+            onEndReachedThreshold={0.5}
+            onViewableItemsChanged={onViewableItemsChanged}
+            // Uzun sohbetlerde akıcı kaydırma: az sayıda ekran boyu çizili tutulur, parti parti eklenir
+            initialNumToRender={14}
+            maxToRenderPerBatch={8}
+            updateCellsBatchingPeriod={40}
+            windowSize={11}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            // Satır yükseklikleri değişken: hedef henüz ölçülmediyse önce tahmini yere, sonra tam yerine kaydır
+            onScrollToIndexFailed={(info) => {
+              list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+              setTimeout(() => {
+                if (info.index < rows.length) {
+                  list.current?.scrollToIndex({ index: info.index, viewPosition: pendingPosition.current, animated: true });
+                }
+              }, 120);
+            }}
+            // Ters listede üst boşluk en alttadır: yazıyor şeridi son mesajı örtmesin
+            contentContainerStyle={{ paddingTop: TYPING_HEIGHT, paddingBottom: space.sm }}
+            // Geçmiş gelene kadar mesaj biçimli iskelet
+            ListEmptyComponent={!loaded ? <MessageSkeleton rows={8} /> : null}
+            ListFooterComponent={
+              hasMore || !loaded ? (
+                // Eski mesajlar yüklenirken üstte iki iskelet satırı
+                <View style={styles.loading}>{loading && messages.length > 0 ? <MessageSkeleton rows={2} /> : null}</View>
+              ) : (
+                <Intro dm={dm} name={dmName} label={label} username={partner?.username} empty={messages.length === 0} />
+              )
+            }
+          />
+        )}
+        {showNewBar && (
+          <NewMessagesBar
+            count={dividerIndex + 1}
+            onJump={() => {
+              setDividerSeen(true);
+              scrollToRow(dividerIndex, 0.85);
+            }}
+            onDismiss={() => {
+              setDividerSeen(true);
+              if (id) ackChannel(id);
+            }}
+          />
+        )}
+        <TypingBar names={typingNames} />
+        <JumpToBottom visible={!atBottom && loaded} count={unseen} onPress={scrollToBottom} />
+      </View>
+      <Composer
+        key={editing?.id ?? 'yeni'}
+        channel={target}
+        placeholder={dm ? `${label} ${dm.group ? 'grubuna' : 'kişisine'} mesaj gönder` : undefined}
+        lockedText={blocked ?? undefined}
+        mentionable={dm?.participantIds}
+        editing={editing}
+        onDoneEditing={() => setEditing(null)}
+        onSent={() => {
+          // Gönderince "YENİ" ayracı kalkar ve en alta inilir (masaüstündeki gibi)
+          setDividerId(null);
+          scrollToBottom();
         }}
       />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={100}>
-        <FlatList
-          ref={list}
-          inverted
-          data={data}
-          keyExtractor={keyOf}
-          onScroll={onScroll}
-          scrollEventThrottle={100}
-          onEndReached={() => void loadOlder(id)}
-          onEndReachedThreshold={0.4}
-          extraData={flash}
-          // Satır yükseklikleri değişken: hedef henüz ölçülmediyse önce tahmini yere, sonra tam yerine kaydır
-          onScrollToIndexFailed={(info) => {
-            list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
-            setTimeout(() => {
-              if (info.index < data.length) {
-                list.current?.scrollToIndex({ index: info.index, viewPosition: 0.5, animated: true });
-              }
-            }, 120);
-          }}
-          contentContainerStyle={{ paddingVertical: 8 }}
-          // Geçmiş gelene kadar mesaj biçimli iskelet
-          ListEmptyComponent={!loaded ? <MessageSkeleton rows={8} /> : null}
-          ListFooterComponent={
-            hasMore || !loaded ? (
-              // Eski mesajlar yüklenirken üstte iki iskelet satırı
-              <View style={styles.loading}>{loading && messages.length > 0 ? <MessageSkeleton rows={2} /> : null}</View>
-            ) : (
-              <View style={styles.intro}>
-                {dm ? (
-                  <>
-                    <Text style={styles.introTitle}>{dmName}</Text>
-                    {partner && <Text style={styles.introUser}>@{partner.username}</Text>}
-                    <Text style={styles.introText}>
-                      {dm.group ? `${dmName} grubunun başlangıcı.` : `${dmName} ile direkt mesaj geçmişinin başlangıcı.`}{' '}
-                      Bu konuşmayı yalnızca {dm.group ? 'gruptakiler' : 'ikiniz'} görebilir.
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    <Text style={styles.introTitle}>{label} kanalına hoş geldin!</Text>
-                    <Text style={styles.introText}>Bu, {label} kanalının başlangıcı.</Text>
-                  </>
-                )}
-              </View>
-            )
-          }
-          renderItem={({ item, index }) => {
-            const older = data[index + 1];
-            const dayBreak = !older || !sameDay(older.createdAt, item.createdAt);
-            // Yanıt her zaman başlıklı gösterilir (üstünde alıntısı olur)
-            const compact =
-              !!older &&
-              !dayBreak &&
-              !item.replyToId &&
-              older.authorId === item.authorId &&
-              older.status !== 'failed' &&
-              item.createdAt - older.createdAt < GROUP_WINDOW_MS;
-            return (
-              <MessageRow
-                message={item}
-                author={item.authorId ? users[item.authorId] : undefined}
-                compact={compact}
-                dayBreak={dayBreak}
-                self={self}
-                md={md}
-                onLongPress={setMenuFor}
-                animateIn={fresh.has(keyOf(item))}
-                flash={flash?.id === item.id ? flash.seq : 0}
-              />
-            );
-          }}
-        />
-
-        <Text style={styles.typing} numberOfLines={1}>
-          {typingNames.length === 1
-            ? `${typingNames[0]} yazıyor…`
-            : typingNames.length > 1
-              ? `${typingNames.slice(0, 3).join(', ')} yazıyor…`
-              : ' '}
-        </Text>
-        <Composer
-          key={editing?.id ?? 'yeni'}
-          channel={target}
-          placeholder={dm ? `${label} ${dm.group ? 'grubuna' : 'kişisine'} mesaj gönder` : undefined}
-          lockedText={blocked ?? undefined}
-          mentionable={dm?.participantIds}
-          editing={editing}
-          onDoneEditing={() => setEditing(null)}
-          onSent={() => list.current?.scrollToOffset({ offset: 0, animated: true })}
-        />
-      </KeyboardAvoidingView>
-      <VoiceBar />
+      {/* Klavye açıkken ses çubuğu yer kaplamasın */}
+      {!keyboard.open && <VoiceBar />}
 
       <MessageMenu
         message={menuFor}
@@ -297,14 +426,185 @@ export default function TextChannelScreen() {
         onClose={() => setMenuFor(null)}
         onEdit={(m) => setEditing(m)}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
-/** Uzun basınca açılan menüdeki hızlı tepkiler (sonrasında tüm emojiler için +) */
+/** Kanalda (kendin dışında) yazanların adları; seçici kararlı nesne döndürür */
+function useTypingNames(channelId: string | undefined, selfId: string | undefined): string[] {
+  const typing = useMessages((s) => (channelId ? s.typing[channelId] : undefined));
+  const users = useGuild((s) => s.users);
+  return useMemo(
+    () =>
+      Object.keys(typing ?? {})
+        .filter((uid) => uid !== selfId)
+        .map((uid) => users[uid]?.displayName)
+        .filter((n): n is string => Boolean(n)),
+    [typing, users, selfId],
+  );
+}
+
+/** Başlık: kanal adı # simgesiyle */
+function ChannelTitle({ name }: { name: string }) {
+  return (
+    <View style={styles.title}>
+      <Feather name="hash" size={20} color={colors.muted} />
+      <Text style={styles.titleText} numberOfLines={1}>
+        {name}
+      </Text>
+    </View>
+  );
+}
+
+/** Başlık: konuşmanın resmi, adı ve bire bir konuşmada karşı tarafın durumu */
+function DmTitle({ dm, name }: { dm: DmChannel; name: string }) {
+  const selfId = useSession((s) => s.user?.id);
+  const partner = useGuild((s) => dmPartner(dm, s.users, selfId));
+  const online = useGuild((s) => (partner ? Boolean(s.online[partner.id]) : false));
+  const sub = dm.group ? `${dm.participantIds.length} üye` : partner?.removed ? undefined : online ? 'Çevrimiçi' : 'Çevrimdışı';
+  return (
+    <View style={styles.title}>
+      <DmAvatar dm={dm} size={30} status surfaceColor={colors.main} />
+      <View style={{ flexShrink: 1, marginLeft: 4 }}>
+        <Text style={[styles.titleText, { fontSize: 16.5 }]} numberOfLines={1}>
+          {name}
+        </Text>
+        {sub ? <Text style={styles.titleSub}>{sub}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+/** Konuşmanın başı: kanalın ya da konuşmanın tanıtımı */
+function Intro({
+  dm,
+  name,
+  label,
+  username,
+  empty,
+}: {
+  dm: DmChannel | undefined;
+  name: string;
+  label: string;
+  username?: string;
+  empty: boolean;
+}) {
+  return (
+    <View style={styles.intro}>
+      {dm ? (
+        <>
+          <DmAvatar dm={dm} size={72} />
+          <Text style={styles.introTitle}>{name}</Text>
+          {username && <Text style={styles.introUser}>@{username}</Text>}
+          <Text style={styles.introText}>
+            {dm.group ? `${name} grubunun başlangıcı.` : `${name} ile direkt mesaj geçmişinin başlangıcı.`} Bu konuşmayı
+            yalnızca {dm.group ? 'gruptakiler' : 'ikiniz'} görebilir.
+          </Text>
+        </>
+      ) : (
+        <>
+          <View style={styles.introIcon}>
+            <Feather name="hash" size={38} color="#fff" />
+          </View>
+          <Text style={styles.introTitle}>{label} kanalına hoş geldin!</Text>
+          <Text style={styles.introText}>Bu, {label} kanalının başlangıcı.</Text>
+        </>
+      )}
+      {empty && <Text style={[styles.introText, { marginTop: space.md }]}>Henüz mesaj yok. İlk mesajı sen gönder 👋</Text>}
+    </View>
+  );
+}
+
+/** Üstte: açılışta okunmamış çok mesaj varsa "N yeni mesaj" şeridi; dokununca ilk okunmamışa atlar */
+function NewMessagesBar({ count, onJump, onDismiss }: { count: number; onJump: () => void; onDismiss: () => void }) {
+  const appear = useSpringTo(1);
+  return (
+    <Animated.View
+      style={[
+        styles.newBar,
+        { opacity: appear, transform: [{ translateY: appear.interpolate({ inputRange: [0, 1], outputRange: [-30, 0] }) }] },
+      ]}
+    >
+      <Pressable style={styles.newBarMain} onPress={onJump} android_ripple={{ color: 'rgba(255,255,255,0.15)' }}>
+        <Text style={styles.newBarText}>{count > 99 ? '99+' : count} yeni mesaj</Text>
+        <Text style={styles.newBarAction}>Atla</Text>
+        <Ionicons name="arrow-up" size={15} color="#fff" />
+      </Pressable>
+      <Pressable hitSlop={8} onPress={onDismiss} style={styles.newBarClose} accessibilityLabel="Okundu say">
+        <Ionicons name="checkmark-done" size={17} color="#fff" />
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+/** Listenin altında "X yazıyor…": yumuşakça belirip kaybolur, yer kaplamaz (liste boşluğu bırakır) */
+function TypingBar({ names }: { names: string[] }) {
+  const shown = useTimingTo(names.length > 0 ? 1 : 0, 160);
+  // Kaybolurken son metin kalsın
+  const last = useRef('');
+  if (names.length > 0) {
+    last.current =
+      names.length === 1
+        ? `${names[0]} yazıyor…`
+        : names.length <= 3
+          ? `${names.join(', ')} yazıyor…`
+          : 'Birkaç kişi yazıyor…';
+  }
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[styles.typing, { opacity: shown }]}
+      accessibilityLiveRegion="polite"
+      importantForAccessibility={names.length ? 'yes' : 'no-hide-descendants'}
+    >
+      <TypingDots color={colors.text} size={5} />
+      <Text style={styles.typingText} numberOfLines={1}>
+        {last.current}
+      </Text>
+    </Animated.View>
+  );
+}
+
+/** Sağ altta "en alta in" düğmesi: aşağıdan ayrılınca yaylanarak belirir; yeni mesaj sayısıyla */
+function JumpToBottom({ visible, count, onPress }: { visible: boolean; count: number; onPress: () => void }) {
+  const shown = useSpringTo(visible ? 1 : 0, 6);
+  return (
+    <Animated.View
+      pointerEvents={visible ? 'auto' : 'none'}
+      style={[
+        styles.jump,
+        {
+          opacity: shown,
+          transform: [
+            { translateY: shown.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) },
+            { scale: shown.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }) },
+          ],
+        },
+      ]}
+    >
+      <PressableScale
+        scaleTo={0.88}
+        onPress={onPress}
+        ripple={{ color: 'rgba(255,255,255,0.15)', borderless: true, radius: 22 }}
+        style={styles.jumpButton}
+        accessibilityRole="button"
+        accessibilityLabel={count > 0 ? `En alta in, ${count} yeni mesaj` : 'En alta in'}
+      >
+        <Ionicons name="arrow-down" size={22} color={colors.head} />
+      </PressableScale>
+      {count > 0 && (
+        <View style={styles.jumpBadge} pointerEvents="none">
+          <CountBadge count={count} ring={colors.main} />
+        </View>
+      )}
+    </Animated.View>
+  );
+}
+
+/** Uzun basınca menüdeki hızlı tepkiler (sonrasında tüm emojiler için +) */
 const MENU_REACTIONS = QUICK_REACTIONS.slice(0, 6);
 
-/** Uzun basınca alttan kayarak açılan mesaj menüsü (tepkiler, kopyala, düzenle, sil). */
+/** Uzun basınca alttan kayarak açılan mesaj menüsü (tepkiler, yanıtla, kopyala, düzenle, sil). */
 function MessageMenu({
   message,
   self,
@@ -353,175 +653,180 @@ function MessageMenu({
   const existing = (emoji: string): boolean => reactions.some((r) => r.emoji === emoji);
   // Yetki yoksa yalnızca mesajdaki tepkiler gösterilir
   const quick = canReact ? MENU_REACTIONS : MENU_REACTIONS.filter(existing);
+  const close = onClose;
   return (
     <BottomSheet visible={message !== null} onClose={onClose}>
       {allEmojis ? (
         <EmojiGrid onPick={react} />
       ) : (
         <>
-          <View style={[styles.quickRow, quick.length === 0 && !canReact && { display: 'none' }]}>
-            {quick.map((emoji) => (
-              <PressableScale
-                key={emoji}
-                scaleTo={0.85}
-                onPress={() => react(emoji)}
-                style={({ pressed }) => [styles.quick, mine(emoji) && styles.quickMine, pressed && styles.quickPressed]}
-              >
-                <Text style={styles.quickEmoji}>{emoji}</Text>
-              </PressableScale>
-            ))}
-            {canReact && (
-              <PressableScale
-                scaleTo={0.85}
-                accessibilityLabel="Tüm emojiler"
+          {(quick.length > 0 || canReact) && (
+            <View style={styles.quickRow}>
+              {quick.map((emoji) => (
+                <PressableScale
+                  key={emoji}
+                  scaleTo={0.82}
+                  onPress={() => react(emoji)}
+                  accessibilityLabel={`${emoji} tepkisi${mine(emoji) ? ', kaldır' : ''}`}
+                  style={[styles.quick, mine(emoji) && styles.quickMine]}
+                >
+                  <Text style={styles.quickEmoji}>{emoji}</Text>
+                </PressableScale>
+              ))}
+              {canReact && (
+                <PressableScale
+                  scaleTo={0.82}
+                  accessibilityLabel="Tüm emojiler"
+                  onPress={() => {
+                    animateNextLayout(220);
+                    setAllEmojis(true);
+                  }}
+                  style={styles.quick}
+                >
+                  <Ionicons name="add" size={26} color={colors.text} />
+                </PressableScale>
+              )}
+            </View>
+          )}
+          <SheetGroup>
+            {canReply && (
+              <SheetItem
+                key="reply"
+                icon="arrow-undo-outline"
+                label="Yanıtla"
                 onPress={() => {
-                  animateNextLayout(220);
-                  setAllEmojis(true);
+                  if (shown) startReply(shown);
+                  close();
                 }}
-                style={({ pressed }) => [styles.quick, pressed && styles.quickPressed]}
-              >
-                <Ionicons name="add" size={26} color={colors.text} />
-              </PressableScale>
+              />
             )}
-          </View>
-          <MessageMenuItems
-            message={shown}
-            canReply={canReply}
-            canEdit={canEdit}
-            canDelete={canDelete}
-            confirm={confirm}
-            setConfirm={(value) => {
-              animateNextLayout(160);
-              setConfirm(value);
-            }}
-            close={onClose}
-            onEdit={onEdit}
-          />
+            {canEdit && (
+              <SheetItem
+                key="edit"
+                icon="create-outline"
+                label="Düzenle"
+                onPress={() => {
+                  if (shown) onEdit(shown);
+                  close();
+                }}
+              />
+            )}
+            {shown?.content ? (
+              <SheetItem
+                key="copy"
+                icon="copy-outline"
+                label="Metni kopyala"
+                onPress={() => {
+                  void Clipboard.setStringAsync(shown.content).then(() => toast('Kopyalandı'));
+                  close();
+                }}
+              />
+            ) : null}
+          </SheetGroup>
+          {canDelete && (
+            <SheetGroup>
+              <SheetItem
+                icon="trash-outline"
+                label={confirm ? 'Emin misin? Kalıcı olarak sil' : 'Mesajı sil'}
+                hint={confirm ? 'Geri alınamaz. Silmek için yeniden dokun.' : undefined}
+                danger
+                onPress={() => {
+                  if (!confirm) {
+                    animateNextLayout(160);
+                    setConfirm(true);
+                    return;
+                  }
+                  if (shown) void deleteMessage(shown);
+                  close();
+                }}
+              />
+            </SheetGroup>
+          )}
         </>
       )}
     </BottomSheet>
   );
 }
 
-function MessageMenuItems({
-  message,
-  canReply,
-  canEdit,
-  canDelete,
-  confirm,
-  setConfirm,
-  close,
-  onEdit,
-}: {
-  message: LocalMessage | null;
-  canReply: boolean;
-  canEdit: boolean;
-  canDelete: boolean;
-  confirm: boolean;
-  setConfirm: (confirm: boolean) => void;
-  close: () => void;
-  onEdit: (m: LocalMessage) => void;
-}) {
-  return (
-    <>
-      {canReply && (
-        <MenuItem
-          icon="arrow-undo-outline"
-          label="Yanıtla"
-          onPress={() => {
-            if (message) startReply(message);
-            close();
-          }}
-        />
-      )}
-      {message?.content ? (
-        <MenuItem
-          icon="copy-outline"
-          label="Metni kopyala"
-          onPress={() => {
-            void Clipboard.setStringAsync(message.content).then(() => toast('Kopyalandı'));
-            close();
-          }}
-        />
-      ) : null}
-      {canEdit && (
-        <MenuItem
-          icon="create-outline"
-          label="Düzenle"
-          onPress={() => {
-            if (message) onEdit(message);
-            close();
-          }}
-        />
-      )}
-      {canDelete && (
-        <MenuItem
-          icon="trash-outline"
-          label={confirm ? 'Emin misin? Kalıcı olarak sil' : 'Mesajı sil'}
-          danger
-          onPress={() => {
-            if (!confirm) {
-              setConfirm(true);
-              return;
-            }
-            if (message) void deleteMessage(message);
-            close();
-          }}
-        />
-      )}
-      <MenuItem icon="close" label="Vazgeç" onPress={close} />
-    </>
-  );
-}
-
-function MenuItem({
-  icon,
-  label,
-  onPress,
-  danger,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  onPress: () => void;
-  danger?: boolean;
-}) {
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.menuItem, pressed && { backgroundColor: colors.hover }]}>
-      <Ionicons name={icon} size={21} color={danger ? colors.danger : colors.muted} />
-      <Text style={[styles.menuText, danger && { color: colors.danger }]}>{label}</Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.main },
-  loading: { minHeight: 60, justifyContent: 'center', paddingBottom: 8 },
-  intro: { paddingHorizontal: 16, paddingTop: 24, paddingBottom: 8 },
-  introTitle: { color: colors.head, fontSize: 24, fontWeight: '800' },
-  introText: { color: colors.muted, fontSize: 15, marginTop: 4 },
-  introUser: { color: colors.text, fontSize: 16, marginTop: 2 },
-  typing: { color: colors.text, fontSize: 12.5, paddingHorizontal: 16, height: 18 },
-  quickRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingTop: 6,
-    paddingBottom: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.line,
-    marginBottom: 4,
+  listArea: { flex: 1 },
+  loading: { minHeight: 60, justifyContent: 'center', paddingBottom: space.sm },
+  title: { flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: 260 },
+  titleText: { color: colors.head, fontSize: 18, fontWeight: '700', flexShrink: 1 },
+  titleSub: { color: colors.muted, fontSize: 12, marginTop: -1 },
+  intro: { paddingHorizontal: space.lg, paddingTop: space.xxl, paddingBottom: space.sm },
+  introIcon: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: colors.control,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  quick: {
+  introTitle: { color: colors.head, fontSize: font.hero, fontWeight: '800', marginTop: space.md },
+  introText: { color: colors.muted, fontSize: font.body, marginTop: space.xs, lineHeight: 21 },
+  introUser: { color: colors.text, fontSize: font.row, marginTop: 2 },
+  typing: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: TYPING_HEIGHT,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    backgroundColor: 'rgba(49,51,56,0.94)',
+  },
+  typingText: { color: colors.text, fontSize: font.caption, fontWeight: '600', flexShrink: 1 },
+  jump: { position: 'absolute', right: space.md, bottom: TYPING_HEIGHT + space.sm },
+  jumpButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
+    backgroundColor: colors.active,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+  },
+  jumpBadge: { position: 'absolute', top: -6, right: -6 },
+  newBar: {
+    position: 'absolute',
+    top: 0,
+    left: space.md,
+    right: space.md,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    backgroundColor: colors.brand,
+    borderBottomLeftRadius: radius.md,
+    borderBottomRightRadius: radius.md,
+    overflow: 'hidden',
+    elevation: 4,
+  },
+  newBarMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: space.md, paddingVertical: 7 },
+  newBarText: { color: '#fff', fontSize: font.small, fontWeight: '700', flex: 1 },
+  newBarAction: { color: '#fff', fontSize: font.small, fontWeight: '700' },
+  newBarClose: {
+    paddingHorizontal: space.md,
+    justifyContent: 'center',
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: 'rgba(255,255,255,0.35)',
+  },
+  quickRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: space.md,
+    paddingBottom: space.md,
+  },
+  quick: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.main,
   },
-  quickMine: { backgroundColor: 'rgba(88,101,242,0.35)' },
-  quickPressed: { backgroundColor: colors.active },
+  quickMine: { backgroundColor: 'rgba(88,101,242,0.35)', borderWidth: 1, borderColor: colors.brand },
   quickEmoji: { fontSize: 24 },
-  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 15 },
-  menuText: { color: colors.head, fontSize: 16 },
 });
