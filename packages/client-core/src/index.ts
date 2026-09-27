@@ -25,6 +25,16 @@ export {
 } from './feedback';
 export { reportVoiceLog, SpuriousDuplicateGuard } from './voiceDiagnostics';
 export {
+  isStreamMuted,
+  setStreamVolume,
+  shownStreamVolume,
+  streamAudioOutput,
+  streamVolumeOf,
+  toggleStreamMute,
+  type StreamAudioOutput,
+  type StreamAudioPrefs,
+} from './streamAudio';
+export {
   describeCandidate,
   describeTransport,
   formatBitrate,
