@@ -1,22 +1,24 @@
 import type { FastifyInstance } from 'fastify';
 import { channelIdFromRoom, voiceRoomName, type VoiceJoinResponse } from '@diskort/shared';
 import { TrackSource } from '../livekit.js';
-import { sendError, type AppContext } from '../context.js';
+import { forbidden, sendError, type AppContext } from '../context.js';
 
 export function registerVoiceRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const { store, auth, voice, livekit } = ctx;
+  const { store, auth, voice, livekit, permissions, moderation } = ctx;
 
+  // Jetonun yayın izinleri kanaldaki yetkilerden gelir (SPEAK → mikrofon, STREAM → ekran)
   app.post<{ Params: { channelId: string } }>(
     '/api/voice/:channelId/join',
     { preHandler: auth.requireUser },
     async (req, reply) => {
       const channel = store.getChannel(req.params.channelId);
-      if (!channel || channel.type !== 'voice') {
+      if (!channel || channel.type !== 'voice' || !permissions.canView(req.user.id, channel)) {
         return sendError(reply, 404, 'not_found', 'Ses kanalı bulunamadı.');
       }
+      if (!moderation.canConnect(req.user.id, channel.id)) return forbidden(reply, 'Bu ses kanalına bağlanma iznin yok.');
       const response: VoiceJoinResponse = {
         url: livekit.publicUrl,
-        token: await livekit.createJoinToken(req.user, channel.id),
+        token: await moderation.joinToken(req.user, channel.id),
         roomName: voiceRoomName(channel.id),
       };
       return response;
@@ -47,10 +49,16 @@ export function registerVoiceRoutes(app: FastifyInstance, ctx: AppContext): void
       switch (event.event) {
         case 'participant_joined': {
           if (!userId || !store.getUser(userId)) break;
+          // Jeton alındıktan sonra yetkisini kaybeden (ya da atılan) geri çıkarılır
+          if (!moderation.canConnect(userId, channelId)) {
+            void livekit.removeParticipant(channelId, userId);
+            break;
+          }
           const prev = voice.get(userId);
           voice.join(userId, channelId, false, event.participant?.sid);
           // Aynı hesap başka bir cihazdan farklı kanalda kaldıysa oradan çıkar.
           if (prev && prev.channelId !== channelId) void livekit.removeParticipant(prev.channelId, userId);
+          void moderation.onJoined(userId, channelId);
           break;
         }
         case 'participant_left':

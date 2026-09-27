@@ -5,13 +5,10 @@ import type { AppContext } from './context.js';
  * istemcilere haber verir. Mesajlar kalır, yazarı "Silinmiş Kullanıcı" olur.
  */
 export async function removeAccount(ctx: AppContext, userId: string, reason: string): Promise<boolean> {
-  const { store, voice, livekit, gateway } = ctx;
-  const state = voice.get(userId);
-  if (!store.deleteUser(userId)) return false;
-  if (state) {
-    await livekit.removeParticipant(state.channelId, userId);
-    voice.leave(userId, state.channelId);
-  }
+  const { store, moderation, gateway } = ctx;
+  if (!store.getUser(userId)) return false;
+  await moderation.disconnect(userId);
+  store.deleteUser(userId);
   gateway.disconnectUser(userId, reason);
   gateway.broadcast({ t: 'USER_DELETE', d: { id: userId } });
   return true;

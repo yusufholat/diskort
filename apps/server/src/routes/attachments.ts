@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import type { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
-import { isImageAttachment } from '@diskort/shared';
+import { isImageAttachment, Permission } from '@diskort/shared';
 import { ATTACHMENT_ID, UploadError } from '../attachments.js';
-import { sendError, type AppContext } from '../context.js';
+import { forbidden, sendError, type AppContext } from '../context.js';
 import { contentDisposition, servedType } from '../fileInfo.js';
 import { createRateLimiter } from './messages.js';
 
@@ -13,7 +13,7 @@ import { createRateLimiter } from './messages.js';
  * kimlik doğrulamasız ama tahmin edilemeyen (128 bit) adreslerden sunulur.
  */
 export function registerAttachmentRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const { store, auth, attachments } = ctx;
+  const { store, auth, attachments, permissions } = ctx;
   const allowUpload = createRateLimiter(60, 60_000);
 
   // Yükleme gövdesi ham dosyadır: ayrıştırılmadan diske akıtılır. Genel 64 KB gövde sınırı bu kapsamda
@@ -34,7 +34,12 @@ export function registerAttachmentRoutes(app: FastifyInstance, ctx: AppContext):
       },
       async (req, reply) => {
         const channel = store.getChannel(req.params.id);
-        if (!channel || channel.type !== 'text') return sendError(reply, 404, 'not_found', 'Metin kanalı bulunamadı.');
+        if (!channel || channel.type !== 'text' || !permissions.canView(req.user.id, channel)) {
+          return sendError(reply, 404, 'not_found', 'Metin kanalı bulunamadı.');
+        }
+        if (!permissions.can(req.user.id, Permission.SEND_MESSAGES | Permission.ATTACH_FILES, channel)) {
+          return forbidden(reply, 'Bu kanala dosya gönderme iznin yok.');
+        }
         if (!allowUpload(req.user.id)) {
           return sendError(reply, 429, 'rate_limited', 'Çok hızlı dosya yüklüyorsun, biraz bekle.');
         }

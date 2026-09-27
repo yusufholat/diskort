@@ -6,11 +6,13 @@ import type { AuthService } from './auth.js';
 import type { ClientVersionPolicy } from './clientVersion.js';
 import type { Config } from './config.js';
 import type { Store } from './db.js';
-import type { Gateway } from './gateway.js';
+import type { Gateway, Visibility } from './gateway.js';
 import type { LiveKitService } from './livekit.js';
 import type { OtaService } from './ota.js';
+import type { PermissionService } from './permissions.js';
 import type { PushService } from './push.js';
 import type { ReleaseService } from './releases.js';
+import type { VoiceModeration } from './voiceModeration.js';
 import type { VoiceStateStore } from './voiceState.js';
 
 export interface AppContext {
@@ -25,6 +27,9 @@ export interface AppContext {
   ota: OtaService;
   push: PushService;
   attachments: AttachmentService;
+  permissions: PermissionService;
+  moderation: VoiceModeration;
+  /** Tek topluluk; adı ya da sahibi değişince yerinde güncellenir */
   guild: Guild;
 }
 
@@ -39,4 +44,23 @@ export function parseBody<T>(schema: ZodType<T>, body: unknown, reply: FastifyRe
   const issue = result.error.issues[0];
   void sendError(reply, 400, 'invalid_body', issue?.message ?? 'Geçersiz istek.');
   return null;
+}
+
+/** Yetki yoksa 403 */
+export function forbidden(reply: FastifyReply, message = 'Bu işlem için yetkin yok.'): FastifyReply {
+  return sendError(reply, 403, 'forbidden', message);
+}
+
+/**
+ * Yetkileri etkileyen bir değişiklikten (rol, üyenin rolleri, kanal izinleri, sahiplik) sonra: bağlı
+ * kullanıcıların kanal görünümünü günceller, seste olanların LiveKit izinlerini yeniden uygular.
+ * `before`, değişiklikten önce gateway.visibility() ile alınır.
+ */
+export async function afterPermissionChange(
+  ctx: AppContext,
+  before: Visibility,
+  updatedChannels: Iterable<string> = [],
+): Promise<void> {
+  ctx.gateway.syncVisibility(before, updatedChannels);
+  await ctx.moderation.enforceAll();
 }

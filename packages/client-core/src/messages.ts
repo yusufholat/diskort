@@ -194,6 +194,7 @@ export function sendMessage(channelId: string, content: string): void {
     editedAt: null,
     attachments: [],
     reactions: [],
+    mentionEveryone: false,
     status: 'pending',
     nonce,
     ...(files.length ? { uploads: files.map((file) => ({ file, sent: 0 })) } : {}),

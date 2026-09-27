@@ -1,5 +1,9 @@
 // Sunucu ve masaüstü istemcisi arasında paylaşılan tipler ve sabitler.
 
+import type { PermissionOverwrite, Role } from './permissions';
+
+export * from './permissions';
+
 // ---------- Modeller ----------
 
 export interface User {
@@ -7,12 +11,19 @@ export interface User {
   username: string;
   displayName: string;
   avatarColor: string;
+  /** Sahip ya da ADMINISTRATOR yetkili bir rolü var (rollerden önceki istemciler bununla çalışır) */
   isAdmin: boolean;
+  /** Rollerinin kimlikleri (@everyone hariç) */
+  roles: string[];
+  /** Artık üye değil (atıldı ya da yasaklandı); mesajlarında adı görünsün diye listede kalır */
+  removed: boolean;
 }
 
 export interface Guild {
   id: string;
   name: string;
+  /** Sahip: herkesin üstündedir, her yetkiye sahiptir */
+  ownerId: string | null;
 }
 
 export type ChannelType = 'voice' | 'text';
@@ -23,6 +34,8 @@ export interface Channel {
   name: string;
   type: ChannelType;
   position: number;
+  /** Rol başına kanal izinleri (özel, salt okunur kanallar için) */
+  overwrites: PermissionOverwrite[];
 }
 
 export interface VoiceState {
@@ -30,6 +43,10 @@ export interface VoiceState {
   channelId: string;
   selfMute: boolean;
   selfDeaf: boolean;
+  /** Yetkili biri tarafından sunucuda susturuldu (kendisi açamaz) */
+  serverMute: boolean;
+  /** Yetkili biri tarafından sunucuda sağırlaştırıldı */
+  serverDeaf: boolean;
   streaming: boolean;
   joinedAt: number;
 }
@@ -76,6 +93,8 @@ export interface Message {
   attachments: Attachment[];
   /** Tepkiler, ilk verilme sırasına göre */
   reactions: Reaction[];
+  /** Yazarın yetkisi olan bir @everyone bahsetmesi: kanalı gören herkese bildirim gider */
+  mentionEveryone: boolean;
 }
 
 /** Gateway'deki mesaj güncellemesi: tepkiler kişiye özel (`me`) olduğundan taşınmaz */
@@ -148,8 +167,51 @@ export interface ResetCodeResponse {
   expiresAt: number;
 }
 
+/** Rollerden önceki istemciler için: yönetici rolü verilir/alınır */
 export interface UpdateUserRequest {
   isAdmin?: boolean;
+}
+
+export interface CreateRoleRequest {
+  name: string;
+  color?: string | null;
+  hoist?: boolean;
+  permissions?: number;
+}
+
+export interface UpdateRoleRequest {
+  name?: string;
+  color?: string | null;
+  hoist?: boolean;
+  permissions?: number;
+}
+
+/** @everyone hariç tüm roller, yukarıdan aşağı yeni sırasıyla */
+export interface ReorderRolesRequest {
+  roleIds: string[];
+}
+
+export interface UpdateGuildRequest {
+  name?: string;
+  /** Sahipliği devretmek (yalnızca sahip) */
+  ownerId?: string;
+}
+
+export interface BanRequest {
+  reason?: string;
+}
+
+export interface Ban {
+  user: User;
+  reason: string | null;
+  bannedAt: number;
+}
+
+/** Sesli sohbette üyeyi yönetmek; channelId: başka kanala taşı, null: sesten çıkar */
+export interface VoiceModerationRequest {
+  mute?: boolean;
+  deaf?: boolean;
+  channelId?: string | null;
 }
 
 export interface CreateInviteRequest {
@@ -165,6 +227,8 @@ export interface CreateChannelRequest {
 export interface UpdateChannelRequest {
   name?: string;
   position?: number;
+  /** Kanalın tüm rol izinleri (verilirse eskilerinin yerine geçer) */
+  overwrites?: PermissionOverwrite[];
 }
 
 export interface CreateMessageRequest {
@@ -199,8 +263,11 @@ export interface ApiErrorBody {
 export interface ReadyPayload {
   user: User;
   guild: Guild;
+  /** Yalnızca kullanıcının görebildiği kanallar */
   channels: Channel[];
   users: User[];
+  /** @everyone dahil tüm roller */
+  roles: Role[];
   voiceStates: VoiceState[];
   online: string[];
   /** Metin kanallarındaki en son mesaj kimliği (kanal → mesaj) */
@@ -225,6 +292,9 @@ export type GatewayServerMessage =
   | { t: 'CHANNEL_CREATE'; d: Channel }
   | { t: 'CHANNEL_UPDATE'; d: Channel }
   | { t: 'CHANNEL_DELETE'; d: { id: string } }
+  | { t: 'GUILD_UPDATE'; d: Guild }
+  /** Rollerden biri eklendi, değişti, silindi ya da sıralama değişti: tüm liste */
+  | { t: 'ROLES_UPDATE'; d: { roles: Role[] } }
   | { t: 'MESSAGE_CREATE'; d: Message }
   | { t: 'MESSAGE_UPDATE'; d: MessageUpdate }
   | { t: 'MESSAGE_DELETE'; d: { id: string; channelId: string } }
@@ -261,6 +331,10 @@ export const GATEWAY_HEARTBEAT_INTERVAL_MS = 15_000;
 export const GATEWAY_CLOSE_UPDATE_REQUIRED = 4010;
 
 export const USERNAME_PATTERN = /^[a-z0-9_.]{3,32}$/;
+/** Bahsetme sözcükleri kullanıcı adı olamaz */
+export const RESERVED_USERNAMES: readonly string[] = ['everyone', 'here'];
+export const GUILD_NAME_MAX_LENGTH = 48;
+export const BAN_REASON_MAX_LENGTH = 200;
 export const PASSWORD_MIN_LENGTH = 8;
 export const DISPLAY_NAME_MAX_LENGTH = 32;
 export const CHANNEL_NAME_MAX_LENGTH = 48;
@@ -312,6 +386,11 @@ export function extractMentions(content: string): string[] {
   const names = new Set<string>();
   for (const m of content.matchAll(/(?<![a-z0-9_.@])@([a-z0-9_.]*[a-z0-9_])/gi)) names.add(m[1]!.toLowerCase());
   return [...names];
+}
+
+/** Metinde @everyone bahsetmesi var mı (yazarın yetkisi ayrıca denetlenir) */
+export function mentionsEveryone(content: string): boolean {
+  return /(?<![a-z0-9_.@])@everyone(?![a-z0-9_])/i.test(content);
 }
 
 /** "1.2.3" biçimindeki sürümleri karşılaştırır (ön ek "v" ve "-beta" gibi ekler yok sayılır). */

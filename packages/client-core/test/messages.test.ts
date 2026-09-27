@@ -31,7 +31,7 @@ const mentioned: Message[] = [];
 let viewing: string | null = null;
 let uploadImpl: (req: UploadRequest) => Promise<UploadResponse> = async () => ({ status: 0, body: '' });
 
-const me = { id: 'u1', username: 'ayse', displayName: 'Ayşe', avatarColor: '#fff', isAdmin: false };
+const me = { id: 'u1', username: 'ayse', displayName: 'Ayşe', avatarColor: '#fff', isAdmin: false, roles: [], removed: false };
 
 const message = (id: string, content: string, authorId = 'u2'): Message => ({
   id,
@@ -42,6 +42,7 @@ const message = (id: string, content: string, authorId = 'u2'): Message => ({
   editedAt: null,
   attachments: [],
   reactions: [],
+  mentionEveryone: false,
 });
 
 /** Gateway'den mesaj gelmiş gibi yap */
