@@ -1,0 +1,15 @@
+diff --git a/android/src/main/java/com/livekit/reactnative/LiveKitReactNative.kt b/android/src/main/java/com/livekit/reactnative/LiveKitReactNative.kt
+index a54aa27ea78b3c73fe38a0f1f75e75b699dd2e50..efca82a3d239f674052d27e0e91217994aa00643 100644
+--- a/android/src/main/java/com/livekit/reactnative/LiveKitReactNative.kt
++++ b/android/src/main/java/com/livekit/reactnative/LiveKitReactNative.kt
+@@ -82,7 +82,9 @@ object LiveKitReactNative {
+ 
+         adm = JavaAudioDeviceModule.builder(context)
+             .setUseHardwareAcousticEchoCanceler(useHardwareAudioProcessing)
+-            .setUseHardwareNoiseSuppressor(useHardwareAudioProcessing)
++            // Diskort: telefonun donanım gürültü engelleyicisi kapalı. Bazı telefonlarda sesi boğuyor,
++            // konuşmayı kesiyordu; WebRTC'nin yazılım gürültü engellemesi kullanılır (ayardan kapatılabilir).
++            .setUseHardwareNoiseSuppressor(false)
+             .setAudioAttributes(audioType.audioAttributes)
+             .setSamplesReadyCallback(audioRecordSamplesDispatcher)
+             .createAudioDeviceModule()

@@ -39,6 +39,9 @@ const config: ExpoConfig = {
       'android.permission.REQUEST_INSTALL_PACKAGES',
       // Telefondan ekran paylaşımı (WebRTC'nin MediaProjection servisi)
       'android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION',
+      // Ses düğmelerinde dokunma titreşimi (src/haptics.ts). Bazı kütüphaneler de ekliyor ama açıkça
+      // istenmezse hangi APK'da olduğu belirsiz kalıyor; yoksa titreşim sessizce atlanıyordu.
+      'android.permission.VIBRATE',
     ],
     // Kamera henüz kullanılmıyor (WebRTC eklentisi ve resim seçici varsayılan olarak ister).
     // Dosya ve resim seçimi Android'in kendi seçicileriyle yapılır; depolama/medya izni gerekmez.
@@ -88,6 +91,8 @@ const config: ExpoConfig = {
     // servisi (FOREGROUND_SERVICE_MEDIA_PLAYBACK) izni eklenmez. Yerel modül: yeni APK gerekir; eski
     // APK'larda JavaScript modülün varlığını denetler (src/video.ts).
     ['expo-video', { supportsBackgroundPlayback: false, supportsPictureInPicture: false }],
+    // expo-audio (sesli sohbet sesleri, src/sounds.ts) bilerek eklentisiz: eklentisi kilit ekranı
+    // oynatıcısı için ayrı bir ön plan servisi ekliyor; kısa sesler için gerekmez.
     [
       'expo-splash-screen',
       { image: './assets/splash-icon.png', imageWidth: 120, backgroundColor: '#1e1f22', resizeMode: 'contain' },

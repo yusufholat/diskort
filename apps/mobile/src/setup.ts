@@ -5,6 +5,7 @@ import { GIF_SNIPPET, isGifMessage } from '@diskort/shared';
 import * as SecureStore from 'expo-secure-store';
 import { AppState, Vibration } from 'react-native';
 import { uploadFromDevice } from './attachments';
+import { setupSounds } from './sounds';
 import { getSettings } from './stores/settings';
 import { toast, useUi } from './stores/ui';
 import { checkForUpdate } from './update/updater';
@@ -12,6 +13,9 @@ import { APP_VERSION } from './version';
 
 // LiveKit'in kullandığı WebRTC ve tarayıcı API'lerini React Native'e tanıtır
 registerGlobals();
+
+// Sesli sohbet sesleri: ses kipi sesli sohbete girilmeden önce, açılışta ayarlanmalı (bkz. sounds.ts)
+setupSounds();
 
 /** Oturum jetonu Android Keystore ile şifrelenen güvenli depoda tutulur. */
 const secureStorage = {

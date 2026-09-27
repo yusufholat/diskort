@@ -38,6 +38,7 @@ import {
 } from '@diskort/client-core';
 import { CountBadge } from '../../components/Badge';
 import { BottomSheet, SheetGroup, SheetItem } from '../../components/BottomSheet';
+import { ChannelDrawer } from '../../components/ChannelDrawer';
 import { Composer } from '../../components/Composer';
 import { ConnectionBanner } from '../../components/ConnectionBanner';
 import { DmAvatar } from '../../components/DmAvatar';
@@ -291,6 +292,8 @@ export default function TextChannelScreen() {
   const scrollToBottom = useCallback(() => list.current?.scrollToOffset({ offset: 0, animated: true }), []);
 
   const typingNames = useTypingNames(id, self?.id);
+  // Kaydırarak yanıtlama: kanala yazabiliyorsa ve (direkt mesajda) konuşma kapanmamışsa
+  const canReply = canSend && !blocked;
 
   const renderItem: ListRenderItem<Row> = useCallback(
     ({ item }) => (
@@ -305,9 +308,10 @@ export default function TextChannelScreen() {
         onLongPress={setMenuFor}
         animateIn={fresh.has(keyOf(item.message))}
         flash={flash?.id === item.message.id ? flash.seq : 0}
+        onReply={canReply ? startReply : undefined}
       />
     ),
-    [users, self, md, fresh, flash],
+    [users, self, md, fresh, flash, canReply],
   );
 
   const canAddPeople = dm?.group === true && dm.participantIds.length < DM_GROUP_MAX_PARTICIPANTS;
@@ -339,102 +343,104 @@ export default function TextChannelScreen() {
   const showNewBar = dividerIndex >= 8 && !dividerSeen;
 
   return (
-    <View
-      ref={keyboard.ref}
-      onLayout={keyboard.onLayout}
-      // Klavye açıkken boşluk klavye kadar; kapalıyken gezinme çubuğu kadar (ses çubuğu varsa o üstlenir)
-      style={[styles.page, { paddingBottom: keyboard.open ? keyboard.inset : inVoice ? 0 : insets.bottom }]}
-    >
-      <Stack.Screen options={screenOptions} />
-      <ConnectionBanner />
-      <View style={styles.listArea}>
-        {failed && !loaded && !loading ? (
-          <ErrorState text="Mesajlar yüklenemedi. Bağlantını denetleyip yeniden dene." onRetry={load} />
-        ) : (
-          <FlatList
-            ref={list}
-            inverted
-            data={rows}
-            keyExtractor={(r) => keyOf(r.message)}
-            renderItem={renderItem}
-            onScroll={onScroll}
-            scrollEventThrottle={64}
-            onEndReached={() => void loadOlder(id)}
-            onEndReachedThreshold={0.5}
-            onViewableItemsChanged={onViewableItemsChanged}
-            // Uzun sohbetlerde akıcı kaydırma: az sayıda ekran boyu çizili tutulur, parti parti eklenir
-            initialNumToRender={14}
-            maxToRenderPerBatch={8}
-            updateCellsBatchingPeriod={40}
-            windowSize={11}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            // Satır yükseklikleri değişken: hedef henüz ölçülmediyse önce tahmini yere, sonra tam yerine kaydır
-            onScrollToIndexFailed={(info) => {
-              list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
-              setTimeout(() => {
-                if (info.index < rows.length) {
-                  list.current?.scrollToIndex({ index: info.index, viewPosition: pendingPosition.current, animated: true });
-                }
-              }, 120);
-            }}
-            // Ters listede üst boşluk en alttadır: yazıyor şeridi son mesajı örtmesin
-            contentContainerStyle={{ paddingTop: TYPING_HEIGHT, paddingBottom: space.sm }}
-            // Geçmiş gelene kadar mesaj biçimli iskelet
-            ListEmptyComponent={!loaded ? <MessageSkeleton rows={8} /> : null}
-            ListFooterComponent={
-              hasMore || !loaded ? (
-                // Eski mesajlar yüklenirken üstte iki iskelet satırı
-                <View style={styles.loading}>{loading && messages.length > 0 ? <MessageSkeleton rows={2} /> : null}</View>
-              ) : (
-                <Intro dm={dm} name={dmName} label={label} username={partner?.username} empty={messages.length === 0} />
-              )
-            }
-          />
-        )}
-        {showNewBar && (
-          <NewMessagesBar
-            count={dividerIndex + 1}
-            onJump={() => {
-              setDividerSeen(true);
-              scrollToRow(dividerIndex, 0.85);
-            }}
-            onDismiss={() => {
-              setDividerSeen(true);
-              if (id) ackChannel(id);
-            }}
-          />
-        )}
-        <TypingBar names={typingNames} />
-        <JumpToBottom visible={!atBottom && loaded} count={unseen} onPress={scrollToBottom} />
-      </View>
-      <Composer
-        key={editing?.id ?? 'yeni'}
-        channel={target}
-        placeholder={dm ? `${label} ${dm.group ? 'grubuna' : 'kişisine'} mesaj gönder` : undefined}
-        lockedText={blocked ?? undefined}
-        mentionable={dm?.participantIds}
-        editing={editing}
-        onDoneEditing={() => setEditing(null)}
-        onSent={() => {
-          // Gönderince "YENİ" ayracı kalkar ve en alta inilir (masaüstündeki gibi)
-          setDividerId(null);
-          scrollToBottom();
-        }}
-      />
-      {/* Klavye açıkken ses çubuğu yer kaplamasın */}
-      {!keyboard.open && <VoiceBar bottomInset={insets.bottom} />}
+    <ChannelDrawer channelId={id}>
+      <View
+        ref={keyboard.ref}
+        onLayout={keyboard.onLayout}
+        // Klavye açıkken boşluk klavye kadar; kapalıyken gezinme çubuğu kadar (ses çubuğu varsa o üstlenir)
+        style={[styles.page, { paddingBottom: keyboard.open ? keyboard.inset : inVoice ? 0 : insets.bottom }]}
+      >
+        <Stack.Screen options={screenOptions} />
+        <ConnectionBanner />
+        <View style={styles.listArea}>
+          {failed && !loaded && !loading ? (
+            <ErrorState text="Mesajlar yüklenemedi. Bağlantını denetleyip yeniden dene." onRetry={load} />
+          ) : (
+            <FlatList
+              ref={list}
+              inverted
+              data={rows}
+              keyExtractor={(r) => keyOf(r.message)}
+              renderItem={renderItem}
+              onScroll={onScroll}
+              scrollEventThrottle={64}
+              onEndReached={() => void loadOlder(id)}
+              onEndReachedThreshold={0.5}
+              onViewableItemsChanged={onViewableItemsChanged}
+              // Uzun sohbetlerde akıcı kaydırma: az sayıda ekran boyu çizili tutulur, parti parti eklenir
+              initialNumToRender={14}
+              maxToRenderPerBatch={8}
+              updateCellsBatchingPeriod={40}
+              windowSize={11}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              // Satır yükseklikleri değişken: hedef henüz ölçülmediyse önce tahmini yere, sonra tam yerine kaydır
+              onScrollToIndexFailed={(info) => {
+                list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+                setTimeout(() => {
+                  if (info.index < rows.length) {
+                    list.current?.scrollToIndex({ index: info.index, viewPosition: pendingPosition.current, animated: true });
+                  }
+                }, 120);
+              }}
+              // Ters listede üst boşluk en alttadır: yazıyor şeridi son mesajı örtmesin
+              contentContainerStyle={{ paddingTop: TYPING_HEIGHT, paddingBottom: space.sm }}
+              // Geçmiş gelene kadar mesaj biçimli iskelet
+              ListEmptyComponent={!loaded ? <MessageSkeleton rows={8} /> : null}
+              ListFooterComponent={
+                hasMore || !loaded ? (
+                  // Eski mesajlar yüklenirken üstte iki iskelet satırı
+                  <View style={styles.loading}>{loading && messages.length > 0 ? <MessageSkeleton rows={2} /> : null}</View>
+                ) : (
+                  <Intro dm={dm} name={dmName} label={label} username={partner?.username} empty={messages.length === 0} />
+                )
+              }
+            />
+          )}
+          {showNewBar && (
+            <NewMessagesBar
+              count={dividerIndex + 1}
+              onJump={() => {
+                setDividerSeen(true);
+                scrollToRow(dividerIndex, 0.85);
+              }}
+              onDismiss={() => {
+                setDividerSeen(true);
+                if (id) ackChannel(id);
+              }}
+            />
+          )}
+          <TypingBar names={typingNames} />
+          <JumpToBottom visible={!atBottom && loaded} count={unseen} onPress={scrollToBottom} />
+        </View>
+        <Composer
+          key={editing?.id ?? 'yeni'}
+          channel={target}
+          placeholder={dm ? `${label} ${dm.group ? 'grubuna' : 'kişisine'} mesaj gönder` : undefined}
+          lockedText={blocked ?? undefined}
+          mentionable={dm?.participantIds}
+          editing={editing}
+          onDoneEditing={() => setEditing(null)}
+          onSent={() => {
+            // Gönderince "YENİ" ayracı kalkar ve en alta inilir (masaüstündeki gibi)
+            setDividerId(null);
+            scrollToBottom();
+          }}
+        />
+        {/* Klavye açıkken ses çubuğu yer kaplamasın */}
+        {!keyboard.open && <VoiceBar bottomInset={insets.bottom} />}
 
-      <MessageMenu
-        message={menuFor}
-        self={self}
-        canManageMessages={canManageMessages}
-        canReact={canReact}
-        canReply={canSend}
-        onClose={() => setMenuFor(null)}
-        onEdit={(m) => setEditing(m)}
-      />
-    </View>
+        <MessageMenu
+          message={menuFor}
+          self={self}
+          canManageMessages={canManageMessages}
+          canReact={canReact}
+          canReply={canSend}
+          onClose={() => setMenuFor(null)}
+          onEdit={(m) => setEditing(m)}
+        />
+      </View>
+    </ChannelDrawer>
   );
 }
 

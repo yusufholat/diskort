@@ -8,8 +8,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
@@ -117,7 +119,66 @@ class VoiceForegroundService : Service() {
       // Mikrofon izni yoksa (dinleyici olarak bağlı) yalnızca ses çalma türüyle devam et
       startAsForeground(notification, withMicrophone = false)
     }
+    acquireLocks()
     return START_NOT_STICKY
+  }
+
+  private var wakeLock: PowerManager.WakeLock? = null
+  private var wifiLock: WifiManager.WifiLock? = null
+
+  /**
+   * Sesli sohbet sürerken işlemci ve Wi-Fi uykuya geçmesin: ekran kapalıyken ya da uygulama arka
+   * plandayken bazı telefonlar (ör. HONOR, Xiaomi) ağı ve zamanlayıcıları kısıtlıyor; LiveKit'in
+   * sinyal bağlantısı yanıtsız kalıp kopuyor. Kilitler servis durunca bırakılır.
+   */
+  private fun acquireLocks() {
+    try {
+      if (wakeLock?.isHeld != true) {
+        val power = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "diskort:voice").apply {
+          setReferenceCounted(false)
+          // Unutulursa pil bitmesin diye üst sınır; servis durunca zaten bırakılır
+          acquire(12 * 60 * 60 * 1000L)
+        }
+      }
+    } catch (_: Exception) {
+      // kilit alınamazsa ses yine çalışır
+    }
+    try {
+      if (wifiLock?.isHeld != true) {
+        val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+          WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+        } else {
+          @Suppress("DEPRECATION")
+          WifiManager.WIFI_MODE_FULL_HIGH_PERF
+        }
+        wifiLock = wifi.createWifiLock(mode, "diskort:voice").apply {
+          setReferenceCounted(false)
+          acquire()
+        }
+      }
+    } catch (_: Exception) {
+      // Wi-Fi yoksa ya da desteklenmiyorsa önemli değil
+    }
+  }
+
+  private fun releaseLocks() {
+    try {
+      wakeLock?.takeIf { it.isHeld }?.release()
+    } catch (_: Exception) {
+    }
+    try {
+      wifiLock?.takeIf { it.isHeld }?.release()
+    } catch (_: Exception) {
+    }
+    wakeLock = null
+    wifiLock = null
+  }
+
+  override fun onDestroy() {
+    releaseLocks()
+    super.onDestroy()
   }
 
   private fun startAsForeground(notification: Notification, withMicrophone: Boolean) {
