@@ -848,3 +848,72 @@ h3 {
   font-size: 18px;
   letter-spacing: 2px;
 }
+
+/* ---------- iPhone kaydı (/udid) ---------- */
+.udid h1 {
+  margin-top: 8px;
+}
+.udid-card {
+  margin: 16px 0 24px;
+  padding: 18px 20px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+}
+.udid-card h1 {
+  margin: 0 0 8px;
+  font-size: clamp(1.6rem, 5vw, 2.1rem);
+}
+.udid-ok {
+  border-color: rgba(35, 165, 90, 0.5);
+}
+.udid-bad {
+  border-color: rgba(242, 63, 67, 0.5);
+}
+.udid-warn {
+  border-color: rgba(250, 166, 26, 0.5);
+  color: var(--text);
+}
+.udid-label {
+  margin: 18px 0 6px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.udid-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.udid-value code {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 0.95rem;
+  word-break: break-all;
+  color: var(--head);
+}
+.udid-copy {
+  padding: 8px 16px;
+}
+.udid-model,
+.udid-note {
+  font-size: 0.9rem;
+}
+.udid-input {
+  width: 100%;
+  max-width: 360px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  background: var(--bg-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px; /* iOS 16 px altında odaklanınca sayfayı büyütür */
+}
+.udid-input:focus {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}

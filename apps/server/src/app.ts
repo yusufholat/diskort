@@ -28,6 +28,7 @@ import { registerAdminRoutes } from './routes/admin.js';
 import { registerAttachmentRoutes } from './routes/attachments.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerClientErrorRoutes } from './routes/clientErrors.js';
+import { registerUdidRoutes } from './routes/udid.js';
 import { registerAvatarRoutes } from './routes/avatars.js';
 import { registerDmRoutes } from './routes/dms.js';
 import { registerDownloadRoutes } from './routes/download.js';
@@ -190,6 +191,7 @@ export async function buildApp(
   registerGifRoutes(app, ctx);
   registerUpdateRoutes(app, ctx);
   registerClientErrorRoutes(app, ctx);
+  registerUdidRoutes(app, ctx);
   registerFeedbackRoutes(
     app,
     ctx,

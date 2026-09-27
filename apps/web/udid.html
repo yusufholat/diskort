@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>iPhone kaydı — Diskort</title>
+    <meta name="description" content="Diskort'u iPhone'una kurabilmek için cihazını kaydet." />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#5865f2" />
+    <link rel="icon" href="/assets/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/udid.js" defer></script>
+  </head>
+  <body>
+    <div class="page">
+      <header class="nav">
+        <a class="brand" href="/" aria-label="Diskort ana sayfa">
+          <img src="/assets/logo.svg" alt="" width="34" height="34" />
+          <span>Diskort</span>
+        </a>
+      </header>
+
+      <main class="legal udid">
+        <!-- Kayıt tamam: sunucu profil yüklendikten sonra buraya ?udid=… ile yönlendirir -->
+        <section id="udid-done" class="udid-card udid-ok" hidden>
+          <h1>Kaydedildi ✓</h1>
+          <p>iPhone'un Diskort'a ulaştı. Başka bir şey yapmana gerek yok; uygulama hazır olunca kurulum bağlantısı sana gelecek.</p>
+          <p class="udid-label">Cihaz kimliğin (UDID)</p>
+          <div class="udid-value">
+            <code id="udid-code"></code>
+            <button type="button" class="btn btn-light udid-copy" id="udid-copy">Kopyala</button>
+          </div>
+          <p class="udid-model" id="udid-model" hidden></p>
+          <p class="udid-note">
+            Yüklediğin profil kendiliğinden silinir. Ayarlar → Genel → VPN ve Cihaz Yönetimi'nde hâlâ görünüyorsa oradan
+            kaldırabilirsin.
+          </p>
+        </section>
+
+        <section id="udid-error" class="udid-card udid-bad" hidden>
+          <h1>Kayıt alınamadı</h1>
+          <p>iPhone'dan gelen bilgi okunamadı. Aşağıdaki adımları baştan dene; olmazsa Ziroo'ya yaz.</p>
+        </section>
+
+        <section id="udid-start">
+          <h1>iPhone'unu kaydet</h1>
+          <p>
+            Diskort iPhone'a App Store'dan değil, doğrudan bu siteden kurulur. Bunun için Apple her iPhone'un önceden
+            kaydedilmesini istiyor. Bu sayfa iPhone'unun kimliğini (UDID) Diskort'a gönderir; 1 dakika sürer.
+          </p>
+
+          <div class="udid-card udid-warn" id="udid-not-ios" hidden>
+            Bu sayfayı <strong>iPhone'da Safari</strong> ile aç. Bilgisayarda ya da Chrome'da çalışmaz.
+          </div>
+
+          <h2>1. Adını yaz</h2>
+          <p>Kimin iPhone'u olduğunu bilelim diye.</p>
+          <input id="udid-name" class="udid-input" type="text" maxlength="40" autocomplete="name" placeholder="ör. Ahmet" />
+
+          <h2>2. Profili indir</h2>
+          <p>
+            <a id="udid-download" class="btn btn-primary" href="/api/udid/profile">Profili indir</a>
+          </p>
+          <p>"Bu web sitesi bir yapılandırma profili indirmeye çalışıyor" diye sorarsa <strong>İzin Ver</strong> de.</p>
+
+          <h2>3. Ayarlar'dan yükle</h2>
+          <ul>
+            <li><strong>Ayarlar</strong>'ı aç; en üstte <strong>Profil İndirildi</strong> yazar, ona dokun.</li>
+            <li>Sağ üstten <strong>Yükle</strong> de, telefon şifreni gir. "Doğrulanmamış" yazması normaldir.</li>
+            <li>Bitince Safari kendiliğinden bu sayfaya döner ve "Kaydedildi" yazar.</li>
+          </ul>
+          <p class="udid-note">
+            Profil hiçbir ayarını değiştirmez ve hiçbir şey kurmaz; yalnızca cihaz kimliğini, modelini ve iOS sürümünü
+            bir kez gönderir, sonra silinir.
+          </p>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
