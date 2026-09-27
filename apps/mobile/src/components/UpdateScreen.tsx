@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Linking, Text, View } from 'react-native';
+import { Linking, Platform, Text, View } from 'react-native';
 import { useUpdates } from 'expo-updates';
 import { applyOta, installUpdate, resolveRequiredUpdate, useAppUpdate } from '../update/updater';
 import { DEFAULT_SERVER_URL } from '../stores/settings';
@@ -42,7 +42,10 @@ export function UpdateScreen({ requiredVersion }: { requiredVersion?: string | n
     detail = status.total ? `İndiriliyor… ${mb(status.received)} / ${mb(status.total)} MB` : 'İndiriliyor…';
   } else if (status.kind === 'ready') {
     percent = 100;
-    detail = 'İndirildi. Açılan ekranda "Güncelle"ye bas; kurulumdan sonra Diskort\'u yeniden aç.';
+    detail =
+      Platform.OS === 'ios'
+        ? 'Açılan pencerede "Yükle"ye bas. Diskort kapanıp güncellenir; bitince ana ekrandan yeniden aç.'
+        : 'İndirildi. Açılan ekranda "Güncelle"ye bas; kurulumdan sonra Diskort\'u yeniden aç.';
     action = { title: 'Kurulumu aç', run: () => void installUpdate() };
   } else if (status.kind === 'error') {
     detail = status.message;
@@ -57,7 +60,7 @@ export function UpdateScreen({ requiredVersion }: { requiredVersion?: string | n
     detail = 'Güncelleme denetleniyor…';
   }
 
-  const apk = status.kind !== 'idle' && ota.kind === 'idle';
+  const apk = Platform.OS === 'android' && status.kind !== 'idle' && ota.kind === 'idle';
   return (
     <View style={styles.page}>
       <View style={styles.badge}>

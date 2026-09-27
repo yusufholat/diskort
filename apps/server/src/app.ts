@@ -18,6 +18,7 @@ import { LinkPreviewService } from './linkPreviews.js';
 import { LiveKitService } from './livekit.js';
 import { OtaService } from './ota.js';
 import { PermissionService } from './permissions.js';
+import { createApns } from './apns.js';
 import { PushService } from './push.js';
 import { ReleaseService } from './releases.js';
 import { VoiceModeration } from './voiceModeration.js';
@@ -95,7 +96,8 @@ export async function buildApp(
     gifs: gifs.enabled,
   });
   const moderation = new VoiceModeration(store, voice, livekit, permissions, gateway);
-  const push = opts.push ?? new PushService(store, config.fcmServiceAccountFile, app.log);
+  const push =
+    opts.push ?? new PushService(store, config.fcmServiceAccountFile, app.log, fetch, createApns(config, app.log));
   const ota = new OtaService(releases, app.log, opts.otaFetch);
   const attachments = new AttachmentService(
     store,

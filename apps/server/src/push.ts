@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { importPKCS8, SignJWT } from 'jose';
 import { GIF_SNIPPET, isGifMessage, type DmChannel, type Message } from '@diskort/shared';
+import type { ApnsClient } from './apns.js';
 import type { Store } from './db.js';
 
 interface ServiceAccount {
@@ -22,10 +23,22 @@ const BODY_MAX = 180;
 const attachmentSummary = (count: number): string =>
   count > 1 ? `📎 ${count} dosya gönderdi` : count === 1 ? '📎 Bir dosya gönderdi' : '';
 
+/** Platformdan bağımsız bildirim: Android'e FCM, iOS'a APNs biçiminde gönderilir */
+interface Outgoing {
+  title: string;
+  body: string;
+  data: Record<string, string>;
+  /** Android bildirim kanalı */
+  channelId: string;
+  /** Aynı konudaki bildirimler üst üste biner */
+  tag?: string;
+}
+
 /**
- * Telefonlara bildirim: Google'ın FCM HTTP v1 arayüzüne doğrudan istek (Firebase sunucu kütüphanesi
- * gerekmez). Firebase yalnızca teslimatı yapar; kime, ne zaman, ne gideceğine bu sunucu karar verir.
- * Hizmet hesabı anahtarı yoksa sessizce devre dışıdır.
+ * Telefonlara bildirim. Android: Google'ın FCM HTTP v1 arayüzüne doğrudan istek (Firebase sunucu
+ * kütüphanesi gerekmez). iOS: Apple'ın APNs arayüzüne doğrudan (apns.ts). Firebase/Apple yalnızca
+ * teslimatı yapar; kime, ne zaman, ne gideceğine bu sunucu karar verir. Anahtarı olmayan platform
+ * sessizce devre dışıdır.
  */
 export class PushService {
   private readonly account: ServiceAccount | null;
@@ -36,12 +49,13 @@ export class PushService {
     serviceAccountFile: string | null,
     private readonly log: PushLogger,
     private readonly fetchImpl: typeof fetch = fetch,
+    private readonly apns: ApnsClient | null = null,
   ) {
     this.account = serviceAccountFile ? PushService.load(serviceAccountFile, log) : null;
   }
 
   get enabled(): boolean {
-    return this.account !== null;
+    return this.account !== null || this.apns !== null;
   }
 
   private static load(file: string, log: PushLogger): ServiceAccount | null {
@@ -58,7 +72,7 @@ export class PushService {
 
   /** Bahsedilen kullanıcıların telefonlarına bildirim gönderir. */
   async notifyMention(message: Message, mentionedUserIds: string[], channelName: string, guildId?: string): Promise<void> {
-    if (!this.account || mentionedUserIds.length === 0) return;
+    if (!this.enabled || mentionedUserIds.length === 0) return;
     const tokens = this.store.pushTokens(mentionedUserIds);
     if (tokens.length === 0) return;
 
@@ -68,21 +82,13 @@ export class PushService {
     const body = this.text(message) || (message.attachments.length ? '📎 Dosya gönderdi' : '');
     await Promise.all(
       tokens.map((t) =>
-        this.send(t.token, {
-          notification: {
-            title: `${author?.displayName ?? 'Biri'} · #${channelName}${guild ? ` (${guild.name})` : ''}`,
-            body: body.length > BODY_MAX ? `${body.slice(0, BODY_MAX)}…` : body,
-          },
+        this.deliver(t, {
+          title: `${author?.displayName ?? 'Biri'} · #${channelName}${guild ? ` (${guild.name})` : ''}`,
+          body: body.length > BODY_MAX ? `${body.slice(0, BODY_MAX)}…` : body,
           data: { type: 'mention', channelId: message.channelId, messageId: message.id, ...(guildId ? { guildId } : {}) },
-          android: {
-            priority: 'HIGH',
-            notification: {
-              channel_id: 'diskort-mentions',
-              // Aynı kanaldaki bildirimler üst üste biner, bildirim çubuğu dolmaz
-              tag: `channel-${message.channelId}`,
-              color: '#5865f2',
-            },
-          },
+          channelId: 'diskort-mentions',
+          // Aynı kanaldaki bildirimler üst üste biner, bildirim çubuğu dolmaz
+          tag: `channel-${message.channelId}`,
         }),
       ),
     );
@@ -93,7 +99,7 @@ export class PushService {
    * bildirimleri üst üste biner (etiket); ayrı Android kanalındadır, kullanıcı ayrıca kapatabilir.
    */
   async notifyDm(message: Message, recipientIds: string[], dm: DmChannel): Promise<void> {
-    if (!this.account || recipientIds.length === 0) return;
+    if (!this.enabled || recipientIds.length === 0) return;
     const tokens = this.store.pushTokens(recipientIds);
     if (tokens.length === 0) return;
 
@@ -103,20 +109,12 @@ export class PushService {
     const body = text.length > BODY_MAX ? `${text.slice(0, BODY_MAX)}…` : text;
     await Promise.all(
       tokens.map((t) =>
-        this.send(t.token, {
-          notification: {
-            title: dm.group ? `${authorName} · ${this.groupTitle(dm, t.userId)}` : authorName,
-            body,
-          },
+        this.deliver(t, {
+          title: dm.group ? `${authorName} · ${this.groupTitle(dm, t.userId)}` : authorName,
+          body,
           data: { type: 'dm', channelId: message.channelId, messageId: message.id },
-          android: {
-            priority: 'HIGH',
-            notification: {
-              channel_id: 'diskort-dm',
-              tag: `dm-${message.channelId}`,
-              color: '#5865f2',
-            },
-          },
+          channelId: 'diskort-dm',
+          tag: `dm-${message.channelId}`,
         }),
       ),
     );
@@ -134,14 +132,14 @@ export class PushService {
 
   /** Ayarlardaki "Test bildirimi gönder": kullanıcının kendi cihazlarına. Gönderilen cihaz sayısını döner. */
   async sendTest(userId: string): Promise<number> {
-    if (!this.account) return 0;
-    const tokens = this.store.pushTokens([userId]);
+    const tokens = this.store.pushTokens([userId]).filter((t) => this.canDeliver(t.platform));
     await Promise.all(
       tokens.map((t) =>
-        this.send(t.token, {
-          notification: { title: 'Diskort', body: 'Bildirimler çalışıyor ✓' },
+        this.deliver(t, {
+          title: 'Diskort',
+          body: 'Bildirimler çalışıyor ✓',
           data: { type: 'test' },
-          android: { priority: 'HIGH', notification: { channel_id: 'diskort-mentions', color: '#5865f2' } },
+          channelId: 'diskort-mentions',
         }),
       ),
     );
@@ -158,6 +156,34 @@ export class PushService {
     return content.replace(/(?<![\w.@])@([a-z0-9_.]*[a-z0-9_])/gi, (raw, name: string) => {
       const user = this.store.getUserAuthByUsername(name.toLowerCase());
       return user ? `@${user.displayName}` : raw;
+    });
+  }
+
+  /** Bu platformun anahtarı var mı (iOS: APNs, diğerleri: FCM) */
+  private canDeliver(platform: string): boolean {
+    return platform === 'ios' ? this.apns !== null : this.account !== null;
+  }
+
+  private async deliver(target: { token: string; platform: string }, o: Outgoing): Promise<void> {
+    if (!this.canDeliver(target.platform)) return;
+    if (target.platform === 'ios') {
+      const result = await this.apns!.send(target.token, {
+        title: o.title,
+        body: o.body,
+        data: o.data,
+        collapseId: o.tag,
+      });
+      // Uygulama silinmiş ya da jeton yenilenmiş: artık geçersiz jetonu unut
+      if (result === 'unregistered') this.store.removePushToken(target.token);
+      return;
+    }
+    await this.send(target.token, {
+      notification: { title: o.title, body: o.body },
+      data: o.data,
+      android: {
+        priority: 'HIGH',
+        notification: { channel_id: o.channelId, ...(o.tag ? { tag: o.tag } : {}), color: '#5865f2' },
+      },
     });
   }
 

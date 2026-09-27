@@ -63,7 +63,9 @@ if (Platform.OS === 'android') {
     .then((available) => useHapticsAvailable.setState({ available }))
     .catch(() => useHapticsAvailable.setState({ available: false }));
 } else {
-  useHapticsAvailable.setState({ available: true });
+  // iOS: Vibration süre ve desen desteklemez (her titreşim ~0,4 sn); kısa dokunma hissi için ayrı bir
+  // modül (expo-haptics) gerekir. O eklenene dek iOS'ta düğme titreşimi yok.
+  useHapticsAvailable.setState({ available: Platform.OS !== 'ios' });
 }
 
 /** Ses çalınan olaylar: düğme olayları ve kanala başkasının girip çıkması (yalnızca ses, titreşimsiz) */

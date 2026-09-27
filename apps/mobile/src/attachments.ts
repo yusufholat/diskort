@@ -1,4 +1,4 @@
-// Dosya ekleri (Android): dosya/resim seçme, yükleme (yerel dosyayı ham gövde olarak) ve gelen dosyayı
+// Dosya ekleri (Android ve iOS): dosya/resim seçme, yükleme (yerel dosyayı ham gövde olarak) ve gelen dosyayı
 // indirip telefondaki uygun uygulamayla açma.
 import type { Attachment } from '@diskort/shared';
 import { attachmentUrl, type LocalFile, type UploadRequest, type UploadResponse } from '@diskort/client-core';
@@ -6,6 +6,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import * as IntentLauncher from 'expo-intent-launcher';
+import { Platform, Share } from 'react-native';
 import { toast } from './stores/ui';
 
 /** Dosyayı ilerleme bildirerek gönderir (client-core'un platform yüklemesi). */
@@ -110,6 +111,11 @@ export async function openAttachment(attachment: Attachment): Promise<void> {
         await FileSystem.deleteAsync(target, { idempotent: true });
         throw new Error(result.status === 404 ? 'Dosya artık yok (mesaj silinmiş olabilir).' : `İndirme başarısız (${result.status}).`);
       }
+    }
+    if (Platform.OS === 'ios') {
+      // iOS'ta "Birlikte aç" yerine paylaşım sayfası: Dosyalar'a kaydet, önizle ya da başka uygulamada aç
+      await Share.share({ url: target });
+      return;
     }
     await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
       data: await FileSystem.getContentUriAsync(target),

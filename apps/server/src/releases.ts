@@ -2,7 +2,7 @@
 // yönlendirmeleri ve "eski istemci bağlanamaz" kuralı bu tek kaynağı kullanır.
 // Kullanıcılar GitHub'a gitmez: sayfa /download/<platform> adresine bağlanır, API dosyaya yönlendirir.
 
-export type Platform = 'windows' | 'linux-appimage' | 'linux-deb' | 'mac-arm64' | 'mac-x64' | 'android';
+export type Platform = 'windows' | 'linux-appimage' | 'linux-deb' | 'mac-arm64' | 'mac-x64' | 'android' | 'ios';
 
 export interface PlatformAsset {
   name: string;
@@ -18,7 +18,7 @@ export interface LatestRelease {
   ota: Partial<Record<OtaPlatform, PlatformAsset>>;
 }
 
-export type OtaPlatform = 'android';
+export type OtaPlatform = 'android' | 'ios';
 
 interface GithubAsset {
   name: string;
@@ -34,12 +34,15 @@ const MATCHERS: Record<Platform, RegExp> = {
   'mac-x64': /x64\.dmg$/i,
   // Hepsini içeren APK (ilk kurulum); işlemciye özel olanlar yalnızca uygulama içi güncellemede
   android: /-android\.apk$/i,
+  // Ad Hoc imzalı iOS uygulaması: yalnızca UDID'si kayıtlı cihazlara kurulur (bkz. docs/ios.md)
+  ios: /-ios\.ipa$/i,
 };
 
 export const PLATFORMS = Object.keys(MATCHERS) as Platform[];
 
 const OTA_MATCHERS: Record<OtaPlatform, RegExp> = {
   android: /-ota-android\.json$/i,
+  ios: /-ota-ios\.json$/i,
 };
 
 /** Dosya adındaki sürüm: Diskort-0.2.1-android.apk → 0.2.1 */

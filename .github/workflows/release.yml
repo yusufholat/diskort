@@ -1,4 +1,4 @@
-# Sürüm derleme: "v*" etiketi gönderilince Windows, Linux, macOS ve Android paketlerini derleyip
+# Sürüm derleme: "v*" etiketi gönderilince Windows, Linux, macOS, Android (ve anahtarlar varsa iOS) paketlerini derleyip
 # GitHub'daki taslak (draft) sürüme yükler. Taslak GitHub'da yayınlanınca indirme sayfası
 # ve uygulama içi güncellemeler yeni sürümü görür.
 #
@@ -273,6 +273,15 @@ jobs:
     name: Android
     needs: draft
     uses: ./.github/workflows/android.yml
+    with:
+      release-tag: ${{ github.ref_name }}
+    secrets: inherit
+
+  # iOS: yalnızca imza anahtarları varsa IPA + iOS OTA paketi (yoksa atlanır; bkz. docs/ios.md)
+  ios:
+    name: iOS
+    needs: draft
+    uses: ./.github/workflows/ios.yml
     with:
       release-tag: ${{ github.ref_name }}
     secrets: inherit

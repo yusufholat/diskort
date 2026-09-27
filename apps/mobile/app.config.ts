@@ -8,6 +8,11 @@ function versionCode(v: string): number {
   return major * 10000 + minor * 100 + patch;
 }
 
+/** iOS izin metinleri (Ayarlar'da ve izin sorulurken görünür) */
+const IOS_MICROPHONE = 'Diskort sesli sohbette seni karşı tarafa duyurmak için mikrofonunu kullanır.';
+const IOS_CAMERA = 'Diskort kamerayı yalnızca sen bir fotoğraf ya da görüntü göndermek istediğinde kullanır.';
+const IOS_PHOTOS = 'Diskort galerinden seçtiğin fotoğraf ve videoları mesaja eklemek için fotoğraflarına erişir.';
+
 const config: ExpoConfig = {
   name: 'Diskort',
   slug: 'diskort',
@@ -16,8 +21,26 @@ const config: ExpoConfig = {
   // Yayın izlerken yatay ekran için döndürmeye izin verilir
   orientation: 'default',
   icon: './assets/icon.png',
-  userInterfaceStyle: 'dark',
+  // Sistem pencereleri (izin soruları, klavye) telefonun açık/koyu ayarını izler; uygulama kendi temasını çizer
+  userInterfaceStyle: 'automatic',
   backgroundColor: '#313338',
+  // iOS: Apple Developer hesabıyla "Ad Hoc" imzalanıp kendi sitemizden kurulur (bkz. docs/ios.md).
+  // Paket kimliği Android'deki ile aynı.
+  ios: {
+    bundleIdentifier: 'com.diskort.app',
+    buildNumber: String(versionCode(version)),
+    supportsTablet: true,
+    infoPlist: {
+      NSMicrophoneUsageDescription: IOS_MICROPHONE,
+      NSCameraUsageDescription: IOS_CAMERA,
+      NSPhotoLibraryUsageDescription: IOS_PHOTOS,
+      // Sesli sohbet uygulama arka plandayken ve ekran kilitliyken sürer (AVAudioSession, LiveKit yönetir)
+      UIBackgroundModes: ['audio', 'voip'],
+      // Yalnızca standart şifreleme (HTTPS, WebRTC): ihracat beyanı gerekmez
+      ITSAppUsesNonExemptEncryption: false,
+      CFBundleDevelopmentRegion: 'tr',
+    },
+  },
   android: {
     package: 'com.diskort.app',
     versionCode: versionCode(version),
@@ -70,8 +93,10 @@ const config: ExpoConfig = {
     codeSigningMetadata: { keyid: 'main', alg: 'rsa-v1_5-sha256' },
   },
   plugins: [
+    // iOS: OTA adresi ve arka plan kipleri. En başta kalmalı (bkz. eklentinin açıklaması)
+    './plugins/withIos',
     'expo-router',
-    'expo-secure-store',
+    ['expo-secure-store', { faceIDPermission: 'Diskort oturum bilgilerini korumak için Face ID kullanabilir.' }],
     [
       'expo-build-properties',
       {
@@ -81,12 +106,17 @@ const config: ExpoConfig = {
         },
       },
     ],
+    // iOS'ta ekran paylaşımı yok (Broadcast Upload Extension gerekir; bkz. docs/ios.md)
     // enableScreenShareService: telefondan ekran paylaşımı için MediaProjection ön plan servisi
     ['@livekit/react-native-expo-plugin', { android: { audioType: 'communication', enableScreenShareService: true } }],
-    '@config-plugins/react-native-webrtc',
+    ['@config-plugins/react-native-webrtc', { cameraPermission: IOS_CAMERA, microphonePermission: IOS_MICROPHONE }],
     // Galeriden seçim (fotoğraf seçicisi). microphonePermission false VERİLMEMELİ: RECORD_AUDIO'yu
     // engeller ve sesli sohbet çalışmaz.
-    ['expo-image-picker', { cameraPermission: false }],
+    // Buradaki metinler yalnızca iOS içindir; Android'de CAMERA izni android.blockedPermissions ile engelli kalır.
+    [
+      'expo-image-picker',
+      { cameraPermission: IOS_CAMERA, microphonePermission: IOS_MICROPHONE, photosPermission: IOS_PHOTOS },
+    ],
     // Mesajdaki videoları oynatmak için. Arka planda oynatma ve resim içinde resim kapalı: ön plan
     // servisi (FOREGROUND_SERVICE_MEDIA_PLAYBACK) izni eklenmez. Yerel modül: yeni APK gerekir; eski
     // APK'larda JavaScript modülün varlığını denetler (src/video.ts).
@@ -99,7 +129,13 @@ const config: ExpoConfig = {
     ],
     [
       'expo-notifications',
-      { icon: './assets/android-icon-monochrome.png', color: '#5865f2', defaultChannel: 'diskort-mentions' },
+      {
+        icon: './assets/android-icon-monochrome.png',
+        color: '#5865f2',
+        defaultChannel: 'diskort-mentions',
+        // iOS: Ad Hoc imzalı uygulama APNs'in üretim ortamını kullanır (aps-environment)
+        mode: 'production',
+      },
     ],
     './plugins/withReleaseSigning',
     './plugins/withAbiSplits',

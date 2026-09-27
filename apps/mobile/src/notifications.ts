@@ -16,8 +16,12 @@ const setPushState = (state: PushState): void => usePushState.setState({ state }
 
 /**
  * Telefon bildirimleri: bahsetmeler ve direkt mesajlar. Sunucu, ilgili kullanıcının kayıtlı cihazlarına
- * Google'ın bildirim servisi (FCM) üzerinden gönderir; uygulama kapalıyken bildirimi Android kendisi
- * gösterir. İki ayrı Android bildirim kanalı vardır: kullanıcı telefon ayarlarından birini kapatabilir.
+ * Android'de Google'ın bildirim servisi (FCM), iOS'ta doğrudan Apple'ınki (APNs) üzerinden gönderir;
+ * uygulama kapalıyken bildirimi işletim sistemi kendisi gösterir. Android'de iki ayrı bildirim kanalı
+ * vardır: kullanıcı telefon ayarlarından birini kapatabilir.
+ *
+ * iOS'ta cihaz jetonu APNs jetonudur (Firebase yok). Sunucuda APNs anahtarı yoksa jeton kaydedilir ama
+ * bildirim gitmez; uygulama imzasında "aps-environment" yoksa jeton alınamaz ve nedeni ayarlarda görünür.
  */
 const CHANNEL_ID = 'diskort-mentions';
 /** Direkt mesajlar (sunucu bu kanalı kullanır; bkz. push.ts notifyDm) */
@@ -36,32 +40,21 @@ Notifications.setNotificationHandler({
 
 let tokenSubscription: { remove: () => void } | null = null;
 
+const PLATFORM = Platform.OS === 'ios' ? 'ios' : 'android';
+
 async function sendToken(token: string): Promise<void> {
-  await api.registerPushToken({ token, platform: 'android' });
+  await api.registerPushToken({ token, platform: PLATFORM });
   await SecureStore.setItemAsync(TOKEN_KEY, token);
 }
 
 /** Giriş yapılınca: bildirim izni iste, cihaz jetonunu sunucuya kaydet. */
 export async function registerForPush(): Promise<void> {
-  if (Platform.OS !== 'android') return;
+  if (Platform.OS !== 'android' && Platform.OS !== 'ios') return;
   try {
-    await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
-      name: 'Bahsetmeler',
-      description: 'Biri senden bahsettiğinde',
-      importance: Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 180, 120, 180],
-      lightColor: '#5865f2',
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    if (Platform.OS === 'android') await createChannels();
+    const permission = await Notifications.requestPermissionsAsync({
+      ios: { allowAlert: true, allowBadge: false, allowSound: true },
     });
-    await Notifications.setNotificationChannelAsync(DM_CHANNEL_ID, {
-      name: 'Direkt mesajlar',
-      description: 'Biri sana direkt mesaj gönderdiğinde',
-      importance: Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 180, 120, 180],
-      lightColor: '#5865f2',
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-    });
-    const permission = await Notifications.requestPermissionsAsync();
     if (!permission.granted) {
       setPushState({ kind: 'denied' });
       return;
@@ -70,12 +63,32 @@ export async function registerForPush(): Promise<void> {
     await sendToken(String(data));
     setPushState({ kind: 'registered' });
     tokenSubscription?.remove();
-    // Google jetonu yenilerse sunucuya yenisini bildir
+    // Google/Apple jetonu yenilerse sunucuya yenisini bildir
     tokenSubscription = Notifications.addPushTokenListener(({ data: next }) => void sendToken(String(next)).catch(() => undefined));
   } catch (err) {
-    // Ör. Google Play Hizmetleri yok ya da ağ hatası: uygulama bildirimsiz çalışır, nedeni ayarlarda görünür
+    // Ör. Google Play Hizmetleri yok, iOS imzasında bildirim yetkisi yok ya da ağ hatası: uygulama bildirimsiz
+    // çalışır, nedeni ayarlarda görünür
     setPushState({ kind: 'error', message: err instanceof Error ? err.message : String(err) });
   }
+}
+
+async function createChannels(): Promise<void> {
+  await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
+    name: 'Bahsetmeler',
+    description: 'Biri senden bahsettiğinde',
+    importance: Notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 180, 120, 180],
+    lightColor: '#5865f2',
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  });
+  await Notifications.setNotificationChannelAsync(DM_CHANNEL_ID, {
+    name: 'Direkt mesajlar',
+    description: 'Biri sana direkt mesaj gönderdiğinde',
+    importance: Notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 180, 120, 180],
+    lightColor: '#5865f2',
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  });
 }
 
 /** Çıkış yapmadan önce: bu cihaza artık bu hesabın bildirimleri gitmesin. */

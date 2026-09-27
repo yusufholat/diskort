@@ -3,6 +3,7 @@ import * as Device from 'expo-device';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as Updates from 'expo-updates';
+import { Linking, Platform } from 'react-native';
 import { create } from 'zustand';
 import { APP_VERSION, NATIVE_VERSION } from '../version';
 import { DEFAULT_SERVER_URL } from '../stores/settings';
@@ -14,6 +15,9 @@ import { colors } from '../theme';
  *    sunucumuzdan iner ve uygulama kendini yeniden başlatır. Kullanıcı bir şey yapmaz.
  * 2. APK: yerel kısım (Android kodu, kütüphaneler) değiştiyse telefona uygun APK (arm64 / armv7) iner
  *    ve Android'in kurulum ekranı açılır. Android sessiz kuruluma izin vermez; son onay kullanıcıdadır.
+ *
+ * iOS'ta 1. aynıdır (kendi OTA adresi: /updates/expo/ios). 2. yerine yeni IPA (Ad Hoc) kendi sitemizden
+ * "itms-services" bağlantısıyla kurulur: iOS "Diskort yüklensin mi?" diye sorar, uygulama kapanıp güncellenir.
  */
 export type UpdateStatus =
   | { kind: 'idle' }
@@ -145,6 +149,12 @@ export async function resolveRequiredUpdate(): Promise<void> {
 
 // ——— APK güncellemesi ———
 
+const IOS = Platform.OS === 'ios';
+
+/** iOS'ta yeni IPA'yı kuran bağlantı (sunucu imzalı IPA'nın kurulum bildirimini üretir) */
+const iosInstallUrl = (): string =>
+  `itms-services://?action=download-manifest&url=${encodeURIComponent(`${DEFAULT_SERVER_URL}/download/ios/manifest.plist`)}`;
+
 /** Telefona uygun APK: günümüz telefonları arm64, eskiler armv7; bilinmiyorsa hepsini içeren APK. */
 function apkName(version: string): string {
   const abis = Device.supportedCpuArchitectures ?? [];
@@ -152,10 +162,10 @@ function apkName(version: string): string {
   return abi ? `Diskort-${version}-android-${abi}.apk` : `Diskort-${version}-android.apk`;
 }
 
-/** Sunucuya en son APK sürümünü sorar; yüklü APK'dan yeniyse durumu "available" yapar. */
+/** Sunucuya en son APK (iOS'ta IPA) sürümünü sorar; yüklü olandan yeniyse durumu "available" yapar. */
 async function checkApk(): Promise<boolean> {
   try {
-    const res = await fetch(`${DEFAULT_SERVER_URL}/api/client/version?platform=android`, {
+    const res = await fetch(`${DEFAULT_SERVER_URL}/api/client/version?platform=${IOS ? 'ios' : 'android'}`, {
       headers: { 'Cache-Control': 'no-store' },
     });
     if (!res.ok) return false;
@@ -174,6 +184,7 @@ let download: FileSystem.DownloadResumable | null = null;
 
 /** Kurulmuş (ya da artık eski) sürümlerin indirilen APK'larını siler. */
 export async function cleanupDownloads(): Promise<void> {
+  if (IOS) return;
   try {
     const dir = FileSystem.cacheDirectory;
     if (!dir) return;
@@ -193,6 +204,18 @@ export async function installUpdate(): Promise<void> {
   const status = useAppUpdate.getState().status;
   if (status.kind === 'idle' || status.kind === 'downloading') return;
   const version = status.version;
+  if (IOS) {
+    // Kurulumu iOS yapar; indirme ilerlemesi uygulamaya gelmez. Bağlantı yeniden açılabilsin diye "ready".
+    useAppUpdate.setState({ status: { kind: 'ready', version, uri: iosInstallUrl() } });
+    try {
+      await Linking.openURL(iosInstallUrl());
+    } catch (err) {
+      useAppUpdate.setState({
+        status: { kind: 'error', version, message: err instanceof Error ? err.message : String(err) },
+      });
+    }
+    return;
+  }
   if (status.kind === 'ready') {
     await openInstaller(version, status.uri);
     return;
