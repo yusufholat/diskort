@@ -10,6 +10,19 @@ interface MobileSettings {
   speaker: boolean;
   selfMute: boolean;
   selfDeaf: boolean;
+  /** Kişi başı ses seviyesi ve izlenen yayının ses seviyesi (0–2); yalnızca %100'den farklı olanlar tutulur */
+  userVolumes: Record<string, number>;
+  streamVolumes: Record<string, number>;
+  /** Mikrofon işleme (WebRTC ve telefonun kendi ses işlemcisi); sesli sohbete katılırken uygulanır */
+  noiseSuppression: boolean;
+  echoCancellation: boolean;
+  autoGainControl: boolean;
+  /** Ses algılama: konuşmadığın anlarda mikrofon sessize alınır (arka plan sesi gitmez) */
+  voiceActivity: boolean;
+  /** Eşik ortam gürültüsüne göre kendiliğinden belirlenir */
+  vadAuto: boolean;
+  /** Elle belirlenen eşik (dBFS) */
+  vadThresholdDb: number;
   set: (patch: Partial<Omit<MobileSettings, 'set'>>) => void;
 }
 
@@ -20,6 +33,14 @@ export const useSettings = create<MobileSettings>()(
       speaker: true,
       selfMute: false,
       selfDeaf: false,
+      userVolumes: {},
+      streamVolumes: {},
+      noiseSuppression: true,
+      echoCancellation: true,
+      autoGainControl: true,
+      voiceActivity: true,
+      vadAuto: true,
+      vadThresholdDb: -50,
       set: (patch) => set(patch),
     }),
     {

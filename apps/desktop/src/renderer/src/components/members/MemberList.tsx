@@ -1,7 +1,8 @@
 import { memo, useMemo } from 'react';
-import { Crown } from 'lucide-react';
+import { Crown, MessageCircle } from 'lucide-react';
 import type { User } from '@diskort/shared';
 import { memberGroups, useGuild, useMemberColor, useSession } from '@diskort/client-core';
+import { startDm } from '../../lib/dm';
 import { currentView } from '../../lib/mainView';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
@@ -45,7 +46,7 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
     const view = currentView();
     openProfile({
       userId: user.id,
-      channelId: view.kind === 'text' ? view.channelId : null,
+      channelId: view.kind === 'text' || view.kind === 'dm' ? view.channelId : null,
       anchor: el.getBoundingClientRect(),
       side: 'left',
     });
@@ -57,7 +58,7 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
       tabIndex={0}
       aria-label={`${user.displayName} profili`}
       className={cn(
-        'flex h-[42px] cursor-pointer items-center gap-3 rounded px-2 hover:bg-bg-hover',
+        'group flex h-[42px] cursor-pointer items-center gap-3 rounded px-2 hover:bg-bg-hover',
         offline && 'opacity-40 hover:opacity-100',
       )}
       onClick={(e) => showProfile(e.currentTarget)}
@@ -85,6 +86,20 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
         </div>
         {inVoice && <div className="truncate text-xs text-text-muted">Sesli sohbette</div>}
       </div>
+      {!isSelf && (
+        <button
+          className="press-icon invisible shrink-0 rounded p-1 text-text-muted group-hover:visible hover:text-text-head focus-visible:visible"
+          data-tooltip="Mesaj gönder"
+          aria-label={`${user.displayName} kişisine mesaj gönder`}
+          onClick={(e) => {
+            e.stopPropagation(); // satırın profil kartı açılmasın
+            void startDm(user.id);
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          <MessageCircle size={18} />
+        </button>
+      )}
     </div>
   );
 });

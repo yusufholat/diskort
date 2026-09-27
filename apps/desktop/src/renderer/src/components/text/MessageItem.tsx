@@ -7,6 +7,7 @@ import {
   editMessage,
   isMentioned,
   mentionInComposer,
+  useGuild,
   QUICK_REACTIONS,
   retryMessage,
   setEditing,
@@ -19,6 +20,8 @@ import {
 } from '@diskort/client-core';
 import { renderMarkdown, type MarkdownContext } from '../../features/messages/markdown';
 import { confirmDialog } from '../../lib/dialog';
+import { startDm } from '../../lib/dm';
+import { memberMenuItems } from '../../lib/memberMenu';
 import { useMountedRef } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { toast, useUi, type EmojiPickerAnchor } from '../../stores/ui';
@@ -76,6 +79,21 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
   // Yazma kutusunun üstünde bu mesaja yanıt veriliyor
   const replying = useMessages((s) => s.replies[message.channelId]?.messageId === message.id);
   const isReply = Boolean(message.replyToId);
+  // Yazara mesaj gönderilebilir mi: başkası, hâlâ üye ve zaten onunla bire bir konuşmada değiliz
+  const inDirect = useGuild((s) => s.dms[message.channelId]?.group === false);
+  const canMessageAuthor = !own && !inDirect && author !== undefined && !author.removed;
+  /**
+   * Yazarın adına ya da resmine sağ tıklayınca: kişi menüsü (mesaj gönder, ses seviyesi, yönetim).
+   * Sol tık: ad yazma kutusuna bahsetme ekler, resim profil kartını açar.
+   */
+  const openAuthorMenu = (e: MouseEvent): void => {
+    if (!author || author.removed) return;
+    const items = memberMenuItems(author.id);
+    if (own && items.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openContextMenu({ x: e.clientX, y: e.clientY, userId: own ? undefined : author.id, items });
+  };
   const react = (emoji: string): void => void toggleReaction(message.channelId, message.id, emoji);
   const pickReaction = (anchor: EmojiPickerAnchor): void => openEmojiPicker({ anchor, onPick: react });
   const reply = (): void => startReply(message);
@@ -103,6 +121,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
       items: [
         ...(canReact ? [{ label: 'Tepki Ekle', onClick: () => pickReaction(point) }] : []),
         ...(canReply ? [{ label: 'Yanıtla', onClick: reply }] : []),
+        ...(canMessageAuthor && author ? [{ label: 'Yazara Mesaj Gönder', onClick: () => void startDm(author.id) }] : []),
         ...(attachment
           ? [
               {
@@ -154,6 +173,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
             aria-label={`${author.displayName} profili`}
             className={cn('press block rounded-full', isReply ? 'mt-6' : 'mt-0.5')}
             onClick={(e) => showProfile(e.currentTarget)}
+            onContextMenu={openAuthorMenu}
           >
             <Avatar user={author} size={40} />
           </button>
@@ -172,6 +192,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
                 className="font-medium text-text-head hover:underline"
                 style={authorColor ? { color: authorColor } : undefined}
                 onClick={(e) => mentionAuthor(e.currentTarget)}
+                onContextMenu={openAuthorMenu}
               >
                 {author.displayName}
               </button>

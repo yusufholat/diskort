@@ -24,4 +24,18 @@ export function formatStamp(ts: number): string {
 }
 
 export const formatDay = (ts: number): string => longDate.format(ts);
+
+const dayMonth = new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short' });
+
+/** Listedeki kısa "son etkinlik": "şimdi", "5 dk", "3 sa", "Dün", "4 g", "12 Eyl" */
+export function formatAgo(ts: number, now = Date.now()): string {
+  const minutes = Math.floor((now - ts) / 60_000);
+  if (minutes < 1) return 'şimdi';
+  if (minutes < 60) return `${minutes} dk`;
+  if (sameDay(ts, now)) return `${Math.floor(minutes / 60)} sa`;
+  const days = Math.round((startOfDay(now) - startOfDay(ts)) / DAY_MS);
+  if (days === 1) return 'Dün';
+  if (days < 7) return `${days} g`;
+  return dayMonth.format(ts);
+}
 export const formatFull = (ts: number): string => full.format(ts);

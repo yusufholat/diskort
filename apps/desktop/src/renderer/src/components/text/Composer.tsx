@@ -88,12 +88,21 @@ function FilePreview({ file }: { file: LocalFile }) {
 }
 
 interface Props {
-  channel: Channel;
+  channel: Pick<Channel, 'id' | 'name'>;
   self: User;
   onSend: () => void;
+  /** Kutudaki ipucu (verilmezse "#kanal kanalına mesaj gönder") */
+  placeholder?: string;
+  /** Yazılamıyorsa kutu yerine gösterilecek açıklama (verilmezse izin yok mesajı) */
+  lockedText?: string;
+  /** Bahsetme önerilerinde yalnızca bu kişiler (ör. konuşmanın katılımcıları) */
+  mentionable?: readonly string[];
 }
 
-export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ channel, self, onSend }, handle) {
+export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
+  { channel, self, onSend, placeholder, lockedText, mentionable },
+  handle,
+) {
   const [value, setValue] = useState(() => drafts.get(channel.id) ?? '');
   const [caret, setCaret] = useState(0);
   const [selected, setSelected] = useState(0);
@@ -121,11 +130,11 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
     if (query === undefined || query === dismissed) return [];
     const q = query.toLocaleLowerCase('tr');
     return Object.values(users)
-      .filter((u) => !u.removed)
+      .filter((u) => !u.removed && (!mentionable || mentionable.includes(u.id)))
       .filter((u) => u.username.startsWith(q) || u.displayName.toLocaleLowerCase('tr').includes(q))
       .sort((a, b) => Number(!!online[b.id]) - Number(!!online[a.id]) || a.username.localeCompare(b.username))
       .slice(0, MAX_SUGGESTIONS);
-  }, [query, dismissed, users, online]);
+  }, [query, dismissed, users, online, mentionable]);
   const active = Math.min(selected, Math.max(0, suggestions.length - 1));
 
   const update = (next: string, nextCaret: number): void => {
@@ -223,12 +232,12 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
   const remaining = MESSAGE_MAX_LENGTH - value.trim().length;
 
   // Salt okunur kanal: yazma kutusu yerine açıklama
-  if (!canSend) {
+  if (!canSend || lockedText) {
     return (
       <div className="px-4">
         <div className="flex min-h-11 items-center gap-2 rounded-lg bg-bg-hover px-4 text-text-muted">
           <Lock size={16} className="shrink-0" />
-          <span>Bu kanala mesaj gönderme iznin yok.</span>
+          <span>{lockedText ?? 'Bu kanala mesaj gönderme iznin yok.'}</span>
         </div>
       </div>
     );
@@ -295,7 +304,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
             rows={1}
             autoFocus
             maxLength={MESSAGE_MAX_LENGTH * 2}
-            placeholder={`#${channel.name} kanalına mesaj gönder`}
+            placeholder={placeholder ?? `#${channel.name} kanalına mesaj gönder`}
             onChange={(e) => {
               update(e.target.value, e.target.selectionStart);
               if (e.target.value.trim()) notifyTyping(channel.id);

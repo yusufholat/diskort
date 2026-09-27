@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import {
   DEFAULT_ATTACHMENT_MAX_BYTES,
   type Channel,
+  type DmChannel,
   type GatewayServerMessage,
   type Guild,
   type ReadyPayload,
@@ -15,22 +16,27 @@ export type GatewayStatus = 'idle' | 'connecting' | 'ready' | 'reconnecting';
 export interface GuildStore {
   status: GatewayStatus;
   guild: Guild | null;
-  /** Yalnızca kullanıcının görebildiği kanallar (sunucu süzer) */
+  /** Yalnızca kullanıcının görebildiği kanallar (sunucu süzer); direkt mesajlar burada değil */
   channels: Channel[];
+  /** Listede açık direkt mesaj konuşmaları (kimlik → konuşma); DM'leri tanımayan sunucuda boş */
+  dms: Record<string, DmChannel>;
   /** Atılan/yasaklananlar dahil (mesajlarda adları görünsün diye); üye listesinde `removed` olanlar gösterilmez */
   users: Record<string, User>;
   /** @everyone dahil tüm roller (@everyone'ın kimliği topluluk kimliğidir) */
   roles: Record<string, Role>;
   voiceStates: Record<string, VoiceState>;
   online: Record<string, true>;
-  /** Metin kanalı → en son mesaj kimliği */
+  /** Metin kanalı ya da DM → en son mesaj kimliği */
   lastMessageIds: Record<string, string>;
-  /** Metin kanalı → bu kullanıcının okuduğu son mesaj */
+  /** Metin kanalı ya da DM → bu kullanıcının okuduğu son mesaj */
   readStates: Record<string, string>;
   /** Sunucunun kabul ettiği en büyük dosya (bayt) */
   attachmentMaxBytes: number;
   markRead: (channelId: string, messageId: string) => void;
   setLastMessageId: (channelId: string, messageId: string | null) => void;
+  /** REST yanıtıyla gelen konuşmayı hemen listeye koyar (gateway olayı da gelir; tekrar zararsız) */
+  upsertDm: (dm: DmChannel) => void;
+  removeDm: (id: string) => void;
   setStatus: (status: GatewayStatus) => void;
   setReady: (payload: ReadyPayload) => void;
   apply: (msg: GatewayServerMessage) => void;
@@ -47,6 +53,7 @@ const initial = {
   status: 'idle' as GatewayStatus,
   guild: null,
   channels: [],
+  dms: {},
   users: {},
   roles: {},
   voiceStates: {},
@@ -65,6 +72,7 @@ export const useGuild = create<GuildStore>()((set) => ({
       status: 'ready',
       guild: p.guild,
       channels: sortChannels(p.channels),
+      dms: byId(p.dms ?? []),
       users: byId(p.users),
       roles: byId(p.roles ?? []),
       voiceStates: Object.fromEntries(p.voiceStates.map((v) => [v.userId, v])),
@@ -86,6 +94,13 @@ export const useGuild = create<GuildStore>()((set) => ({
       else delete lastMessageIds[channelId];
       return { lastMessageIds };
     }),
+  upsertDm: (dm) => set((s) => ({ dms: { ...s.dms, [dm.id]: dm } })),
+  removeDm: (id) =>
+    set((s) => {
+      if (!s.dms[id]) return {};
+      const { [id]: _removed, ...dms } = s.dms;
+      return { dms };
+    }),
   apply: (msg) =>
     set((s) => {
       switch (msg.t) {
@@ -102,7 +117,18 @@ export const useGuild = create<GuildStore>()((set) => ({
           const { [msg.d.id]: _user, ...users } = s.users;
           const { [msg.d.id]: _voice, ...voiceStates } = s.voiceStates;
           const { [msg.d.id]: _online, ...online } = s.online;
-          return { users, voiceStates, online };
+          // Silinen hesap konuşmalardan düşer (sunucu da güncel konuşmayı gönderir)
+          const dms = Object.values(s.dms).some((d) => d.participantIds.includes(msg.d.id))
+            ? Object.fromEntries(
+                Object.entries(s.dms).map(([id, d]) => [
+                  id,
+                  d.participantIds.includes(msg.d.id)
+                    ? { ...d, participantIds: d.participantIds.filter((p) => p !== msg.d.id) }
+                    : d,
+                ]),
+              )
+            : s.dms;
+          return { users, voiceStates, online, dms };
         }
         case 'PRESENCE_UPDATE': {
           const online = { ...s.online };
@@ -124,10 +150,33 @@ export const useGuild = create<GuildStore>()((set) => ({
           return { guild: msg.d };
         case 'ROLES_UPDATE':
           return { roles: byId(msg.d.roles) };
-        case 'MESSAGE_CREATE':
-          return Number(msg.d.id) > Number(s.lastMessageIds[msg.d.channelId] ?? 0)
-            ? { lastMessageIds: { ...s.lastMessageIds, [msg.d.channelId]: msg.d.id } }
-            : {};
+        case 'MESSAGE_CREATE': {
+          if (Number(msg.d.id) <= Number(s.lastMessageIds[msg.d.channelId] ?? 0)) return {};
+          const lastMessageIds = { ...s.lastMessageIds, [msg.d.channelId]: msg.d.id };
+          const dm = s.dms[msg.d.channelId];
+          // DM listesi son etkinliğe göre sıralanır
+          return dm
+            ? {
+                lastMessageIds,
+                dms: { ...s.dms, [dm.id]: { ...dm, lastMessageId: msg.d.id, lastActivityAt: msg.d.createdAt } },
+              }
+            : { lastMessageIds };
+        }
+        case 'DM_CHANNEL_CREATE':
+        case 'DM_CHANNEL_UPDATE': {
+          // Konuşma listeye (yeniden) girerken son mesajı okunmamış bilgisine de yansır
+          const last = msg.d.lastMessageId;
+          const lastMessageIds =
+            last && Number(last) > Number(s.lastMessageIds[msg.d.id] ?? 0)
+              ? { ...s.lastMessageIds, [msg.d.id]: last }
+              : s.lastMessageIds;
+          return { dms: { ...s.dms, [msg.d.id]: msg.d }, lastMessageIds };
+        }
+        case 'DM_CHANNEL_DELETE': {
+          if (!s.dms[msg.d.id]) return {};
+          const { [msg.d.id]: _removed, ...dms } = s.dms;
+          return { dms };
+        }
         default:
           return {};
       }

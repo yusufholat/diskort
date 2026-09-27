@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { importPKCS8, SignJWT } from 'jose';
-import type { Message } from '@diskort/shared';
+import type { DmChannel, Message } from '@diskort/shared';
 import type { Store } from './db.js';
 
 interface ServiceAccount {
@@ -17,6 +17,10 @@ interface PushLogger {
 
 const SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
 const BODY_MAX = 180;
+
+/** Yalnızca dosya içeren mesajın bildirim metni */
+const attachmentSummary = (count: number): string =>
+  count > 1 ? `📎 ${count} dosya gönderdi` : count === 1 ? '📎 Bir dosya gönderdi' : '';
 
 /**
  * Telefonlara bildirim: Google'ın FCM HTTP v1 arayüzüne doğrudan istek (Firebase sunucu kütüphanesi
@@ -81,6 +85,50 @@ export class PushService {
         }),
       ),
     );
+  }
+
+  /**
+   * Direkt mesaj: konuşmanın diğer katılımcılarının telefonlarına, her mesajda. Aynı konuşmanın
+   * bildirimleri üst üste biner (etiket); ayrı Android kanalındadır, kullanıcı ayrıca kapatabilir.
+   */
+  async notifyDm(message: Message, recipientIds: string[], dm: DmChannel): Promise<void> {
+    if (!this.account || recipientIds.length === 0) return;
+    const tokens = this.store.pushTokens(recipientIds);
+    if (tokens.length === 0) return;
+
+    const author = message.authorId ? this.store.getUser(message.authorId) : null;
+    const authorName = author?.displayName ?? 'Biri';
+    const text = this.readable(message.content) || attachmentSummary(message.attachments.length);
+    const body = text.length > BODY_MAX ? `${text.slice(0, BODY_MAX)}…` : text;
+    await Promise.all(
+      tokens.map((t) =>
+        this.send(t.token, {
+          notification: {
+            title: dm.group ? `${authorName} · ${this.groupTitle(dm, t.userId)}` : authorName,
+            body,
+          },
+          data: { type: 'dm', channelId: message.channelId, messageId: message.id },
+          android: {
+            priority: 'HIGH',
+            notification: {
+              channel_id: 'diskort-dm',
+              tag: `dm-${message.channelId}`,
+              color: '#5865f2',
+            },
+          },
+        }),
+      ),
+    );
+  }
+
+  /** Grubun adı; yoksa alıcı dışındaki katılımcıların adları */
+  private groupTitle(dm: DmChannel, recipientId: string): string {
+    if (dm.name) return dm.name;
+    const names = dm.participantIds
+      .filter((id) => id !== recipientId)
+      .map((id) => this.store.getUser(id)?.displayName)
+      .filter((n): n is string => Boolean(n));
+    return names.length > 3 ? `${names.slice(0, 3).join(', ')} +${names.length - 3}` : names.join(', ');
   }
 
   /** Ayarlardaki "Test bildirimi gönder": kullanıcının kendi cihazlarına. Gönderilen cihaz sayısını döner. */

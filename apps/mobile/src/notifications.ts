@@ -15,10 +15,13 @@ export const usePushState = create<{ state: PushState }>()(() => ({ state: { kin
 const setPushState = (state: PushState): void => usePushState.setState({ state });
 
 /**
- * Telefon bildirimleri (bahsetmeler). Sunucu, bahsedilen kullanıcının kayıtlı cihazlarına Google'ın
- * bildirim servisi (FCM) üzerinden gönderir; uygulama kapalıyken bildirimi Android kendisi gösterir.
+ * Telefon bildirimleri: bahsetmeler ve direkt mesajlar. Sunucu, ilgili kullanıcının kayıtlı cihazlarına
+ * Google'ın bildirim servisi (FCM) üzerinden gönderir; uygulama kapalıyken bildirimi Android kendisi
+ * gösterir. İki ayrı Android bildirim kanalı vardır: kullanıcı telefon ayarlarından birini kapatabilir.
  */
 const CHANNEL_ID = 'diskort-mentions';
+/** Direkt mesajlar (sunucu bu kanalı kullanır; bkz. push.ts notifyDm) */
+const DM_CHANNEL_ID = 'diskort-dm';
 const TOKEN_KEY = 'diskort-push-token';
 
 // Uygulama açıkken bildirim çubuğuna düşürme: aynı bahsetme uygulama içinde zaten gösteriliyor
@@ -45,6 +48,14 @@ export async function registerForPush(): Promise<void> {
     await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
       name: 'Bahsetmeler',
       description: 'Biri senden bahsettiğinde',
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 180, 120, 180],
+      lightColor: '#5865f2',
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+    await Notifications.setNotificationChannelAsync(DM_CHANNEL_ID, {
+      name: 'Direkt mesajlar',
+      description: 'Biri sana direkt mesaj gönderdiğinde',
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 180, 120, 180],
       lightColor: '#5865f2',
@@ -80,7 +91,7 @@ export async function unregisterPush(): Promise<void> {
   }
 }
 
-/** Bildirime dokunulunca açılacak kanal */
+/** Bildirime dokunulunca açılacak kanal ya da direkt mesaj konuşması (ikisi de aynı ekranda açılır) */
 export function channelFromResponse(response: Notifications.NotificationResponse | null): string | null {
   const data = response?.notification.request.content.data as { channelId?: unknown } | undefined;
   return typeof data?.channelId === 'string' ? data.channelId : null;

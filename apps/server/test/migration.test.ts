@@ -100,41 +100,105 @@ describe('göç 8: roller', () => {
   });
 });
 
-describe('göç 10: yanıtlar', () => {
-  it('üretimdeki şema 8 veritabanı göçer; eski mesajlar yanıt değildir, yeni yanıtlar özetiyle okunur', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diskort-goc-'));
-    dirs.push(dir);
-    const file = path.join(dir, 'diskort.db');
-    const db = new DatabaseSync(file);
-    for (const sql of MIGRATIONS.slice(0, 8)) db.exec(sql);
-    db.exec('PRAGMA user_version = 8');
-    db.exec(`INSERT INTO guilds (id, name, created_at) VALUES ('g1', 'Eski', 1)`);
-    db.exec(`INSERT INTO channels (id, guild_id, name, type, position, created_at) VALUES ('t1', 'g1', 'genel', 'text', 0, 1)`);
-    db.exec(
-      `INSERT INTO users (id, username, display_name, password_hash, avatar_color, is_admin, created_at)
-       VALUES ('ali', 'ali', 'Ali', 'x', '#5865f2', 0, 1), ('veli', 'veli', 'Veli', 'x', '#5865f2', 0, 2)`,
-    );
-    db.exec(`INSERT INTO messages (channel_id, author_id, content, created_at) VALUES ('t1', 'ali', 'eski mesaj', 1)`);
-    db.close();
+/** 0.4.x sürümündeki (şema 8, üretimdeki) gibi bir veritabanı: kanallara bağlı her türden kayıt */
+function schema8Database(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diskort-goc9-'));
+  dirs.push(dir);
+  const file = path.join(dir, 'diskort.db');
+  const db = new DatabaseSync(file);
+  db.exec('PRAGMA foreign_keys = ON');
+  for (const sql of MIGRATIONS.slice(0, 8)) db.exec(sql);
+  db.exec('PRAGMA user_version = 8');
+  db.exec(`
+    INSERT INTO guilds (id, name, created_at) VALUES ('g1', 'Eski', 1);
+    INSERT INTO roles (id, guild_id, name, position, permissions, created_at) VALUES ('g1', 'g1', '@everyone', 0, 0, 1);
+    INSERT INTO users (id, username, display_name, password_hash, avatar_color, created_at)
+      VALUES ('u1', 'ali', 'Ali', 'x', '#5865f2', 1), ('u2', 'veli', 'Veli', 'x', '#5865f2', 2);
+    INSERT INTO channels (id, guild_id, name, type, position, created_at)
+      VALUES ('t1', 'g1', 'genel', 'text', 0, 1), ('v1', 'g1', 'Ses', 'voice', 1, 1);
+    INSERT INTO channel_overwrites (channel_id, role_id, allow, deny) VALUES ('t1', 'g1', 0, 128);
+    INSERT INTO messages (channel_id, author_id, content, created_at) VALUES ('t1', 'u1', 'selam', 5), ('t1', 'u2', 'naber', 6);
+    INSERT INTO reactions (message_id, user_id, emoji, created_at) VALUES (1, 'u2', '👍', 7);
+    INSERT INTO attachments (id, message_id, channel_id, uploader_id, name, size, content_type, created_at)
+      VALUES ('a1', 1, 't1', 'u1', 'not.txt', 3, 'text/plain', 5);
+    INSERT INTO read_states (user_id, channel_id, last_read_id, mention_count) VALUES ('u2', 't1', 1, 1);
+  `);
+  db.close();
+  return file;
+}
 
-    const store = new Store(file);
+describe('göç 9: direkt mesajlar', () => {
+  it('kanallar tablosu yeniden kurulurken kanala bağlı hiçbir kayıt kaybolmaz', () => {
+    const store = new Store(schema8Database());
     try {
-      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
-      const [old] = store.listMessages('t1', null, 50);
-      expect(old).toMatchObject({ content: 'eski mesaj', replyToId: null, referencedMessage: null, replyMentionUserId: null });
+      const db = store.db;
+      const count = (table: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
+      expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+      expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+      expect(count('channels')).toBe(2);
+      expect(count('messages')).toBe(2);
+      expect(count('reactions')).toBe(1);
+      expect(count('attachments')).toBe(1);
+      expect(count('read_states')).toBe(1);
+      expect(store.listChannels('g1').map((c) => [c.id, c.type, c.overwrites.length])).toEqual([
+        ['t1', 'text', 1],
+        ['v1', 'voice', 0],
+      ]);
+      expect(
+        store.listMessages('t1', null, 10, 'u1').map((m) => [m.content, m.reactions.length, m.attachments.length]),
+      ).toEqual([
+        ['selam', 1, 1],
+        ['naber', 0, 0],
+      ]);
+
+      // Yeni tür ve kurallar: DM topluluğa bağlı olamaz, topluluk kanalı bağsız olamaz
+      expect(() =>
+        db.exec(`INSERT INTO channels (id, guild_id, name, type, position, created_at) VALUES ('d1', 'g1', '', 'dm', 0, 1)`),
+      ).toThrow();
+      expect(() =>
+        db.exec(`INSERT INTO channels (id, guild_id, name, type, position, created_at) VALUES ('t2', NULL, 'x', 'text', 0, 1)`),
+      ).toThrow();
+      const { dm } = store.openDirectDm('u1', 'u2');
+      expect(store.getChannel(dm.id)).toBeNull();
+      expect(store.listChannels('g1')).toHaveLength(2);
+      expect(new PermissionService(store).inChannel('u2', dm.id)).toBeGreaterThan(0);
+
+      // Yabancı anahtarlar yeni tabloya bağlı: kanal silinince mesajları da gider
+      store.deleteChannel('t1');
+      expect(count('messages')).toBe(0);
+      expect(count('read_states')).toBe(0);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe('göç 10: yanıtlar', () => {
+  it('şema 8 veritabanı 9 ve 10 ile göçer; eski mesajlar yanıt değildir, yeni yanıtlar özetiyle okunur', () => {
+    const store = new Store(schema8Database());
+    try {
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 10 });
+      expect(MIGRATIONS).toHaveLength(10);
+      const [first, second] = store.listMessages('t1', null, 50, 'u1');
+      expect(first).toMatchObject({ content: 'selam', replyToId: null, referencedMessage: null, replyMentionUserId: null });
+      expect(second).toMatchObject({ content: 'naber', replyToId: null });
+      expect(first!.attachments).toHaveLength(1);
+      expect(first!.reactions).toHaveLength(1);
       const reply = store.createMessage(
         't1',
-        'veli',
+        'u2',
         'yanıt',
         [],
-        { userIds: ['ali'], everyone: false },
-        { toId: Number(old!.id), mentionUserId: 'ali' },
+        { userIds: ['u1'], everyone: false },
+        { toId: Number(first!.id), mentionUserId: 'u1' },
       )!;
       expect(reply).toMatchObject({
-        replyToId: old!.id,
-        replyMentionUserId: 'ali',
-        referencedMessage: { id: old!.id, authorId: 'ali', content: 'eski mesaj', hasAttachments: false },
+        replyToId: first!.id,
+        replyMentionUserId: 'u1',
+        referencedMessage: { id: first!.id, authorId: 'u1', content: 'selam', hasAttachments: true },
       });
+      expect(store.mentionCounts('u1')).toEqual({ t1: 1 });
     } finally {
       store.close();
     }

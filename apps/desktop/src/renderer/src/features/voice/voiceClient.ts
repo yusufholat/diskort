@@ -3,8 +3,10 @@ import {
   DisconnectReason,
   LocalAudioTrack,
   LocalVideoTrack,
+  LogLevel,
   Room,
   RoomEvent,
+  setLogExtension,
   Track,
   type AudioCaptureOptions,
   type Participant,
@@ -14,7 +16,16 @@ import {
   type RemoteVideoTrack,
 } from 'livekit-client';
 import type { VoiceJoinResponse } from '@diskort/shared';
-import { api, errorMessage, useGuild, useSession, gateway } from '@diskort/client-core';
+import {
+  api,
+  errorMessage,
+  gateway,
+  reportClientError,
+  reportVoiceLog,
+  SpuriousDuplicateGuard,
+  useGuild,
+  useSession,
+} from '@diskort/client-core';
 import { bridge } from '../../lib/bridge';
 import { playSound, sharedAudioContext } from '../../lib/sfx';
 import { getSettings, useSettings, type Settings } from '../../stores/settings';
@@ -79,6 +90,7 @@ class VoiceClient {
   private statsTimer: number | null = null;
   private pttReleaseTimer: number | null = null;
   private joinSeq = 0;
+  private readonly duplicates = new SpuriousDuplicateGuard();
   private remoteSpeaking = new Set<string>();
   private selfSpeaking = false;
   /** Katılırken ya da izin gelince mikrofon yayınlanıyor (iki kez yayınlanmasın) */
@@ -509,9 +521,12 @@ class VoiceClient {
         if (p.isLocal) setVoice({ quality });
       })
       .on(RoomEvent.Reconnecting, () => {
+        this.duplicates.noteReconnect();
         if (room === this.room) setVoice({ status: 'reconnecting' });
       })
+      .on(RoomEvent.SignalReconnecting, () => this.duplicates.noteReconnect())
       .on(RoomEvent.Reconnected, () => {
+        this.duplicates.noteReconnect();
         if (room === this.room) setVoice({ status: 'connected' });
       })
       .on(RoomEvent.AudioPlaybackStatusChanged, () => {
@@ -522,6 +537,17 @@ class VoiceClient {
       })
       .on(RoomEvent.Disconnected, (reason) => {
         if (room !== this.room) return; // kendi başlattığımız ayrılma
+        const channelId = useVoice.getState().channelId;
+        if (reason !== DisconnectReason.CLIENT_INITIATED) {
+          reportClientError(new Error(`ses bağlantısı kapandı: ${DisconnectReason[reason ?? 0] ?? reason}`), 'ses');
+        }
+        // Kendi yeniden bağlanmamızın ardından gelen "başka cihaz" uyarısı: sessizce kanala geri dön
+        if (channelId && this.duplicates.shouldRejoin(reason === DisconnectReason.DUPLICATE_IDENTITY)) {
+          void this.leave()
+            .then(() => this.join(channelId))
+            .catch(() => undefined);
+          return;
+        }
         this.joinSeq++;
         void this.teardownRoom();
         setVoice({ ...RESET_ROOM_STATE, channelId: null, status: 'idle', error: disconnectMessage(reason) });
@@ -806,5 +832,8 @@ class VoiceClient {
     };
   }
 }
+
+// LiveKit'in uyarıları sunucu kayıtlarına: kullanıcılardaki bağlantı sorunlarının nedenini görmek için
+setLogExtension((level, message, context) => reportVoiceLog(level, LogLevel.warn, message, context));
 
 export const voice = new VoiceClient();

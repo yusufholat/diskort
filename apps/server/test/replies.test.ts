@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Permission as P, REPLY_EXCERPT_LENGTH, type Channel, type Message } from '@diskort/shared';
+import { Permission as P, REPLY_EXCERPT_LENGTH, type Channel, type DmChannel, type Message } from '@diskort/shared';
 import { connectGateway, startServer, type TestServer } from './helpers.js';
 
 let s: TestServer;
@@ -164,5 +164,40 @@ describe('yanıtlar', () => {
     } finally {
       gw.ws.close();
     }
+  });
+
+  it('direkt mesajda yanıt: asıl yazar katılımcıysa bildirilir (bir kez sayılır), ayrıldıysa bildirilmez', async () => {
+    const ali = await s.member('ali');
+    const veli = await s.member('veli');
+    const fatma = await s.member('fatma');
+    const text = s.channel('text');
+    const openDm = async (token: string, userIds: string[]): Promise<DmChannel> =>
+      (await s.req(token, 'POST', '/api/dms', { userIds })).json() as DmChannel;
+    const notify = vi.spyOn(s.ctx.push, 'notifyDm');
+
+    const direct = await openDm(ali.token, [veli.user.id]);
+    const original = (await send(ali.token, direct.id, { content: 'dm soru' })).json() as Message;
+    const reply = (await send(veli.token, direct.id, { content: 'dm cevap', replyToId: original.id })).json() as Message;
+    expect(reply).toMatchObject({
+      replyToId: original.id,
+      replyMentionUserId: ali.user.id,
+      referencedMessage: { id: original.id, content: 'dm soru' },
+    });
+    expect(s.ctx.store.mentionCounts(ali.user.id)).toEqual({ [direct.id]: 1 });
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ id: reply.id }), [ali.user.id], expect.anything());
+    expect((await list(veli.token, direct.id)).at(-1)!.referencedMessage?.content).toBe('dm soru');
+
+    // Başka kanaldaki mesaja konuşmadan yanıt verilemez
+    const elsewhere = (await send(ali.token, text.id, { content: 'kanalda' })).json() as Message;
+    expect((await send(veli.token, direct.id, { content: 'x', replyToId: elsewhere.id })).statusCode).toBe(400);
+
+    // Gruptan ayrılan yazarın mesajına yanıt: kimse ek olarak bildirilmez
+    const group = await openDm(ali.token, [veli.user.id, fatma.user.id]);
+    const left = (await send(ali.token, group.id, { content: 'gidiyorum' })).json() as Message;
+    expect((await s.req(ali.token, 'DELETE', `/api/dms/${group.id}`)).statusCode).toBe(204);
+    const late = (await send(veli.token, group.id, { content: 'görüşürüz', replyToId: left.id })).json() as Message;
+    expect(late).toMatchObject({ replyToId: left.id, replyMentionUserId: null });
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ id: late.id }), [fatma.user.id], expect.anything());
+    expect(s.ctx.store.mentionCounts(ali.user.id)[group.id]).toBeUndefined();
   });
 });

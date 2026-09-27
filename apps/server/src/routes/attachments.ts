@@ -33,12 +33,18 @@ export function registerAttachmentRoutes(app: FastifyInstance, ctx: AppContext):
         },
       },
       async (req, reply) => {
-        const channel = store.getChannel(req.params.id);
-        if (!channel || channel.type !== 'text' || !permissions.canView(req.user.id, channel)) {
+        // Metin kanalı ya da katılımcısı olunan direkt mesaj konuşması
+        const dm = permissions.isDm(req.params.id);
+        const channel = dm ? null : store.getChannel(req.params.id);
+        if (
+          dm
+            ? !permissions.canView(req.user.id, req.params.id)
+            : !channel || channel.type !== 'text' || !permissions.canView(req.user.id, channel)
+        ) {
           return sendError(reply, 404, 'not_found', 'Metin kanalı bulunamadı.');
         }
-        if (!permissions.can(req.user.id, Permission.SEND_MESSAGES | Permission.ATTACH_FILES, channel)) {
-          return forbidden(reply, 'Bu kanala dosya gönderme iznin yok.');
+        if (!permissions.can(req.user.id, Permission.SEND_MESSAGES | Permission.ATTACH_FILES, channel ?? req.params.id)) {
+          return forbidden(reply, dm ? 'Bu konuşmaya dosya gönderemezsin.' : 'Bu kanala dosya gönderme iznin yok.');
         }
         if (!allowUpload(req.user.id)) {
           return sendError(reply, 429, 'rate_limited', 'Çok hızlı dosya yüklüyorsun, biraz bekle.');
@@ -50,7 +56,7 @@ export function registerAttachmentRoutes(app: FastifyInstance, ctx: AppContext):
             declaredSize: length !== undefined && /^\d+$/.test(length) ? Number(length) : null,
             name: typeof req.query.name === 'string' ? req.query.name : '',
             contentType: req.headers['content-type'],
-            channelId: channel.id,
+            channelId: req.params.id,
             uploaderId: req.user.id,
           });
           return reply.code(201).send(attachment);

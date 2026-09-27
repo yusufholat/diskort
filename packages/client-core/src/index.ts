@@ -5,6 +5,7 @@ export { configureClient } from './configure';
 export type { ClientEnvironment, KeyValueStorage, LocalFile, UploadRequest, UploadResponse } from './env';
 export { api, ApiError, errorMessage, normalizeServerUrl } from './api';
 export { reportClientError } from './errors';
+export { reportVoiceLog, SpuriousDuplicateGuard } from './voiceDiagnostics';
 export { gateway } from './gateway';
 export { useSession } from './session';
 export { isUnread, membersOf, useGuild, type GatewayStatus, type GuildStore } from './guild';
@@ -76,6 +77,22 @@ export {
   registerComposer,
   type ComposerHandle,
 } from './composer';
+export {
+  addDmParticipant,
+  closeDm,
+  createDm,
+  dmBlockedReason,
+  dmPartner,
+  dmRecipients,
+  dmTitle,
+  openDirectMessage,
+  renameDm,
+  sortDms,
+  useDmList,
+  useDmUnreadCount,
+  useDmUnreadTotal,
+  useUnreadDms,
+} from './dms';
 export { attachmentUrl, avatarUrl, formatBytes, removeAvatar, uploadAvatar } from './uploads';
 export { EMOJI_CATEGORIES, QUICK_REACTIONS, type EmojiCategory } from './emoji';
 export { parseInline, parseMarkdown, plainText, type MdBlock, type MdInline, type MdStyle } from './markdown';
