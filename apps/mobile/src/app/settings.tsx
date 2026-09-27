@@ -5,7 +5,7 @@ import { api, errorMessage, gateway, removeAvatar, uploadAvatar, useSession } fr
 import { pickAvatar } from '../attachments';
 import { Avatar } from '../components/Avatar';
 import { PressableScale } from '../components/PressableScale';
-import { Button, FadeIn, Field, SectionTitle, ui } from '../components/ui';
+import { Button, Card, FadeIn, Field, NavRow, SectionTitle, ui } from '../components/ui';
 import { VoiceSettings } from '../components/VoiceSettings';
 import { animateNextLayout } from '../motion';
 import { registerForPush, unregisterPush, usePushState } from '../notifications';
@@ -95,6 +95,15 @@ export default function SettingsScreen() {
       <Button title="Geri bildirim gönder" variant="secondary" onPress={() => router.push('/feedback')} />
 
       <SectionTitle>Uygulama</SectionTitle>
+      <Card style={{ marginBottom: 8 }}>
+        <NavRow
+          first
+          icon="sparkles"
+          label="Yenilikler"
+          detail="Sürüm notları: her sürümde neler değişti"
+          onPress={() => router.push('/whats-new')}
+        />
+      </Card>
       <Info label="Sürüm" value={APP_VERSION === NATIVE_VERSION ? APP_VERSION : `${APP_VERSION} (APK ${NATIVE_VERSION})`} />
       {serverUrl !== DEFAULT_SERVER_URL && <Info label="Sunucu" value={serverUrl} />}
       <Pressable onPress={() => void Linking.openURL(`${DEFAULT_SERVER_URL}/privacy`)} style={styles.link}>
