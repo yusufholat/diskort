@@ -42,6 +42,7 @@ export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' |
   const memberListOpen = useUi((s) => s.memberListOpen);
   // Arama kapsamı: açık konuşma ya da seçili sunucu; sonuçlar açıkken üye listesinin yerinde
   const guildId = useGuild((s) => s.guild?.id ?? '');
+  const guildName = useGuild((s) => s.guild?.name ?? '');
   const searchScope = useMemo(() => (dm ? { dmId: dm.id } : { guildId }), [dm, guildId]);
   const searchOpen = useSearchOpen(searchScope);
   // Bire bir konuşmada karşı taraf ayrıldıysa yazma kutusu yerine neden gösterilir
@@ -190,7 +191,7 @@ export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' |
           >
             <Users size={22} />
           </button>
-          <SearchBox scope={searchScope} placeholder={dm ? 'Ara' : 'Sunucuda ara'} />
+          <SearchBox scope={searchScope} placeholder={dm ? 'Ara' : guildName ? `${guildName} sunucusunu ara` : 'Sunucuda ara'} />
         </header>
 
         <div className="relative flex min-h-0 flex-1 flex-col">

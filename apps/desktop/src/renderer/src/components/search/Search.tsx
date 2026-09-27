@@ -101,8 +101,8 @@ export function SearchBox({ scope, placeholder }: { scope: SearchScope; placehol
     <div className="relative" onClick={(e) => e.stopPropagation()}>
       <div
         className={cn(
-          'flex h-7 items-center gap-1 rounded bg-bg-deep px-2 text-sm transition-[width] duration-150',
-          wide ? 'w-60' : 'w-36',
+          'flex h-8 items-center gap-1.5 rounded-lg border bg-bg-input px-2.5 text-sm transition-[width,border-color] duration-150',
+          wide ? 'w-80 border-brand/60' : 'w-60 border-float-edge',
         )}
       >
         <input
