@@ -4,6 +4,7 @@ import { ZoomIn, ZoomOut } from 'lucide-react';
 import { clamp } from '../../lib/utils';
 import { Button } from '../ui/controls';
 import { Modal } from '../ui/Modal';
+import { Slider } from '../ui/Slider';
 
 /** Kırpma alanının kenarı (ekranda, piksel) */
 const VIEW = 280;
@@ -59,16 +60,7 @@ export function AvatarCropper({ file, onCancel, onSave }: Props) {
     };
   }, [file]);
 
-  // Esc yalnızca bu pencereyi kapatsın (arkadaki ayarlar penceresini değil)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return;
-      e.stopPropagation();
-      if (!saving) onCancel();
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [onCancel, saving]);
+  // Esc yalnızca bu pencereyi kapatır: Modal en üstteki Esc katmanı olur (bkz. lib/escape.ts)
 
   const scale = loaded ? loaded.base * zoom : 1;
   const width = loaded ? loaded.img.naturalWidth * scale : VIEW;
@@ -184,21 +176,33 @@ export function AvatarCropper({ file, onCancel, onSave }: Props) {
         )}
         {!failed && (
           <div className="mt-4 flex items-center gap-3 px-2 text-text-muted">
-            <button aria-label="Uzaklaştır" disabled={!loaded} onClick={() => zoomTo(zoom / 1.25)}>
+            <button
+              aria-label="Uzaklaştır"
+              data-tooltip="Uzaklaştır"
+              className="press-icon rounded p-1 hover:bg-bg-hover hover:text-text-head disabled:opacity-40"
+              disabled={!loaded}
+              onClick={() => zoomTo(zoom / 1.25)}
+            >
               <ZoomOut size={18} />
             </button>
-            <input
-              type="range"
-              className="slider flex-1"
+            <Slider
+              className="flex-1"
               aria-label="Yakınlaştırma"
+              data-tooltip={`Yakınlaştırma: %${Math.round(zoom * 100)}`}
               min={1}
               max={MAX_ZOOM}
               step={0.01}
               value={zoom}
               disabled={!loaded}
-              onChange={(e) => zoomTo(Number(e.target.value))}
+              onValueChange={zoomTo}
             />
-            <button aria-label="Yakınlaştır" disabled={!loaded} onClick={() => zoomTo(zoom * 1.25)}>
+            <button
+              aria-label="Yakınlaştır"
+              data-tooltip="Yakınlaştır"
+              className="press-icon rounded p-1 hover:bg-bg-hover hover:text-text-head disabled:opacity-40"
+              disabled={!loaded}
+              onClick={() => zoomTo(zoom * 1.25)}
+            >
               <ZoomIn size={18} />
             </button>
           </div>
