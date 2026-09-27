@@ -45,7 +45,15 @@ if (!app.requestSingleInstanceLock()) {
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
-if (isLinux) app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
+
+// Chromium özellikleri tek anahtarda toplanır: 'enable-features' ikinci kez eklenirse öncekini ezer.
+const enabledFeatures: string[] = [];
+if (isLinux) enabledFeatures.push('WebRTCPipeWireCapturer');
+// Windows: WebRTC AV1'i ekran kartıyla kodlasın (NVIDIA RTX 40+, AMD RX 7000+, Intel Arc). Chromium'da Windows
+// için varsayılan kapalı; kartta AV1 kodlayıcı yoksa veya açılamazsa kendiliğinden libaom'a (yazılım) düşer.
+// H.264 ve H.265 donanım kodlaması zaten açık (H.264 için bkz. renderer'da hardwareEncoder.ts).
+if (isWindows) enabledFeatures.push('WebRtcAV1HWEncode');
+if (enabledFeatures.length) app.commandLine.appendSwitch('enable-features', enabledFeatures.join(','));
 
 // Yalnızca geliştirme: otomatik test için hata ayıklama portu ve sahte mikrofon/kamera.
 if (!app.isPackaged) {
