@@ -2,13 +2,14 @@ import { Animated, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { STATUS_LABELS } from '@diskort/shared';
-import { useCustomStatus, useSession, useStatus } from '@diskort/client-core';
+import { useCustomStatus, useFeedback, useSession, useStatus } from '@diskort/client-core';
 import { useBump } from '../motion';
 import { useSettings } from '../stores/settings';
 import { colors, createStyles, font, space, tint } from '../theme';
 import { toggleDeafen, toggleMute } from '../voice/actions';
 import { useVoice } from '../voice/voice';
 import { Avatar } from './Avatar';
+import { CountBadge } from './Badge';
 import { PressableScale } from './PressableScale';
 import { openStatusPicker } from './StatusPicker';
 import { VoiceBar } from './VoiceBar';
@@ -29,6 +30,8 @@ export function UserPanel({ onSettings }: { onSettings: () => void }) {
   const inVoice = useVoice((s) => s.status !== 'idle');
   const status = useStatus(user?.id);
   const custom = useCustomStatus(user?.id);
+  // Hesap yöneticisine yeni geri bildirim sayısı (Ayarlar > Geri bildirimler (yönetim))
+  const newFeedback = useFeedback((s) => (user?.isAdmin ? s.newCount : 0));
   if (inVoice) return <VoiceBar bottomInset={insets.bottom} onSettings={onSettings} />;
   if (!user) return null;
   return (
@@ -72,7 +75,12 @@ export function UserPanel({ onSettings }: { onSettings: () => void }) {
         label={selfDeaf ? 'Sağırlaştırmayı kaldır' : 'Sağırlaştır'}
         onPress={toggleDeafen}
       />
-      <PanelButton icon="settings-sharp" label="Ayarlar" onPress={onSettings} />
+      <PanelButton
+        icon="settings-sharp"
+        label={newFeedback > 0 ? `Ayarlar, ${newFeedback} yeni geri bildirim` : 'Ayarlar'}
+        onPress={onSettings}
+        badge={newFeedback}
+      />
     </View>
   );
 }
@@ -82,11 +90,14 @@ function PanelButton({
   label,
   off,
   onPress,
+  badge = 0,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   off?: boolean;
   onPress: () => void;
+  /** Sağ üst köşede kırmızı sayı */
+  badge?: number;
 }) {
   // Simge değişince (sustur ↔ aç) kısa bir zıplamayla yenisine geçer
   const bump = useBump(icon);
@@ -103,6 +114,11 @@ function PanelButton({
       <Animated.View style={{ transform: [{ scale: bump }] }}>
         <Ionicons name={icon} size={21} color={off ? colors.danger : colors.text} />
       </Animated.View>
+      {badge > 0 && (
+        <View pointerEvents="none" style={styles.badge}>
+          <CountBadge count={badge} ring={colors.panel} />
+        </View>
+      )}
     </PressableScale>
   );
 }
@@ -120,4 +136,5 @@ const styles = createStyles(() => ({
   name: { color: colors.head, fontSize: font.body - 1, fontWeight: '700' },
   username: { color: colors.muted, fontSize: font.caption },
   button: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  badge: { position: 'absolute', top: -4, right: -6 },
 }));

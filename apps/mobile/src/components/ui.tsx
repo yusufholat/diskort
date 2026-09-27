@@ -15,6 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useAppear, useShake } from '../motion';
 import { brandTint, colors, createStyles, font, radius, ripple, space, tint } from '../theme';
+import { CountBadge } from './Badge';
 import { PressableScale } from './PressableScale';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
@@ -142,6 +143,7 @@ export function NavRow({
   onPress,
   danger,
   first,
+  badge = 0,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   iconColor?: string;
@@ -152,6 +154,8 @@ export function NavRow({
   danger?: boolean;
   /** Kartın ilk satırı (üstünde ayırıcı çizgi olmaz) */
   first?: boolean;
+  /** Oktan önce kırmızı sayı (ör. yeni geri bildirimler) */
+  badge?: number;
 }) {
   return (
     <Pressable
@@ -174,6 +178,7 @@ export function NavRow({
           {value}
         </Text>
       ) : null}
+      {badge > 0 ? <CountBadge count={badge} /> : null}
       {onPress ? <Ionicons name="chevron-forward" size={18} color={colors.faint} /> : null}
     </Pressable>
   );

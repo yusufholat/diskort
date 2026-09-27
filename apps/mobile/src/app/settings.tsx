@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { api, errorMessage, gateway, removeAvatar, uploadAvatar, useSession } from '@diskort/client-core';
+import { api, errorMessage, gateway, removeAvatar, uploadAvatar, useFeedback, useSession } from '@diskort/client-core';
 import { pickAvatar } from '../attachments';
 import { PresenceAvatar } from '../components/Avatar';
 import { StatusChip } from '../components/StatusPicker';
@@ -27,6 +27,9 @@ export default function SettingsScreen() {
   const [savingName, setSavingName] = useState(false);
   const photo = useProfilePhoto();
   const router = useRouter();
+  // Hesap yöneticiliği hiçbir sunucuya bağlı değildir: yönetim buradan
+  const isAdmin = user?.isAdmin === true;
+  const newFeedback = useFeedback((s) => (isAdmin ? s.newCount : 0));
 
   const saveName = async (): Promise<void> => {
     setSavingName(true);
@@ -135,6 +138,23 @@ export default function SettingsScreen() {
           onPress={() => router.push('/whats-new')}
         />
       </Card>
+
+      {isAdmin && (
+        <>
+          <SectionTitle>Hesap yönetimi</SectionTitle>
+          <Card>
+            <NavRow
+              first
+              icon="file-tray-full"
+              iconColor={colors.warn}
+              label="Geri bildirimler (yönetim)"
+              detail={newFeedback > 0 ? `${newFeedback} yeni geri bildirim` : 'Gelen hata ve öneriler; durum ve yanıt'}
+              badge={newFeedback}
+              onPress={() => router.push('/feedback-admin')}
+            />
+          </Card>
+        </>
+      )}
 
       <SectionTitle>Uygulama</SectionTitle>
       <Card>
