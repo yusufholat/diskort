@@ -343,6 +343,7 @@ class VoiceClient {
       const processor = new MicProcessor(
         this.gateConfig(),
         deepFilter,
+        getSettings().noiseStrengthDb,
         (level) => this.onMicLevel(level),
         () => void this.republishMic(),
       );
@@ -501,6 +502,7 @@ class VoiceClient {
       if (next.inputMode !== 'ptt') this.applyPtt(false);
       this.processor?.updateGate(this.gateConfig());
     }
+    if (next.noiseStrengthDb !== prev.noiseStrengthDb) this.processor?.setAttenLimit(next.noiseStrengthDb);
     if (next.outputDeviceId !== prev.outputDeviceId) {
       void this.room?.switchActiveDevice('audiooutput', next.outputDeviceId).catch(() => undefined);
     }
@@ -922,7 +924,9 @@ class VoiceClient {
         },
       });
       const track = stream.getAudioTracks()[0]!;
-      const processor = new MicProcessor(this.gateConfig(), deepFilter, (level) => setVoice({ micLevel: level }));
+      const processor = new MicProcessor(this.gateConfig(), deepFilter, getSettings().noiseStrengthDb, (level) =>
+        setVoice({ micLevel: level }),
+      );
       await processor.init({ kind: Track.Kind.Audio, track, audioContext: sharedAudioContext() });
       return { track, processor };
     };
@@ -945,6 +949,7 @@ class VoiceClient {
       if (n.inputMode !== p.inputMode || n.vadAuto !== p.vadAuto || n.vadThresholdDb !== p.vadThresholdDb) {
         processor.updateGate({ mode: n.inputMode === 'ptt' ? 'ptt' : 'vad', auto: n.vadAuto, threshold: n.vadThresholdDb });
       }
+      if (n.noiseStrengthDb !== p.noiseStrengthDb) processor.setAttenLimit(n.noiseStrengthDb);
     });
 
     return () => {
