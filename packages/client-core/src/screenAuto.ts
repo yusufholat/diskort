@@ -185,15 +185,26 @@ export interface ScreenAutoState {
   cpuStepDowns: number;
   /** Son karar (hata ayıklama için) */
   lastChange: string | null;
+  /** Kullanıcının seçtiği bit hızı üst sınırı (bps); null: içeriğe göre varsayılan (SCREEN_AUTO.maxBitrate) */
+  maxOverride: number | null;
 }
 
-export function createScreenAuto(now: number, content: ScreenContentKind = 'motion'): ScreenAutoState {
+/** İçeriğin tavan üst sınırı: kullanıcı seçtiyse o, yoksa içeriğe göre varsayılan */
+function contentMax(state: ScreenAutoState): number {
+  return state.maxOverride ?? SCREEN_AUTO.maxBitrate[state.content];
+}
+
+export function createScreenAuto(
+  now: number,
+  content: ScreenContentKind = 'motion',
+  maxOverride: number | null = null,
+): ScreenAutoState {
   return {
     content,
     contentSince: now,
     votes: [],
     votesFrom: now,
-    netCap: SCREEN_AUTO.maxBitrate.motion,
+    netCap: maxOverride ?? SCREEN_AUTO.maxBitrate.motion,
     calmTicks: 0,
     bandwidthTicks: 0,
     lastDecreaseAt: -Infinity,
@@ -204,6 +215,7 @@ export function createScreenAuto(now: number, content: ScreenContentKind = 'moti
     lastCpuLimitedAt: -Infinity,
     cpuStepDowns: 0,
     lastChange: null,
+    maxOverride,
   };
 }
 
@@ -211,7 +223,7 @@ const clamp = (v: number, min: number, max: number): number => Math.min(max, Mat
 
 /** Üst katmanın o anki bit hızı tavanı */
 export function screenAutoCeiling(state: ScreenAutoState): number {
-  return Math.round(clamp(state.netCap, SCREEN_AUTO.minBitrate, SCREEN_AUTO.maxBitrate[state.content]));
+  return Math.round(clamp(state.netCap, SCREEN_AUTO.minBitrate, contentMax(state)));
 }
 
 function contentVote(utilization: number | null): number {
@@ -284,9 +296,9 @@ export function stepScreenAuto(state: ScreenAutoState, m: ScreenMeasurement | nu
     if (
       s.calmTicks >= SCREEN_AUTO.calmTicksToIncrease &&
       now - s.lastDecreaseAt >= SCREEN_AUTO.increaseAfterDecreaseMs &&
-      s.netCap < GLOBAL_MAX
+      s.netCap < (s.maxOverride ?? GLOBAL_MAX)
     ) {
-      s.netCap = Math.min(GLOBAL_MAX, Math.round(Math.max(s.netCap, ceiling) * SCREEN_AUTO.increaseFactor));
+      s.netCap = Math.min(s.maxOverride ?? GLOBAL_MAX, Math.round(Math.max(s.netCap, ceiling) * SCREEN_AUTO.increaseFactor));
       s.calmTicks = 0;
       if (screenAutoCeiling(s) > ceiling) s.lastChange = `ağ sakin → tavan ${mbps(screenAutoCeiling(s))}`;
     }
@@ -398,7 +410,7 @@ export function planScreenEncoding(
 export function describeScreenAuto(state: ScreenAutoState, plan: ScreenEncodingPlan): string {
   const what = state.content === 'motion' ? 'hareketli içerik' : 'durağan içerik';
   const extra: string[] = [];
-  if (plan.ceiling < SCREEN_AUTO.maxBitrate[state.content]) extra.push('ağ sınırlı');
+  if (plan.ceiling < contentMax(state)) extra.push('ağ sınırlı');
   if (state.cpuLevel > 0) extra.push('işlemci sınırlı');
   return `Otomatik — ${what}, ${plan.height}p${plan.fps}, ${mbps(plan.ceiling)} tavan${extra.length ? ` (${extra.join(', ')})` : ''}`;
 }

@@ -26,7 +26,7 @@ export function DmSidebar() {
   const setView = useUi((s) => s.setView);
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-divider bg-bg-side">
+    <aside className="flex w-(--sidebar-w) shrink-0 flex-col border-r border-divider bg-bg-side">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-edge px-2 shadow-sm">
         <button
           className={cn(

@@ -12,6 +12,11 @@ export type NoiseMode = 'dpdfnet' | 'deepfilter' | 'standard' | 'off';
  */
 export const NOISE_STRENGTHS_DB = [12, 24, 40, 100] as const;
 export type NoiseStrengthDb = (typeof NOISE_STRENGTHS_DB)[number];
+/** Yayın bit hızı üst sınırı seçenekleri (Mbps); 0: kaliteye göre varsayılan */
+export const SCREEN_BITRATES_MBPS = [0, 4, 6, 8, 10, 12, 15, 20, 25, 30] as const;
+export const SIDEBAR_WIDTH = { min: 200, default: 240, max: 480 } as const;
+export const clampSidebarWidth = (w: number): number =>
+  Number.isFinite(w) ? Math.round(Math.min(SIDEBAR_WIDTH.max, Math.max(SIDEBAR_WIDTH.min, w))) : SIDEBAR_WIDTH.default;
 const SCREEN_PRESET_IDS = ['720p30', '1080p30', '1080p60', '1440p60'] as const;
 export type ScreenPresetId = (typeof SCREEN_PRESET_IDS)[number];
 /** Yayın kalitesi: 'auto' içeriğe ve ağa göre kendisi ayarlar (bkz. client-core screenAuto.ts), diğerleri sabit */
@@ -48,6 +53,8 @@ export interface Settings {
   streamVolumes: Record<string, number>;
 
   screenPreset: ScreenQuality;
+  /** Yayın bit hızı üst sınırı (Mbps); 0: kaliteye göre varsayılan. Otomatik'te de tavanın üst sınırı olur */
+  screenBitrateMbps: number;
   screenCodec: ScreenCodec;
   screenContent: ScreenContent;
   shareAudio: boolean;
@@ -65,6 +72,8 @@ export interface Settings {
   pttSounds: boolean;
   /** Arayüz teması: koyu (varsayılan) ya da OLED ekranlar için simsiyah */
   theme: ThemeId;
+  /** Kanal/konuşma listesinin genişliği (px); sohbetle arasındaki çizgi sürüklenerek değişir */
+  sidebarWidth: number;
   /** Mesajlardaki bağlantıların önizlemeleri (kart, YouTube, resim) gösterilsin mi */
   linkPreviews: boolean;
 
@@ -97,6 +106,7 @@ const defaults: Settings = {
   localMutes: {},
   streamVolumes: {},
   screenPreset: 'auto',
+  screenBitrateMbps: 0,
   screenCodec: 'h264',
   screenContent: 'motion',
   shareAudio: true,
@@ -108,6 +118,7 @@ const defaults: Settings = {
   notificationSound: true,
   pttSounds: false,
   theme: DEFAULT_THEME,
+  sidebarWidth: SIDEBAR_WIDTH.default,
   linkPreviews: true,
   selfMute: false,
   selfDeaf: false,
@@ -142,6 +153,10 @@ function sanitize(saved: Partial<Settings>): Partial<Settings> {
     if (v !== undefined) s[key] = clampVolume(v);
   }
   if (s.screenPreset !== undefined && !SCREEN_QUALITY_IDS.includes(s.screenPreset)) s.screenPreset = defaults.screenPreset;
+  if (s.screenBitrateMbps !== undefined && !(SCREEN_BITRATES_MBPS as readonly number[]).includes(s.screenBitrateMbps)) {
+    s.screenBitrateMbps = defaults.screenBitrateMbps;
+  }
+  if (s.sidebarWidth !== undefined) s.sidebarWidth = clampSidebarWidth(s.sidebarWidth);
   if (s.theme !== undefined && !isThemeId(s.theme)) s.theme = defaults.theme;
   if (s.sfxVolume !== undefined) s.sfxVolume = Number.isFinite(s.sfxVolume) ? Math.min(1, Math.max(0, s.sfxVolume)) : defaults.sfxVolume;
   if (s.screenCodec !== undefined && !SCREEN_CODEC_IDS.includes(s.screenCodec)) s.screenCodec = defaults.screenCodec;

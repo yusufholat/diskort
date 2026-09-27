@@ -1,5 +1,5 @@
 import { SCREEN_AUTO } from '@diskort/client-core';
-import type { ScreenCodec, ScreenPresetId, ScreenQuality } from '../../stores/settings';
+import { SCREEN_BITRATES_MBPS, type ScreenCodec, type ScreenPresetId, type ScreenQuality } from '../../stores/settings';
 
 export interface ScreenPreset {
   label: string;
@@ -47,6 +47,18 @@ export function screenQualityOptions(): { value: ScreenQuality; label: string }[
       label: `${p.label} · ${mbps(p.bitrate)} Mbps`,
     })),
   ];
+}
+
+/** Bit hızı sınırı seçenekleri; 0 seçilen kalitenin varsayılanıdır */
+export function screenBitrateOptions(quality: ScreenQuality): { value: number; label: string }[] {
+  const def =
+    quality === 'auto'
+      ? `${mbps(SCREEN_AUTO.maxBitrate.static)}–${mbps(SCREEN_AUTO.maxBitrate.motion)}`
+      : mbps(SCREEN_PRESETS[quality].bitrate);
+  return SCREEN_BITRATES_MBPS.map((v) => ({
+    value: v,
+    label: v === 0 ? `Varsayılan (${def} Mbps)` : `${v} Mbps`,
+  }));
 }
 
 // Donanım kodlaması (ekran kartı): H.264 hemen her kartta; AV1 yeni kartlarda (NVIDIA RTX 40+, AMD RX 7000+,

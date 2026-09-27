@@ -122,6 +122,19 @@ describe('içerik algılama (hareketli / durağan)', () => {
 });
 
 describe('ağa göre tavan', () => {
+  it('kullanıcı bit hızı seçtiyse tavanın üst sınırı o olur (hareketli ve durağan içerikte)', () => {
+    const start = createScreenAuto(0, 'motion', 15_000_000);
+    expect(screenAutoCeiling(start)).toBe(15_000_000);
+    const { states } = simulate(start, 0, repeat(10, meas()));
+    expect(screenAutoCeiling(states.at(-1)!)).toBe(15_000_000);
+    expect(planScreenEncoding(createScreenAuto(0, 'static', 15_000_000), FHD).maxBitrate).toBe(15_000_000);
+    // Ağ bozulunca yine düşer, düzelince seçilen sınıra kadar çıkar
+    const down = simulate(start, 0, repeat(3, meas({ lossPercent: 15 })));
+    expect(screenAutoCeiling(down.states.at(-1)!)).toBeLessThan(15_000_000);
+    const up = simulate(down.states.at(-1)!, down.end, repeat(60, meas()));
+    expect(screenAutoCeiling(up.states.at(-1)!)).toBe(15_000_000);
+  });
+
   it('ağ sakinken içeriğin üst sınırında kalır', () => {
     const { states } = simulate(createScreenAuto(0), 0, repeat(10, meas()));
     expect(screenAutoCeiling(states.at(-1)!)).toBe(SCREEN_AUTO.maxBitrate.motion);

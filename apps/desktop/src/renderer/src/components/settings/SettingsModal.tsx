@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Check, X } from 'lucide-react';
 import { AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH } from '@diskort/shared';
 import { gateway, api, errorMessage, useFeedback, useGuild, useSession } from '@diskort/client-core';
-import { SCREEN_CODECS, screenQualityOptions } from '../../features/voice/screenPresets';
+import { SCREEN_CODECS, screenBitrateOptions, screenQualityOptions } from '../../features/voice/screenPresets';
 import { voice } from '../../features/voice/voiceClient';
 import { bridge, isWindows } from '../../lib/bridge';
 import { confirmDialog } from '../../lib/dialog';
@@ -337,6 +337,16 @@ function StreamSection() {
           value={s.screenPreset}
           onChange={(screenPreset) => s.set({ screenPreset })}
           options={screenQualityOptions()}
+        />
+      </Field>
+      <Field
+        label="Bit hızı sınırı"
+        hint="Yüksek bit hızı daha net görüntü verir; yükleme hızın en az bu kadar olmalı. Hareketsiz ekranda gerçek hız bunun çok altında kalır. Otomatik'te ağ sorun çıkarırsa yine düşürülür."
+      >
+        <Select<number>
+          value={s.screenBitrateMbps}
+          onChange={(screenBitrateMbps) => s.set({ screenBitrateMbps })}
+          options={screenBitrateOptions(s.screenPreset)}
         />
       </Field>
       {s.screenPreset === 'auto' && <ScreenAutoIndicator />}

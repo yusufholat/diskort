@@ -871,7 +871,9 @@ class VoiceClient {
 
     const videoTrack = stream.getVideoTracks()[0]!;
     // Otomatik kalite hareketli içerikle başlar; durağan ekran ~10 sn içinde algılanır
-    const autoState = auto ? createScreenAuto(Date.now()) : null;
+    // Kullanıcının seçtiği bit hızı sınırı (0: kaliteye göre varsayılan); Otomatik'te tavanın üst sınırı olur
+    const bitrateOverride = getSettings().screenBitrateMbps > 0 ? getSettings().screenBitrateMbps * 1_000_000 : null;
+    const autoState = auto ? createScreenAuto(Date.now(), 'motion', bitrateOverride) : null;
     const sourceSize = videoTrack.getSettings();
     const autoPlan = autoState
       ? planScreenEncoding(autoState, {
@@ -918,7 +920,7 @@ class VoiceClient {
       simulcast: false,
       screenShareEncoding: autoPlan
         ? { maxBitrate: autoPlan.maxBitrate, maxFramerate: autoPlan.maxFramerate, priority: 'high' }
-        : { maxBitrate: preset.bitrate, maxFramerate: preset.fps, priority: 'high' },
+        : { maxBitrate: bitrateOverride ?? preset.bitrate, maxFramerate: preset.fps, priority: 'high' },
       degradationPreference: autoPlan
         ? autoPlan.degradationPreference
         : opts.content === 'motion'

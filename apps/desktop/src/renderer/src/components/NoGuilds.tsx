@@ -4,7 +4,7 @@ import { useUi } from '../stores/ui';
 /** Sunucusuz ekranın sol listesi (alttaki kullanıcı paneli LeftColumn'da) */
 export function NoGuildsSidebar() {
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-divider bg-bg-side">
+    <aside className="flex w-(--sidebar-w) shrink-0 flex-col border-r border-divider bg-bg-side">
       <div className="flex h-12 shrink-0 items-center border-b border-edge px-4 font-semibold text-text-head shadow-sm">
         Sunucular
       </div>

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { AppWindow, Monitor, RefreshCw } from 'lucide-react';
 import type { ScreenSource } from '../../../../shared/bridge';
-import { screenQualityOptions } from '../../features/voice/screenPresets';
+import { screenBitrateOptions, screenQualityOptions } from '../../features/voice/screenPresets';
 import { voice } from '../../features/voice/voiceClient';
 import { errorMessage } from '@diskort/client-core';
 import { bridge, isMac } from '../../lib/bridge';
@@ -134,7 +134,7 @@ export function ScreenSharePicker() {
         </>
       )}
 
-      <div className="mt-4 grid grid-cols-2 gap-3">
+      <div className="mt-4 grid grid-cols-3 gap-3">
         <div>
           <div className="mb-1.5 text-xs font-bold text-text-muted uppercase">Kalite</div>
           {/* Sabit kalitede yayıncının yükleme hızı en az bu kadar olmalı (bant yetmezse WebRTC kendiliğinden düşürür) */}
@@ -143,6 +143,15 @@ export function ScreenSharePicker() {
             value={settings.screenPreset}
             onChange={(screenPreset) => settings.set({ screenPreset })}
             options={screenQualityOptions()}
+          />
+        </div>
+        <div>
+          <div className="mb-1.5 text-xs font-bold text-text-muted uppercase">Bit hızı</div>
+          <Select<number>
+            aria-label="Bit hızı sınırı"
+            value={settings.screenBitrateMbps}
+            onChange={(screenBitrateMbps) => settings.set({ screenBitrateMbps })}
+            options={screenBitrateOptions(settings.screenPreset)}
           />
         </div>
         <div>
