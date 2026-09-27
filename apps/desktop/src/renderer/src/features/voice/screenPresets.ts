@@ -19,9 +19,11 @@ export const SCREEN_PRESETS: Record<ScreenPresetId, ScreenPreset> = {
   '1440p60': { label: '1440p · 60 FPS', width: 2560, height: 1440, fps: 60, bitrate: 15_000_000 },
 };
 
+// Donanım kodlaması (ekran kartı): H.264 hemen her kartta; AV1 yeni kartlarda (NVIDIA RTX 40+, AMD RX 7000+,
+// Intel Arc). VP8/VP9 NVIDIA ve AMD'de her zaman işlemcide kodlanır. Bkz. hardwareEncoder.ts.
 export const SCREEN_CODECS: Record<ScreenCodec, string> = {
-  h264: 'H.264 (önerilen; destekleyen sistemde donanımla)',
-  vp9: 'VP9 (daha iyi kalite, daha fazla CPU)',
-  vp8: 'VP8 (en uyumlu)',
-  av1: 'AV1 (deneysel, en verimli)',
+  h264: 'H.264 (önerilen; ekran kartı varsa onunla kodlanır)',
+  vp9: 'VP9 (işlemciyle kodlanır, daha fazla CPU)',
+  vp8: 'VP8 (işlemciyle kodlanır, en uyumlu)',
+  av1: 'AV1 (deneysel; yeni ekran kartlarında donanımla, izleyiciye daha ağır)',
 };
