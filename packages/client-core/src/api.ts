@@ -93,8 +93,12 @@ export const api = {
 
   listMessages: (channelId: string, before?: string) =>
     request<Message[]>('GET', `/api/channels/${channelId}/messages${before ? `?before=${before}` : ''}`),
-  sendMessage: (channelId: string, content: string) =>
-    request<Message>('POST', `/api/channels/${channelId}/messages`, { content }),
+  sendMessage: (channelId: string, content: string, attachmentIds: string[] = []) =>
+    request<Message>(
+      'POST',
+      `/api/channels/${channelId}/messages`,
+      attachmentIds.length ? { content, attachmentIds } : { content },
+    ),
   updateMessage: (id: string, content: string) => request<Message>('PATCH', `/api/messages/${id}`, { content }),
   deleteMessage: (id: string) => request<void>('DELETE', `/api/messages/${id}`),
   addReaction: (messageId: string, emoji: string) =>

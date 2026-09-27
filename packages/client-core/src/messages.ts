@@ -1,21 +1,31 @@
 import { create } from 'zustand';
 import {
   extractMentions,
+  MESSAGE_MAX_ATTACHMENTS,
   MESSAGE_MAX_REACTIONS,
   MESSAGE_PAGE_SIZE,
   TYPING_TIMEOUT_MS,
+  type Attachment,
   type GatewayServerMessage,
   type Message,
   type Reaction,
 } from '@diskort/shared';
-import { api, errorMessage } from './api';
-import { env } from './env';
+import { api, ApiError, errorMessage } from './api';
+import { env, type LocalFile } from './env';
 import { gateway } from './gateway';
 import { useGuild } from './guild';
 import { useSession } from './session';
+import { formatBytes, uploadFile } from './uploads';
+
+/** Gönderilmekte olan mesajın bir dosyası: yüklenen bayt ve yüklendiyse sunucudaki karşılığı */
+export interface LocalUpload {
+  file: LocalFile;
+  sent: number;
+  attachment?: Attachment;
+}
 
 /** Sunucuya henüz ulaşmamış (pending) veya gönderilemeyen (failed) yerel mesajlar da listede tutulur. */
-export type LocalMessage = Message & { status?: 'pending' | 'failed'; nonce?: string };
+export type LocalMessage = Message & { status?: 'pending' | 'failed'; nonce?: string; uploads?: LocalUpload[] };
 
 export interface ChannelMessages {
   messages: LocalMessage[];
@@ -32,9 +42,17 @@ interface MessagesStore {
   mentionCounts: Record<string, number>;
   /** Düzenlenmekte olan mesaj */
   editingId: string | null;
+  /** Kanal → yazma kutusuna eklenmiş, mesajla birlikte gönderilecek dosyalar */
+  pendingFiles: Record<string, LocalFile[]>;
 }
 
-const initialState = (): MessagesStore => ({ channels: {}, typing: {}, mentionCounts: {}, editingId: null });
+const initialState = (): MessagesStore => ({
+  channels: {},
+  typing: {},
+  mentionCounts: {},
+  editingId: null,
+  pendingFiles: {},
+});
 
 export const useMessages = create<MessagesStore>()(initialState);
 
@@ -104,13 +122,68 @@ export async function loadOlder(channelId: string): Promise<void> {
   }
 }
 
+// ---------- Eklenecek dosyalar ----------
+
+/** Dosyaları yazma kutusuna ekler; boş, çok büyük ya da fazla dosyalar için hata gösterir. */
+export function addFiles(channelId: string, files: LocalFile[]): void {
+  const max = useGuild.getState().attachmentMaxBytes;
+  const current = useMessages.getState().pendingFiles[channelId] ?? [];
+  const accepted: LocalFile[] = [];
+  for (const file of files) {
+    if (current.length + accepted.length >= MESSAGE_MAX_ATTACHMENTS) {
+      env().notifyError(`Bir mesaja en fazla ${MESSAGE_MAX_ATTACHMENTS} dosya eklenebilir.`);
+      break;
+    }
+    if (file.size === 0) env().notifyError(`"${file.name}" boş bir dosya.`);
+    else if (file.size > max) env().notifyError(`"${file.name}" çok büyük (en fazla ${formatBytes(max)}).`);
+    else accepted.push(file);
+  }
+  if (accepted.length === 0) return;
+  useMessages.setState((s) => ({ pendingFiles: { ...s.pendingFiles, [channelId]: [...current, ...accepted] } }));
+}
+
+export function removeFile(channelId: string, index: number): void {
+  useMessages.setState((s) => ({
+    pendingFiles: { ...s.pendingFiles, [channelId]: (s.pendingFiles[channelId] ?? []).filter((_, i) => i !== index) },
+  }));
+}
+
+function takeFiles(channelId: string): LocalFile[] {
+  const files = useMessages.getState().pendingFiles[channelId] ?? [];
+  if (files.length) {
+    useMessages.setState((s) => {
+      const { [channelId]: _taken, ...pendingFiles } = s.pendingFiles;
+      return { pendingFiles };
+    });
+  }
+  return files;
+}
+
+/** Gönderilmekte olan mesajın dosyalarının toplam ilerlemesi */
+export function uploadProgress(message: LocalMessage): { sent: number; total: number } | null {
+  if (!message.uploads?.length) return null;
+  let sent = 0;
+  let total = 0;
+  for (const u of message.uploads) {
+    sent += u.attachment ? u.file.size : Math.min(u.sent, u.file.size);
+    total += u.file.size;
+  }
+  return { sent, total };
+}
+
 // ---------- Gönderme / düzenleme / silme ----------
 
 let nonceCounter = 0;
+/** Gönderilmekte olan mesajın dosya yüklemesini iptal etmek için */
+const uploadControllers = new Map<string, AbortController>();
+const PROGRESS_INTERVAL_MS = 100;
 
+/** Metni ve kanalın yazma kutusundaki dosyaları gönderir (dosyalar önce yüklenir). */
 export function sendMessage(channelId: string, content: string): void {
   const authorId = selfId();
   if (!authorId) return;
+  const files = takeFiles(channelId);
+  if (!content && files.length === 0) return;
   const nonce = `yerel-${Date.now()}-${++nonceCounter}`;
   const pending: LocalMessage = {
     id: nonce,
@@ -123,6 +196,7 @@ export function sendMessage(channelId: string, content: string): void {
     reactions: [],
     status: 'pending',
     nonce,
+    ...(files.length ? { uploads: files.map((file) => ({ file, sent: 0 })) } : {}),
   };
   patch(channelId, (c) => ({ messages: [...c.messages, pending] }));
   // Gönderilen mesaj karşı tarafta "yazıyor"u kapatır; hemen yeniden yazmaya başlanırsa tekrar bildirilsin
@@ -130,21 +204,63 @@ export function sendMessage(channelId: string, content: string): void {
   void deliver(channelId, pending);
 }
 
+function updateLocal(channelId: string, nonce: string, fn: (m: LocalMessage) => LocalMessage): void {
+  patch(channelId, (c) => ({ messages: c.messages.map((m) => (m.nonce === nonce ? fn(m) : m)) }));
+}
+
+function setUpload(channelId: string, nonce: string, index: number, change: Partial<LocalUpload>): void {
+  updateLocal(channelId, nonce, (m) => ({
+    ...m,
+    uploads: m.uploads?.map((u, i) => (i === index ? { ...u, ...change } : u)),
+  }));
+}
+
 async function deliver(channelId: string, pending: LocalMessage): Promise<void> {
+  const nonce = pending.nonce!;
+  const controller = new AbortController();
+  uploadControllers.set(nonce, controller);
   try {
-    const message = await api.sendMessage(channelId, pending.content);
+    // Dosyalar sırayla yüklenir; önceki denemede yüklenenler atlanır
+    const attachmentIds: string[] = [];
+    for (const [index, upload] of (pending.uploads ?? []).entries()) {
+      if (upload.attachment) {
+        attachmentIds.push(upload.attachment.id);
+        continue;
+      }
+      let reported = 0;
+      const attachment = await uploadFile(
+        channelId,
+        upload.file,
+        (sent) => {
+          if (Date.now() - reported < PROGRESS_INTERVAL_MS) return;
+          reported = Date.now();
+          setUpload(channelId, nonce, index, { sent });
+        },
+        controller.signal,
+      );
+      setUpload(channelId, nonce, index, { sent: upload.file.size, attachment });
+      attachmentIds.push(attachment.id);
+    }
+    const message = await api.sendMessage(channelId, pending.content, attachmentIds);
     patch(channelId, (c) => ({
       messages: merge(
-        c.messages.filter((m) => m.nonce !== pending.nonce),
+        c.messages.filter((m) => m.nonce !== nonce),
         [message],
       ),
     }));
     useGuild.getState().markRead(channelId, message.id);
   } catch (err) {
-    patch(channelId, (c) => ({
-      messages: c.messages.map((m) => (m.nonce === pending.nonce ? { ...m, status: 'failed' as const } : m)),
+    if (controller.signal.aborted) return; // kullanıcı vazgeçti
+    // Sunucu yüklenen dosyaları artık tanımıyorsa (süresi doldu) yeniden denemede baştan yüklenir
+    const expired = err instanceof ApiError && err.code === 'invalid_attachment';
+    updateLocal(channelId, nonce, (m) => ({
+      ...m,
+      status: 'failed',
+      uploads: expired ? m.uploads?.map((u) => ({ file: u.file, sent: 0 })) : m.uploads,
     }));
     env().notifyError(errorMessage(err));
+  } finally {
+    if (uploadControllers.get(nonce) === controller) uploadControllers.delete(nonce);
   }
 }
 
@@ -157,7 +273,10 @@ export function retryMessage(channelId: string, nonce: string): void {
   void deliver(channelId, { ...failed, status: 'pending' });
 }
 
+/** Gönderilemeyen ya da dosyası hâlâ yüklenen mesajdan vazgeçer. */
 export function discardMessage(channelId: string, nonce: string): void {
+  uploadControllers.get(nonce)?.abort();
+  uploadControllers.delete(nonce);
   patch(channelId, (c) => ({ messages: c.messages.filter((m) => m.nonce !== nonce) }));
 }
 
@@ -303,6 +422,13 @@ function notifyMention(message: Message): void {
 
 // ---------- Gateway olayları ----------
 
+/** Gateway'den gelen mesaj, bizim bekleyen (dosyaları yüklenmiş) mesajımızın onayı mı */
+function isPendingOf(local: LocalMessage, m: Message): boolean {
+  if (local.status !== 'pending' || local.content !== m.content) return false;
+  const uploaded = (local.uploads ?? []).map((u) => u.attachment?.id);
+  return uploaded.length === m.attachments.length && uploaded.every((id, i) => id === m.attachments[i]!.id);
+}
+
 gateway.on((msg: GatewayServerMessage) => {
   switch (msg.t) {
     case 'MESSAGE_CREATE': {
@@ -312,8 +438,7 @@ gateway.on((msg: GatewayServerMessage) => {
       if (useMessages.getState().channels[m.channelId]?.loaded) {
         patch(m.channelId, (c) => {
           // Kendi bekleyen mesajımızın onayı gateway'den önce geldiyse onu yerine koy
-          const pendingIndex =
-            m.authorId === me?.id ? c.messages.findIndex((x) => x.status === 'pending' && x.content === m.content) : -1;
+          const pendingIndex = m.authorId === me?.id ? c.messages.findIndex((x) => isPendingOf(x, m)) : -1;
           const rest = pendingIndex >= 0 ? c.messages.filter((_, i) => i !== pendingIndex) : c.messages;
           return { messages: merge(rest, [m]) };
         });
@@ -357,7 +482,8 @@ gateway.on((msg: GatewayServerMessage) => {
       useMessages.setState((s) => {
         const { [msg.d.id]: _removed, ...channels } = s.channels;
         const { [msg.d.id]: _count, ...mentionCounts } = s.mentionCounts;
-        return { channels, mentionCounts };
+        const { [msg.d.id]: _files, ...pendingFiles } = s.pendingFiles;
+        return { channels, mentionCounts, pendingFiles };
       });
       break;
   }
