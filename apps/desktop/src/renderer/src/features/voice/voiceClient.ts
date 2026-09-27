@@ -108,6 +108,9 @@ function sourceOf(opts: ScreenShareOptions, track: MediaStreamTrack): { name: st
  */
 const MIC_TEST_RESUME_SEND_MS = 300;
 
+/** "Katıldın" sesi mikrofonun hazır olmasını en çok bu kadar bekler */
+const JOIN_SOUND_MAX_WAIT_MS = 1500;
+
 function disconnectMessage(reason?: DisconnectReason): string {
   switch (reason) {
     case DisconnectReason.DUPLICATE_IDENTITY:
@@ -251,10 +254,18 @@ class VoiceClient {
       setVoice({ status: 'connected', micAllowed: this.canPublish(room, PROTO_SOURCE.microphone) });
       // Bağlantı kurulunca (öncesinde değil) çalınır; kanaldakilerin girişleri ve yayınları ses seli yapmaz
       this.channelSounds.quiet();
-      if (!opts.silent) playSound('join');
       this.startStats();
       this.syncVoiceState();
-      await this.startMic(room);
+      const micReady = this.startMic(room);
+      if (!opts.silent) {
+        // Mikrofon açılırken (aygıtın açılışı, gürültü engelleyicinin kurulumu) çalınan "katıldın" sesi takılıyordu
+        // (geri bildirim #24); mikrofon hazır olunca, en geç JOIN_SOUND_MAX_WAIT_MS sonra çalınır.
+        const waited = new Promise((resolve) => setTimeout(resolve, JOIN_SOUND_MAX_WAIT_MS));
+        void Promise.race([micReady.catch(() => undefined), waited]).then(() => {
+          if (seq === this.joinSeq && this.room === room) playSound('join');
+        });
+      }
+      await micReady;
     } catch (err) {
       if (seq !== this.joinSeq) return;
       await this.teardownRoom();
