@@ -3,7 +3,8 @@ import { Permission, type VoiceState } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
-import { can, useGuild, useMemberColor, useSession } from '@diskort/client-core';
+import { can, outranksUser, useGuild, useMemberColor, useSession, voiceDropTargets } from '@diskort/client-core';
+import { startSidebarDrag, useSidebarDrag } from '../../lib/sidebarDrag';
 import { useSettings } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
@@ -62,10 +63,28 @@ export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMy
   const selfId = useSession((s) => s.user?.id);
   const openContextMenu = useUi((s) => s.openContextMenu);
   const isSelf = state.userId === selfId;
+  // Sürüklenebilir: kendin (kanal değiştirme) ya da taşıma yetkin olan, senden aşağıdaki üye
+  const draggable = useGuild(
+    (s) => isSelf || (outranksUser(s, selfId, state.userId) && can(s, selfId, Permission.MOVE_MEMBERS, state.channelId)),
+  );
+  const dragging = useSidebarDrag((s) => s.item?.kind === 'member' && s.item.userId === state.userId && !s.ending);
 
   return (
     <div
-      className="group flex h-8 items-center gap-2 rounded px-2 text-text-muted transition-colors duration-150 hover:bg-bg-hover hover:text-text-normal"
+      className={cn(
+        'group flex h-8 items-center gap-2 rounded px-2 text-text-muted transition-[color,background-color,opacity] duration-150 select-none hover:bg-bg-hover hover:text-text-normal',
+        dragging && 'opacity-40',
+      )}
+      onPointerDown={
+        draggable
+          ? (e) =>
+              startSidebarDrag(e, () => {
+                const targets = voiceDropTargets(state.userId);
+                if (targets.size === 0) return null;
+                return { kind: 'member', userId: state.userId, fromChannelId: state.channelId, targets };
+              })
+          : undefined
+      }
       onContextMenu={(e) => {
         e.preventDefault();
         const items = memberMenuItems(state.userId);

@@ -154,3 +154,15 @@ input[type='radio']:disabled {
 .field-invalid :is(input, textarea, [role='combobox']) {
   border-color: var(--color-danger);
 }
+
+/* Kanal listesinde sürükle-bırak (lib/sidebarDrag.ts): sürüklerken imleç her yerde aynı, seçim yok */
+html.dk-drag-ok,
+html.dk-drag-ok * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+html.dk-drag-no,
+html.dk-drag-no * {
+  cursor: not-allowed !important;
+  user-select: none !important;
+}

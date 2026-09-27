@@ -22,6 +22,9 @@ import {
   memberGroups,
   moveTargets,
   overwriteState,
+  reorderedIds,
+  canReorderChannels,
+  voiceDropTargets,
   permissionsOf,
   rolePermissionSource,
   setOverwriteState,
@@ -284,6 +287,30 @@ describe('üye yönetimi', () => {
     expect(moveTargets(user('ali', ['dj'])).map((c) => c.id)).toEqual([]);
     receive({ t: 'CHANNEL_CREATE', d: channel('muzik', 'voice') });
     expect(moveTargets(user('ali', ['dj'])).map((c) => c.id)).toEqual(['muzik']);
+    // Sürükle-bırak hedefleri: başkası için taşıma hedefleri; seste olmayan ve üstteki için hiçbiri
+    expect([...voiceDropTargets('ali')]).toEqual(['muzik']);
+    expect(voiceDropTargets('sahip').size).toBe(0);
+    receive({
+      t: 'VOICE_STATE_UPDATE',
+      d: { userId: 'sahip', channelId: 'ses', selfMute: false, selfDeaf: false, serverMute: false, serverDeaf: false, streaming: false, joinedAt: 2 },
+    });
+    expect(voiceDropTargets('sahip').size).toBe(0);
+    // Kendini: bağlanabildiği her kanala (taşıma yetkisi aranmaz)
+    receive({
+      t: 'VOICE_STATE_UPDATE',
+      d: { userId: 'mod', channelId: 'muzik', selfMute: false, selfDeaf: false, serverMute: false, serverDeaf: false, streaming: false, joinedAt: 3 },
+    });
+    expect([...voiceDropTargets('mod')]).toEqual(['ses']);
+  });
+
+  it('kanal sıralama yardımcısı', () => {
+    const ids = ['a', 'b', 'c', 'd'];
+    expect(reorderedIds(ids, 'a', 'c', false)).toEqual(['b', 'a', 'c', 'd']);
+    expect(reorderedIds(ids, 'a', 'c', true)).toEqual(['b', 'c', 'a', 'd']);
+    expect(reorderedIds(ids, 'd', 'a', false)).toEqual(['d', 'a', 'b', 'c']);
+    expect(reorderedIds(ids, 'b', 'b', true)).toEqual(ids);
+    expect(reorderedIds(ids, 'x', 'a', true)).toEqual(ids);
+    expect(canReorderChannels()).toBe(false);
   });
 
   it('kanal izni düzenleme yardımcıları', () => {
