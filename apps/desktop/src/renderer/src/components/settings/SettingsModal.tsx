@@ -229,7 +229,7 @@ function StreamSection() {
         onChange={(shareAudio) => s.set({ shareAudio })}
       />
       <p className="mt-4 text-sm text-text-muted">
-        Not: 1080p60 yayın ~7 Mbps yükleme hızı gerektirir. Yayını izleyen her kişi için sunucu bu veriyi ayrıca
+        Not: seçilen kalite en az o kadar yükleme hızı ister (ör. 1080p60 için ~10 Mbps); yetmezse yayın kendiliğinden düşer. Yayını izleyen her kişi için sunucu bu veriyi ayrıca
         gönderir; izlemeyenlere hiç video gitmez.
       </p>
     </div>
