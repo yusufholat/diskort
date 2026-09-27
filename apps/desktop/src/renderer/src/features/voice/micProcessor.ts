@@ -187,6 +187,13 @@ export function dpdfnetAvailable(): Promise<boolean> {
 export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProcessorOptions> {
   readonly name = 'diskort-mic';
   processedTrack?: MediaStreamTrack;
+  /**
+   * Aynı işlenmiş ses (kapı dahil) ama odaya gitmeyen dinleme kolu: görüşmedeyken mikrofon testi bunu çalar
+   * ya da kaydeder. Odaya gönderim (processedTrack) susturulsa da akmaya devam eder.
+   */
+  monitorTrack?: MediaStreamTrack;
+  /** Zincir (yeniden) kurulunca çağrılır; dinleme kolu yeni bir iz olur (ör. LiveKit mikrofonu yeniden açtı). */
+  onRebuilt: (() => void) | null = null;
   /** Son ölçülen gürültü engelleyici istatistikleri (tanılama için) */
   stats: MicProcessingStats | null = null;
 
@@ -195,6 +202,9 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
   private denoiserNode: AudioWorkletNode | null = null;
   private host: DenoiseHost | null = null;
   private gate: AudioWorkletNode | null = null;
+  private sendGain: GainNode | null = null;
+  /** Odaya gönderim susturuldu mu (mikrofon testi sürerken); zincir yeniden kurulsa da korunur */
+  private sendMuted = false;
   private building: Promise<void> | null = null;
 
   constructor(
@@ -231,6 +241,20 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
   updateGate(patch: Partial<GateConfig>): void {
     this.gateConfig = { ...this.gateConfig, ...patch };
     this.gate?.port.postMessage(patch);
+  }
+
+  /**
+   * Odaya gidene sessizlik verir (dinleme kolu etkilenmez). LiveKit'in susturması mikrofonun kendisini kapattığı
+   * için testte kullanılamaz; bu kazanç yalnızca gönderilen kolu keser. Susturma anında, açma yumuşak uygulanır.
+   */
+  setSendMuted(muted: boolean): void {
+    this.sendMuted = muted;
+    const gain = this.sendGain;
+    if (!gain || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    gain.gain.cancelScheduledValues(now);
+    if (muted) gain.gain.setValueAtTime(0, now);
+    else gain.gain.setTargetAtTime(1, now, 0.01);
   }
 
   /** Gürültü engelleme gücünü yeniden bağlanmadan değiştirir. */
@@ -274,9 +298,15 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
     node.connect(this.gate);
 
     const dest = ctx.createMediaStreamDestination();
-    this.gate.connect(dest);
+    this.sendGain = ctx.createGain();
+    this.sendGain.gain.value = this.sendMuted ? 0 : 1;
+    this.gate.connect(this.sendGain).connect(dest);
     this.processedTrack = dest.stream.getAudioTracks()[0];
+    const monitor = ctx.createMediaStreamDestination();
+    this.gate.connect(monitor);
+    this.monitorTrack = monitor.stream.getAudioTracks()[0];
     if (ctx.state === 'suspended') await ctx.resume();
+    this.onRebuilt?.();
   }
 
   /** Model dosyaları (önbellekteki kopyalar korunur; yeniden kurulumda tekrar indirme olmaz) */
@@ -462,17 +492,21 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
     this.building = null;
     this.gate?.port.close();
     this.gate?.disconnect();
+    this.sendGain?.disconnect();
     this.denoiserNode?.disconnect();
     this.host?.close();
     this.source?.disconnect();
     this.processedTrack?.stop();
+    this.monitorTrack?.stop();
     await this.ctx?.close().catch(() => undefined);
     this.gate = null;
+    this.sendGain = null;
     this.denoiserNode = null;
     this.host = null;
     this.source = null;
     this.ctx = null;
     this.processedTrack = undefined;
+    this.monitorTrack = undefined;
     this.stats = null;
   }
 }

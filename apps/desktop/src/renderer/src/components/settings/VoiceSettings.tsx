@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { voice } from '../../features/voice/voiceClient';
 import { MIC_TEST_RECORD_MS, type MicTest, type MicTestPhase } from '../../features/voice/micTest';
 import { bridge } from '../../lib/bridge';
@@ -105,39 +105,61 @@ function MicMeter({ editable }: { editable: boolean }) {
 
 function MicTestControls() {
   const connected = useVoice((s) => s.status !== 'idle');
-  const [test, setTest] = useState<MicTest | null>(null);
+  const selfDeaf = useSettings((s) => s.selfDeaf);
+  const testRef = useRef<MicTest | null>(null);
   const [loopback, setLoopback] = useState(false);
   const [phase, setPhase] = useState<MicTestPhase>(null);
   const [error, setError] = useState<string | null>(null);
+  const active = loopback || phase !== null;
+  const loopbackRef = useRef(loopback);
+  loopbackRef.current = loopback;
 
-  // Ayarlar sayfası açıkken (ses kanalında değilsen) gösterge için test zinciri çalışır; sayfadan çıkınca,
-  // ses kanalına girince kapanır ve mikrofon, ses bağlamları, worklet'ler serbest bırakılır.
+  const ensureTest = (): MicTest => (testRef.current ??= voice.startMicTest(setError));
+  const stopTest = (): void => {
+    testRef.current?.stop();
+    testRef.current = null;
+    setLoopback(false);
+    setPhase(null);
+    setError(null);
+  };
+
+  // Görüşmede değilken sayfa açık kaldıkça gösterge için test zinciri çalışır. Görüşmedeyken test yalnızca
+  // dinlerken/kaydederken sürer (o sırada odada susturulursun); biter bitmez önceki durum geri gelir.
+  // Test sürerken görüşmeye girilir ya da çıkılırsa kesilmeden canlı zincire / kendi zincirine geçer.
   useEffect(() => {
-    if (connected) return;
-    const t = voice.startMicTest(setError);
-    setTest(t);
-    return () => {
-      t?.stop();
-      setTest(null);
-      setLoopback(false);
-      setPhase(null);
-    };
-  }, [connected]);
-
-  if (connected) return <p className="mt-2 text-xs text-text-muted">Ses kanalına bağlısın; gösterge canlı mikrofonunu gösteriyor.</p>;
+    if (!connected) ensureTest();
+    else if (!active && testRef.current) stopTest();
+  }, [connected, active]);
+  // Ayarlar kapanınca (ya da bu sekmeden çıkınca) test durur; mikrofon ve oda durumu serbest kalır
+  useEffect(() => () => stopTest(), []);
 
   const toggleLoopback = (): void => {
-    test?.setLoopback(!loopback);
-    setLoopback(!loopback);
+    const next = !loopback;
+    if (next) ensureTest().setLoopback(true);
+    else testRef.current?.setLoopback(false);
+    setLoopback(next);
+  };
+
+  const recordAndPlay = (): void => {
+    const test = ensureTest();
+    void test.recordAndPlay(setPhase).finally(() => {
+      // Görüşmedeyken kayıt hiç başlamadıysa da (mikrofon hazır değildi) odadaki susturma hemen kalksın
+      if (useVoice.getState().status !== 'idle' && !loopbackRef.current && testRef.current === test) stopTest();
+    });
   };
 
   return (
     <div className="mt-3">
+      {connected && active && (
+        <div role="status" className="mb-3 rounded border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
+          Mikrofon testi sürüyor: odada susturuldun, diğerleri seni duymuyor. Test bitince önceki durumun geri gelir.
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-3">
-        <Button variant={loopback ? 'danger' : 'primary'} onClick={toggleLoopback} disabled={!test}>
+        <Button variant={loopback ? 'danger' : 'primary'} onClick={toggleLoopback}>
           {loopback ? 'Testi Durdur' : 'Kendini Dinle'}
         </Button>
-        <Button variant="secondary" onClick={() => void test?.recordAndPlay(setPhase)} disabled={!test || phase !== null}>
+        <Button variant="secondary" onClick={recordAndPlay} disabled={phase !== null}>
           {phase === 'recording' ? 'Kaydediliyor…' : phase === 'playing' ? 'Çalınıyor…' : `Kaydet ve Dinle (${MIC_TEST_RECORD_MS / 1000} sn)`}
         </Button>
       </div>
@@ -147,8 +169,13 @@ function MicTestControls() {
         <p className="mt-2 text-xs text-text-muted">
           {phase === 'recording'
             ? 'Konuş; kaydın bitince sana çalınacak.'
-            : 'Sesini, başkalarına gittiği hâliyle (gürültü engelleme ve hassasiyet dahil) seçili çıkış aygıtından duy. Ayarları test sürerken değiştirip karşılaştırabilirsin.'}
+            : connected
+              ? 'Sesini, odaya gittiği hâliyle (gürültü engelleme ve hassasiyet dahil) seçili çıkış aygıtından duy. Test sürerken odada susturulursun; ayar değişiklikleri görüşmedeki mikrofonuna da uygulanır.'
+              : 'Sesini, başkalarına gittiği hâliyle (gürültü engelleme ve hassasiyet dahil) seçili çıkış aygıtından duy. Ayarları test sürerken değiştirip karşılaştırabilirsin.'}
         </p>
+      )}
+      {connected && active && selfDeaf && (
+        <p className="mt-1 text-xs text-text-muted">Sağırlaştırılmışsın: odadakileri duymazsın, yalnızca kendi sesin çalınır.</p>
       )}
       {loopback && (
         <p className="mt-1 text-xs text-warn">Hoparlörden dinlersen ses mikrofona geri girip yankı yapar; kulaklık kullan.</p>

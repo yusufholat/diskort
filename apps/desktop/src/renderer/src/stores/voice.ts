@@ -34,6 +34,8 @@ interface VoiceStore {
   /** Kanalda konuşma izni var mı (yetki ya da sunucuda susturma; LiveKit izninden gelir) */
   micAllowed: boolean;
   micLevel: MicLevel;
+  /** Ayarlarda mikrofon testi sürüyor (görüşmedeyken odaya sessizlik gider, susturulmuş görünürsün) */
+  micTesting: boolean;
   error: string | null;
 }
 
@@ -52,6 +54,7 @@ export const useVoice = create<VoiceStore>()(() => ({
   pttActive: false,
   micAllowed: true,
   micLevel: { db: -100, threshold: -50, open: false },
+  micTesting: false,
   error: null,
 }));
 
