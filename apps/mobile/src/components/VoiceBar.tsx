@@ -16,8 +16,11 @@ export function VoiceBar() {
   const channel = useGuild((s) => s.channels.find((c) => c.id === channelId));
   const selfMute = useSettings((s) => s.selfMute);
   const selfDeaf = useSettings((s) => s.selfDeaf);
+  // Konuşma izni yoksa (yetki ya da sunucuda susturma) mikrofon kapalı görünür
+  const micAllowed = useVoice((s) => s.micAllowed);
   if (status === 'idle') return null;
   const connected = status === 'connected';
+  const muted = selfMute || selfDeaf || !micAllowed;
 
   return (
     <Pressable style={styles.bar} onPress={() => router.push('/voice')}>
@@ -28,7 +31,7 @@ export function VoiceBar() {
           {channel?.name ?? ''}
         </Text>
       </View>
-      <IconButton icon={selfMute || selfDeaf ? 'mic-off' : 'mic'} active={selfMute || selfDeaf} onPress={() => voice.toggleMute()} />
+      <IconButton icon={muted ? 'mic-off' : 'mic'} active={muted} onPress={() => voice.toggleMute()} />
       <IconButton icon={selfDeaf ? 'volume-mute' : 'headset'} active={selfDeaf} onPress={() => voice.toggleDeafen()} />
       <IconButton icon="call" danger onPress={() => void voice.leave()} />
     </Pressable>

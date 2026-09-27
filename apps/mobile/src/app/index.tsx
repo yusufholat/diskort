@@ -1,23 +1,35 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import type { Channel, VoiceState } from '@diskort/shared';
-import { isUnread, membersOf, useGuild, useMessages, useSession } from '@diskort/client-core';
+import { hasPermission, Permission, type Channel, type VoiceState } from '@diskort/shared';
+import { isUnread, membersOf, useCan, useGuild, useMemberColor, useMessages, useSession } from '@diskort/client-core';
 import { Avatar } from '../components/Avatar';
+import { MemberSheet } from '../components/MemberSheet';
 import { VoiceBar } from '../components/VoiceBar';
+import { VoiceStateIcon } from '../components/VoiceStateIcon';
 import { toast } from '../stores/ui';
 import { colors } from '../theme';
 import { useVoice, voice } from '../voice/voice';
 
 type Row = { kind: 'text'; channel: Channel } | { kind: 'voice'; channel: Channel };
 
+/** Kanal @everyone'dan gizlenmiş mi (kilit simgesi) */
+function usePrivate(channel: Channel): boolean {
+  return useGuild((s) => {
+    const everyone = channel.overwrites?.find((o) => o.roleId === s.guild?.id);
+    return everyone !== undefined && hasPermission(everyone.deny, Permission.VIEW_CHANNEL);
+  });
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const guild = useGuild((s) => s.guild);
   const status = useGuild((s) => s.status);
   const channels = useGuild((s) => s.channels);
+  // Uzun basılan (yönetilecek) üye
+  const [member, setMember] = useState<string | null>(null);
 
   const sections = useMemo(
     () => [
@@ -33,9 +45,14 @@ export default function HomeScreen() {
         <Text style={styles.guild} numberOfLines={1}>
           {guild?.name ?? 'Diskort'}
         </Text>
-        <Pressable hitSlop={10} onPress={() => router.push('/settings')}>
-          <Ionicons name="settings-sharp" size={22} color={colors.muted} />
-        </Pressable>
+        <View style={styles.headerButtons}>
+          <Pressable hitSlop={10} onPress={() => router.push('/members')} accessibilityLabel="Üyeler">
+            <Ionicons name="people" size={23} color={colors.muted} />
+          </Pressable>
+          <Pressable hitSlop={10} onPress={() => router.push('/settings')} accessibilityLabel="Ayarlar">
+            <Ionicons name="settings-sharp" size={22} color={colors.muted} />
+          </Pressable>
+        </View>
       </View>
       {status !== 'ready' && (
         <View style={styles.banner}>
@@ -62,11 +79,13 @@ export default function HomeScreen() {
                 }
                 router.push('/voice');
               }}
+              onMemberPress={setMember}
             />
           )
         }
       />
       <VoiceBar />
+      <MemberSheet userId={member} onClose={() => setMember(null)} />
     </SafeAreaView>
   );
 }
@@ -74,10 +93,11 @@ export default function HomeScreen() {
 function TextChannelRow({ channel, onPress }: { channel: Channel; onPress: () => void }) {
   const unread = useGuild((s) => isUnread(s, channel.id));
   const mentionCount = useMessages((s) => s.mentionCounts[channel.id] ?? 0);
+  const locked = usePrivate(channel);
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
       {unread && <View style={styles.unreadPill} />}
-      <Ionicons name="chatbubble-outline" size={20} color={unread ? colors.head : colors.muted} />
+      <Ionicons name={locked ? 'lock-closed-outline' : 'chatbubble-outline'} size={20} color={unread ? colors.head : colors.muted} />
       <Text style={[styles.name, unread && styles.nameUnread]} numberOfLines={1}>
         {channel.name}
       </Text>
@@ -90,34 +110,55 @@ function TextChannelRow({ channel, onPress }: { channel: Channel; onPress: () =>
   );
 }
 
-function VoiceChannelRow({ channel, onPress }: { channel: Channel; onPress: () => void }) {
+function VoiceChannelRow({
+  channel,
+  onPress,
+  onMemberPress,
+}: {
+  channel: Channel;
+  onPress: () => void;
+  onMemberPress: (userId: string) => void;
+}) {
   const voiceStates = useGuild((s) => s.voiceStates);
   const members = useMemo(() => membersOf(voiceStates, channel.id), [voiceStates, channel.id]);
   const active = useVoice((s) => s.channelId === channel.id);
+  const canConnect = useCan(Permission.CONNECT, channel.id);
+  const locked = usePrivate(channel);
   return (
     <View>
-      <Pressable onPress={onPress} style={({ pressed }) => [styles.row, active && styles.rowActive, pressed && styles.pressed]}>
-        <Ionicons name="volume-medium" size={21} color={active ? colors.head : colors.muted} />
+      <Pressable
+        onPress={() => (canConnect || active ? onPress() : toast('Bu ses kanalına bağlanma iznin yok.', 'error'))}
+        style={({ pressed }) => [styles.row, active && styles.rowActive, pressed && styles.pressed, !canConnect && !active && { opacity: 0.55 }]}
+      >
+        <Ionicons
+          name={!canConnect || locked ? 'lock-closed-outline' : 'volume-medium'}
+          size={21}
+          color={active ? colors.head : colors.muted}
+        />
         <Text style={[styles.name, active && styles.nameUnread]} numberOfLines={1}>
           {channel.name}
         </Text>
       </Pressable>
       {members.map((m) => (
-        <VoiceMember key={m.userId} state={m} />
+        <VoiceMember key={m.userId} state={m} onLongPress={() => onMemberPress(m.userId)} />
       ))}
     </View>
   );
 }
 
-function VoiceMember({ state }: { state: VoiceState }) {
+function VoiceMember({ state, onLongPress }: { state: VoiceState; onLongPress: () => void }) {
   const user = useGuild((s) => s.users[state.userId]);
+  const color = useMemberColor(state.userId);
   const selfId = useSession((s) => s.user?.id);
   const speaking = useVoice((s) => Boolean(s.speaking[state.userId]));
   const inMyChannel = useVoice((s) => s.channelId === state.channelId);
   return (
-    <View style={styles.member}>
+    <Pressable onLongPress={onLongPress} delayLongPress={300} style={({ pressed }) => [styles.member, pressed && styles.pressed]}>
       <Avatar user={user} size={26} speaking={inMyChannel && speaking} />
-      <Text style={[styles.memberName, state.userId === selfId && { color: colors.head }]} numberOfLines={1}>
+      <Text
+        style={[styles.memberName, state.userId === selfId && { color: colors.head }, color ? { color } : null]}
+        numberOfLines={1}
+      >
         {user?.displayName ?? '…'}
       </Text>
       {state.streaming && (
@@ -125,12 +166,8 @@ function VoiceMember({ state }: { state: VoiceState }) {
           <Text style={styles.liveText}>CANLI</Text>
         </View>
       )}
-      {state.selfDeaf ? (
-        <Ionicons name="volume-mute" size={16} color={colors.danger} />
-      ) : state.selfMute ? (
-        <Ionicons name="mic-off" size={16} color={colors.danger} />
-      ) : null}
-    </View>
+      <VoiceStateIcon state={state} />
+    </Pressable>
   );
 }
 
@@ -146,6 +183,7 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(0,0,0,0.4)',
   },
   guild: { color: colors.head, fontSize: 19, fontWeight: '700', flex: 1, marginRight: 12 },
+  headerButtons: { flexDirection: 'row', alignItems: 'center', gap: 20 },
   banner: { backgroundColor: colors.warn, paddingVertical: 6, paddingHorizontal: 12 },
   bannerText: { color: '#000', fontSize: 13, fontWeight: '600', textAlign: 'center' },
   section: {

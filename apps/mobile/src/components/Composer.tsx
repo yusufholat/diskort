@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { MESSAGE_MAX_LENGTH, type Channel, type User } from '@diskort/shared';
+import { MESSAGE_MAX_LENGTH, Permission, type Channel, type User } from '@diskort/shared';
 import {
   addFiles,
   editMessage,
@@ -9,6 +9,7 @@ import {
   notifyTyping,
   removeFile,
   sendMessage,
+  useCan,
   useGuild,
   useMessages,
   type LocalFile,
@@ -44,6 +45,8 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
   const users = useGuild((s) => s.users);
   const online = useGuild((s) => s.online);
   const files = useMessages((s) => s.pendingFiles[channel.id] ?? NO_FILES);
+  const canSend = useCan(Permission.SEND_MESSAGES, channel.id);
+  const canAttach = useCan(Permission.ATTACH_FILES, channel.id);
 
   // Düzenleme kipine geçince mesaj metniyle başla
   const text = editing ? (editText ?? editing.content) : value;
@@ -63,6 +66,7 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
     if (query === undefined) return [];
     const q = query.toLocaleLowerCase('tr');
     return Object.values(users)
+      .filter((u) => !u.removed)
       .filter((u) => u.username.startsWith(q) || u.displayName.toLocaleLowerCase('tr').includes(q))
       .sort((a, b) => Number(!!online[b.id]) - Number(!!online[a.id]) || a.username.localeCompare(b.username))
       .slice(0, 5);
@@ -107,6 +111,16 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
   };
 
   const remaining = MESSAGE_MAX_LENGTH - text.trim().length;
+
+  // Salt okunur kanal (kendi mesajını düzenlemek yine serbest)
+  if (!canSend && !editing) {
+    return (
+      <View style={styles.locked}>
+        <Ionicons name="lock-closed" size={16} color={colors.muted} />
+        <Text style={styles.lockedText}>Bu kanala mesaj gönderme iznin yok.</Text>
+      </View>
+    );
+  }
 
   return (
     <View>
@@ -163,7 +177,7 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
         </ScrollView>
       )}
       <View style={styles.row}>
-        {!editing && (
+        {!editing && canAttach && (
           <Pressable
             onPress={() => setAttachMenu(true)}
             hitSlop={6}
@@ -230,6 +244,17 @@ function AttachOption({
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 10, paddingVertical: 8 },
   attach: { height: 44, justifyContent: 'center' },
+  locked: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    margin: 8,
+    minHeight: 44,
+    paddingHorizontal: 14,
+    borderRadius: 22,
+    backgroundColor: colors.side,
+  },
+  lockedText: { color: colors.muted, fontSize: 15 },
   tray: { flexGrow: 0, backgroundColor: colors.side },
   trayContent: { gap: 10, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 8 },
   trayItem: { width: 92 },

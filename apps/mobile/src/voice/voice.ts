@@ -1,5 +1,6 @@
 import { AndroidAudioTypePresets, AudioSession } from '@livekit/react-native';
-import { api, errorMessage, gateway, useGuild } from '@diskort/client-core';
+import { channelIdFromRoom } from '@diskort/shared';
+import { api, errorMessage, gateway, useGuild, useSession } from '@diskort/client-core';
 import {
   ConnectionState,
   DisconnectReason,
@@ -58,6 +59,8 @@ interface VoiceStore {
   watching: string | null;
   /** Mikrofon izni yoksa yalnızca dinlenir */
   listenOnly: boolean;
+  /** Kanalda konuşma izni var mı (yetki ya da sunucuda susturma; LiveKit izninden gelir) */
+  micAllowed: boolean;
   /** Telefonun ekranı paylaşılıyor */
   sharing: boolean;
   /** Abonelikler değişince artar (video bileşenlerini tazelemek için) */
@@ -69,11 +72,28 @@ const IDLE: Omit<VoiceStore, 'channelId' | 'status'> = {
   streams: {},
   watching: null,
   listenOnly: false,
+  micAllowed: true,
   sharing: false,
   tracksVersion: 0,
 };
 
 export const useVoice = create<VoiceStore>()(() => ({ channelId: null, status: 'idle', ...IDLE }));
+
+/** LiveKit protokolündeki kaynak numaraları (ParticipantPermission.canPublishSources) */
+const PROTO_SOURCE = { microphone: 2, screenShare: 3 } as const;
+
+/** LiveKit bu kaynağı yayınlamaya izin veriyor mu (sunucu izni kanaldaki yetkilere göre verir) */
+function canPublish(room: Room, source: number): boolean {
+  const p = room.localParticipant.permissions;
+  if (!p) return true;
+  return p.canPublish && (p.canPublishSources.length === 0 || p.canPublishSources.includes(source as never));
+}
+
+/** Kendi ses durumu (sunucuda susturma/sağırlaştırma buradan okunur) */
+function selfVoiceState() {
+  const selfId = useSession.getState().user?.id;
+  return selfId ? useGuild.getState().voiceStates[selfId] : undefined;
+}
 
 const isAudio = (pub: RemoteTrackPublication): boolean =>
   pub.source === Track.Source.Microphone ||
@@ -107,6 +127,21 @@ class MobileVoiceClient {
     gateway.on((msg) => {
       if (msg.t === 'READY') this.syncVoiceState();
     });
+    // Sunucuda sağırlaştırılınca kimse duyulmaz (dinleme LiveKit'te kesilmez, uygulama uygular)
+    useGuild.subscribe((next, prev) => {
+      const selfId = useSession.getState().user?.id;
+      if (selfId && next.voiceStates[selfId]?.serverDeaf !== prev.voiceStates[selfId]?.serverDeaf) {
+        void this.applyLocalState();
+      }
+    });
+  }
+
+  /** Mikrofon açılamıyorsa kullanıcıya gösterilecek neden */
+  micBlockedReason(): string {
+    const state = selfVoiceState();
+    return state?.serverMute || state?.serverDeaf
+      ? 'Sunucuda susturuldun; mikrofonunu yalnızca yetkili biri açabilir.'
+      : 'Bu kanalda konuşma iznin yok.';
   }
 
   async join(channelId: string): Promise<void> {
@@ -147,8 +182,13 @@ class MobileVoiceClient {
       for (const p of room.remoteParticipants.values()) {
         for (const pub of p.trackPublications.values()) this.onPublication(pub, p);
       }
-      useVoice.setState({ status: 'connected', listenOnly: !micGranted });
-      if (micGranted) await room.localParticipant.setMicrophoneEnabled(!this.micMuted());
+      useVoice.setState({
+        status: 'connected',
+        listenOnly: !micGranted,
+        micAllowed: canPublish(room, PROTO_SOURCE.microphone),
+      });
+      // Konuşma izni yoksa (ya da sunucuda susturulduysa) yalnızca dinlenir; izin gelince açılır
+      if (micGranted && !this.micMuted()) await room.localParticipant.setMicrophoneEnabled(true);
 
       const name = useGuild.getState().channels.find((c) => c.id === channelId)?.name ?? 'Ses kanalı';
       try {
@@ -177,6 +217,10 @@ class MobileVoiceClient {
 
   toggleMute(): void {
     const s = getSettings();
+    if (!useVoice.getState().micAllowed && useVoice.getState().status !== 'idle') {
+      toast(this.micBlockedReason(), 'error');
+      return;
+    }
     // Sağırken susturmayı kaldırmak sağırlığı da kaldırır (Discord davranışı)
     if (s.selfDeaf) s.set({ selfDeaf: false, selfMute: false });
     else s.set({ selfMute: !s.selfMute });
@@ -306,12 +350,20 @@ class MobileVoiceClient {
 
   private micMuted(): boolean {
     const s = getSettings();
-    return s.selfMute || s.selfDeaf || useVoice.getState().listenOnly;
+    const v = useVoice.getState();
+    return s.selfMute || s.selfDeaf || v.listenOnly || !v.micAllowed;
+  }
+
+  /** Kendi ya da sunucu sağırlaştırması */
+  private deafened(): boolean {
+    return getSettings().selfDeaf || selfVoiceState()?.serverDeaf === true;
   }
 
   private notificationText(): string {
     const s = getSettings();
     if (s.selfDeaf) return 'Sağırlaştırıldın';
+    if (selfVoiceState()?.serverDeaf) return 'Sunucuda sağırlaştırıldın';
+    if (!useVoice.getState().micAllowed) return selfVoiceState()?.serverMute ? 'Sunucuda susturuldun' : 'Yalnızca dinliyorsun';
     if (s.selfMute) return 'Susturuldun';
     return 'Sesli sohbete bağlı';
   }
@@ -320,7 +372,7 @@ class MobileVoiceClient {
     const room = this.room;
     this.syncVoiceState();
     if (!room) return;
-    const deaf = getSettings().selfDeaf;
+    const deaf = this.deafened();
     // Sağırken diğerlerinin sesi hiç indirilmez (hem sessizlik hem veri tasarrufu)
     for (const p of room.remoteParticipants.values()) {
       for (const pub of p.trackPublications.values()) if (isAudio(pub)) pub.setSubscribed(!deaf);
@@ -338,7 +390,7 @@ class MobileVoiceClient {
 
   private onPublication(pub: RemoteTrackPublication, participant: RemoteParticipant): void {
     if (isAudio(pub)) {
-      pub.setSubscribed(!getSettings().selfDeaf);
+      pub.setSubscribed(!this.deafened());
     } else if (pub.source === Track.Source.ScreenShare) {
       useVoice.setState((s) => ({ streams: { ...s.streams, [participant.identity]: true } }));
       if (useVoice.getState().watching === participant.identity) pub.setSubscribed(true);
@@ -371,6 +423,21 @@ class MobileVoiceClient {
       })
       .on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => {
         useVoice.setState({ speaking: Object.fromEntries(speakers.map((p) => [p.identity, true as const])) });
+      })
+      // İzinler değişti (rol, kanal izni, sunucuda susturma): mikrofonu ve yayını ona göre aç/kapat
+      .on(RoomEvent.ParticipantPermissionsChanged, (_prev, participant) => {
+        if (!participant.isLocal || this.room !== room) return;
+        useVoice.setState({ micAllowed: canPublish(room, PROTO_SOURCE.microphone) });
+        void this.applyLocalState();
+        if (useVoice.getState().sharing && !canPublish(room, PROTO_SOURCE.screenShare)) void this.toggleScreenShare();
+      })
+      // Yetkili biri seni başka kanala taşıdı: bağlantı kopmadan oda değişir
+      .on(RoomEvent.Moved, (name) => {
+        const channelId = channelIdFromRoom(name);
+        if (this.room !== room || !channelId) return;
+        useVoice.setState({ channelId, speaking: {}, streams: {}, watching: null });
+        const channel = useGuild.getState().channels.find((c) => c.id === channelId)?.name ?? 'Ses kanalı';
+        VoiceService.update(channel, this.notificationText(), this.micMuted());
       })
       .on(RoomEvent.Reconnecting, () => useVoice.setState({ status: 'reconnecting' }))
       .on(RoomEvent.Reconnected, () => {

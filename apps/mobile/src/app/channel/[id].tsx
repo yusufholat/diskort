@@ -16,6 +16,7 @@ import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
+import { Permission } from '@diskort/shared';
 import {
   ackChannel,
   deleteMessage,
@@ -23,6 +24,7 @@ import {
   loadOlder,
   QUICK_REACTIONS,
   toggleReaction,
+  useCan,
   useGuild,
   useMessages,
   useSession,
@@ -51,6 +53,9 @@ export default function TextChannelScreen() {
   const lastId = useGuild((s) => (id ? s.lastMessageIds[id] : undefined));
   const readId = useGuild((s) => (id ? s.readStates[id] : undefined));
   const typing = useMessages((s) => (id ? s.typing[id] : undefined));
+  // Başkasının mesajını silmek ve yeni tepki eklemek kanaldaki yetkiye bağlı
+  const canManageMessages = useCan(Permission.MANAGE_MESSAGES, id);
+  const canReact = useCan(Permission.ADD_REACTIONS, id);
 
   const [atBottom, setAtBottom] = useState(true);
   const [active, setActive] = useState(AppState.currentState === 'active');
@@ -168,7 +173,8 @@ export default function TextChannelScreen() {
       <MessageMenu
         message={menuFor}
         canEdit={menuFor?.authorId === self.id}
-        canDelete={menuFor?.authorId === self.id || self.isAdmin}
+        canDelete={menuFor?.authorId === self.id || canManageMessages}
+        canReact={canReact}
         onClose={() => setMenuFor(null)}
         onEdit={(m) => setEditing(m)}
       />
@@ -183,12 +189,15 @@ function MessageMenu({
   message,
   canEdit,
   canDelete,
+  canReact,
   onClose,
   onEdit,
 }: {
   message: LocalMessage | null;
   canEdit: boolean;
   canDelete: boolean;
+  /** Yeni tepki ekleyebilir mi (var olan tepkilere katılmak her zaman serbest) */
+  canReact: boolean;
   onClose: () => void;
   onEdit: (m: LocalMessage) => void;
 }) {
@@ -208,6 +217,9 @@ function MessageMenu({
     close();
   };
   const mine = (emoji: string): boolean => reactions.some((r) => r.emoji === emoji && r.me);
+  const existing = (emoji: string): boolean => reactions.some((r) => r.emoji === emoji);
+  // Yetki yoksa yalnızca mesajdaki tepkiler gösterilir
+  const quick = canReact ? MENU_REACTIONS : MENU_REACTIONS.filter(existing);
   return (
     <Modal visible={message !== null} transparent animationType="slide" onRequestClose={close}>
       <Pressable style={styles.backdrop} onPress={close}>
@@ -216,8 +228,8 @@ function MessageMenu({
             <EmojiGrid onPick={react} />
           ) : (
             <>
-              <View style={styles.quickRow}>
-                {MENU_REACTIONS.map((emoji) => (
+              <View style={[styles.quickRow, quick.length === 0 && !canReact && { display: 'none' }]}>
+                {quick.map((emoji) => (
                   <Pressable
                     key={emoji}
                     onPress={() => react(emoji)}
@@ -226,13 +238,15 @@ function MessageMenu({
                     <Text style={styles.quickEmoji}>{emoji}</Text>
                   </Pressable>
                 ))}
-                <Pressable
-                  accessibilityLabel="Tüm emojiler"
-                  onPress={() => setAllEmojis(true)}
-                  style={({ pressed }) => [styles.quick, pressed && styles.quickPressed]}
-                >
-                  <Ionicons name="add" size={26} color={colors.text} />
-                </Pressable>
+                {canReact && (
+                  <Pressable
+                    accessibilityLabel="Tüm emojiler"
+                    onPress={() => setAllEmojis(true)}
+                    style={({ pressed }) => [styles.quick, pressed && styles.quickPressed]}
+                  >
+                    <Ionicons name="add" size={26} color={colors.text} />
+                  </Pressable>
+                )}
               </View>
               <MessageMenuItems
                 message={message}

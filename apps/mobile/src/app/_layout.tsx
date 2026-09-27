@@ -107,6 +107,7 @@ export default function RootLayout() {
               <Stack.Screen name="index" options={{ headerShown: false }} />
               <Stack.Screen name="channel/[id]" />
               <Stack.Screen name="voice" options={{ title: 'Ses' }} />
+              <Stack.Screen name="members" options={{ title: 'Üyeler' }} />
               <Stack.Screen name="settings" options={{ title: 'Ayarlar' }} />
             </Stack.Protected>
             <Stack.Protected guard={!token}>
