@@ -30,7 +30,7 @@ export function UserPanel() {
   const deaf = selfDeaf || serverDeaf;
 
   return (
-    <div className="flex h-[52px] shrink-0 items-center gap-2 bg-bg-panel px-2">
+    <div className="flex h-[52px] shrink-0 items-center gap-2 border-t border-divider bg-bg-panel px-2">
       {/* Tıklayınca kendi profil kartın: durum ve özel durum buradan değişir */}
       <button
         type="button"

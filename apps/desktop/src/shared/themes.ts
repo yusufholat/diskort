@@ -40,6 +40,9 @@ export const THEME_TOKENS = [
   'bg-float',
   'bg-panel',
   'line',
+  /** Yan yana panelleri (sunucu şeridi, kanal listesi, sohbet, üye listesi) ayıran ince çizgi; yalnız
+   *  panellerin aynı renkte olduğu Siyah temada görünür, diğerlerinde saydam */
+  'divider',
   'text-normal',
   'text-muted',
   'text-faint',
@@ -98,6 +101,7 @@ const dark: ThemePalette = {
   'bg-float': '#111214',
   'bg-panel': '#232428',
   line: '#3f4147',
+  divider: 'transparent',
   'text-normal': '#dbdee1',
   'text-muted': '#949ba4',
   'text-faint': '#878b95',
@@ -133,31 +137,37 @@ const dark: ThemePalette = {
   'toggle-off': '#80848e',
 };
 
+/**
+ * Discord'un OLED (Midnight) teması gibi: şerit, kanal listesi, sohbet, üye listesi ve kullanıcı paneli
+ * simsiyah; katmanlar yalnız ince ayırıcılar ve üstüne gelme/seçili tonlarıyla ayrılır. Açılır pencereler
+ * neredeyse siyah ve silik çerçeveli.
+ */
 const black: ThemePalette = {
   ...dark,
   'bg-deep': '#000000',
   'bg-rail': '#000000',
-  'bg-side': '#0b0b0b',
+  'bg-side': '#000000',
   'bg-main': '#000000',
-  'bg-input': '#161616',
-  'bg-hover': '#1a1a1a',
-  'bg-active': '#262626',
-  'bg-float': '#111111',
-  'bg-panel': '#111111',
-  line: '#2a2a2a',
-  edge: '#242424',
-  'edge-strong': '#3a3a3a',
-  frame: '#242424',
-  'msg-hover': '#0f0f0f',
-  control: '#2e2f33',
-  'control-hover': '#45474e',
-  'bg-raised': '#1a1a1a',
-  'bg-raised-hover': '#262626',
-  scrollbar: '#2a2a2a',
-  'scrollbar-hover': '#3a3a3a',
-  skeleton: '#141414',
-  'skeleton-hi': '#222222',
-  'toggle-off': '#5c5e66',
+  'bg-input': '#101010',
+  'bg-hover': '#161616',
+  'bg-active': '#222222',
+  'bg-float': '#0b0b0b',
+  'bg-panel': '#000000',
+  line: '#222222',
+  divider: '#1c1c1c',
+  edge: '#1c1c1c',
+  'edge-strong': '#2e2e2e',
+  frame: '#1f1f1f',
+  'msg-hover': '#0a0a0a',
+  control: '#262626',
+  'control-hover': '#363636',
+  'bg-raised': '#121212',
+  'bg-raised-hover': '#1f1f1f',
+  scrollbar: '#1f1f1f',
+  'scrollbar-hover': '#2e2e2e',
+  skeleton: '#0f0f0f',
+  'skeleton-hi': '#1a1a1a',
+  'toggle-off': '#4a4a4a',
 };
 
 /** Discord'un açık temasına yakın: beyaz sohbet, #f2f3f5 kanal listesi, koyu yazı */
@@ -172,6 +182,7 @@ const light: ThemePalette = {
   'bg-float': '#ffffff',
   'bg-panel': '#ebedef',
   line: '#d4d7dc',
+  divider: 'transparent',
   'text-normal': '#313338',
   'text-muted': '#5c5e66',
   'text-faint': '#6a6c75',

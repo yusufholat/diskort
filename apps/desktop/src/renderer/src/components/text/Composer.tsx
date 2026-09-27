@@ -311,7 +311,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
           ))}
         </div>
       )}
-      <div className="rounded-lg bg-bg-hover">
+      <div className="rounded-lg border border-divider bg-bg-hover">
         <ReplyBar channelId={channel.id} />
         {files.length > 0 && <FileTray channelId={channel.id} files={files} />}
         <div className="flex items-end">

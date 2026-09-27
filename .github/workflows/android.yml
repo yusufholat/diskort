@@ -162,6 +162,12 @@ jobs:
             -PreactNativeArchitectures="$abis" \
             -Dorg.gradle.jvmargs="-Xmx6g -XX:MaxMetaspaceSize=1g"
 
+      # DPDFNet'in STFT/ISTFT'si (Kotlin) masaüstündekiyle aynı mı: JVM birim testleri, telefonsuz
+      - name: Gürültü engelleme birim testleri
+        if: steps.reuse.outputs.from == ''
+        working-directory: apps/mobile/android
+        run: ./gradlew :noise-filter:testReleaseUnitTest --no-daemon --build-cache -Dorg.gradle.jvmargs="-Xmx4g"
+
       - name: İmzaları doğrula ve adlandır
         if: steps.reuse.outputs.from == ''
         env:

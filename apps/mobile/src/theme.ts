@@ -79,25 +79,29 @@ const dark = {
 
 export type Palette = typeof dark;
 
-/** OLED ekranlar için simsiyah: zeminler #000, katmanlar çok az açık, kenarlar belirgin */
+/**
+ * OLED ekranlar için simsiyah (Discord'un OLED teması gibi, masaüstündeki Siyah temayla aynı tonlar): zemin,
+ * sunucu şeridi ve paneller #000; katmanlar yalnız ince kenarlar ve basılı/seçili tonlarıyla ayrılır. Kartlar
+ * ve alt sayfalar (side) zeminde kaybolmasın diye siyahtan bir tık açık.
+ */
 const black: Palette = {
   ...dark,
   deep: '#000000',
   rail: '#000000',
-  panel: '#101010',
-  side: '#0b0b0b',
+  panel: '#000000',
+  side: '#0a0a0a',
   main: '#000000',
-  raised: '#1a1a1a',
+  raised: '#121212',
   mainTranslucent: 'rgba(0,0,0,0.94)',
-  input: '#161616',
-  code: '#1a1a1a',
-  hover: '#1a1a1a',
-  field: '#161616',
-  active: '#262626',
-  control: '#2e2f33',
-  controlPressed: '#45474e',
-  line: '#2a2a2a',
-  edge: '#262626',
+  input: '#101010',
+  code: '#161616',
+  hover: '#161616',
+  field: '#101010',
+  active: '#222222',
+  control: '#262626',
+  controlPressed: '#363636',
+  line: '#222222',
+  edge: '#1c1c1c',
   backdrop: 'rgba(0,0,0,0.75)',
 };
 
