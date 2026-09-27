@@ -1,5 +1,9 @@
 import { create } from 'zustand';
 import type { Attachment, Channel, ChannelType, User } from '@diskort/shared';
+import { useGuild } from '@diskort/client-core';
+import { useVoice } from './voice';
+
+const voiceChannelId = (): string | null => useVoice.getState().channelId;
 
 export type Modal =
   | { type: 'settings'; section?: SettingsSection }
@@ -12,6 +16,10 @@ export type Modal =
   /** Grup konuşmasının adını değiştirmek */
   | { type: 'renameDm'; channelId: string }
   | { type: 'feedback' }
+  /** Sunucu kur ya da davetle katıl */
+  | { type: 'addGuild'; tab?: 'create' | 'join'; code?: string }
+  /** Seçili sunucuya arkadaş davet et (bağlantı oluşturup gösterir) */
+  | { type: 'invite' }
   | null;
 
 export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app' | 'feedback' | 'whatsNew';
@@ -62,7 +70,8 @@ export interface Toast {
 
 /**
  * Ana alanda gösterilen: bir metin kanalı, bağlı olunan ses kanalının sahnesi ya da direkt mesajlar
- * (`dm`: bir konuşma, `dms`: konuşma seçilmemiş liste). İlk üçü topluluk, son ikisi "ana sayfa" bölümüdür.
+ * (`dm`: bir konuşma, `dms`: konuşma seçilmemiş liste). İlk üçü seçili sunucu, son ikisi "ana sayfa"
+ * bölümüdür. Başka sunucunun kanalı açılınca (bildirim, ses) o sunucu seçilir.
  */
 export type View =
   | { kind: 'text'; channelId: string }
@@ -79,8 +88,10 @@ interface UiStore {
   banUser: User | null;
   setBanUser: (user: User | null) => void;
   view: View;
-  /** Ses sahnesinden dönülecek metin kanalı */
+  /** Ses sahnesinden dönülecek metin kanalı (seçili sunucunun; bkz. lastTextByGuild) */
   lastTextChannelId: string | null;
+  /** Sunucu başına son açılan metin kanalı (sunucuya dönünce o açılır) */
+  lastTextByGuild: Record<string, string>;
   /** Direkt mesajlar bölümüne dönülünce açılacak konuşma */
   lastDmId: string | null;
   setView: (view: View) => void;
@@ -101,6 +112,7 @@ interface UiStore {
 let toastId = 0;
 
 const LAST_TEXT_CHANNEL_KEY = 'diskort-last-text-channel';
+const LAST_TEXT_BY_GUILD_KEY = 'diskort-last-text-by-guild';
 const LAST_DM_KEY = 'diskort-last-dm';
 const MEMBER_LIST_KEY = 'diskort-member-list';
 
@@ -122,6 +134,24 @@ function store(key: string, value: string): void {
 
 const initialTextChannel = stored(LAST_TEXT_CHANNEL_KEY);
 
+function storedMap(key: string): Record<string, string> {
+  try {
+    const value = JSON.parse(stored(key) ?? '{}') as unknown;
+    return value && typeof value === 'object' ? (value as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Kanal başka bir sunucudaysa o sunucuyu seçer; kanalın sunucusunu döner */
+function selectGuildOf(channelId: string | null | undefined): string | null {
+  if (!channelId) return null;
+  const guild = useGuild.getState();
+  const guildId = guild.channelGuild[channelId] ?? null;
+  if (guildId && guildId !== guild.activeGuildId) guild.selectGuild(guildId);
+  return guildId;
+}
+
 export const useUi = create<UiStore>()((set, get) => ({
   memberListOpen: stored(MEMBER_LIST_KEY) !== '0',
   toggleMemberList: () => {
@@ -133,11 +163,19 @@ export const useUi = create<UiStore>()((set, get) => ({
   setBanUser: (banUser) => set({ banUser, contextMenu: null }),
   view: initialTextChannel ? { kind: 'text', channelId: initialTextChannel } : { kind: 'home' },
   lastTextChannelId: initialTextChannel,
+  lastTextByGuild: storedMap(LAST_TEXT_BY_GUILD_KEY),
   lastDmId: stored(LAST_DM_KEY),
   setView: (view) => {
     if (view.kind === 'text') {
+      const guildId = selectGuildOf(view.channelId);
       store(LAST_TEXT_CHANNEL_KEY, view.channelId);
-      set({ view, lastTextChannelId: view.channelId });
+      const lastTextByGuild = guildId ? { ...get().lastTextByGuild, [guildId]: view.channelId } : get().lastTextByGuild;
+      store(LAST_TEXT_BY_GUILD_KEY, JSON.stringify(lastTextByGuild));
+      set({ view, lastTextChannelId: view.channelId, lastTextByGuild });
+    } else if (view.kind === 'voice') {
+      // Bağlı olunan ses kanalının sunucusu seçilir
+      selectGuildOf(voiceChannelId());
+      set({ view });
     } else if (view.kind === 'dm') {
       store(LAST_DM_KEY, view.channelId);
       set({ view, lastDmId: view.channelId });

@@ -16,7 +16,10 @@ import { DmSidebar } from './dms/DmSidebar';
 import { GuildRail } from './GuildRail';
 import { VoiceStage } from './stage/VoiceStage';
 import { Welcome } from './stage/Welcome';
+import { AddGuildModal } from './modals/AddGuildModal';
 import { BanModal } from './modals/BanModal';
+import { InviteModal } from './modals/InviteModal';
+import { NoGuilds } from './NoGuilds';
 import { ChannelModal } from './modals/ChannelModal';
 import { ScreenSharePicker } from './modals/ScreenSharePicker';
 import { ServerSettingsModal } from './serverSettings/ServerSettingsModal';
@@ -27,6 +30,8 @@ import { useFeedbackToasts } from '../features/feedback/useFeedbackToasts';
 export function MainLayout() {
   const token = useSession((s) => s.token);
   const status = useGuild((s) => s.status);
+  // İlk READY gelene kadar "Bağlanıyor…"; sonra sunucu olmasa da arayüz açılır
+  const ready = useGuild((s) => s.status === 'ready' || s.guildOrder.length > 0);
   const hasGuild = useGuild((s) => s.guild !== null);
   const view = useMainView();
   const textChannel = useGuild((s) =>
@@ -57,7 +62,7 @@ export function MainLayout() {
     voice.clearError();
   }, [voiceError]);
 
-  if (!hasGuild) {
+  if (!ready) {
     return (
       <div className="anim-fade-in flex h-full flex-col items-center justify-center gap-4 bg-bg-main text-text-muted">
         <AudioLines size={48} className="animate-pulse text-brand" />
@@ -71,6 +76,35 @@ export function MainLayout() {
         >
           Çıkış yap
         </button>
+      </div>
+    );
+  }
+
+  const modals = (
+    <>
+      <PresenceProvider value={modalClosing}>
+        {modal?.type === 'settings' && <SettingsModal initial={modal.section} />}
+        {modal?.type === 'serverSettings' && hasGuild && <ServerSettingsModal initial={modal.section} />}
+        {modal?.type === 'screenPicker' && <ScreenSharePicker />}
+        {modal?.type === 'channel' && <ChannelModal channel={modal.channel} channelType={modal.channelType} />}
+        {modal?.type === 'image' && <ImageViewer attachment={modal.attachment} />}
+        {modal?.type === 'newDm' && <NewDmModal addTo={modal.addTo} />}
+        {modal?.type === 'renameDm' && <RenameDmModal channelId={modal.channelId} />}
+        {modal?.type === 'feedback' && <FeedbackModal />}
+        {modal?.type === 'addGuild' && <AddGuildModal tab={modal.tab} code={modal.code} />}
+        {modal?.type === 'invite' && hasGuild && <InviteModal />}
+      </PresenceProvider>
+      <BanModal />
+    </>
+  );
+
+  // Hiç sunucu yok: direkt mesajlar açılabilir, yoksa "sunucu kur / katıl" ekranı
+  if (!hasGuild && !isDmSection(view)) {
+    return (
+      <div className="relative flex h-full min-h-0">
+        <GuildRail />
+        <NoGuilds />
+        {modals}
       </div>
     );
   }
@@ -106,17 +140,7 @@ export function MainLayout() {
         </div>
       </main>
 
-      <PresenceProvider value={modalClosing}>
-        {modal?.type === 'settings' && <SettingsModal initial={modal.section} />}
-        {modal?.type === 'serverSettings' && <ServerSettingsModal initial={modal.section} />}
-        {modal?.type === 'screenPicker' && <ScreenSharePicker />}
-        {modal?.type === 'channel' && <ChannelModal channel={modal.channel} channelType={modal.channelType} />}
-        {modal?.type === 'image' && <ImageViewer attachment={modal.attachment} />}
-        {modal?.type === 'newDm' && <NewDmModal addTo={modal.addTo} />}
-        {modal?.type === 'renameDm' && <RenameDmModal channelId={modal.channelId} />}
-        {modal?.type === 'feedback' && <FeedbackModal />}
-      </PresenceProvider>
-      <BanModal />
+      {modals}
     </div>
   );
 }

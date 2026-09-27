@@ -54,7 +54,9 @@ export function MemberSheet({
   const [moving, setMoving] = useState(false);
   const router = useRouter();
   const selfId = useSession((s) => s.user?.id);
-  const canMessage = Boolean(user && !user.removed && userId !== selfId);
+  // Mesaj: ortak sunucusu olan herkese (DM'deki başka sunucudan biri de)
+  const reachable = useGuild((s) => (userId ? Boolean(s.reachable[userId]) : false));
+  const canMessage = Boolean(user && reachable && userId !== selfId);
 
   const close = (): void => {
     setConfirm(null);

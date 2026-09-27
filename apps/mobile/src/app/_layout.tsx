@@ -5,7 +5,7 @@ import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { gateway, reportClientError, useSession } from '@diskort/client-core';
+import { gateway, reportClientError, useGuild, useSession } from '@diskort/client-core';
 import { Toast } from '../components/Toast';
 import { Button } from '../components/ui';
 import { UpdateScreen } from '../components/UpdateScreen';
@@ -88,7 +88,12 @@ export default function RootLayout() {
     if (!ready || !token) return;
     const open = (response: Notifications.NotificationResponse | null): void => {
       const channelId = channelFromResponse(response);
-      if (channelId) router.push(`/channel/${channelId}`);
+      if (!channelId) return;
+      // Kanal başka bir sunucudaysa o sunucuya geçilir (üyeler, başlık o sunucunun olsun)
+      const guild = useGuild.getState();
+      const guildId = guild.channelGuild[channelId];
+      if (guildId) guild.selectGuild(guildId);
+      router.push(`/channel/${channelId}`);
     };
     open(Notifications.getLastNotificationResponse());
     const sub = Notifications.addNotificationResponseReceivedListener(open);
@@ -166,6 +171,7 @@ export default function RootLayout() {
               <Stack.Screen name="settings" options={{ title: 'Ayarlar' }} />
               <Stack.Screen name="feedback" options={{ title: 'Geri bildirim' }} />
               <Stack.Screen name="whats-new" options={{ title: 'Yenilikler' }} />
+              <Stack.Screen name="sunucu-ekle" options={{ title: 'Sunucu ekle', animation: 'fade_from_bottom' }} />
             </Stack.Protected>
             <Stack.Protected guard={!token}>
               <Stack.Screen name="login" options={{ headerShown: false, animation: 'fade', contentStyle: { backgroundColor: colors.rail } }} />

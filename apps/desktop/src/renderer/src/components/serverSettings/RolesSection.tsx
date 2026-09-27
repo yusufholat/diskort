@@ -64,7 +64,7 @@ export function RolesSection() {
 
   const create = async (): Promise<void> => {
     try {
-      const role = await api.createRole({ name: 'yeni rol' });
+      const role = await api.createRole(guildId ?? '', { name: 'yeni rol' });
       setSelectedId(role.id);
     } catch (err) {
       toast(errorMessage(err), 'error');
@@ -79,7 +79,7 @@ export function RolesSection() {
     if (i < 0 || j < 0 || j >= order.length) return;
     [order[i], order[j]] = [order[j]!, order[i]!];
     try {
-      await api.reorderRoles(order);
+      await api.reorderRoles(guildId ?? '', order);
     } catch (err) {
       toast(errorMessage(err), 'error');
     }
@@ -220,7 +220,7 @@ function RoleEditor({
     }
     setBusy(true);
     try {
-      await api.updateRole(role.id, patch);
+      await api.updateRole(useGuild.getState().activeGuildId ?? '', role.id, patch);
       toast('Rol kaydedildi.', 'success');
     } catch (err) {
       toast(errorMessage(err), 'error');
@@ -238,7 +238,7 @@ function RoleEditor({
     });
     if (!ok) return;
     try {
-      await api.deleteRole(role.id);
+      await api.deleteRole(useGuild.getState().activeGuildId ?? '', role.id);
       toast('Rol silindi.', 'success');
       onDeleted();
     } catch (err) {

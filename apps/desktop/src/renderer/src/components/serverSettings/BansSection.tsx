@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Ban } from '@diskort/shared';
-import { api, errorMessage, moderation } from '@diskort/client-core';
+import { api, errorMessage, moderation, useGuild } from '@diskort/client-core';
 import { toast } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 import { Button } from '../ui/controls';
@@ -8,18 +8,19 @@ import { Button } from '../ui/controls';
 /** Yasaklı hesaplar; yasak kalkınca kişi yeni bir davet koduyla geri dönebilir. */
 export function BansSection() {
   const [bans, setBans] = useState<Ban[] | null>(null);
+  const guildId = useGuild((s) => s.activeGuildId) ?? '';
 
   const load = (): void => {
     api
-      .listBans()
+      .listBans(guildId)
       .then(setBans)
       .catch((err) => toast(errorMessage(err), 'error'));
   };
-  useEffect(load, []);
+  useEffect(load, [guildId]);
 
   const unban = async (ban: Ban): Promise<void> => {
     if (!(await moderation.unban(ban.user.id))) return;
-    toast(`${ban.user.displayName} kişisinin yasağı kaldırıldı. Yeni bir davet koduyla geri dönebilir.`, 'success');
+    toast(`${ban.user.displayName} kişisinin yasağı kaldırıldı. Yeni bir davetle geri dönebilir.`, 'success');
     load();
   };
 
@@ -27,8 +28,8 @@ export function BansSection() {
     <div>
       <h2 className="mb-2 text-xl font-bold text-text-head">Yasaklar</h2>
       <p className="mb-5 text-sm text-text-muted">
-        Yasaklı hesaplar giriş yapamaz ve davet koduyla geri dönemez. Yasağı kaldırılan kişi yeni bir davet koduyla,
-        kendi kullanıcı adı ve şifresiyle geri döner.
+        Yasaklı kişiler bu sunucuya davetle geri dönemez (hesapları ve diğer sunucuları etkilenmez). Yasağı kaldırılan
+        kişi yeni bir davetle geri dönebilir.
       </p>
       {bans === null ? (
         <div className="text-sm text-text-muted">Yükleniyor…</div>

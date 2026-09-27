@@ -57,22 +57,23 @@ export class PushService {
   }
 
   /** Bahsedilen kullanıcıların telefonlarına bildirim gönderir. */
-  async notifyMention(message: Message, mentionedUserIds: string[], channelName: string): Promise<void> {
+  async notifyMention(message: Message, mentionedUserIds: string[], channelName: string, guildId?: string): Promise<void> {
     if (!this.account || mentionedUserIds.length === 0) return;
     const tokens = this.store.pushTokens(mentionedUserIds);
     if (tokens.length === 0) return;
 
     const author = message.authorId ? this.store.getUser(message.authorId) : null;
+    const guild = guildId ? this.store.getGuild(guildId) : null;
     // Yalnızca dosyalı bir yanıtın metni boş olabilir
     const body = this.text(message) || (message.attachments.length ? '📎 Dosya gönderdi' : '');
     await Promise.all(
       tokens.map((t) =>
         this.send(t.token, {
           notification: {
-            title: `${author?.displayName ?? 'Biri'} · #${channelName}`,
+            title: `${author?.displayName ?? 'Biri'} · #${channelName}${guild ? ` (${guild.name})` : ''}`,
             body: body.length > BODY_MAX ? `${body.slice(0, BODY_MAX)}…` : body,
           },
-          data: { type: 'mention', channelId: message.channelId, messageId: message.id },
+          data: { type: 'mention', channelId: message.channelId, messageId: message.id, ...(guildId ? { guildId } : {}) },
           android: {
             priority: 'HIGH',
             notification: {

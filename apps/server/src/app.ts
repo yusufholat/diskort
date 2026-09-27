@@ -29,6 +29,7 @@ import { registerDmRoutes } from './routes/dms.js';
 import { registerDownloadRoutes } from './routes/download.js';
 import { registerFeedbackRoutes } from './routes/feedback.js';
 import { registerGifRoutes } from './routes/gifs.js';
+import { registerGuildRoutes } from './routes/guilds.js';
 import { registerMessageRoutes } from './routes/messages.js';
 import { registerRoleRoutes } from './routes/roles.js';
 import { registerUpdateRoutes } from './routes/updates.js';
@@ -79,7 +80,7 @@ export async function buildApp(
     opts.gifFetch,
     app.log,
   );
-  const gateway = new Gateway(store, auth, voice, guild, permissions, clientVersions, config.attachmentMaxBytes, {
+  const gateway = new Gateway(store, auth, voice, permissions, clientVersions, config.attachmentMaxBytes, {
     gifs: gifs.enabled,
   });
   const moderation = new VoiceModeration(store, voice, livekit, permissions, gateway);
@@ -139,6 +140,7 @@ export async function buildApp(
   registerDownloadRoutes(app, ctx);
   registerMessageRoutes(app, ctx);
   registerDmRoutes(app, ctx);
+  registerGuildRoutes(app, ctx);
   registerRoleRoutes(app, ctx);
   registerAttachmentRoutes(app, ctx);
   registerAvatarRoutes(app, ctx);

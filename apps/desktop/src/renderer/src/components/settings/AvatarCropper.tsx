@@ -25,13 +25,15 @@ interface Props {
   onCancel: () => void;
   /** Kırpılmış kare resim (PNG); kaydedilirken pencere açık kalır */
   onSave: (image: Blob) => Promise<void>;
+  /** Pencerenin başlığı (sunucu simgesinde de kullanılır) */
+  title?: string;
 }
 
 /**
  * Profil fotoğrafı kırpma penceresi: resim sürüklenerek konumlandırılır, kaydırıcı ya da fare
  * tekerleğiyle yakınlaştırılır. Yuvarlak alan fotoğrafın görüneceği kısmı gösterir.
  */
-export function AvatarCropper({ file, onCancel, onSave }: Props) {
+export function AvatarCropper({ file, onCancel, onSave, title = 'Profil fotoğrafını düzenle' }: Props) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failed, setFailed] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -129,7 +131,7 @@ export function AvatarCropper({ file, onCancel, onSave }: Props) {
     // Ayarlar penceresinin üstünde açılsın
     <div className="relative z-[60]">
       <Modal
-        title="Profil fotoğrafını düzenle"
+        title={title}
         subtitle="Sürükleyerek konumlandır, kaydırıcıyla yakınlaştır."
         onClose={() => !saving && onCancel()}
         className="w-[460px]"

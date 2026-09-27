@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import type { Readable } from 'node:stream';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   FEEDBACK_BODY_MAX_LENGTH,
@@ -96,7 +96,11 @@ export function registerFeedbackRoutes(app: FastifyInstance, ctx: AppContext, fe
   const store = feedback.store;
   const allowUpload = createRateLimiter(15, HOUR_MS);
 
-  const isManager = (userId: string): boolean => permissions.can(userId, Permission.MANAGE_GUILD);
+  // Geri bildirimler uygulamanın kendisi hakkındadır: ana sunucuyu yönetenler (hesap yöneticileri) görür
+  const isManager = (userId: string): boolean => {
+    const primary = permissions.primaryGuildId;
+    return primary !== null && permissions.canInGuild(primary, userId, Permission.MANAGE_GUILD);
+  };
   const managersOnline = (): string[] => gateway.connectedUserIds().filter(isManager);
   const notify = (msg: GatewayServerMessage, ownerId: string | null): void => {
     const to = managersOnline();
@@ -200,7 +204,11 @@ export function registerFeedbackRoutes(app: FastifyInstance, ctx: AppContext, fe
 
   // ---------- Yönetim (Sunucuyu Yönet) ----------
 
-  const requireManager = auth.requirePermission(Permission.MANAGE_GUILD);
+  const requireManager = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    await auth.requireUser(req, reply);
+    if (reply.sent) return;
+    if (!isManager(req.user.id)) await reply.code(403).send({ error: 'forbidden', message: 'Bu işlem için yetkin yok.' });
+  };
 
   app.get('/api/feedback', { preHandler: requireManager }, async (req, reply) => {
     const query = listQuery.safeParse(req.query ?? {});

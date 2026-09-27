@@ -21,6 +21,7 @@ import {
   ackChannel,
   clearJump,
   deleteMessage,
+  channelById,
   dmBlockedReason,
   dmPartner,
   dmTitle,
@@ -79,13 +80,13 @@ export default function TextChannelScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const channel = useGuild((s) => s.channels.find((c) => c.id === id));
+  const channel = useGuild((s) => channelById(s, id));
   const self = useSession((s) => s.user);
   const dm = useGuild((s) => (id ? s.dms[id] : undefined));
   const dmName = useGuild((s) => (dm ? dmTitle(dm, s.users, self?.id) : ''));
   const partner = useGuild((s) => (dm ? dmPartner(dm, s.users, self?.id) : undefined));
   // Bire bir konuşmada karşı taraf ayrıldıysa yazma kutusu yerine neden gösterilir
-  const blocked = useGuild((s) => (dm ? dmBlockedReason(dm, s.users, self?.id) : null));
+  const blocked = useGuild((s) => (dm ? dmBlockedReason(dm, s.users, self?.id, s.reachable) : null));
   const target = useMemo(
     () => channel ?? (dm ? { id: dm.id, name: dmName } : undefined),
     [channel, dm, dmName],
@@ -148,7 +149,7 @@ export default function TextChannelScreen() {
   // bakmıyorken (aşağıda değilken ya da uygulama arkadayken) gelen ilk mesaj için de.
   // Okunma bilgisi sunucudan (READY) gelmeden karar verilmez: yoksa bildirimle soğuk açılışta
   // bütün geçmiş "yeni" sayılırdı
-  const guildReady = useGuild((s) => s.guild !== null);
+  const guildReady = useGuild((s) => s.status === 'ready');
   const readAtOpen = useRef(readId);
   const dividerDecided = useRef(false);
   if (!dividerDecided.current && readAtOpen.current === undefined) readAtOpen.current = readId;
@@ -468,7 +469,8 @@ function DmTitle({ dm, name }: { dm: DmChannel; name: string }) {
   const selfId = useSession((s) => s.user?.id);
   const partner = useGuild((s) => dmPartner(dm, s.users, selfId));
   const online = useGuild((s) => (partner ? Boolean(s.online[partner.id]) : false));
-  const sub = dm.group ? `${dm.participantIds.length} üye` : partner?.removed ? undefined : online ? 'Çevrimiçi' : 'Çevrimdışı';
+  const reachable = useGuild((s) => (partner ? Boolean(s.reachable[partner.id]) : false));
+  const sub = dm.group ? `${dm.participantIds.length} üye` : !reachable ? undefined : online ? 'Çevrimiçi' : 'Çevrimdışı';
   return (
     <View style={styles.title}>
       <DmAvatar dm={dm} size={30} status surfaceColor={colors.main} />

@@ -11,13 +11,18 @@ import { confirmDialog } from './dialog';
 export function memberMenuItems(userId: string): ContextMenuItem[] {
   const guild = useGuild.getState();
   const user = guild.users[userId];
-  if (!user || user.removed) return [];
+  if (!user) return [];
+  const self = userId === useSession.getState().user?.id;
+  // Seçili sunucunun üyesi değil (ör. DM'deki başka sunucudan biri): ortak sunucu varsa yalnızca mesaj
+  if (user.removed) {
+    return !self && guild.reachable[userId] ? [{ label: 'Mesaj Gönder', onClick: () => void startDm(userId) }] : [];
+  }
   const name = user.displayName;
   const actions = memberActions(userId);
   const voice = guild.voiceStates[userId];
   const items: ContextMenuItem[] = [];
 
-  if (userId !== useSession.getState().user?.id) {
+  if (!self && guild.reachable[userId]) {
     items.push({ label: 'Mesaj Gönder', onClick: () => void startDm(userId) });
   }
 
@@ -86,7 +91,7 @@ export async function kickMember(userId: string): Promise<void> {
   if (!user) return;
   const ok = await confirmDialog({
     title: `${user.displayName} atılsın mı?`,
-    message: 'Oturumu kapanır ve rolleri alınır. Mesajları kalır; yeni bir davet koduyla geri dönebilir.',
+    message: 'Sunucudan çıkarılır ve bu sunucudaki rolleri alınır. Mesajları kalır; yeni bir davetle geri dönebilir.',
     confirmLabel: 'At',
     danger: true,
   });

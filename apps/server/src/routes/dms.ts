@@ -28,7 +28,8 @@ const updateSchema = z.object({ name: dmName });
 /**
  * Direkt mesajlar: bire bir ve küçük grup konuşmaları. Mesajlar metin kanallarıyla aynı uçlardan
  * gider (/api/channels/:id/messages); burada konuşmaların kendisi yönetilir. Yalnızca katılımcılar
- * erişir; yönetici ya da sahip de başkasının konuşmasını göremez (yokmuş gibi 404).
+ * erişir; yönetici ya da sahip de başkasının konuşmasını göremez (yokmuş gibi 404). Konuşma yalnızca
+ * ortak bir sunucusu olan kişilerle başlatılır, gruba da yalnızca onlar eklenir; başkası yokmuş gibi 404.
  */
 export function registerDmRoutes(app: FastifyInstance, ctx: AppContext): void {
   const { store, auth, gateway, permissions, attachments } = ctx;
@@ -58,8 +59,9 @@ export function registerDmRoutes(app: FastifyInstance, ctx: AppContext): void {
     const others = [...new Set(body.userIds)].filter((id) => id !== req.user.id);
     if (others.length === 0) return sendError(reply, 400, 'invalid_body', 'Kendine mesaj gönderemezsin.');
     for (const id of others) {
-      const user = store.getUser(id);
-      if (!user || user.removed) return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
+      if (!permissions.sharesGuild(req.user.id, id) || !store.getUser(id)) {
+        return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
+      }
     }
     // Sınır yalnızca yeni konuşmaya: var olan bire bir konuşmayı açmak serbest
     const existing = others.length === 1 ? store.directDmId(req.user.id, others[0]!) : null;
@@ -115,7 +117,9 @@ export function registerDmRoutes(app: FastifyInstance, ctx: AppContext): void {
       }
       if (!hasPermission(permissions.inChannel(req.user.id, dm.id), Permission.SEND_MESSAGES)) return forbidden(reply);
       const target = store.getUser(req.params.userId);
-      if (!target || target.removed) return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
+      if (!target || !permissions.sharesGuild(req.user.id, target.id)) {
+        return sendError(reply, 404, 'not_found', 'Kullanıcı bulunamadı.');
+      }
       if (dm.participantIds.includes(target.id)) return dm;
       if (dm.participantIds.length >= DM_GROUP_MAX_PARTICIPANTS) {
         return sendError(reply, 400, 'group_full', `Bir grupta en fazla ${DM_GROUP_MAX_PARTICIPANTS} kişi olabilir.`);

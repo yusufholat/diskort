@@ -4,7 +4,7 @@ import type { LinkQuality } from '@diskort/client-core';
 import { voice } from '../../features/voice/voiceClient';
 import { cn } from '../../lib/utils';
 import { Permission } from '@diskort/shared';
-import { useCan, useGuild } from '@diskort/client-core';
+import { channelById, useCan, useGuild } from '@diskort/client-core';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
 import { useConnectionStats } from '../../stores/connectionStats';
@@ -38,9 +38,10 @@ export function VoiceConnectionPanel() {
   const ping = useVoice((s) => s.pingMs);
   const quality = useConnectionStats((s) => s.quality);
   const sharing = useVoice((s) => s.sharing);
-  const channel = useGuild((s) => s.channels.find((c) => c.id === channelId));
+  const channel = useGuild((s) => channelById(s, channelId));
   const canStream = useCan(Permission.STREAM, channelId ?? undefined);
-  const guildName = useGuild((s) => s.guild?.name);
+  // Ses kanalının sunucusu (seçili sunucu başka olabilir)
+  const guildName = useGuild((s) => (channel ? s.guilds[channel.guildId]?.guild.name : undefined));
   const openModal = useUi((s) => s.openModal);
   const setView = useUi((s) => s.setView);
   const [infoOpen, setInfoOpen] = useState(false);

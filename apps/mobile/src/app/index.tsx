@@ -22,6 +22,7 @@ import { MemberSheet } from '../components/MemberSheet';
 import { ChannelListSkeleton } from '../components/Skeleton';
 import { SpeakingRing } from '../components/SpeakingRing';
 import { EmptyState } from '../components/States';
+import { GuildIcon, GuildSwitcher, openGuildMenu } from '../components/GuildSwitcher';
 import { TypingDots } from '../components/TypingDots';
 import { UserPanel } from '../components/UserPanel';
 import { VoiceBar } from '../components/VoiceBar';
@@ -107,22 +108,42 @@ export default function HomeScreen() {
   );
 
   const loading = channels.length === 0 && status !== 'ready';
+  // Hiç sunucu yok (yeni hesap ya da hepsinden ayrıldı)
+  const noGuilds = status === 'ready' && guild === null;
 
   return (
     <SafeAreaView style={styles.page} edges={['top']}>
       <View style={styles.header}>
         <View style={styles.guildIcon}>
-          <Text style={styles.guildIconText}>{(guild?.name ?? 'D').slice(0, 1).toLocaleUpperCase('tr')}</Text>
+          <GuildIcon guild={guild ?? { name: 'Diskort', iconUrl: null }} size={34} radius={12} />
         </View>
-        <Text style={styles.guild} numberOfLines={1}>
+        <Text
+          style={styles.guild}
+          numberOfLines={1}
+          onPress={guild ? () => openGuildMenu(guild) : undefined}
+          accessibilityHint={guild ? 'Sunucu menüsü' : undefined}
+        >
           {guild?.name ?? 'Diskort'}
         </Text>
         <DmButton onPress={() => router.push('/dms')} />
         <HeaderButton icon="people" label="Üyeler" onPress={() => router.push('/members')} />
       </View>
       <ConnectionBanner />
+      <GuildSwitcher />
       {loading ? (
         <ChannelListSkeleton />
+      ) : noGuilds ? (
+        <View style={styles.noGuilds}>
+          <EmptyState
+            icon="planet-outline"
+            title="Henüz bir sunucun yok"
+            text="Arkadaşlarınla konuşmak için kendi sunucunu kur ya da bir davet bağlantısıyla arkadaşının sunucusuna katıl."
+            action={{ title: 'Sunucuya katıl', onPress: () => router.push('/sunucu-ekle') }}
+          />
+          <Text style={styles.createLink} onPress={() => router.push({ pathname: '/sunucu-ekle', params: { tab: 'create' } })}>
+            ya da kendi sunucunu kur
+          </Text>
+        </View>
       ) : (
         <SectionList
           sections={sections}
@@ -340,16 +361,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(0,0,0,0.45)',
   },
-  guildIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    backgroundColor: colors.brand,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: space.sm,
-  },
-  guildIconText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  guildIcon: { marginRight: space.sm },
+  noGuilds: { flex: 1, justifyContent: 'center' },
+  createLink: { color: colors.link, fontSize: font.body, fontWeight: '600', textAlign: 'center', marginTop: space.md },
   guild: { color: colors.head, fontSize: font.heading - 1, fontWeight: '800', flex: 1, marginRight: space.sm },
   listContent: { paddingBottom: space.lg },
   section: {

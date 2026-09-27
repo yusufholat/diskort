@@ -1,4 +1,5 @@
 import type {
+  AcceptInviteResponse,
   ApiErrorBody,
   AuthResponse,
   Ban,
@@ -11,8 +12,12 @@ import type {
   PushTokenRequest,
   Message,
   CreateChannelRequest,
+  CreateGuildRequest,
   CreateInviteRequest,
+  GuildData,
+  GuildMember,
   Invite,
+  InvitePreview,
   LoginRequest,
   RegisterRequest,
   ResetCodeResponse,
@@ -23,7 +28,6 @@ import type {
   UpdateGuildRequest,
   UpdateMeRequest,
   UpdateRoleRequest,
-  UpdateUserRequest,
   User,
   VoiceJoinResponse,
   VoiceModerationRequest,
@@ -88,34 +92,55 @@ export const api = {
   unregisterPushToken: (token: string) => request<void>('DELETE', '/api/me/push-tokens', { token }),
   sendTestPush: () => request<{ devices: number }>('POST', '/api/me/push-test'),
 
+  // Hesaplar (hesap yöneticileri: ana sunucunun sahibi ve yöneticileri)
   createResetCode: (userId: string) => request<ResetCodeResponse>('POST', `/api/users/${userId}/reset-code`),
-  updateUser: (userId: string, body: UpdateUserRequest) => request<User>('PATCH', `/api/users/${userId}`, body),
-  kickFromVoice: (userId: string) => request<void>('POST', `/api/users/${userId}/voice-kick`),
   deleteUser: (userId: string) => request<void>('DELETE', `/api/users/${userId}`),
+  /** Yalnızca hesap açtıran davetler (sunucuya katılmaz) */
+  listAccountInvites: () => request<Invite[]>('GET', '/api/invites'),
+  createAccountInvite: (body: CreateInviteRequest) => request<Invite>('POST', '/api/invites', body),
+  deleteAccountInvite: (code: string) => request<void>('DELETE', `/api/invites/${encodeURIComponent(code)}`),
+
+  // Sunucular
+  createGuild: (body: CreateGuildRequest) => request<GuildData>('POST', '/api/guilds', body),
+  updateGuild: (guildId: string, body: UpdateGuildRequest) => request<Guild>('PATCH', `/api/guilds/${guildId}`, body),
+  deleteGuild: (guildId: string) => request<void>('DELETE', `/api/guilds/${guildId}`),
+  leaveGuild: (guildId: string) => request<void>('DELETE', `/api/guilds/${guildId}/members/me`),
+  removeGuildIcon: (guildId: string) => request<Guild>('DELETE', `/api/guilds/${guildId}/icon`),
+  /** Davet bağlantısının önizlemesi (giriş gerekmez) */
+  previewInvite: (code: string) => request<InvitePreview>('GET', `/api/invites/${encodeURIComponent(code)}`),
+  /** Davet koduyla sunucuya katılır */
+  acceptInvite: (code: string) =>
+    request<AcceptInviteResponse>('POST', `/api/invites/${encodeURIComponent(code)}/accept`),
+
   /** Sesli sohbette yönetim: sunucuda sustur/sağırlaştır, taşı (channelId) ya da sesten çıkar (null) */
-  moderateVoice: (userId: string, body: VoiceModerationRequest) =>
-    request<void>('PATCH', `/api/users/${userId}/voice`, body),
-  kickMember: (userId: string) => request<void>('POST', `/api/users/${userId}/kick`),
-  banMember: (userId: string, reason?: string) =>
-    request<void>('POST', `/api/users/${userId}/ban`, reason ? { reason } : {}),
-  listBans: () => request<Ban[]>('GET', '/api/bans'),
-  unban: (userId: string) => request<void>('DELETE', `/api/bans/${userId}`),
+  moderateVoice: (guildId: string, userId: string, body: VoiceModerationRequest) =>
+    request<void>('PATCH', `/api/guilds/${guildId}/members/${userId}/voice`, body),
+  kickMember: (guildId: string, userId: string) => request<void>('DELETE', `/api/guilds/${guildId}/members/${userId}`),
+  banMember: (guildId: string, userId: string, reason?: string) =>
+    request<void>('PUT', `/api/guilds/${guildId}/bans/${userId}`, reason ? { reason } : {}),
+  listBans: (guildId: string) => request<Ban[]>('GET', `/api/guilds/${guildId}/bans`),
+  unban: (guildId: string, userId: string) => request<void>('DELETE', `/api/guilds/${guildId}/bans/${userId}`),
 
-  updateGuild: (body: UpdateGuildRequest) => request<Guild>('PATCH', '/api/guild', body),
-  createRole: (body: CreateRoleRequest) => request<Role>('POST', '/api/roles', body),
-  updateRole: (id: string, body: UpdateRoleRequest) => request<Role>('PATCH', `/api/roles/${id}`, body),
-  deleteRole: (id: string) => request<void>('DELETE', `/api/roles/${id}`),
+  createRole: (guildId: string, body: CreateRoleRequest) => request<Role>('POST', `/api/guilds/${guildId}/roles`, body),
+  updateRole: (guildId: string, id: string, body: UpdateRoleRequest) =>
+    request<Role>('PATCH', `/api/guilds/${guildId}/roles/${id}`, body),
+  deleteRole: (guildId: string, id: string) => request<void>('DELETE', `/api/guilds/${guildId}/roles/${id}`),
   /** @everyone hariç tüm roller, yukarıdan aşağı */
-  reorderRoles: (roleIds: string[]) => request<Role[]>('PUT', '/api/roles/order', { roleIds }),
-  addMemberRole: (userId: string, roleId: string) => request<User>('PUT', `/api/users/${userId}/roles/${roleId}`),
-  removeMemberRole: (userId: string, roleId: string) =>
-    request<User>('DELETE', `/api/users/${userId}/roles/${roleId}`),
+  reorderRoles: (guildId: string, roleIds: string[]) =>
+    request<Role[]>('PUT', `/api/guilds/${guildId}/roles/order`, { roleIds }),
+  addMemberRole: (guildId: string, userId: string, roleId: string) =>
+    request<GuildMember>('PUT', `/api/guilds/${guildId}/members/${userId}/roles/${roleId}`),
+  removeMemberRole: (guildId: string, userId: string, roleId: string) =>
+    request<GuildMember>('DELETE', `/api/guilds/${guildId}/members/${userId}/roles/${roleId}`),
 
-  listInvites: () => request<Invite[]>('GET', '/api/invites'),
-  createInvite: (body: CreateInviteRequest) => request<Invite>('POST', '/api/invites', body),
-  deleteInvite: (code: string) => request<void>('DELETE', `/api/invites/${encodeURIComponent(code)}`),
+  listInvites: (guildId: string) => request<Invite[]>('GET', `/api/guilds/${guildId}/invites`),
+  createInvite: (guildId: string, body: CreateInviteRequest) =>
+    request<Invite>('POST', `/api/guilds/${guildId}/invites`, body),
+  deleteInvite: (guildId: string, code: string) =>
+    request<void>('DELETE', `/api/guilds/${guildId}/invites/${encodeURIComponent(code)}`),
 
-  createChannel: (body: CreateChannelRequest) => request<Channel>('POST', '/api/channels', body),
+  createChannel: (guildId: string, body: CreateChannelRequest) =>
+    request<Channel>('POST', `/api/guilds/${guildId}/channels`, body),
   updateChannel: (id: string, body: UpdateChannelRequest) => request<Channel>('PATCH', `/api/channels/${id}`, body),
   deleteChannel: (id: string) => request<void>('DELETE', `/api/channels/${id}`),
 

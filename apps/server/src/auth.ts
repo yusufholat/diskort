@@ -1,7 +1,7 @@
 import { hash, verify } from '@node-rs/argon2';
 import { SignJWT, jwtVerify } from 'jose';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { Permission, type User } from '@diskort/shared';
+import type { User } from '@diskort/shared';
 import type { Store } from './db.js';
 import type { PermissionService } from './permissions.js';
 
@@ -40,8 +40,8 @@ export class AuthService {
   }
 
   /**
-   * Geçerli bir oturum jetonuysa kullanıcıyı döner. Şifre değiştikten (ya da hesap atıldıktan) önce
-   * verilmiş jetonlar geçersizdir; üye olmayan hesap hiç kabul edilmez.
+   * Geçerli bir oturum jetonuysa kullanıcıyı döner. Şifre değiştikten önce verilmiş jetonlar geçersizdir.
+   * Hesap hiçbir sunucunun üyesi olmasa da giriş yapabilir (sunucu kurar ya da davetle katılır).
    */
   async userFromToken(token: string): Promise<User | null> {
     try {
@@ -49,8 +49,7 @@ export class AuthService {
       if (!payload.sub || payload.iat === undefined) return null;
       const validAfter = this.store.getSessionsValidAfter(payload.sub);
       if (validAfter === null || payload.iat * 1000 < validAfter) return null;
-      const user = this.store.getUser(payload.sub);
-      return user && !user.removed ? user : null;
+      return this.store.getUser(payload.sub);
     } catch {
       return null;
     }
@@ -68,18 +67,39 @@ export class AuthService {
     req.user = user;
   };
 
-  /** Fastify preHandler: sunucu genelinde verilen yetkiyi ister (sahip ve yöneticiler hepsine sahiptir). */
-  requirePermission(flag: number) {
+  /**
+   * Fastify preHandler: yoldaki :guildId sunucusunun üyesi olmalı. Üye olmayan için sunucu yokmuş gibi 404
+   * (başkalarının sunucularının varlığı bile anlaşılmasın).
+   */
+  requireMember = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    await this.requireUser(req, reply);
+    if (reply.sent) return;
+    const guildId = (req.params as { guildId?: string } | undefined)?.guildId ?? '';
+    if (!this.permissions.isMember(guildId, req.user.id)) {
+      await reply.code(404).send({ error: 'not_found', message: 'Sunucu bulunamadı.' });
+    }
+  };
+
+  /** Fastify preHandler: :guildId sunucusunda verilen yetkiyi ister (sahip ve yöneticiler hepsine sahiptir). */
+  requireGuildPermission(flag: number) {
     return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
-      await this.requireUser(req, reply);
+      await this.requireMember(req, reply);
       if (reply.sent) return;
-      if (!this.permissions.can(req.user.id, flag)) {
+      const guildId = (req.params as { guildId: string }).guildId;
+      if (!this.permissions.canInGuild(guildId, req.user.id, flag)) {
         await reply.code(403).send({ error: 'forbidden', message: 'Bu işlem için yetkin yok.' });
       }
     };
   }
 
-  requireAdmin = this.requirePermission(Permission.ADMINISTRATOR);
+  /** Fastify preHandler: hesap yöneticisi (ana sunucunun sahibi ya da yöneticisi) */
+  requireInstanceAdmin = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    await this.requireUser(req, reply);
+    if (reply.sent) return;
+    if (!this.permissions.isInstanceAdmin(req.user.id)) {
+      await reply.code(403).send({ error: 'forbidden', message: 'Bu işlem için yetkin yok.' });
+    }
+  };
 }
 
 declare module 'fastify' {

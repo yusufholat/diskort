@@ -36,14 +36,19 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
         'Yönetici',
         'Her yetkiye sahip olur ve kanal izinlerinden etkilenmez. Tehlikeli bir yetkidir, yalnızca güvendiğin kişilere ver.',
       ),
-      info('MANAGE_GUILD', 'Sunucuyu Yönet', 'Sunucunun adını değiştirebilir.'),
+      info('MANAGE_GUILD', 'Sunucuyu Yönet', 'Sunucunun adını ve simgesini değiştirebilir.'),
       info(
         'MANAGE_ROLES',
         'Rolleri Yönet',
         'Kendi en üst rolünün altındaki rolleri oluşturup düzenleyebilir, üyelere verebilir ve kanal izinlerini ayarlayabilir. Kendinde olmayan bir yetkiyi kimseye veremez.',
       ),
       info('MANAGE_CHANNELS', 'Kanalları Yönet', 'Kanal oluşturabilir, yeniden adlandırabilir ve silebilir.'),
-      info('MANAGE_INVITES', 'Davetleri Yönet', 'Davet kodu oluşturup silebilir, yani sunucuya yeni kişi getirebilir.'),
+      info(
+        'CREATE_INVITE',
+        'Davet Oluştur',
+        'Sunucuya davet bağlantısı oluşturup arkadaşlarını getirebilir; kendi davetlerini görür ve silebilir.',
+      ),
+      info('MANAGE_INVITES', 'Davetleri Yönet', 'Herkesin oluşturduğu davetleri görebilir ve silebilir.'),
       info(
         'KICK_MEMBERS',
         'Üyeleri At',
@@ -52,7 +57,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       info(
         'BAN_MEMBERS',
         'Üyeleri Yasakla',
-        'Kendinden aşağıdaki üyeleri yasaklayabilir; yasaklı hesap giriş yapamaz ve geri dönemez. Yasakları kaldırabilir.',
+        'Kendinden aşağıdaki üyeleri sunucudan yasaklayabilir; yasaklı kişi yeni davetle geri dönemez. Yasakları kaldırabilir.',
       ),
     ],
   },

@@ -36,7 +36,7 @@ describe('yanıtlar', () => {
     });
     // Asıl yazar için bahsetme: okunmamış sayacı ve telefon bildirimi
     expect(s.ctx.store.mentionCounts(ali.user.id)).toEqual({ [text.id]: 1 });
-    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ id: reply.id }), [ali.user.id], text.name);
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ id: reply.id }), [ali.user.id], text.name, s.guildId);
 
     // Listede de aynı özet; yanıt olmayan mesajlarda alanlar boş
     const [first, second] = await list(veli.token, text.id);
@@ -70,7 +70,7 @@ describe('yanıtlar', () => {
   it('asıl mesaj aynı kanalda ve duruyor olmalı; göremediği kanaldaki mesaja yanıt verilemez', async () => {
     const ali = await s.member('ali');
     const text = s.channel('text');
-    const other = (await s.req(s.owner.token, 'POST', '/api/channels', { name: 'diger', type: 'text' })).json() as Channel;
+    const other = (await s.req(s.owner.token, 'POST', `/api/guilds/${s.guildId}/channels`, { name: 'diger', type: 'text' })).json() as Channel;
     const elsewhere = (await send(s.owner.token, other.id, { content: 'başka kanal' })).json() as Message;
 
     for (const replyToId of [elsewhere.id, '999999']) {

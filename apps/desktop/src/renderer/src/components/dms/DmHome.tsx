@@ -12,20 +12,21 @@ const QUICK_MAX = 12;
 export function DmHome() {
   const selfId = useSession((s) => s.user?.id);
   const users = useGuild((s) => s.users);
+  const reachable = useGuild((s) => s.reachable);
   const online = useGuild((s) => s.online);
   const openModal = useUi((s) => s.openModal);
   // Önce çevrimiçi olanlar, sonra ada göre
   const members = useMemo(
     () =>
       Object.values(users)
-        .filter((u) => !u.removed && u.id !== selfId)
+        .filter((u) => reachable[u.id] && u.id !== selfId)
         .sort(
           (a, b) =>
             Number(Boolean(online[b.id])) - Number(Boolean(online[a.id])) ||
             a.displayName.localeCompare(b.displayName, 'tr'),
         )
         .slice(0, QUICK_MAX),
-    [users, online, selfId],
+    [users, reachable, online, selfId],
   );
 
   return (

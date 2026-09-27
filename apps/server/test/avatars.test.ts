@@ -42,7 +42,7 @@ async function setup(): Promise<{ admin: Account; member: Account }> {
       payload: { inviteCode: bootstrap.code, username: 'admin', password: 'sifre12345' },
     })
   ).json() as Account;
-  const code = (await app.inject({ method: 'POST', url: '/api/invites', headers: auth(admin.token), payload: {} })).json()
+  const code = (await app.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: auth(admin.token), payload: {} })).json()
     .code as string;
   const member = (
     await app.inject({
@@ -300,7 +300,7 @@ describe('profil fotoğrafı', () => {
   it('hesap silinince (kendisi ya da yönetici) fotoğrafı da silinir', async () => {
     const { admin, member } = await setup();
     await upload(member.token, await solid('#ff0000').png().toBuffer());
-    const code = (await app.inject({ method: 'POST', url: '/api/invites', headers: auth(admin.token), payload: {} })).json()
+    const code = (await app.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: auth(admin.token), payload: {} })).json()
       .code as string;
     const third = (
       await app.inject({

@@ -28,6 +28,7 @@ import {
   useGuild,
   useSession,
 } from '../src';
+import { member, profile, toReady, type TestUser } from './fixtures';
 
 const role = (id: string, position: number, permissions: number, extra: Partial<Role> = {}): Role => ({
   id,
@@ -39,7 +40,7 @@ const role = (id: string, position: number, permissions: number, extra: Partial<
   ...extra,
 });
 
-const user = (id: string, roles: string[] = [], extra: Partial<User> = {}): User => ({
+const user = (id: string, roles: string[] = [], extra: Partial<TestUser> = {}): TestUser => ({
   id,
   username: id,
   displayName: id.toUpperCase(),
@@ -50,6 +51,8 @@ const user = (id: string, roles: string[] = [], extra: Partial<User> = {}): User
   ...extra,
 });
 
+const ready = (): ReadyPayload => toReady(legacy());
+
 const channel = (id: string, type: 'text' | 'voice', overwrites: Channel['overwrites'] = []): Channel => ({
   id,
   guildId: 'g',
@@ -59,7 +62,7 @@ const channel = (id: string, type: 'text' | 'voice', overwrites: Channel['overwr
   overwrites,
 });
 
-const ready = (): ReadyPayload => ({
+const legacy = () => ({
   user: user('mod', ['mod']),
   guild: { id: 'g', name: 'Test', ownerId: 'sahip' },
   channels: [
@@ -107,7 +110,7 @@ beforeEach(async () => {
     serverUrl: () => 'http://sunucu.test',
     notifyError: () => undefined,
   });
-  useSession.getState().setSession('jeton', user('mod', ['mod']));
+  useSession.getState().setSession('jeton', profile(user('mod', ['mod'])));
   receive({ t: 'READY', d: ready() });
 });
 
@@ -126,10 +129,10 @@ describe('yetkiler', () => {
   });
 
   it('rol ve sunucu olaylarıyla canlı güncellenir', () => {
-    receive({ t: 'USER_UPDATE', d: user('veli', ['mod']) });
+    receive({ t: 'GUILD_MEMBER_UPDATE', d: { guildId: 'g', member: member(user('veli', ['mod'])) } });
     expect(can(useGuild.getState(), 'veli', P.KICK_MEMBERS)).toBe(true);
-    const roles = ready().roles.map((r) => (r.id === 'mod' ? { ...r, permissions: 0 } : r));
-    receive({ t: 'ROLES_UPDATE', d: { roles } });
+    const roles = legacy().roles.map((r) => (r.id === 'mod' ? { ...r, permissions: 0 } : r));
+    receive({ t: 'ROLES_UPDATE', d: { guildId: 'g', roles } });
     expect(can(useGuild.getState(), 'veli', P.KICK_MEMBERS)).toBe(false);
     receive({ t: 'GUILD_UPDATE', d: { id: 'g', name: 'Test', ownerId: 'veli' } });
     expect(can(useGuild.getState(), 'veli', P.BAN_MEMBERS)).toBe(true);
@@ -141,7 +144,7 @@ describe('yetkiler', () => {
   });
 
   it('rolleri olmayan (eski) sunucuda yöneticilik bayrağına göre tahmin edilir', () => {
-    receive({ t: 'READY', d: { ...ready(), roles: [], users: [user('mod', [], { isAdmin: true }), user('veli')] } });
+    receive({ t: 'READY', d: toReady({ ...legacy(), roles: [], users: [user('mod', [], { isAdmin: true }), user('veli')] }) });
     const s = useGuild.getState();
     expect(can(s, 'mod', P.BAN_MEMBERS)).toBe(true);
     expect(can(s, 'veli', P.SEND_MESSAGES)).toBe(true);
@@ -212,6 +215,7 @@ describe('rol düzenleme ipuçları', () => {
     const veli = effectivePermissions(s, 'veli');
     expect(veli.all).toBeNull();
     expect(veli.granted.map((g) => g.info.name)).toEqual([
+      'CREATE_INVITE',
       'VIEW_CHANNEL',
       'SEND_MESSAGES',
       'ATTACH_FILES',
@@ -230,7 +234,7 @@ describe('rol düzenleme ipuçları', () => {
     expect(mod.granted.find((g) => g.info.name === 'MENTION_EVERYONE')!.roles.map((r) => r.id)).toEqual(['g']);
 
     // Yönetici rolü verilen üye
-    receive({ t: 'USER_UPDATE', d: user('veli', ['admin']) });
+    receive({ t: 'GUILD_MEMBER_UPDATE', d: { guildId: 'g', member: member(user('veli', ['admin'])) } });
     const admin = effectivePermissions(useGuild.getState(), 'veli');
     expect(admin.all).toBe('administrator');
     expect(admin.granted[0]).toMatchObject({ info: { name: 'ADMINISTRATOR' } });

@@ -9,12 +9,13 @@ import {
   type Channel,
   type Role,
 } from '@diskort/shared';
-import type { Store } from './db.js';
+import { isInstanceAdmin, type GuildPermissionData, type Store } from './db.js';
 
 /**
  * Sunucudaki yetki denetimleri. Hesaplama istemcilerle ortak koddur (@diskort/shared); veriler
  * veritabanının önbellekli anlık görüntüsünden okunur, her değişiklikten sonra kendiliğinden tazelenir.
- * Üye olmayan (atılan/yasaklanan) hesapların hiçbir yetkisi yoktur.
+ * Yetkiler sunucu (guild) başınadır: bir sunucunun üyesi olmayan (hiç katılmamış, ayrılmış, atılmış ya da
+ * yasaklanmış) hesabın o sunucuda hiçbir yetkisi yoktur ve kanallarını göremez.
  */
 export class PermissionService {
   constructor(private readonly store: Store) {}
@@ -23,34 +24,89 @@ export class PermissionService {
     return this.store.permissionData();
   }
 
-  rolesOf(userId: string): readonly string[] {
-    return this.data.memberRoles.get(userId) ?? [];
+  private guild(guildId: string): GuildPermissionData | undefined {
+    return this.data.guilds.get(guildId);
   }
 
-  isOwner(userId: string): boolean {
-    return this.data.ownerId === userId;
+  rolesOf(guildId: string, userId: string): readonly string[] {
+    return this.guild(guildId)?.memberRoles.get(userId) ?? [];
   }
 
-  /** Sunucu genelindeki yetkiler */
-  base(userId: string): number {
-    const data = this.data;
-    if (data.removed.has(userId)) return 0;
-    return basePermissions(data, userId, this.rolesOf(userId));
+  isOwner(guildId: string, userId: string): boolean {
+    return this.guild(guildId)?.ownerId === userId;
+  }
+
+  /** Sunucunun şu anki üyesi mi */
+  isMember(guildId: string, userId: string): boolean {
+    return this.guild(guildId)?.members.has(userId) ?? false;
+  }
+
+  /** Kullanıcının üye olduğu sunucular */
+  guildsOf(userId: string): ReadonlySet<string> {
+    return this.data.userGuilds.get(userId) ?? new Set();
+  }
+
+  /** İki hesabın ortak bir sunucusu var mı */
+  sharesGuild(a: string, b: string): boolean {
+    if (a === b) return true;
+    const mine = this.guildsOf(a);
+    for (const id of this.guildsOf(b)) if (mine.has(id)) return true;
+    return false;
+  }
+
+  /** Kullanıcıyla ortak sunucusu olan herkes (kendisi dahil) */
+  coMembers(userId: string): Set<string> {
+    const result = new Set<string>([userId]);
+    for (const guildId of this.guildsOf(userId)) {
+      for (const id of this.guild(guildId)?.members ?? []) result.add(id);
+    }
+    return result;
+  }
+
+  /** Hesap yöneticisi (ana sunucunun sahibi ya da yöneticisi) */
+  isInstanceAdmin(userId: string): boolean {
+    return isInstanceAdmin(this.data, userId);
+  }
+
+  /** Ana sunucu (hesap yöneticilerinin sunucusu) */
+  get primaryGuildId(): string | null {
+    return this.data.primaryGuildId;
+  }
+
+  /** Kanal (DM'ler hariç) */
+  channel(channelId: string): Channel | undefined {
+    const guildId = this.data.channelGuild.get(channelId);
+    return guildId ? this.guild(guildId)?.channels.get(channelId) : undefined;
+  }
+
+  /** Kanalın sunucusu (DM ya da bilinmeyen kanalda undefined) */
+  guildOf(channelId: string): string | undefined {
+    return this.data.channelGuild.get(channelId);
+  }
+
+  /** Sunucu genelindeki yetkiler; üye değilse 0 */
+  base(guildId: string, userId: string): number {
+    const g = this.guild(guildId);
+    if (!g || !g.members.has(userId)) return 0;
+    return basePermissions(g, userId, g.memberRoles.get(userId) ?? []);
   }
 
   /**
-   * Kanaldaki yetkiler; kanal yoksa 0. Kimlikle verilen kanal bir direkt mesaj konuşmasıysa yalnızca
-   * katılımcılar yetki alır (roller ve yöneticilik uygulanmaz, bkz. dmPermissions).
+   * Kanaldaki yetkiler; kanal yoksa ya da kişi kanalın sunucusunun üyesi değilse 0. Kimlikle verilen kanal
+   * bir direkt mesaj konuşmasıysa yalnızca katılımcılar yetki alır (roller ve yöneticilik uygulanmaz, bkz.
+   * dmPermissions); bire bir konuşmada ortak sunucusu kalmayan karşı tarafa yazılamaz.
    */
   inChannel(userId: string, channel: Channel | string): number {
     const data = this.data;
     if (typeof channel === 'string') {
       const dm = data.dms.get(channel);
-      if (dm) return dmPermissions(dm, userId, (id) => !data.removed.has(id));
+      if (dm) return dmPermissions(dm, userId, (id) => id === userId || this.sharesGuild(userId, id));
     }
-    const c = typeof channel === 'string' ? data.channels.get(channel) : channel;
-    if (!c || data.removed.has(userId)) return 0;
-    return channelPermissions(data, userId, this.rolesOf(userId), c);
+    const c = typeof channel === 'string' ? this.channel(channel) : channel;
+    if (!c) return 0;
+    const g = this.guild(c.guildId);
+    if (!g || !g.members.has(userId)) return 0;
+    return channelPermissions(g, userId, g.memberRoles.get(userId) ?? [], c);
   }
 
   /** Kimlik bir direkt mesaj konuşmasının mı */
@@ -63,49 +119,58 @@ export class PermissionService {
     return this.data.dms.get(channelId)?.participantIds ?? [];
   }
 
-  /** Üye mi (atılmamış, yasaklanmamış) */
-  isMember(userId: string): boolean {
-    return !this.data.removed.has(userId);
+  /** Kanalda yetkisi var mı */
+  can(userId: string, flag: number, channel: Channel | string): boolean {
+    return hasPermission(this.inChannel(userId, channel), flag);
   }
 
-  /** Yetkisi var mı: kanal verilirse o kanalda, verilmezse sunucu genelinde */
-  can(userId: string, flag: number, channel?: Channel | string): boolean {
-    return hasPermission(channel === undefined ? this.base(userId) : this.inChannel(userId, channel), flag);
+  /** Sunucu genelinde yetkisi var mı */
+  canInGuild(guildId: string, userId: string, flag: number): boolean {
+    return hasPermission(this.base(guildId, userId), flag);
   }
 
   canView(userId: string, channel: Channel | string): boolean {
     return this.can(userId, Permission.VIEW_CHANNEL, channel);
   }
 
-  /** Kullanıcının görebildiği kanallar (sıralı) */
-  visibleChannels(userId: string): Channel[] {
-    return [...this.data.channels.values()].filter((c) => this.canView(userId, c));
+  /** Kullanıcının bir sunucuda görebildiği kanallar (sıralı) */
+  visibleChannels(guildId: string, userId: string): Channel[] {
+    return [...(this.guild(guildId)?.channels.values() ?? [])].filter((c) => this.canView(userId, c));
   }
 
+  /** Kullanıcının tüm sunucularda görebildiği kanalların kimlikleri */
   visibleChannelIds(userId: string): Set<string> {
-    return new Set(this.visibleChannels(userId).map((c) => c.id));
+    const ids = new Set<string>();
+    for (const guildId of this.guildsOf(userId)) {
+      for (const c of this.visibleChannels(guildId, userId)) ids.add(c.id);
+    }
+    return ids;
   }
 
-  /** Kanalı görebilen üyeler */
+  /** Kanalı görebilen kullanıcılar */
   viewersOf(channel: Channel | string, userIds: Iterable<string>): string[] {
     return [...userIds].filter((id) => this.canView(id, channel));
   }
 
-  highest(userId: string): number {
-    return highestRolePosition(this.data, userId, this.rolesOf(userId));
+  highest(guildId: string, userId: string): number {
+    const g = this.guild(guildId);
+    if (!g) return 0;
+    return highestRolePosition(g, userId, g.memberRoles.get(userId) ?? []);
   }
 
   /** Hiyerarşi: actor, target üyeyi yönetebilir mi (sahip herkesi; kimse sahibi ve kendini değil) */
-  outranks(actorId: string, targetId: string): boolean {
+  outranks(guildId: string, actorId: string, targetId: string): boolean {
+    const g = this.guild(guildId);
+    if (!g) return false;
     return outranks(
-      this.data,
-      { id: actorId, roles: this.rolesOf(actorId) },
-      { id: targetId, roles: this.rolesOf(targetId) },
+      g,
+      { id: actorId, roles: g.memberRoles.get(actorId) ?? [] },
+      { id: targetId, roles: g.memberRoles.get(targetId) ?? [] },
     );
   }
 
   /** Hiyerarşi: rol, kullanıcının en üst rolünün altında mı (sahip için hepsi) */
-  roleIsBelow(actorId: string, role: Pick<Role, 'position'>): boolean {
-    return role.position < this.highest(actorId);
+  roleIsBelow(guildId: string, actorId: string, role: Pick<Role, 'position'>): boolean {
+    return role.position < this.highest(guildId, actorId);
   }
 }
