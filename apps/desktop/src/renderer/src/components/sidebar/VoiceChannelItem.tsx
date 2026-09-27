@@ -6,7 +6,9 @@ import { membersOf, useCan, useGuild } from '@diskort/client-core';
 import type { VoiceState } from '@diskort/shared';
 import { channelMenuItems, isPrivateChannel } from '../../lib/channelMenu';
 import { collapseClass, usePresenceList } from '../../lib/motion';
+import { channelDropState, startSidebarDrag, useSidebarDrag, voiceDropState } from '../../lib/sidebarDrag';
 import { cn } from '../../lib/utils';
+import { DropLine } from './TextChannelItem';
 import { toast, useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
 import { VoiceMemberRow } from './VoiceMemberRow';
@@ -22,15 +24,33 @@ export function VoiceChannelItem({ channel }: { channel: Channel }) {
   const isActive = activeChannel === channel.id;
   // Katılan üye satırı aşağı doğru açılarak, ayrılan kapanarak görünür
   const rows = usePresenceList(members, (m: VoiceState) => m.userId, 180);
+  // Sürükle-bırak: üye bırakma hedefi ve kanal sıralama
+  const drop = useSidebarDrag((s) => voiceDropState(s, channel.id));
+  const order = useSidebarDrag((s) => channelDropState(s, channel.id));
+  const canReorder = useCan(Permission.MANAGE_CHANNELS);
 
   return (
-    <div className="mb-0.5">
+    <div
+      className={cn('relative mb-0.5 rounded transition-[background-color,opacity] duration-150', order === 'source' && 'opacity-40', drop === 'valid' && 'bg-bg-hover')}
+      data-drop-voice={channel.id}
+      data-drop-channel={channel.id}
+      data-channel-type="voice"
+    >
+      {(order === 'before' || order === 'after') && <DropLine after={order === 'after'} />}
       <button
         className={cn(
-          'group flex h-8 w-full items-center gap-1.5 rounded px-2 text-left transition-colors duration-150',
+          'group flex h-8 w-full items-center gap-1.5 rounded px-2 text-left transition-[color,background-color,box-shadow,opacity] duration-150',
           isActive ? 'bg-bg-active text-text-head' : 'text-text-muted hover:bg-bg-hover hover:text-text-normal',
           !canConnect && !isActive && 'opacity-60',
+          drop === 'valid' && 'bg-bg-active text-text-head ring-2 ring-brand ring-inset',
+          drop === 'candidate' && 'text-text-normal',
+          drop === 'invalid' && 'opacity-40',
         )}
+        onPointerDown={
+          canReorder
+            ? (e) => startSidebarDrag(e, () => ({ kind: 'channel', channelId: channel.id, channelType: 'voice', name: channel.name }))
+            : undefined
+        }
         onMouseEnter={() => canConnect && voice.prefetch(channel.id)}
         onClick={() => {
           if (!isActive) {

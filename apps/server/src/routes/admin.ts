@@ -23,6 +23,8 @@ const createChannelSchema = z.object({
   type: z.enum(['voice', 'text']),
 });
 
+const channelOrderSchema = z.object({ channelIds: z.array(z.string().min(1).max(64)).max(1000) });
+
 const RESET_CODE_TTL_MS = 24 * 3_600_000;
 
 const overwriteSchema = z.object({
@@ -127,6 +129,46 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void
       const channel = store.createChannel(req.params.guildId, body.name, body.type);
       gateway.dispatchChannel(channel.id, { t: 'CHANNEL_CREATE', d: channel });
       return reply.code(201).send(channel);
+    },
+  );
+
+  // Kanalların sırası (sürükle-bırak). İstemci görebildiği kanalların hepsini yeni sırasıyla gönderir;
+  // göremediği kanallar listedeki yerlerini korur (görünen kanalların boşaltığı yerlere yeni sıra
+  // yerleşir). Yeri değişen her kanalda KANALLARI_YÖNET yetkisi gerekir. Sonra tüm kanallar 0'dan
+  // yeniden numaralanır; konumu değişenler için CHANNEL_UPDATE yayınlanır.
+  app.put<{ Params: { guildId: string } }>(
+    '/api/guilds/:guildId/channels/order',
+    { preHandler: auth.requireMember },
+    async (req, reply) => {
+      const body = parseBody(channelOrderSchema, req.body, reply);
+      if (!body) return reply;
+      const { guildId } = req.params;
+      const actorId = req.user.id;
+      const all = store.listChannels(guildId);
+      const visible = all.filter((c) => permissions.canView(actorId, c));
+      const ids = new Set(body.channelIds);
+      if (
+        ids.size !== body.channelIds.length ||
+        ids.size !== visible.length ||
+        visible.some((c) => !ids.has(c.id))
+      ) {
+        return sendError(reply, 400, 'invalid_body', 'Sıralamada görebildiğin tüm kanallar birer kez bulunmalı.');
+      }
+      const byId = new Map(visible.map((c) => [c.id, c]));
+      // Görünenler arasında yeri değişenler: onlarda yönetme yetkisi gerekir
+      const moved = body.channelIds.filter((id, i) => visible[i]!.id !== id);
+      if (moved.length === 0) return visible;
+      if (moved.some((id) => !permissions.can(actorId, Permission.MANAGE_CHANNELS, byId.get(id)!))) {
+        return forbidden(reply, 'Kanalları düzenleme yetkin yok.');
+      }
+      let next = 0;
+      const order = all.map((c) => (byId.has(c.id) ? body.channelIds[next++]! : c.id));
+      const before = new Map(all.map((c) => [c.id, c.position]));
+      store.setChannelOrder(guildId, order);
+      order.forEach((id, i) => {
+        if (before.get(id) !== i) gateway.dispatchChannel(id, { t: 'CHANNEL_UPDATE', d: store.getChannel(id)! });
+      });
+      return permissions.visibleChannels(guildId, actorId);
     },
   );
 

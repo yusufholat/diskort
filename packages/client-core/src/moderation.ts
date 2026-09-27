@@ -82,7 +82,7 @@ export function memberActions(targetId: string): MemberActions {
 }
 
 /** Üyenin taşınabileceği ses kanalları (bulunduğu hariç; oraya taşıma yetkisi olanlar) */
-export function moveTargets(target: User): Channel[] {
+export function moveTargets(target: Pick<User, 'id'>): Channel[] {
   const s = useGuild.getState();
   const selfId = useSession.getState().user?.id;
   const current = s.voiceStates[target.id]?.channelId;
@@ -93,4 +93,23 @@ export function moveTargets(target: User): Channel[] {
       can(s, selfId, Permission.MOVE_MEMBERS, c.id) &&
       can(s, target.id, Permission.CONNECT, c.id),
   );
+}
+
+/**
+ * Sürükle-bırak: sesteki üyenin bırakılabileceği ses kanalları. Kendini, bağlanabildiğin her kanala
+ * (kanal değiştirme; taşıma yetkisi gerekmez); başkasını yalnızca taşıma yetkin olan ve onun
+ * bağlanabildiği kanallara. Seste değilse boş.
+ */
+export function voiceDropTargets(userId: string): Set<string> {
+  const s = useGuild.getState();
+  const selfId = useSession.getState().user?.id;
+  const current = s.voiceStates[userId]?.channelId;
+  if (!current) return new Set();
+  if (userId === selfId) {
+    return new Set(
+      s.channels.filter((c) => c.type === 'voice' && c.id !== current && can(s, selfId, Permission.CONNECT, c.id)).map((c) => c.id),
+    );
+  }
+  if (!memberActions(userId).move) return new Set();
+  return new Set(moveTargets({ id: userId }).map((c) => c.id));
 }

@@ -144,6 +144,9 @@ export const api = {
     request<Channel>('POST', `/api/guilds/${guildId}/channels`, body),
   updateChannel: (id: string, body: UpdateChannelRequest) => request<Channel>('PATCH', `/api/channels/${id}`, body),
   deleteChannel: (id: string) => request<void>('DELETE', `/api/channels/${id}`),
+  /** Görülebilen tüm kanalların yeni sırası; yanıt görülebilen kanallar (yeni konumlarıyla) */
+  reorderChannels: (guildId: string, channelIds: string[]) =>
+    request<Channel[]>('PUT', `/api/guilds/${guildId}/channels/order`, { channelIds }),
 
   joinVoice: (channelId: string) => request<VoiceJoinResponse>('POST', `/api/voice/${channelId}/join`),
 

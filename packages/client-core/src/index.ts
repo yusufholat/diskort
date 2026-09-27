@@ -138,7 +138,8 @@ export {
   type PermissionGroup,
   type PermissionInfo,
 } from './permissionInfo';
-export { memberActions, moderation, moveTargets, type MemberActions } from './moderation';
+export { memberActions, moderation, moveTargets, voiceDropTargets, type MemberActions } from './moderation';
+export { canReorderChannels, reorderChannels, reorderedIds } from './channelOrder';
 export { embedColor, embedHost, embedMediaUrl, embedVideoUrl, visibleLinkEmbeds, youtubePlayerUrl } from './linkEmbeds';
 export {
   ackChannel,
