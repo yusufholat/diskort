@@ -140,6 +140,7 @@ export default function RootLayout() {
               <Stack.Screen name="voice" options={{ title: 'Ses', animation: 'slide_from_bottom' }} />
               <Stack.Screen name="members" options={{ title: 'Üyeler' }} />
               <Stack.Screen name="settings" options={{ title: 'Ayarlar' }} />
+              <Stack.Screen name="feedback" options={{ title: 'Geri bildirim' }} />
             </Stack.Protected>
             <Stack.Protected guard={!token}>
               <Stack.Screen name="login" options={{ headerShown: false, animation: 'fade' }} />
