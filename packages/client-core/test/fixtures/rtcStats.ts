@@ -1,0 +1,158 @@
+// Chromium 13x'in LiveKit bağlantılarında verdiği getStats() raporlarından kısaltılmış örnekler
+// (adresler değiştirildi). `publisherReport(n)` n. ölçümü (2 sn arayla) üretir.
+
+import type { RtcStat } from '../../src/connectionStats';
+
+export function publisherReport(step: number): RtcStat[] {
+  const t = 1_700_000_000_000 + step * 2000;
+  return [
+    {
+      id: 'T01',
+      type: 'transport',
+      timestamp: t,
+      bytesSent: 120_000 + step * 8_000,
+      bytesReceived: 40_000 + step * 1_000,
+      dtlsState: 'connected',
+      selectedCandidatePairId: 'CPabc_def',
+      tlsVersion: 'FEFD',
+      dtlsCipher: 'TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256',
+      srtpCipher: 'AEAD_AES_128_GCM',
+      iceState: 'connected',
+    },
+    // Seçilmemiş (yedek) aday çifti: dikkate alınmamalı
+    {
+      id: 'CPzzz_yyy',
+      type: 'candidate-pair',
+      timestamp: t,
+      localCandidateId: 'Izzz',
+      remoteCandidateId: 'Iyyy',
+      state: 'waiting',
+      nominated: false,
+      currentRoundTripTime: 0.9,
+    },
+    {
+      id: 'CPabc_def',
+      type: 'candidate-pair',
+      timestamp: t,
+      transportId: 'T01',
+      localCandidateId: 'Iabc',
+      remoteCandidateId: 'Idef',
+      state: 'succeeded',
+      nominated: true,
+      currentRoundTripTime: [0.041, 0.043, 0.052, 0.3][step % 4],
+      availableOutgoingBitrate: 2_450_000,
+      bytesSent: 120_000 + step * 8_000,
+      bytesReceived: 40_000 + step * 1_000,
+    },
+    {
+      id: 'Iabc',
+      type: 'local-candidate',
+      timestamp: t,
+      address: '192.168.1.20',
+      port: 54321,
+      protocol: 'udp',
+      candidateType: 'relay',
+      relayProtocol: 'tls',
+      networkType: 'ethernet',
+      url: 'turns:lk.example.net:443?transport=tcp',
+    },
+    {
+      id: 'Idef',
+      type: 'remote-candidate',
+      timestamp: t,
+      address: '203.0.113.7',
+      port: 7882,
+      protocol: 'udp',
+      candidateType: 'host',
+    },
+    {
+      id: 'COT01_111_minptime=10;useinbandfec=1',
+      type: 'codec',
+      timestamp: t,
+      mimeType: 'audio/opus',
+      clockRate: 48000,
+      channels: 2,
+      payloadType: 111,
+    },
+    { id: 'SA1', type: 'media-source', kind: 'audio', trackIdentifier: 'mic-track-1', timestamp: t },
+    {
+      id: 'OT01A1234',
+      type: 'outbound-rtp',
+      timestamp: t,
+      kind: 'audio',
+      ssrc: 1234,
+      mediaSourceId: 'SA1',
+      codecId: 'COT01_111_minptime=10;useinbandfec=1',
+      packetsSent: 1000 + step * 100,
+      bytesSent: 100_000 + step * 8_000,
+      active: true,
+    },
+    {
+      id: 'RIA1234',
+      type: 'remote-inbound-rtp',
+      timestamp: t,
+      kind: 'audio',
+      ssrc: 1234,
+      localId: 'OT01A1234',
+      // 2. ölçümden sonra her aralıkta 5 paket kaybolur
+      packetsLost: 3 + Math.max(0, step - 1) * 5,
+      jitter: 0.004,
+      roundTripTime: 0.045,
+      fractionLost: 0.05,
+    },
+    // Simulcast'in kapalı katmanı: listede görünmemeli
+    { id: 'OT01V9', type: 'outbound-rtp', timestamp: t, kind: 'video', ssrc: 9, active: false, packetsSent: 0, bytesSent: 0 },
+  ];
+}
+
+export function subscriberReport(step: number): RtcStat[] {
+  const t = 1_700_000_000_000 + step * 2000;
+  return [
+    { id: 'T01', type: 'transport', timestamp: t, bytesSent: 5_000, bytesReceived: 300_000 + step * 250_000, dtlsState: 'connected' },
+    {
+      id: 'CP1',
+      type: 'candidate-pair',
+      timestamp: t,
+      localCandidateId: 'L1',
+      remoteCandidateId: 'R1',
+      state: 'succeeded',
+      nominated: true,
+      currentRoundTripTime: 0.044,
+      availableIncomingBitrate: 5_000_000,
+    },
+    { id: 'L1', type: 'local-candidate', timestamp: t, ip: '10.0.0.5', port: 50000, protocol: 'udp', candidateType: 'srflx' },
+    { id: 'R1', type: 'remote-candidate', timestamp: t, address: '203.0.113.7', port: 7882, protocol: 'udp', candidateType: 'host' },
+    { id: 'CIT01_111', type: 'codec', timestamp: t, mimeType: 'audio/opus', clockRate: 48000, channels: 2 },
+    { id: 'CIT01_45', type: 'codec', timestamp: t, mimeType: 'video/AV1', clockRate: 90000 },
+    {
+      id: 'IT01A5555',
+      type: 'inbound-rtp',
+      timestamp: t,
+      kind: 'audio',
+      trackIdentifier: 'remote-audio-1',
+      codecId: 'CIT01_111',
+      packetsReceived: 2000 + step * 95,
+      packetsLost: 10 + step * 5,
+      bytesReceived: 200_000 + step * 8_000,
+      jitter: 0.012,
+      concealedSamples: 480 * step,
+      totalSamplesReceived: 96000 * (step + 1),
+    },
+    {
+      id: 'IT01V7777',
+      type: 'inbound-rtp',
+      timestamp: t,
+      kind: 'video',
+      trackIdentifier: 'remote-screen-1',
+      codecId: 'CIT01_45',
+      packetsReceived: 50_000 + step * 400,
+      packetsLost: 0,
+      bytesReceived: 40_000_000 + step * 500_000,
+      jitter: 0.02,
+      frameWidth: 1920,
+      frameHeight: 1080,
+      framesPerSecond: 60,
+      decoderImplementation: 'ExternalDecoder',
+    },
+  ];
+}

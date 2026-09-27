@@ -24,6 +24,31 @@ export {
   type FeedbackDraft,
 } from './feedback';
 export { reportVoiceLog, SpuriousDuplicateGuard } from './voiceDiagnostics';
+export {
+  describeCandidate,
+  describeTransport,
+  formatBitrate,
+  formatPercent,
+  linkQuality,
+  minuteTicks,
+  outboundDelta,
+  parseTransportStats,
+  PING_HISTORY_MS,
+  pingAxis,
+  pushSample,
+  statList,
+  summarizePings,
+  type CandidateInfo,
+  type LinkQuality,
+  type PingSample,
+  type PingSummary,
+  type RtcStat,
+  type RtpStream,
+  type StatsSource,
+  type StreamView,
+  type TransportStats,
+  type TransportView,
+} from './connectionStats';
 export { gateway } from './gateway';
 export { useSession } from './session';
 export { isUnread, membersOf, useGuild, type GatewayStatus, type GuildStore } from './guild';
