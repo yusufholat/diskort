@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { Animated, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,7 +8,9 @@ import { Track } from 'livekit-client';
 import { membersOf, useGuild, useSession } from '@diskort/client-core';
 import type { VoiceState } from '@diskort/shared';
 import { Avatar } from '../components/Avatar';
+import { SpeakingRing } from '../components/SpeakingRing';
 import { IconButton } from '../components/VoiceBar';
+import { useAppear, useLayoutAnimationOn } from '../motion';
 import { useSettings } from '../stores/settings';
 import { colors } from '../theme';
 import { useVoice, voice, type ScreenShareStats } from '../voice/voice';
@@ -27,6 +29,9 @@ export default function VoiceScreen() {
   const speaker = useSettings((s) => s.speaker);
   const sharing = useVoice((s) => s.sharing);
   const [fullscreen, setFullscreen] = useState(false);
+  // Katılan/ayrılan kutucukta diğerleri yumuşakça yer değiştirir
+  // (yeni kutucuğun kendisi Animated ile büyür; LayoutAnimation yalnızca kaymayı ve çıkışı yapar)
+  useLayoutAnimationOn(members.map((m) => m.userId).join(','), 220, false);
 
   if (status === 'idle' || !channelId) {
     return (
@@ -168,9 +173,22 @@ function Member({ state }: { state: VoiceState }) {
   const speaking = useVoice((s) => Boolean(s.speaking[state.userId]));
   const hasStream = useVoice((s) => Boolean(s.streams[state.userId]));
   const watching = useVoice((s) => s.watching === state.userId);
+  // Katılan kişinin kutucuğu büyüyerek belirir
+  const appear = useAppear(true, 260);
   return (
-    <View style={styles.member}>
-      <Avatar user={user} size={72} speaking={speaking} />
+    <Animated.View
+      style={[
+        styles.member,
+        speaking && styles.memberSpeaking,
+        {
+          opacity: appear,
+          transform: [{ scale: appear.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }],
+        },
+      ]}
+    >
+      <SpeakingRing speaking={speaking} size={72}>
+        <Avatar user={user} size={72} />
+      </SpeakingRing>
       <View style={styles.memberNameRow}>
         {state.selfDeaf ? (
           <Ionicons name="volume-mute" size={14} color={colors.danger} />
@@ -191,7 +209,7 @@ function Member({ state }: { state: VoiceState }) {
           <Text style={styles.watchText}>{watching ? 'İzlemeyi bırak' : 'Yayını izle'}</Text>
         </Pressable>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -212,7 +230,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 16,
     paddingHorizontal: 8,
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
+  memberSpeaking: { borderColor: 'rgba(35,165,90,0.55)' },
   memberNameRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10 },
   memberName: { color: colors.text, fontSize: 15, fontWeight: '500', flexShrink: 1 },
   watch: { marginTop: 10, backgroundColor: colors.brand, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 },

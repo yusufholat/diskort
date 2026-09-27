@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { AppState, StyleSheet, Text, View } from 'react-native';
+import { AppState } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { gateway, useSession } from '@diskort/client-core';
+import { Toast } from '../components/Toast';
 import { UpdateScreen } from '../components/UpdateScreen';
 import { channelFromResponse, registerForPush } from '../notifications';
 import { clientReady } from '../setup';
@@ -100,17 +101,19 @@ export default function RootLayout() {
               headerTintColor: colors.head,
               headerTitleStyle: { fontWeight: '600' },
               contentStyle: { backgroundColor: colors.main },
-              animation: 'slide_from_right',
+              // Önceki ekranın hafifçe geride kaldığı yumuşak kayma (react-native-screens'in kendi geçişi)
+              animation: 'ios_from_right',
             }}
           >
             <Stack.Protected guard={Boolean(token)}>
               <Stack.Screen name="index" options={{ headerShown: false }} />
               <Stack.Screen name="channel/[id]" />
-              <Stack.Screen name="voice" options={{ title: 'Ses' }} />
+              {/* Ses ekranı alttan yükselir; ayarlar ve giriş yumuşakça belirir */}
+              <Stack.Screen name="voice" options={{ title: 'Ses', animation: 'slide_from_bottom' }} />
               <Stack.Screen name="settings" options={{ title: 'Ayarlar' }} />
             </Stack.Protected>
             <Stack.Protected guard={!token}>
-              <Stack.Screen name="login" options={{ headerShown: false }} />
+              <Stack.Screen name="login" options={{ headerShown: false, animation: 'fade' }} />
             </Stack.Protected>
           </Stack>
           <Toast />
@@ -119,28 +122,3 @@ export default function RootLayout() {
     </SafeAreaProvider>
   );
 }
-
-function Toast() {
-  const toast = useUi((s) => s.toast);
-  const insets = useSafeAreaInsets();
-  if (!toast) return null;
-  return (
-    <View pointerEvents="none" style={[styles.toast, { bottom: insets.bottom + 90 }]}>
-      <Text style={[styles.toastText, toast.kind === 'error' && { color: '#fa777c' }]}>{toast.text}</Text>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  toast: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    backgroundColor: colors.deep,
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    elevation: 6,
-  },
-  toastText: { color: colors.text, fontSize: 14.5 },
-});

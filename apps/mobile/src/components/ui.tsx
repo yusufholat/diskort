@@ -1,15 +1,19 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
+  Animated,
   StyleSheet,
   Text,
   TextInput,
   View,
   type PressableProps,
+  type StyleProp,
   type TextInputProps,
+  type ViewStyle,
 } from 'react-native';
+import { useAppear, useShake } from '../motion';
 import { colors, radius } from '../theme';
+import { PressableScale } from './PressableScale';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
@@ -29,7 +33,8 @@ export function Button({
 }: PressableProps & { title: string; variant?: Variant; busy?: boolean }) {
   const [bg, pressed] = BG[variant];
   return (
-    <Pressable
+    <PressableScale
+      scaleTo={0.97}
       {...rest}
       disabled={disabled || busy}
       style={({ pressed: p }) => [
@@ -38,17 +43,71 @@ export function Button({
       ]}
     >
       {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{title}</Text>}
-    </Pressable>
+    </PressableScale>
   );
 }
 
 export function Field({ label, error, ...rest }: TextInputProps & { label: string; error?: string | null }) {
+  const [focused, setFocused] = useState(false);
   return (
     <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
-      <TextInput placeholderTextColor={colors.faint} style={styles.input} {...rest} />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      <Text style={[styles.label, error ? { color: '#fa777c' } : null]}>{label}</Text>
+      <TextInput
+        placeholderTextColor={colors.faint}
+        selectionColor={colors.brand}
+        cursorColor={colors.head}
+        {...rest}
+        onFocus={(e) => {
+          setFocused(true);
+          rest.onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          setFocused(false);
+          rest.onBlur?.(e);
+        }}
+        // Odakta mor, hatada kırmızı ince kenar
+        style={[styles.input, focused && styles.inputFocused, error ? styles.inputError : null]}
+      />
+      {error ? (
+        <FadeIn style={styles.errorRow}>
+          <Text style={styles.error}>{error}</Text>
+        </FadeIn>
+      ) : null}
     </View>
+  );
+}
+
+/** Hata kutusu gibi sonradan beliren içerik: yukarıdan hafifçe kayarak gelir, `shakeKey` değişince sallanır */
+export function FadeIn({
+  children,
+  style,
+  shakeKey,
+}: {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  shakeKey?: number;
+}) {
+  const appear = useAppear(true, 200);
+  const [shakeX, shake] = useShake();
+  useEffect(() => {
+    if (shakeKey) shake();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shakeKey]);
+  return (
+    <Animated.View
+      style={[
+        style,
+        {
+          opacity: appear,
+          transform: [
+            { translateY: appear.interpolate({ inputRange: [0, 1], outputRange: [-6, 0] }) },
+            { translateX: shakeX },
+          ],
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
   );
 }
 
@@ -84,8 +143,13 @@ const styles = StyleSheet.create({
     color: colors.text,
     paddingHorizontal: 12,
     fontSize: 16,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
-  error: { color: '#fa777c', fontSize: 13, marginTop: 6 },
+  inputFocused: { borderColor: 'rgba(88,101,242,0.7)' },
+  inputError: { borderColor: colors.danger },
+  errorRow: { marginTop: 6 },
+  error: { color: '#fa777c', fontSize: 13 },
   section: {
     color: colors.muted,
     fontSize: 12,

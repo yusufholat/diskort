@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   AppState,
   FlatList,
   KeyboardAvoidingView,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -28,7 +26,12 @@ import {
   useSession,
   type LocalMessage,
 } from '@diskort/client-core';
+import type { User } from '@diskort/shared';
+import { BottomSheet } from '../../components/BottomSheet';
 import { Composer } from '../../components/Composer';
+import { PressableScale } from '../../components/PressableScale';
+import { MessageSkeleton } from '../../components/Skeleton';
+import { animateNextLayout } from '../../motion';
 import { EmojiGrid } from '../../components/EmojiGrid';
 import type { MarkdownContext } from '../../components/Markdown';
 import { MessageRow, sameDay } from '../../components/MessageRow';
@@ -38,6 +41,7 @@ import { colors } from '../../theme';
 
 const GROUP_WINDOW_MS = 7 * 60_000;
 const EMPTY: LocalMessage[] = [];
+const keyOf = (m: LocalMessage): string => m.nonce ?? m.id;
 
 export default function TextChannelScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -88,6 +92,33 @@ export default function TextChannelScreen() {
   // Ters liste: en yeni mesaj en altta (indeks 0)
   const data = useMemo(() => [...messages].reverse(), [messages]);
 
+  // Yeni gelen mesajlar animasyonla belirir; geçmiş yüklenirken, eski mesajlar eklenirken ve
+  // bekleyen mesajımız onaylanırken (anahtarı değişir) oynatılmaz.
+  const seen = useRef<Map<string, LocalMessage>>(new Map());
+  const armed = useRef(false);
+  const fresh = useMemo(() => {
+    const keys = new Set<string>();
+    if (!armed.current || !loaded) return keys;
+    const prev = seen.current;
+    let lastKnown = -1;
+    messages.forEach((m, i) => {
+      if (prev.has(keyOf(m))) lastKnown = i;
+    });
+    const current = new Set(messages.map(keyOf));
+    const confirmed = new Set(
+      [...prev.entries()].filter(([key, m]) => m.status === 'pending' && !current.has(key)).map(([, m]) => m.content),
+    );
+    for (const m of messages.slice(lastKnown + 1)) {
+      if (!m.status && m.authorId === self?.id && confirmed.has(m.content)) continue;
+      keys.add(keyOf(m));
+    }
+    return keys;
+  }, [messages, loaded, self?.id]);
+  useEffect(() => {
+    seen.current = new Map(messages.map((m) => [keyOf(m), m]));
+    armed.current = loaded;
+  }, [messages, loaded]);
+
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>): void => {
     setAtBottom(e.nativeEvent.contentOffset.y < 40);
   };
@@ -109,15 +140,18 @@ export default function TextChannelScreen() {
           ref={list}
           inverted
           data={data}
-          keyExtractor={(m) => m.nonce ?? m.id}
+          keyExtractor={keyOf}
           onScroll={onScroll}
           scrollEventThrottle={100}
           onEndReached={() => void loadOlder(id)}
           onEndReachedThreshold={0.4}
           contentContainerStyle={{ paddingVertical: 8 }}
+          // Geçmiş gelene kadar mesaj biçimli iskelet
+          ListEmptyComponent={!loaded ? <MessageSkeleton rows={8} /> : null}
           ListFooterComponent={
             hasMore || !loaded ? (
-              <View style={styles.loading}>{loading ? <ActivityIndicator color={colors.muted} /> : null}</View>
+              // Eski mesajlar yüklenirken üstte iki iskelet satırı
+              <View style={styles.loading}>{loading && messages.length > 0 ? <MessageSkeleton rows={2} /> : null}</View>
             ) : (
               <View style={styles.intro}>
                 <Text style={styles.introTitle}>#{channel.name} kanalına hoş geldin!</Text>
@@ -143,6 +177,7 @@ export default function TextChannelScreen() {
                 self={self}
                 md={md}
                 onLongPress={setMenuFor}
+                animateIn={fresh.has(keyOf(item))}
               />
             );
           }}
@@ -165,13 +200,7 @@ export default function TextChannelScreen() {
       </KeyboardAvoidingView>
       <VoiceBar />
 
-      <MessageMenu
-        message={menuFor}
-        canEdit={menuFor?.authorId === self.id}
-        canDelete={menuFor?.authorId === self.id || self.isAdmin}
-        onClose={() => setMenuFor(null)}
-        onEdit={(m) => setEditing(m)}
-      />
+      <MessageMenu message={menuFor} self={self} onClose={() => setMenuFor(null)} onEdit={(m) => setEditing(m)} />
     </SafeAreaView>
   );
 }
@@ -179,75 +208,87 @@ export default function TextChannelScreen() {
 /** Uzun basınca açılan menüdeki hızlı tepkiler (sonrasında tüm emojiler için +) */
 const MENU_REACTIONS = QUICK_REACTIONS.slice(0, 6);
 
+/** Uzun basınca alttan kayarak açılan mesaj menüsü (tepkiler, kopyala, düzenle, sil). */
 function MessageMenu({
   message,
-  canEdit,
-  canDelete,
+  self,
   onClose,
   onEdit,
 }: {
   message: LocalMessage | null;
-  canEdit: boolean;
-  canDelete: boolean;
+  self: User;
   onClose: () => void;
   onEdit: (m: LocalMessage) => void;
 }) {
   const [confirm, setConfirm] = useState(false);
   const [allEmojis, setAllEmojis] = useState(false);
-  // Menü açıkken gelen tepki değişiklikleri de görünsün
-  const reactions = useMessages(
-    (s) => (message ? s.channels[message.channelId]?.messages.find((m) => m.id === message.id)?.reactions : undefined) ?? [],
-  );
-  const close = (): void => {
+  // Kapanış animasyonu sürerken menünün içeriği değişmesin: son mesaj tutulur
+  const last = useRef(message);
+  if (message) last.current = message;
+  const shown = message ?? last.current;
+  const canEdit = shown?.authorId === self.id;
+  const canDelete = shown?.authorId === self.id || self.isAdmin;
+
+  // Her açılışta menü baştan başlar
+  useEffect(() => {
+    if (!message) return;
     setConfirm(false);
     setAllEmojis(false);
-    onClose();
-  };
+  }, [message]);
+
+  // Menü açıkken gelen tepki değişiklikleri de görünsün
+  const reactions = useMessages(
+    (s) => (shown ? s.channels[shown.channelId]?.messages.find((m) => m.id === shown.id)?.reactions : undefined) ?? [],
+  );
   const react = (emoji: string): void => {
-    if (message) void toggleReaction(message.channelId, message.id, emoji);
-    close();
+    if (shown) void toggleReaction(shown.channelId, shown.id, emoji);
+    onClose();
   };
   const mine = (emoji: string): boolean => reactions.some((r) => r.emoji === emoji && r.me);
   return (
-    <Modal visible={message !== null} transparent animationType="slide" onRequestClose={close}>
-      <Pressable style={styles.backdrop} onPress={close}>
-        <Pressable style={styles.sheet}>
-          {allEmojis ? (
-            <EmojiGrid onPick={react} />
-          ) : (
-            <>
-              <View style={styles.quickRow}>
-                {MENU_REACTIONS.map((emoji) => (
-                  <Pressable
-                    key={emoji}
-                    onPress={() => react(emoji)}
-                    style={({ pressed }) => [styles.quick, mine(emoji) && styles.quickMine, pressed && styles.quickPressed]}
-                  >
-                    <Text style={styles.quickEmoji}>{emoji}</Text>
-                  </Pressable>
-                ))}
-                <Pressable
-                  accessibilityLabel="Tüm emojiler"
-                  onPress={() => setAllEmojis(true)}
-                  style={({ pressed }) => [styles.quick, pressed && styles.quickPressed]}
-                >
-                  <Ionicons name="add" size={26} color={colors.text} />
-                </Pressable>
-              </View>
-              <MessageMenuItems
-                message={message}
-                canEdit={canEdit}
-                canDelete={canDelete}
-                confirm={confirm}
-                setConfirm={setConfirm}
-                close={close}
-                onEdit={onEdit}
-              />
-            </>
-          )}
-        </Pressable>
-      </Pressable>
-    </Modal>
+    <BottomSheet visible={message !== null} onClose={onClose}>
+      {allEmojis ? (
+        <EmojiGrid onPick={react} />
+      ) : (
+        <>
+          <View style={styles.quickRow}>
+            {MENU_REACTIONS.map((emoji) => (
+              <PressableScale
+                key={emoji}
+                scaleTo={0.85}
+                onPress={() => react(emoji)}
+                style={({ pressed }) => [styles.quick, mine(emoji) && styles.quickMine, pressed && styles.quickPressed]}
+              >
+                <Text style={styles.quickEmoji}>{emoji}</Text>
+              </PressableScale>
+            ))}
+            <PressableScale
+              scaleTo={0.85}
+              accessibilityLabel="Tüm emojiler"
+              onPress={() => {
+                animateNextLayout(220);
+                setAllEmojis(true);
+              }}
+              style={({ pressed }) => [styles.quick, pressed && styles.quickPressed]}
+            >
+              <Ionicons name="add" size={26} color={colors.text} />
+            </PressableScale>
+          </View>
+          <MessageMenuItems
+            message={shown}
+            canEdit={canEdit}
+            canDelete={canDelete}
+            confirm={confirm}
+            setConfirm={(value) => {
+              animateNextLayout(160);
+              setConfirm(value);
+            }}
+            close={onClose}
+            onEdit={onEdit}
+          />
+        </>
+      )}
+    </BottomSheet>
   );
 }
 
@@ -272,6 +313,7 @@ function MessageMenuItems({
     <>
       {message?.content ? (
         <MenuItem
+          icon="copy-outline"
           label="Metni kopyala"
           onPress={() => {
             void Clipboard.setStringAsync(message.content).then(() => toast('Kopyalandı'));
@@ -281,6 +323,7 @@ function MessageMenuItems({
       ) : null}
       {canEdit && (
         <MenuItem
+          icon="create-outline"
           label="Düzenle"
           onPress={() => {
             if (message) onEdit(message);
@@ -290,6 +333,7 @@ function MessageMenuItems({
       )}
       {canDelete && (
         <MenuItem
+          icon="trash-outline"
           label={confirm ? 'Emin misin? Kalıcı olarak sil' : 'Mesajı sil'}
           danger
           onPress={() => {
@@ -302,14 +346,25 @@ function MessageMenuItems({
           }}
         />
       )}
-      <MenuItem label="Vazgeç" onPress={close} />
+      <MenuItem icon="close" label="Vazgeç" onPress={close} />
     </>
   );
 }
 
-function MenuItem({ label, onPress, danger }: { label: string; onPress: () => void; danger?: boolean }) {
+function MenuItem({
+  icon,
+  label,
+  onPress,
+  danger,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+  danger?: boolean;
+}) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.menuItem, pressed && { backgroundColor: colors.hover }]}>
+      <Ionicons name={icon} size={21} color={danger ? colors.danger : colors.muted} />
       <Text style={[styles.menuText, danger && { color: colors.danger }]}>{label}</Text>
     </Pressable>
   );
@@ -317,13 +372,11 @@ function MenuItem({ label, onPress, danger }: { label: string; onPress: () => vo
 
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.main },
-  loading: { height: 60, alignItems: 'center', justifyContent: 'center' },
+  loading: { minHeight: 60, justifyContent: 'center', paddingBottom: 8 },
   intro: { paddingHorizontal: 16, paddingTop: 24, paddingBottom: 8 },
   introTitle: { color: colors.head, fontSize: 24, fontWeight: '800' },
   introText: { color: colors.muted, fontSize: 15, marginTop: 4 },
   typing: { color: colors.text, fontSize: 12.5, paddingHorizontal: 16, height: 18 },
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: colors.side, borderTopLeftRadius: 14, borderTopRightRadius: 14, paddingVertical: 8, paddingBottom: 24 },
   quickRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -345,6 +398,6 @@ const styles = StyleSheet.create({
   quickMine: { backgroundColor: 'rgba(88,101,242,0.35)' },
   quickPressed: { backgroundColor: colors.active },
   quickEmoji: { fontSize: 24 },
-  menuItem: { paddingHorizontal: 20, paddingVertical: 15 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingVertical: 15 },
   menuText: { color: colors.head, fontSize: 16 },
 });
