@@ -127,7 +127,31 @@ export interface VoiceState {
   serverDeaf: boolean;
   streaming: boolean;
   joinedAt: number;
+  /** Yayının başladığı an (ms, sunucu saati); yalnızca yayındayken, eski sunucularda gelmez */
+  streamStartedAt?: number;
+  /** Paylaşılan pencerenin ya da ekranın adı (yayıncının bildirdiği, en çok 64 karakter) */
+  streamSourceName?: string;
+  /** Paylaşılan kaynağın türü */
+  streamSourceKind?: StreamSourceKind;
+  /**
+   * Son yayın önizlemesinin zamanı (ms); önizleme yoksa gelmez. Değiştikçe istemci önizlemeyi yeniden
+   * indirir (GET /api/voice/:channelId/stream-preview/:userId).
+   */
+  streamPreviewAt?: number;
 }
+
+export type StreamSourceKind = 'screen' | 'window';
+
+/** PUT /api/voice/stream-source: yayıncı paylaştığı kaynağın adını bildirir */
+export interface StreamSourceRequest {
+  name: string;
+  kind: StreamSourceKind;
+}
+
+/** Yayın önizlemesinin yüklenebilecek en büyük boyutu (bayt) */
+export const STREAM_PREVIEW_MAX_BYTES = 256 * 1024;
+/** Yayın önizlemesi kaynak adının en büyük uzunluğu */
+export const STREAM_SOURCE_NAME_MAX_LENGTH = 64;
 
 /** Mesaja eklenmiş dosya */
 export interface Attachment {

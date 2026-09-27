@@ -52,6 +52,7 @@ export function ScreenSharePicker() {
         codec: settings.screenCodec,
         content: settings.screenContent,
         audio: settings.shareAudio && Boolean(bridge?.screen.supportsAudio),
+        ...sourceLabel(sources, selected),
       });
       if (warning) toast(warning);
       close();
@@ -197,4 +198,16 @@ function TabButton({
       {children}
     </button>
   );
+}
+
+/** Kartta görünecek ad: pencerenin başlığı ya da "Ekran 1", "Ekran 2"… */
+function sourceLabel(
+  sources: ScreenSource[],
+  id: string | null,
+): { sourceName?: string; sourceKind?: 'screen' | 'window' } {
+  const source = sources.find((s) => s.id === id);
+  if (!source) return {};
+  if (source.kind === 'window') return { sourceName: source.name, sourceKind: 'window' };
+  const index = sources.filter((s) => s.kind === 'screen').indexOf(source);
+  return { sourceName: `Ekran ${index + 1}`, sourceKind: 'screen' };
 }

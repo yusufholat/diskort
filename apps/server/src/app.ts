@@ -21,6 +21,7 @@ import { PermissionService } from './permissions.js';
 import { createApns } from './apns.js';
 import { PushService } from './push.js';
 import { ReleaseService } from './releases.js';
+import { StreamPreviewStore } from './streamPreview.js';
 import { VoiceModeration } from './voiceModeration.js';
 import { VoiceStateStore } from './voiceState.js';
 import { registerAdminRoutes } from './routes/admin.js';
@@ -132,6 +133,7 @@ export async function buildApp(
     embedMedia,
     permissions,
     moderation,
+    streamPreviews: new StreamPreviewStore(voice),
     guild,
   };
 

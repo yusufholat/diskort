@@ -1,11 +1,13 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Image, ScrollView, Text, View } from 'react-native';
 import {
   memberActions,
   memberColorOf,
   moderation,
   moveTargets,
   openDirectMessage,
+  streamPreviewHeaders,
+  streamPreviewUrl,
   useCustomStatus,
   useGuild,
   useSession,
@@ -187,6 +189,21 @@ export function MemberSheet({
           <>
             {streaming && (
               <SheetGroup>
+                {voice?.streamPreviewAt !== undefined && (
+                  <View style={styles.preview}>
+                    <Image
+                      source={{ uri: streamPreviewUrl(voice), headers: streamPreviewHeaders() }}
+                      style={styles.previewImage}
+                      resizeMode="contain"
+                      accessibilityLabel="Yayın önizlemesi"
+                    />
+                    {voice.streamSourceName !== undefined && (
+                      <Text style={styles.previewName} numberOfLines={1}>
+                        {voice.streamSourceName}
+                      </Text>
+                    )}
+                  </View>
+                )}
                 <SheetItem
                   icon={watchingThis ? 'eye-off' : 'eye'}
                   label={watchingThis ? 'İzlemeyi bırak' : 'Yayını izle'}
@@ -300,6 +317,9 @@ const styles = createStyles(() => ({
   roles: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: space.lg + 2, paddingBottom: space.md },
   role: { backgroundColor: colors.main, borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 3 },
   roleText: { color: colors.text, fontSize: font.caption, fontWeight: '600' },
+  preview: { padding: space.md, gap: 6 },
+  previewImage: { width: '100%', aspectRatio: 16 / 9, borderRadius: radius.md, backgroundColor: '#000' },
+  previewName: { color: colors.muted, fontSize: font.small },
   // Uzun menü (çok kanal) sayfanın sınırlı yüksekliğine sığsın diye daralabilir
   scroll: { flexShrink: 1, flexGrow: 0 },
 }));
