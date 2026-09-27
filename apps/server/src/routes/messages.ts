@@ -10,6 +10,7 @@ import {
   MESSAGE_MAX_LENGTH,
   MESSAGE_MAX_REACTIONS,
   MESSAGE_PAGE_SIZE,
+  MAX_PINS_PER_CHANNEL,
   Permission,
   REACTION_USERS_MAX_PAGE_SIZE,
   REACTION_USERS_PAGE_SIZE,
@@ -294,8 +295,80 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
     const files = store.deleteMessage(Number(existing.id));
     await attachments.remove(files);
     gateway.dispatchChannel(existing.channelId, { t: 'MESSAGE_DELETE', d: { id: existing.id, channelId: existing.channelId } });
+    // Sabitli mesaj silinince sabitlemesi de gider (veritabanında kendiliğinden)
+    if (existing.pinned) pinsChanged(existing.channelId);
     return reply.code(204).send();
   });
+
+  // ---------- Sabitlenmiş mesajlar ----------
+  // Metin kanalında PIN_MESSAGES yetkisi olan, direkt mesajda her katılımcı sabitler ve kaldırır. Kanalı
+  // göremeyen için kanal da mesaj da yokmuş gibi 404 (sunucular ve DM'ler birbirinden yalıtılır). İkisi de
+  // tekrarlanabilir; yalnızca gerçek değişiklik duyurulur: mesaj MESSAGE_UPDATE (pinned) ile, kanalın
+  // listesi CHANNEL_PINS_UPDATE ile kanalı görenlere gider. Sistem mesajı yazılmaz.
+
+  const pinsChanged = (channelId: string): void => {
+    gateway.dispatchChannel(channelId, { t: 'CHANNEL_PINS_UPDATE', d: { channelId, lastPinAt: store.lastPinAt(channelId) } });
+  };
+
+  const pinTarget = (params: { id: string; messageId: string }, userId: string, reply: FastifyReply): Message | null => {
+    const target = textChannel(params.id, userId, reply);
+    if (!target) return null;
+    const message = /^\d+$/.test(params.messageId) ? store.getMessage(Number(params.messageId), userId) : null;
+    if (!message || message.channelId !== target.id) {
+      void sendError(reply, 404, 'not_found', 'Mesaj bulunamadı.');
+      return null;
+    }
+    if (!permissions.can(userId, Permission.PIN_MESSAGES, target.channel ?? target.id)) {
+      void forbidden(reply, 'Bu kanalda mesaj sabitleme iznin yok.');
+      return null;
+    }
+    return message;
+  };
+
+  app.get<{ Params: { id: string } }>('/api/channels/:id/pins', { preHandler: auth.requireUser }, async (req, reply) => {
+    if (!textChannel(req.params.id, req.user.id, reply)) return reply;
+    return store.listPins(req.params.id, req.user.id);
+  });
+
+  app.put<{ Params: { id: string; messageId: string } }>(
+    '/api/channels/:id/pins/:messageId',
+    { preHandler: auth.requireUser },
+    async (req, reply) => {
+      const message = pinTarget(req.params, req.user.id, reply);
+      if (!message) return reply;
+      const result = store.pinMessage(Number(message.id), req.user.id);
+      if (result === 'limit') {
+        return sendError(
+          reply,
+          400,
+          'too_many_pins',
+          `Bir kanalda en fazla ${MAX_PINS_PER_CHANNEL} sabitlenmiş mesaj olabilir. Yenisini sabitlemek için önce birinin sabitlemesini kaldır.`,
+        );
+      }
+      if (result === 'missing') return sendError(reply, 404, 'not_found', 'Mesaj bulunamadı.');
+      if (result === 'pinned') {
+        const updated = store.getMessage(Number(message.id))!;
+        gateway.dispatchChannel(updated.channelId, { t: 'MESSAGE_UPDATE', d: toUpdate(updated) });
+        pinsChanged(updated.channelId);
+      }
+      return reply.code(204).send();
+    },
+  );
+
+  app.delete<{ Params: { id: string; messageId: string } }>(
+    '/api/channels/:id/pins/:messageId',
+    { preHandler: auth.requireUser },
+    async (req, reply) => {
+      const message = pinTarget(req.params, req.user.id, reply);
+      if (!message) return reply;
+      if (store.unpinMessage(Number(message.id))) {
+        const updated = store.getMessage(Number(message.id))!;
+        gateway.dispatchChannel(updated.channelId, { t: 'MESSAGE_UPDATE', d: toUpdate(updated) });
+        pinsChanged(updated.channelId);
+      }
+      return reply.code(204).send();
+    },
+  );
 
   // Bağlantı önizlemelerini kaldırır ("Önizlemeyi kaldır"): kendi mesajında herkes, başkasınınkinde
   // kanalda MANAGE_MESSAGES yetkisi olan. Mesaj düzenlense de önizleme yeniden eklenmez. GIF kalır.

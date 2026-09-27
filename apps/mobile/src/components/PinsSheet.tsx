@@ -1,0 +1,200 @@
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { create } from 'zustand';
+import { Permission, type PinnedMessage } from '@diskort/shared';
+import {
+  gifOf,
+  jumpToPinned,
+  openPins,
+  unpinMessage,
+  useCan,
+  useGuild,
+  useMemberColor,
+  usePins,
+  useSession,
+  type ChannelPins,
+} from '@diskort/client-core';
+import { colors, createStyles, font, radius, space, tint } from '../theme';
+import { Avatar } from './Avatar';
+import { BottomSheet, SheetHeader } from './BottomSheet';
+import { Markdown, type MarkdownContext } from './Markdown';
+import { messageStamp } from './MessageRow';
+
+/** Açık "Sabitlenmiş mesajlar" sayfası (sohbet başlığındaki raptiye düğmesiyle açılır) */
+const usePinsSheet = create<{ channelId: string | null }>()(() => ({ channelId: null }));
+
+export function openPinsSheet(channelId: string): void {
+  usePinsSheet.setState({ channelId });
+}
+
+const closeSheet = (): void => usePinsSheet.setState({ channelId: null });
+
+const EMPTY_PINS: ChannelPins = { items: [], loading: false, loaded: false, stale: false };
+
+/**
+ * Kanalın sabitlenmiş mesajları (en son sabitlenen üstte). Dokununca sohbette mesaja atlanır; yetkisi
+ * olan sağdaki düğmeyle sabitlemeyi kaldırır. Sohbet ekranında bir kez bulunur.
+ */
+export function PinsSheet() {
+  const open = usePinsSheet((s) => s.channelId);
+  // Kapanış animasyonu sürerken içerik kaybolmasın: son kanal tutulur
+  const [channelId, setChannelId] = useState<string | null>(open);
+  useEffect(() => {
+    if (open) setChannelId(open);
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    return openPins(open);
+  }, [open]);
+
+  const pins = usePins((s) => (channelId ? s.channels[channelId] : undefined) ?? EMPTY_PINS);
+  const canPin = useCan(Permission.PIN_MESSAGES, channelId ?? undefined);
+  const users = useGuild((s) => s.users);
+  const selfId = useSession((s) => s.user?.id);
+  const md: MarkdownContext = useMemo(
+    () => ({ usersByName: Object.fromEntries(Object.values(users).map((u) => [u.username, u])), selfId }),
+    [users, selfId],
+  );
+  const { height } = useWindowDimensions();
+
+  const jump = (message: PinnedMessage): void => {
+    closeSheet();
+    // Sayfa kapandıktan sonra kaydırılır
+    setTimeout(() => void jumpToPinned(message), 230);
+  };
+
+  return (
+    <BottomSheet visible={open !== null} onClose={closeSheet}>
+      <SheetHeader title="Sabitlenmiş mesajlar" />
+      {!pins.loaded ? (
+        <ActivityIndicator color={colors.muted} style={styles.loading} />
+      ) : pins.items.length === 0 ? (
+        <View style={styles.empty}>
+          <View style={styles.emptyIcon}>
+            <Ionicons name="pin-outline" size={28} color={colors.muted} />
+          </View>
+          <Text style={styles.emptyTitle}>Burada henüz sabitlenmiş mesaj yok</Text>
+          <Text style={styles.emptyText}>Önemli bir mesajı sabitlemek için ona uzun bas ve “Sabitle”yi seç.</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={pins.items}
+          keyExtractor={(m) => m.id}
+          style={{ maxHeight: height * 0.65 }}
+          contentContainerStyle={styles.list}
+          renderItem={({ item }) => (
+            <PinRow message={item} md={md} canUnpin={canPin} onJump={() => jump(item)} />
+          )}
+        />
+      )}
+    </BottomSheet>
+  );
+}
+
+function PinRow({
+  message,
+  md,
+  canUnpin,
+  onJump,
+}: {
+  message: PinnedMessage;
+  md: MarkdownContext;
+  canUnpin: boolean;
+  onJump: () => void;
+}) {
+  const author = useGuild((s) => (message.authorId ? s.users[message.authorId] : undefined));
+  const color = useMemberColor(message.authorId);
+  const gif = gifOf(message);
+  const files = message.attachments.length;
+  return (
+    <Pressable
+      onPress={onJump}
+      android_ripple={{ color: tint(0.08) }}
+      accessibilityRole="button"
+      accessibilityLabel={`${author?.displayName ?? 'Silinmiş Kullanıcı'} kişisinin mesajına git`}
+      style={styles.card}
+    >
+      <Avatar user={author} size={36} />
+      <View style={styles.body}>
+        <View style={styles.header}>
+          <Text style={[styles.author, !author && styles.deleted, color ? { color } : null]} numberOfLines={1}>
+            {author?.displayName ?? 'Silinmiş Kullanıcı'}
+          </Text>
+          <Text style={styles.time}>{messageStamp(message.createdAt)}</Text>
+        </View>
+        {message.content && !gif ? (
+          <View style={styles.content}>
+            <Markdown content={message.content} ctx={{ ...md, flags: message }} />
+          </View>
+        ) : null}
+        {gif ? <Text style={styles.meta}>GIF</Text> : null}
+        {files > 0 ? (
+          <View style={styles.files}>
+            <Ionicons name="attach" size={15} color={colors.muted} />
+            <Text style={styles.meta} numberOfLines={1}>
+              {files === 1 ? message.attachments[0]!.name : `${files} dosya`}
+            </Text>
+          </View>
+        ) : null}
+        <Text style={styles.jump}>Mesaja git</Text>
+      </View>
+      {canUnpin && (
+        <Pressable
+          hitSlop={8}
+          onPress={() => void unpinMessage(message)}
+          accessibilityRole="button"
+          accessibilityLabel="Sabitlemeyi kaldır"
+          android_ripple={{ color: tint(0.15), borderless: true, radius: 18 }}
+          style={styles.unpin}
+        >
+          <Ionicons name="close" size={18} color={colors.muted} />
+        </Pressable>
+      )}
+    </Pressable>
+  );
+}
+
+const styles = createStyles(() => ({
+  loading: { paddingVertical: space.xl },
+  list: { paddingHorizontal: space.md, paddingBottom: space.md, gap: space.sm },
+  card: {
+    flexDirection: 'row',
+    gap: space.md,
+    padding: space.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.main,
+    overflow: 'hidden',
+  },
+  body: { flex: 1, minWidth: 0 },
+  header: { flexDirection: 'row', alignItems: 'baseline', gap: space.sm, marginBottom: 2, paddingRight: 28 },
+  author: { color: colors.head, fontSize: font.row, fontWeight: '600', flexShrink: 1 },
+  deleted: { color: colors.muted, fontStyle: 'italic' },
+  time: { color: colors.faint, fontSize: font.caption },
+  content: { maxHeight: 132, overflow: 'hidden' },
+  files: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  meta: { color: colors.muted, fontSize: font.small, flexShrink: 1 },
+  jump: { color: colors.link, fontSize: font.small, fontWeight: '600', marginTop: space.xs },
+  unpin: {
+    position: 'absolute',
+    top: space.sm,
+    right: space.sm,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.side,
+  },
+  empty: { alignItems: 'center', paddingHorizontal: space.xl, paddingVertical: space.xl, gap: space.sm },
+  emptyIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.main,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTitle: { color: colors.head, fontSize: font.row, fontWeight: '700', textAlign: 'center' },
+  emptyText: { color: colors.muted, fontSize: font.small, textAlign: 'center', lineHeight: 19 },
+}));

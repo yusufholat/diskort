@@ -27,6 +27,7 @@ export function ConfirmDialogHost() {
           }
         >
           {current.message && <p className="text-center text-[15px] leading-relaxed text-text-normal">{current.message}</p>}
+          {current.preview && <div className="mt-4">{current.preview}</div>}
         </Modal>
       </PresenceProvider>
     </div>

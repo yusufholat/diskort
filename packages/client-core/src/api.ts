@@ -11,6 +11,7 @@ import type {
   Guild,
   PushTokenRequest,
   Message,
+  PinnedMessage,
   ReactionUsersPage,
   CreateChannelRequest,
   CreateGuildRequest,
@@ -178,6 +179,12 @@ export const api = {
   deleteMessage: (id: string) => request<void>('DELETE', `/api/messages/${id}`),
   /** Bağlantı önizlemelerini kaldırır (yazar ya da MANAGE_MESSAGES) */
   suppressEmbeds: (id: string) => request<Message>('DELETE', `/api/messages/${id}/embeds`),
+  /** Kanalın sabitlenmiş mesajları, en son sabitlenen önce */
+  listPins: (channelId: string) => request<PinnedMessage[]>('GET', `/api/channels/${channelId}/pins`),
+  pinMessage: (channelId: string, messageId: string) =>
+    request<void>('PUT', `/api/channels/${channelId}/pins/${messageId}`),
+  unpinMessage: (channelId: string, messageId: string) =>
+    request<void>('DELETE', `/api/channels/${channelId}/pins/${messageId}`),
   addReaction: (messageId: string, emoji: string) =>
     request<void>('PUT', `/api/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`),
   removeReaction: (messageId: string, emoji: string) =>

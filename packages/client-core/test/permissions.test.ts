@@ -337,6 +337,7 @@ describe('üye yönetimi', () => {
       'ATTACH_FILES',
       'ADD_REACTIONS',
       'MANAGE_MESSAGES',
+      'PIN_MESSAGES',
       'MENTION_EVERYONE',
     ]);
     expect(text.every((p) => !hasPermission(p.flag, P.CONNECT))).toBe(true);

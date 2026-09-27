@@ -169,6 +169,16 @@ export {
   type ReplyDraft,
 } from './messages';
 export {
+  jumpToPinned,
+  loadPins,
+  markPinsSeen,
+  openPins,
+  pinMessage,
+  unpinMessage,
+  usePins,
+  type ChannelPins,
+} from './pins';
+export {
   cancelReply,
   clearJump,
   isOwnReplyTarget,

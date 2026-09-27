@@ -50,7 +50,8 @@ function dayLabel(ts: number): string {
   return longDate.format(ts);
 }
 
-function stamp(ts: number): string {
+/** Mesaj başlığındaki zaman: "Bugün 14:32", "Dün 09:10" ya da "24.09.2026 18:05" */
+export function messageStamp(ts: number): string {
   const diff = startOfDay(Date.now()) - startOfDay(ts);
   if (diff <= 0) return `Bugün ${time.format(ts)}`;
   if (diff <= 86_400_000) return `Dün ${time.format(ts)}`;
@@ -187,6 +188,9 @@ export const MessageRow = memo(function MessageRow({
               <Animated.View pointerEvents="none" style={[styles.flash, { opacity: highlight }]} />
               <View style={[styles.gutter, isReply && { paddingTop: REPLY_PREVIEW_HEIGHT }]}>
                 {!compact && <Avatar user={author} size={40} />}
+                {compact && message.pinned ? (
+                  <Ionicons name="pin" size={12} color={colors.faint} accessibilityLabel="Sabitlendi" style={styles.compactPin} />
+                ) : null}
               </View>
               <View style={styles.body}>
                 {isReply && <ReplyPreview message={message} md={md} />}
@@ -201,7 +205,10 @@ export const MessageRow = memo(function MessageRow({
                     >
                       {author?.displayName ?? 'Silinmiş Kullanıcı'}
                     </Text>
-                    <Text style={styles.time}>{stamp(message.createdAt)}</Text>
+                    <Text style={styles.time}>{messageStamp(message.createdAt)}</Text>
+                    {message.pinned ? (
+                      <Ionicons name="pin" size={12} color={colors.faint} accessibilityLabel="Sabitlendi" style={styles.pin} />
+                    ) : null}
                   </View>
                 )}
                 {message.content && !gif ? <Markdown content={message.content} ctx={{ ...md, flags: message }} dim={message.status === 'pending'} /> : null}
@@ -281,6 +288,8 @@ const styles = createStyles(() => ({
   author: { color: colors.head, fontSize: font.row, fontWeight: '600', flexShrink: 1 },
   deleted: { color: colors.muted, fontStyle: 'italic' },
   time: { color: colors.faint, fontSize: font.caption },
+  pin: { alignSelf: 'center' },
+  compactPin: { marginTop: 4 },
   edited: { color: colors.faint, fontSize: 11 },
   failed: { color: colors.muted, fontSize: 13, marginTop: 2 },
   action: { color: colors.link },

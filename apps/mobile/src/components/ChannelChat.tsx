@@ -27,14 +27,17 @@ import {
   dmTitle,
   loadInitial,
   loadOlder,
+  pinMessage,
   QUICK_REACTIONS,
   startReply,
   suppressEmbeds,
   toggleReaction,
+  unpinMessage,
   useCan,
   useCustomStatus,
   useGuild,
   useMessages,
+  usePins,
   useSession,
   useStatus,
   visibleLinkEmbeds,
@@ -43,6 +46,7 @@ import {
 import { CountBadge } from './Badge';
 import { BottomSheet, SheetGroup, SheetItem } from './BottomSheet';
 import { openReactionsSheet, ReactionsSheet } from './ReactionsSheet';
+import { openPinsSheet, PinsSheet } from './PinsSheet';
 import { Composer } from './Composer';
 import { ConnectionBanner } from './ConnectionBanner';
 import { DmAvatar } from './DmAvatar';
@@ -114,6 +118,8 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
   const canManageMessages = useCan(Permission.MANAGE_MESSAGES, id);
   const canReact = useCan(Permission.ADD_REACTIONS, id);
   const canSend = useCan(Permission.SEND_MESSAGES, id);
+  // Metin kanalında PIN_MESSAGES yetkisi olan, direkt mesajda her katılımcı sabitler
+  const canPin = useCan(Permission.PIN_MESSAGES, id);
   const jump = useMessages((s) => s.jump);
   // Alıntıdan atlanan mesaj: kısa süre vurgulanır
   const [flash, setFlash] = useState<{ id: string; seq: number } | null>(null);
@@ -334,6 +340,9 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
       <View style={styles.headerTitle}>
         {dm ? <DmTitle dm={dm} name={dmName} /> : <ChannelTitle name={channel?.name ?? ''} />}
       </View>
+      <HeaderButton icon="pin-outline" label="Sabitlenmiş mesajlar" size={22} onPress={() => openPinsSheet(id)}>
+        <UnseenPins channelId={id} />
+      </HeaderButton>
       {dm ? (
         canAddPeople ? (
           <HeaderButton
@@ -448,10 +457,12 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
         canManageMessages={canManageMessages}
         canReact={canReact}
         canReply={canSend}
+        canPin={canPin}
         onClose={() => setMenuFor(null)}
         onEdit={(m) => setEditing(m)}
       />
       <ReactionsSheet />
+      <PinsSheet />
     </View>
   );
 }
@@ -478,6 +489,12 @@ function OtherUnread({ channelId }: { channelId: string }) {
     return n;
   });
   return count > 0 ? <CountBadge count={count} ring={colors.main} /> : null;
+}
+
+/** Raptiye düğmesindeki nokta: bu oturumda başkası yeni bir mesaj sabitledi, liste henüz açılmadı */
+function UnseenPins({ channelId }: { channelId: string }) {
+  const unseen = usePins((s) => Boolean(s.unseen[channelId]));
+  return unseen ? <View style={styles.pinDot} /> : null;
 }
 
 /** Başlık: kanal adı # simgesiyle */
@@ -656,6 +673,7 @@ function MessageMenu({
   canManageMessages,
   canReact,
   canReply,
+  canPin,
   onClose,
   onEdit,
 }: {
@@ -667,6 +685,8 @@ function MessageMenu({
   canReact: boolean;
   /** Kanala yazabiliyor mu (yanıt da bir mesajdır) */
   canReply: boolean;
+  /** Mesaj sabitleyebilir mi */
+  canPin: boolean;
   onClose: () => void;
   onEdit: (m: LocalMessage) => void;
 }) {
@@ -686,6 +706,10 @@ function MessageMenu({
     setAllEmojis(false);
   }, [message]);
 
+  // Sabitli mi (menü açıkken değişirse de doğru görünsün)
+  const pinned = useMessages((s) =>
+    shown ? Boolean(s.channels[shown.channelId]?.messages.find((m) => m.id === shown.id)?.pinned) : false,
+  );
   // Menü açıkken gelen tepki değişiklikleri de görünsün
   const reactions = useMessages(
     (s) => (shown ? s.channels[shown.channelId]?.messages.find((m) => m.id === shown.id)?.reactions : undefined) ?? NO_REACTIONS,
@@ -745,6 +769,20 @@ function MessageMenu({
                 }}
               />
             )}
+            {canPin && shown && !shown.status ? (
+              <SheetItem
+                key="pin"
+                icon={pinned ? 'pin' : 'pin-outline'}
+                label={pinned ? 'Sabitlemeyi kaldır' : 'Sabitle'}
+                onPress={() => {
+                  const target = shown;
+                  close();
+                  void (pinned ? unpinMessage(target) : pinMessage(target)).then((ok) => {
+                    if (ok) toast(pinned ? 'Sabitleme kaldırıldı' : 'Mesaj sabitlendi');
+                  });
+                }}
+              />
+            ) : null}
             {canEdit && (
               <SheetItem
                 key="edit"
@@ -872,6 +910,16 @@ const styles = createStyles(() => ({
     elevation: 6,
   },
   jumpBadge: { position: 'absolute', top: -6, right: -6 },
+  pinDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: colors.main,
+    backgroundColor: colors.danger,
+    marginTop: 4,
+    marginRight: 4,
+  },
   newBar: {
     position: 'absolute',
     top: 0,

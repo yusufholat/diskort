@@ -78,6 +78,11 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       ),
       info('MANAGE_MESSAGES', 'Mesajları Yönet', 'Başkalarının mesajlarını silebilir.'),
       info(
+        'PIN_MESSAGES',
+        'Mesajları Sabitle',
+        'Mesajları kanala sabitleyebilir ve sabitlemelerini kaldırabilir. Sabitlenen mesajları kanalı gören herkes görür.',
+      ),
+      info(
         'MENTION_EVERYONE',
         '@everyone ve @here Bahset',
         '@everyone yazarak kanalı gören herkese, @here yazarak kanalı gören ve o an çevrimiçi olanlara bildirim gönderebilir. Yetkisi olmayanın yazdığı @everyone düz metin kalır.',
