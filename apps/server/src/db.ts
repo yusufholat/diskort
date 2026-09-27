@@ -325,6 +325,24 @@ export const MIGRATIONS: string[] = [
   ) WITHOUT ROWID;
   CREATE INDEX link_previews_expiry ON link_previews(expires_at);
   `,
+  // 17: hesap yöneticiliği hesabın kendi bayrağıdır (users.is_admin), sunucu rollerinden hesaplanmaz. Bugün
+  // hesap yöneticisi olan herkes (ana sunucunun sahibi ve orada Yönetici yetkisi olan üyeler) öyle kalır;
+  // diğer herkesinki sıfırlanır. Bundan sonra yalnızca yöneticiler (Ayarlar) ya da admin-cli değiştirir.
+  `
+  UPDATE users SET is_admin = CASE WHEN id IN (
+    SELECT g.owner_id FROM (SELECT id, owner_id FROM guilds ORDER BY created_at, rowid LIMIT 1) g
+    WHERE g.owner_id IS NOT NULL
+    UNION
+    SELECT m.user_id FROM guild_members m
+      JOIN (SELECT id FROM guilds ORDER BY created_at, rowid LIMIT 1) g ON g.id = m.guild_id
+    WHERE m.removed_at IS NULL AND (
+      EXISTS (SELECT 1 FROM member_roles mr JOIN roles r ON r.id = mr.role_id
+              WHERE mr.user_id = m.user_id AND r.guild_id = g.id AND (r.permissions & ${Permission.ADMINISTRATOR}) != 0)
+      OR EXISTS (SELECT 1 FROM roles r WHERE r.id = g.id AND (r.permissions & ${Permission.ADMINISTRATOR}) != 0)
+    )
+  ) THEN 1 ELSE 0 END;
+  CREATE INDEX IF NOT EXISTS users_admins ON users(is_admin) WHERE is_admin = 1;
+  `,
 ];
 
 type Param = string | number | null;
@@ -422,7 +440,7 @@ export interface PermissionData {
   userGuilds: ReadonlyMap<string, ReadonlySet<string>>;
   /** Direkt mesaj konuşmaları: kimlik → katılımcılar */
   dms: ReadonlyMap<string, DmAccess>;
-  /** Ana sunucu: ilk kurulan; hesap yöneticileri onun yöneticileridir */
+  /** Ana sunucu: ilk kurulan (hesap açtıran ilk kişi ve yönetici davetleri buraya katılır) */
   primaryGuildId: string | null;
 }
 
@@ -653,14 +671,14 @@ export class Store {
     return Number(this.db.prepare(sql).run(...params).changes);
   }
 
-  private toUser(r: UserRow, data = this.permissionData()): User {
+  private toUser(r: UserRow): User {
     return {
       id: r.id,
       username: r.username,
       displayName: r.display_name,
       avatarColor: r.avatar_color,
       avatarUrl: r.avatar_hash ? `/api/avatars/${r.id}/${r.avatar_hash}.webp` : null,
-      isAdmin: isInstanceAdmin(data, r.id),
+      isAdmin: r.is_admin === 1,
     };
   }
 
@@ -682,22 +700,20 @@ export class Store {
 
   /** Tüm hesaplar */
   listUsers(): User[] {
-    const data = this.permissionData();
-    return this.all<UserRow>('SELECT * FROM users ORDER BY created_at').map((r) => this.toUser(r, data));
+    return this.all<UserRow>('SELECT * FROM users ORDER BY created_at').map((r) => this.toUser(r));
   }
 
   /** Verilen hesapların profilleri (olmayanlar atlanır) */
   usersByIds(ids: Iterable<string>): User[] {
     const list = [...new Set(ids)];
     if (list.length === 0) return [];
-    const data = this.permissionData();
     const rows: UserRow[] = [];
     // SQLite parametre sınırına takılmamak için parçalar hâlinde
     for (let i = 0; i < list.length; i += 500) {
       const part = list.slice(i, i + 500);
       rows.push(...this.all<UserRow>(`SELECT * FROM users WHERE id IN (${part.map(() => '?').join(',')})`, ...part));
     }
-    return rows.sort((a, b) => a.id.localeCompare(b.id)).map((r) => this.toUser(r, data));
+    return rows.sort((a, b) => a.id.localeCompare(b.id)).map((r) => this.toUser(r));
   }
 
   /**
@@ -761,8 +777,36 @@ export class Store {
   deleteUser(userId: string): boolean {
     return this.tx(() => {
       const deleted = this.run('DELETE FROM users WHERE id = ?', userId) > 0;
-      if (deleted) this.syncAdminFlags();
       return deleted;
+    });
+  }
+
+  // ---------- Hesap yöneticileri (users.is_admin; sunuculardan bağımsız) ----------
+
+  /** Hesap yöneticisi mi (her çağrıda veritabanından: komut satırı aracının değişikliği de hemen geçerli) */
+  isAdmin(userId: string): boolean {
+    return this.one<{ a: number }>('SELECT is_admin AS a FROM users WHERE id = ?', userId)?.a === 1;
+  }
+
+  /** Hesap yöneticileri, en eski hesap önce */
+  listAdmins(): User[] {
+    return this.all<UserRow>('SELECT * FROM users WHERE is_admin = 1 ORDER BY created_at, rowid').map((r) => this.toUser(r));
+  }
+
+  /**
+   * Hesap yöneticiliğini verir ya da alır. Son yönetici yöneticilikten çıkarılamaz ('last_admin').
+   * Değişmediyse 'unchanged'; hesap yoksa 'not_found'.
+   */
+  setAdmin(userId: string, admin: boolean): 'ok' | 'unchanged' | 'not_found' | 'last_admin' {
+    return this.tx(() => {
+      const row = this.one<{ a: number }>('SELECT is_admin AS a FROM users WHERE id = ?', userId);
+      if (!row) return 'not_found';
+      if ((row.a === 1) === admin) return 'unchanged';
+      if (!admin && this.one<{ n: number }>('SELECT COUNT(*) AS n FROM users WHERE is_admin = 1')!.n <= 1) {
+        return 'last_admin';
+      }
+      this.run('UPDATE users SET is_admin = ? WHERE id = ?', admin ? 1 : 0, userId);
+      return 'ok';
     });
   }
 
@@ -854,12 +898,13 @@ export class Store {
       const founder = check.invite.grants_admin === 1 || this.countUsers() === 0;
       this.run(
         `INSERT INTO users (id, username, display_name, password_hash, avatar_color, is_admin, created_at)
-         VALUES (?, ?, ?, ?, ?, 0, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         id,
         input.username,
         input.displayName,
         input.passwordHash,
         color,
+        founder ? 1 : 0,
         Date.now(),
       );
       let guildId = check.invite.guild_id;
@@ -878,7 +923,6 @@ export class Store {
       }
       if (guildId) this.insertMember(guildId, id);
       this.run('UPDATE invites SET uses = uses + 1 WHERE code = ?', check.invite.code);
-      this.syncAdminFlags();
       return { ok: true, user: this.getUser(id)!, guildId };
     });
   }
@@ -1007,7 +1051,6 @@ export class Store {
         userId,
         guildId,
       );
-      this.syncAdminFlags();
       return true;
     });
   }
@@ -1024,12 +1067,11 @@ export class Store {
   }
 
   listBans(guildId: string): BanRow[] {
-    const data = this.permissionData();
     return this.all<UserRow & { ban_reason: string | null; banned_at: number }>(
       `SELECT u.*, m.ban_reason, m.banned_at FROM guild_members m JOIN users u ON u.id = m.user_id
        WHERE m.guild_id = ? AND m.banned_at IS NOT NULL ORDER BY m.banned_at DESC`,
       guildId,
-    ).map((r) => ({ user: this.toUser(r, data), reason: r.ban_reason, bannedAt: r.banned_at }));
+    ).map((r) => ({ user: this.toUser(r), reason: r.ban_reason, bannedAt: r.banned_at }));
   }
 
   /** Sunucu tarafı susturma/sağırlaştırma (o sunucuda kalıcı: kanaldan çıkıp girince de sürer) */
@@ -1143,18 +1185,6 @@ export class Store {
     return data;
   }
 
-  /**
-   * users.is_admin sütununu (hesap yöneticisi: ana sunucunun yöneticisi) güncel tutar. Sunucu yetkileri
-   * rollerden hesaplar; sütun, eski sürüme dönülürse yöneticiler yönetici kalsın diye tutulur.
-   */
-  private syncAdminFlags(): void {
-    const data = this.permissionData();
-    for (const r of this.all<{ id: string; is_admin: number }>('SELECT id, is_admin FROM users')) {
-      const admin = isInstanceAdmin(data, r.id);
-      if ((r.is_admin === 1) !== admin) this.run('UPDATE users SET is_admin = ? WHERE id = ?', admin ? 1 : 0, r.id);
-    }
-  }
-
   getRole(id: string): (Role & { guildId: string }) | null {
     const row = this.one<RoleRow>('SELECT * FROM roles WHERE id = ?', id);
     return row ? { ...toRole(row), guildId: row.guild_id } : null;
@@ -1201,7 +1231,6 @@ export class Store {
       if (patch.permissions !== undefined) {
         this.run('UPDATE roles SET permissions = ? WHERE id = ?', patch.permissions & ALL_PERMISSIONS, id);
       }
-      this.syncAdminFlags();
     });
     return this.plainRole(id);
   }
@@ -1217,7 +1246,6 @@ export class Store {
         guildId,
       );
       rest.forEach((r, i) => this.run('UPDATE roles SET position = ? WHERE id = ?', rest.length - i, r.id));
-      this.syncAdminFlags();
       return true;
     });
   }
@@ -1235,7 +1263,6 @@ export class Store {
   addMemberRole(userId: string, roleId: string): boolean {
     return this.tx(() => {
       const added = this.run('INSERT OR IGNORE INTO member_roles (user_id, role_id) VALUES (?, ?)', userId, roleId) > 0;
-      if (added) this.syncAdminFlags();
       return added;
     });
   }
@@ -1244,7 +1271,6 @@ export class Store {
   removeMemberRole(userId: string, roleId: string): boolean {
     return this.tx(() => {
       const removed = this.run('DELETE FROM member_roles WHERE user_id = ? AND role_id = ?', userId, roleId) > 0;
-      if (removed) this.syncAdminFlags();
       return removed;
     });
   }
@@ -1360,7 +1386,7 @@ export class Store {
 
   // ---------- Sunucular (guild) ve kanallar ----------
 
-  /** Ana sunucu: ilk kurulan (hesap yöneticileri onun yöneticileridir) */
+  /** Ana sunucu: ilk kurulan (hesap açtıran ilk kişi ve yönetici davetleri buraya katılır) */
   primaryGuildId(): string | null {
     return this.one<{ id: string }>('SELECT id FROM guilds ORDER BY created_at, rowid LIMIT 1')?.id ?? null;
   }
@@ -1453,7 +1479,6 @@ export class Store {
     this.tx(() => {
       if (patch.name !== undefined) this.run('UPDATE guilds SET name = ? WHERE id = ?', patch.name, id);
       if (patch.ownerId !== undefined) this.run('UPDATE guilds SET owner_id = ? WHERE id = ?', patch.ownerId, id);
-      this.syncAdminFlags();
     });
     return this.getGuild(id);
   }
@@ -1486,7 +1511,6 @@ export class Store {
         guildId,
       ).map((r) => r.id);
       this.run('DELETE FROM guilds WHERE id = ?', guildId);
-      this.syncAdminFlags();
       return { files, icon };
     });
   }
@@ -1987,9 +2011,8 @@ export class Store {
     );
     const page = rows.slice(0, limit);
     const last = page.at(-1);
-    const data = this.permissionData();
     return {
-      users: page.map((r) => this.toUser(r, data)),
+      users: page.map((r) => this.toUser(r)),
       next: rows.length > limit && last ? `${last.reacted_at}_${last.id}` : null,
     };
   }
@@ -2240,10 +2263,4 @@ export class Store {
   }
 }
 
-/** Hesap yöneticisi: ana sunucunun sahibi ya da orada ADMINISTRATOR yetkili bir rolü olan üyesi */
-export function isInstanceAdmin(data: PermissionData, userId: string): boolean {
-  const g = data.primaryGuildId ? data.guilds.get(data.primaryGuildId) : undefined;
-  if (!g || !g.members.has(userId)) return false;
-  return hasPermission(basePermissions(g, userId, g.memberRoles.get(userId) ?? []), Permission.ADMINISTRATOR);
-}
 
