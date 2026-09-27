@@ -14,7 +14,7 @@ import {
   useStatus,
 } from '@diskort/client-core';
 import { usePathname, useRouter } from 'expo-router';
-import { feedback } from '../haptics';
+import { feedback, haptic } from '../haptics';
 import { animateNextLayout } from '../motion';
 import { showChat } from '../stores/nav';
 import { toast } from '../stores/ui';
@@ -115,7 +115,7 @@ export function MemberSheet({
     }
     const current = useVoice.getState();
     if (current.channelId !== channelId || current.status === 'idle') {
-      feedback('join');
+      haptic('join');
       try {
         await voiceClient.join(channelId);
       } catch (err) {

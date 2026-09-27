@@ -1,74 +1,130 @@
-// Discord benzeri kısa arayüz sesleri; ses dosyası yerine Web Audio ile sentezlenir.
-import { getSettings } from '../stores/settings';
+// Arayüz sesleri. Sesler client-core'da tek yerde tanımlı (packages/client-core/src/sfx.ts); burada
+// bellekte üretilip Web Audio ile çalınır. Telefon aynı tanımdan üretilmiş WAV dosyalarını çalar.
+//
+// Çıkış aygıtı: sesler seçili çıkış aygıtından (Ayarlar → Ses → Çıkış) çalınır. Aygıt değişimi
+// (setSinkId) bitmeden çalınan ses eskiden kayboluyordu (ilk ses genelde "katıldın" sesiydi); artık
+// aygıt hazır olana dek beklenir.
+import {
+  OTHERS_SOUNDS,
+  renderSound,
+  SFX_SAMPLE_RATE,
+  useGuild,
+  useSession,
+  type SoundName,
+} from '@diskort/client-core';
+import { getSettings, useSettings } from '../stores/settings';
 
-export type SoundName =
-  | 'join'
-  | 'leave'
-  | 'userJoin'
-  | 'userLeave'
-  | 'mute'
-  | 'unmute'
-  | 'deafen'
-  | 'undeafen'
-  | 'streamStart'
-  | 'streamStop'
-  | 'mention';
+export type { SoundName } from '@diskort/client-core';
 
-type Note = [freq: number, startMs: number, durMs: number];
+type SinkContext = AudioContext & { setSinkId?: (id: string) => Promise<void> };
 
-const SOUNDS: Record<SoundName, { notes: Note[]; type: OscillatorType; gain: number }> = {
-  join: { notes: [[523, 0, 90], [784, 80, 140]], type: 'sine', gain: 0.18 },
-  leave: { notes: [[659, 0, 90], [440, 80, 160]], type: 'sine', gain: 0.18 },
-  userJoin: { notes: [[587, 0, 70], [880, 60, 110]], type: 'triangle', gain: 0.12 },
-  userLeave: { notes: [[698, 0, 70], [466, 60, 120]], type: 'triangle', gain: 0.12 },
-  mute: { notes: [[392, 0, 80]], type: 'sine', gain: 0.16 },
-  unmute: { notes: [[587, 0, 80]], type: 'sine', gain: 0.16 },
-  deafen: { notes: [[440, 0, 70], [330, 60, 110]], type: 'sine', gain: 0.16 },
-  undeafen: { notes: [[330, 0, 70], [494, 60, 110]], type: 'sine', gain: 0.16 },
-  streamStart: { notes: [[523, 0, 70], [659, 60, 70], [784, 120, 120]], type: 'triangle', gain: 0.12 },
-  streamStop: { notes: [[784, 0, 70], [659, 60, 70], [523, 120, 120]], type: 'triangle', gain: 0.12 },
-  mention: { notes: [[988, 0, 60], [1319, 70, 150]], type: 'sine', gain: 0.14 },
-};
+let ctx: SinkContext | null = null;
+/** Bağlama uygulanmış çıkış aygıtı ('' = sistemin varsayılanı) */
+let appliedSink = '';
+let sinkChange: Promise<void> | null = null;
+const buffers = new Map<SoundName, AudioBuffer>();
+const lastPlayed = new Map<SoundName, number>();
 
-let ctx: AudioContext | null = null;
-let currentSink = '';
+/** Aynı ses bu süreden sık çalınmaz (ör. kısayola art arda basınca üst üste binmesin) */
+const SAME_SOUND_GAP_MS = 90;
 
 /** Uygulama genelinde paylaşılan AudioContext (arayüz sesleri, LiveKit işlemci bağlamı). */
 export function sharedAudioContext(): AudioContext {
-  ctx ??= new AudioContext({ latencyHint: 'interactive' });
+  ctx ??= new AudioContext({ latencyHint: 'interactive' }) as SinkContext;
   return ctx;
 }
 
-function context(): AudioContext {
-  const ctx = sharedAudioContext();
-  const sink = getSettings().outputDeviceId;
-  const withSink = ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> };
-  if (sink !== currentSink && withSink.setSinkId) {
-    currentSink = sink;
-    withSink.setSinkId(sink === 'default' ? '' : sink).catch(() => undefined);
-  }
-  return ctx;
+const wantedSink = (): string => {
+  const id = getSettings().outputDeviceId;
+  return id === 'default' ? '' : id;
+};
+
+/** Seçili çıkış aygıtını bağlama uygular; değişim sürerken çalınan sesler onu bekler */
+function applySink(ac: SinkContext): void {
+  const sink = wantedSink();
+  if (sink === appliedSink || !ac.setSinkId) return;
+  appliedSink = sink;
+  const change = ac
+    .setSinkId(sink)
+    .catch(() => undefined)
+    .finally(() => {
+      if (sinkChange === change) sinkChange = null;
+    });
+  sinkChange = change;
 }
 
-export function playSound(name: SoundName): void {
-  const settings = getSettings();
-  if (!settings.sounds || settings.selfDeaf) return;
-  const ac = context();
-  if (ac.state === 'suspended') void ac.resume();
-  const spec = SOUNDS[name];
-  const now = ac.currentTime + 0.01;
-  for (const [freq, startMs, durMs] of spec.notes) {
-    const osc = ac.createOscillator();
-    const gain = ac.createGain();
-    osc.type = spec.type;
-    osc.frequency.value = freq;
-    const t0 = now + startMs / 1000;
-    const t1 = t0 + durMs / 1000;
-    gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(spec.gain, t0 + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t1);
-    osc.connect(gain).connect(ac.destination);
-    osc.start(t0);
-    osc.stop(t1 + 0.02);
+async function ready(): Promise<AudioContext> {
+  const ac = sharedAudioContext() as SinkContext;
+  applySink(ac);
+  if (sinkChange) await sinkChange;
+  if (ac.state === 'suspended') await ac.resume().catch(() => undefined);
+  return ac;
+}
+
+function buffer(ac: AudioContext, name: SoundName): AudioBuffer {
+  let b = buffers.get(name);
+  if (!b) {
+    const samples = renderSound(name, SFX_SAMPLE_RATE);
+    b = ac.createBuffer(1, samples.length, SFX_SAMPLE_RATE);
+    b.copyToChannel(samples, 0);
+    buffers.set(name, b);
   }
+  return b;
+}
+
+/**
+ * Ses bağlamını ve çıkış aygıtını önceden hazırlar (ses kanalına bağlanırken çağrılır): "katıldın" sesi
+ * çalınacağı anda aygıt değişimiyle ya da bağlamın açılışıyla yarışmasın.
+ */
+export function prepareSounds(): void {
+  void ready()
+    .then((ac) => {
+      for (const name of ['join', 'leave', 'mute', 'unmute', 'userJoin', 'userLeave'] as const) buffer(ac, name);
+    })
+    .catch(() => undefined);
+}
+
+// Çıkış aygıtı değişince bağlam hemen taşınır (bir sonraki ses beklemesin)
+useSettings.subscribe((next, prev) => {
+  if (ctx && next.outputDeviceId !== prev.outputDeviceId) applySink(ctx);
+});
+
+function selfDeafened(): boolean {
+  const s = getSettings();
+  if (s.selfDeaf) return true;
+  const selfId = useSession.getState().user?.id;
+  return selfId !== undefined && useGuild.getState().voiceStates[selfId]?.serverDeaf === true;
+}
+
+/** Ayarlara göre bu ses çalınmalı mı */
+function allowed(name: SoundName): boolean {
+  const s = getSettings();
+  if (name === 'mention') return s.notificationSound;
+  if (!s.sounds) return false;
+  if ((name === 'pttOn' || name === 'pttOff') && !s.pttSounds) return false;
+  // Sağırken başkalarının kanal olayları duyulmaz; kendi işlemlerinin sesi çalar
+  return !(OTHERS_SOUNDS.has(name) && selfDeafened());
+}
+
+/**
+ * Sesi çalar. `preview`: ayarlardaki dinleme düğmesi (açık/kapalı ayarlarına bakılmaz, seviye uygulanır).
+ */
+export function playSound(name: SoundName, opts: { preview?: boolean } = {}): void {
+  if (!opts.preview && !allowed(name)) return;
+  const volume = getSettings().sfxVolume;
+  if (volume <= 0) return;
+  const now = performance.now();
+  if (now - (lastPlayed.get(name) ?? -Infinity) < SAME_SOUND_GAP_MS) return;
+  lastPlayed.set(name, now);
+  void ready()
+    .then((ac) => {
+      const src = ac.createBufferSource();
+      src.buffer = buffer(ac, name);
+      const gain = ac.createGain();
+      gain.gain.value = volume;
+      src.connect(gain).connect(ac.destination);
+      src.onended = () => gain.disconnect();
+      src.start(ac.currentTime + 0.005);
+    })
+    .catch(() => undefined);
 }

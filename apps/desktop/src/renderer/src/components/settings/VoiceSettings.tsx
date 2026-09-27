@@ -1,7 +1,10 @@
+import { Play } from 'lucide-react';
+import { SOUND_LABELS, SOUND_NAMES } from '@diskort/client-core';
 import { useEffect, useRef, useState } from 'react';
 import { voice } from '../../features/voice/voiceClient';
 import { MIC_TEST_RECORD_MS, type MicTest, type MicTestPhase } from '../../features/voice/micTest';
 import { bridge } from '../../lib/bridge';
+import { playSound } from '../../lib/sfx';
 import { cn, clamp } from '../../lib/utils';
 import { useSettings, type NoiseMode, type NoiseStrengthDb } from '../../stores/settings';
 import { useVoice } from '../../stores/voice';
@@ -334,12 +337,64 @@ export function VoiceSettings() {
       />
 
       <Divider />
-      <Toggle
-        label="Arayüz sesleri"
-        description="Katılma/ayrılma, susturma ve yayın sesleri."
-        checked={s.sounds}
-        onChange={(sounds) => s.set({ sounds })}
-      />
+      <SoundSettings />
     </div>
+  );
+}
+
+/** Ses efektleri: açık/kapalı, seviye ve her sesi dinleme listesi */
+function SoundSettings() {
+  const s = useSettings();
+  const volume = Math.round(s.sfxVolume * 100);
+  return (
+    <>
+      <SectionTitle>Ses Efektleri — %{volume}</SectionTitle>
+      <Slider
+        className="w-full"
+        aria-label="Ses efektleri seviyesi"
+        min={0}
+        max={100}
+        step={5}
+        value={volume}
+        onValueChange={(v) => s.set({ sfxVolume: v / 100 })}
+        // Bırakınca yeni seviyede bir örnek
+        onPointerUp={() => playSound('unmute', { preview: true })}
+        onKeyUp={() => playSound('unmute', { preview: true })}
+      />
+      <div className="mt-4 space-y-4">
+        <Toggle
+          label="Arayüz sesleri"
+          description="Katılma/ayrılma, susturma, sağırlaştırma, yayın ve kanala biri girip çıkınca sesler."
+          checked={s.sounds}
+          onChange={(sounds) => s.set({ sounds })}
+        />
+        <Toggle
+          label="Bildirim sesi"
+          description="Senden bahsedilince ya da direkt mesaj gelince. Rahatsız Etmeyin durumunda çalmaz."
+          checked={s.notificationSound}
+          onChange={(notificationSound) => s.set({ notificationSound })}
+        />
+        <Toggle
+          label="Bas-konuş sesleri"
+          description="Bas-konuş tuşuna basınca ve bırakınca kısa, kısık bir ses."
+          checked={s.pttSounds}
+          onChange={(pttSounds) => s.set({ pttSounds })}
+        />
+      </div>
+      <SectionTitle>Sesleri Dinle</SectionTitle>
+      <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+        {SOUND_NAMES.map((name) => (
+          <button
+            key={name}
+            type="button"
+            onClick={() => playSound(name, { preview: true })}
+            className="press flex items-center gap-2 rounded-[3px] px-2 py-1.5 text-left text-sm text-text-muted hover:bg-bg-hover hover:text-text-normal"
+          >
+            <Play size={14} className="shrink-0 text-text-faint" aria-hidden />
+            <span className="truncate">{SOUND_LABELS[name]}</span>
+          </button>
+        ))}
+      </div>
+    </>
   );
 }

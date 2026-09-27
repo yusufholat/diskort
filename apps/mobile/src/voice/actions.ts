@@ -1,4 +1,4 @@
-import { feedback } from '../haptics';
+import { feedback, haptic, soundCue } from '../haptics';
 import { getSettings } from '../stores/settings';
 import { toast } from '../stores/ui';
 import { useVoice, voice } from './voice';
@@ -40,14 +40,17 @@ export function toggleScreenShare(canStream: boolean): void {
     toast('Bu kanalda ekran paylaşma iznin yok.', 'error');
     return;
   }
-  feedback(sharing ? 'shareStop' : 'shareStart');
+  // Ses paylaşım gerçekten başlayınca / bitince çalınır (Android onayında vazgeçilirse ses yok)
+  haptic(sharing ? 'shareStop' : 'shareStart');
   void voice.toggleScreenShare();
 }
 
 /** Ses kanalına katıl (zaten oradaysa bir şey yapmaz) */
 export function joinVoice(channelId: string): void {
   if (useVoice.getState().channelId === channelId) return;
-  feedback('join');
+  // Katılma sesi bağlantı kurulunca çalınır (voice.ts): önce çalınca ses oturumu görüşme kipine geçerken
+  // kesiliyordu
+  haptic('join');
   voice.join(channelId).catch((err: Error) => {
     feedback('error');
     toast(err.message, 'error');
@@ -55,6 +58,7 @@ export function joinVoice(channelId: string): void {
 }
 
 export function leaveVoice(): void {
-  feedback('leave');
-  void voice.leave();
+  haptic('leave');
+  // Ayrılma sesi ses oturumu kapandıktan sonra (normal kipte) çalınır; görüşme kipinden çıkarken kesilmez
+  void voice.leave().then(() => soundCue('leave'));
 }
