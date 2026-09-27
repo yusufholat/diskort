@@ -2,58 +2,12 @@
 @import './styles/motion.css';
 @import './styles/controls.css';
 
-/* Discord koyu temasına yakın renk paleti */
-@theme {
-  --color-bg-deep: #111214;
-  --color-bg-rail: #1e1f22;
-  --color-bg-side: #2b2d31;
-  --color-bg-main: #313338;
-  --color-bg-input: #1e1f22;
-  --color-bg-hover: #35373c;
-  --color-bg-active: #404249;
-  --color-bg-float: #111214;
-  --color-bg-panel: #232428;
-  --color-line: #3f4147;
-
-  --color-text-normal: #dbdee1;
-  --color-text-muted: #949ba4;
-  --color-text-faint: #6d6f78;
-  --color-text-head: #f2f3f5;
-
-  /* Kenarlar ve ara yüzeyler (siyah temada gölge görünmediği için ayrı belirteç) */
-  --color-edge: rgb(0 0 0 / 0.3);
-  --color-edge-strong: rgb(0 0 0 / 0.6);
-  /* Pencere kenarı: koyu temada yok, siyah temada modalların çerçevesi */
-  --color-frame: transparent;
-  --color-msg-hover: rgb(0 0 0 / 0.06);
-  /* İkincil düğme, kaydırıcı yolu */
-  --color-control: #4e5058;
-  --color-control-hover: #6d6f78;
-  /* Sesli sohbet sahnesindeki yuvarlak düğmeler, sunucu şeridindeki düğmeler */
-  --color-bg-raised: #2b2d31;
-  --color-bg-raised-hover: #404249;
-  --color-scrollbar: #1a1b1e;
-  --color-scrollbar-hover: #141517;
-  --color-skeleton: #3b3d44;
-  --color-skeleton-hi: #484a51;
-
-  --color-brand: #5865f2;
-  --color-brand-hover: #4752c4;
-  --color-ok: #23a55a;
-  --color-danger: #f23f43;
-  --color-danger-hover: #da373c;
-  --color-warn: #f0b232;
-  /* Bağlantılar */
-  --color-link: #00a8fc;
-
-  --font-sans: 'gg sans', 'Segoe UI Variable Text', 'Segoe UI', 'Noto Sans', 'Helvetica Neue', system-ui, sans-serif;
-}
-
 /*
- * Siyah (OLED) tema: zeminler simsiyah, katmanlar çok az açık tonlarla ayrılır, kenarlar görünür gri.
- * Ayarlar → Görünüm'den seçilir; <html data-theme="black"> ile etkinleşir (bkz. lib/theme.ts).
+ * Renk belirteçleri. Temaların tam listesi ve değerleri src/shared/themes.ts'te: arayüz seçili temanın
+ * değerlerini <html> üzerine yazar (lib/theme.ts). Buradaki varsayılanlar Siyah (OLED) temasıdır ve
+ * arayüz yüklenmeden önceki ilk çizimde kullanılır (test/themes.test.ts eşitliği denetler).
  */
-:root[data-theme='black'] {
+@theme {
   --color-bg-deep: #000000;
   --color-bg-rail: #000000;
   --color-bg-side: #0b0b0b;
@@ -64,20 +18,41 @@
   --color-bg-float: #111111;
   --color-bg-panel: #111111;
   --color-line: #2a2a2a;
-  --color-text-faint: #80848e;
-
+  --color-text-normal: #dbdee1;
+  --color-text-muted: #949ba4;
+  --color-text-faint: #878b95;
+  --color-text-head: #f2f3f5;
   --color-edge: #242424;
   --color-edge-strong: #3a3a3a;
   --color-frame: #242424;
   --color-msg-hover: #0f0f0f;
   --color-control: #2e2f33;
   --color-control-hover: #45474e;
+  --color-on-control: #ffffff;
   --color-bg-raised: #1a1a1a;
   --color-bg-raised-hover: #262626;
   --color-scrollbar: #2a2a2a;
   --color-scrollbar-hover: #3a3a3a;
   --color-skeleton: #141414;
   --color-skeleton-hi: #222222;
+  --color-brand: #5865f2;
+  --color-brand-hover: #4752c4;
+  --color-ok: #23a55a;
+  --color-ok-hover: #1a8b4c;
+  --color-ok-text: #2dc770;
+  --color-danger: #f23f43;
+  --color-danger-hover: #da373c;
+  --color-danger-text: #fa777c;
+  --color-warn: #f0b232;
+  --color-link: #00a8fc;
+  --color-mention: #c9cdfb;
+  --color-tint: rgb(255 255 255 / 0.1);
+  --color-float-edge: rgb(255 255 255 / 0.08);
+  --color-check: #80848e;
+  --color-check-hover: #b5bac1;
+  --color-toggle-off: #5c5e66;
+
+  --font-sans: 'gg sans', 'Segoe UI Variable Text', 'Segoe UI', 'Noto Sans', 'Helvetica Neue', system-ui, sans-serif;
 }
 
 @layer base {

@@ -80,10 +80,10 @@ export function FileCard({ attachment }: { attachment: Attachment }) {
       data-attachment-id={attachment.id}
       className="flex w-[min(440px,100%)] items-center gap-3 rounded-lg border border-edge bg-bg-side px-3 py-2.5"
     >
-      <FileIcon type={attachment.contentType} className="shrink-0 text-[#00a8fc]" />
+      <FileIcon type={attachment.contentType} className="shrink-0 text-link" />
       <div className="min-w-0 flex-1">
         <button
-          className="block max-w-full truncate text-left text-[#00a8fc] hover:underline"
+          className="block max-w-full truncate text-left text-link hover:underline"
           data-tooltip={attachment.name}
           onClick={() => downloadAttachment(attachment)}
         >

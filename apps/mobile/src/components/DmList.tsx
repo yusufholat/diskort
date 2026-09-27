@@ -24,7 +24,7 @@ import { EmptyState } from './States';
 import { TypingDots } from './TypingDots';
 import { animateNextLayout, useLayoutAnimationOn } from '../motion';
 import { toast } from '../stores/ui';
-import { colors, createStyles, font, radius, ripple, space } from '../theme';
+import { brandTint, colors, createStyles, font, radius, ripple, space } from '../theme';
 
 const dayMonth = new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short' });
 /** Satır yüksekliği sabit: liste kaydırırken ölçmeden konumları bilir (getItemLayout) */
@@ -86,7 +86,7 @@ export function DmList({ onOpen, selectedId }: { onOpen: (dm: DmChannel) => void
             onChangeText={setQuery}
             placeholder="Konuşma ara"
             placeholderTextColor={colors.faint}
-            selectionColor="rgba(88,101,242,0.5)"
+            selectionColor={brandTint(0.5)}
             cursorColor={colors.head}
             autoCapitalize="none"
             autoCorrect={false}

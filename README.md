@@ -61,7 +61,7 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
 | Global kısayollar / bas-konuş | ✅ | ✅ X11 · ⚠️ Wayland | ✅ (Erişilebilirlik izni) | — |
 | Paket | NSIS kurulum (x64) | AppImage, .deb (x64) | .dmg (Apple Silicon, Intel) | APK (Android 7+) |
 | Otomatik güncelleme | ✅ | ✅ | ❌ (Apple imzası gerekir; indirme sayfasından) | ✅ arayüz kablosuz (OTA), yerel kısım APK ile |
-| Kod imzası | ❌ (SmartScreen uyarısı, yalnızca ilk kurulumda) | — | ad-hoc (ilk açılışta “Yine de Aç”) | kendi anahtarımız |
+| Kod imzası | ❌ şimdilik (SmartScreen uyarısı, yalnızca ilk kurulumda); SignPath Foundation hazırlığı: [docs/kod-imzalama.md](docs/kod-imzalama.md) | — | ad-hoc (ilk açılışta “Yine de Aç”) | kendi anahtarımız |
 
 ## Roller ve yetkiler
 
@@ -433,18 +433,20 @@ değeridir (şu an `https://diskort.ziroo.net`; kullanıcılar giriş ekranında
    git tag v0.1.3 && git push origin v0.1.3
    ```
 4. GitHub Actions (`.github/workflows/release.yml`) Windows, Linux, macOS ve Android paketlerini derleyip
-   taslak (draft) sürüme yükler; Linux paketi sanal ekranda açılış testinden geçer.
+   taslak (draft) sürüme yükler; Linux paketi sanal ekranda açılış testinden geçer. SignPath ayarlıysa
+   Windows işi iki imzalama onayı bekler ([docs/kod-imzalama.md](docs/kod-imzalama.md)).
 5. Taslağı yayınla (`gh release edit v0.1.3 --draft=false --latest`). **Yayınladığın anda bu sürüm
    zorunlu olur:** açılan her uygulama güncellenir, sunucu birkaç dakika içinde eski sürümleri reddeder.
 
 Hatalı bir sürüm yayınlanırsa geri alınmaz (uygulamalar eski sürüme dönmez); düzeltmeyi daha yüksek bir
 sürüm numarasıyla yayınla. Acil durumda sunucuda `CLIENT_UPDATE_ENFORCE=0` ile zorunluluğu geçici olarak kapat.
 
-Yalnızca Windows paketini kendi bilgisayarından yüklemek için: `pnpm release:win`.
+Yalnızca Windows paketini kendi bilgisayarından yüklemek için: `pnpm release:win` (imzasız; kod imzalama
+etkinleştirildikten sonra kullanma).
 
 ## Yol haritası
 
-- Kod imzalama (Windows: Certum Open Source veya SignPath Foundation; macOS: Apple Developer ID)
+- Kod imzalama (Windows: SignPath Foundation başvurusu, bkz. [docs/kod-imzalama.md](docs/kod-imzalama.md); macOS: Apple Developer ID)
 - Mesaj arama, özel (sunucuya ait) emojiler, satır içi video oynatma
 - Direkt mesajlarda sesli/görüntülü arama; Android'de rol ve kanal izni düzenleme
 - Kamera, Linux/macOS'ta yayın sesi, mobil uygulama

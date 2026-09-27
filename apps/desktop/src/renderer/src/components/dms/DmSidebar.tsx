@@ -84,7 +84,7 @@ const DmRow = memo(function DmRow({ dm, selected }: { dm: DmChannel; selected: b
   return (
     <div className="group/item relative mb-0.5">
       {highlight && (
-        <span className="anim-indicator-in absolute top-1/2 -left-2 h-2 w-1 origin-left -translate-y-1/2 rounded-r bg-white" />
+        <span className="anim-indicator-in absolute top-1/2 -left-2 h-2 w-1 origin-left -translate-y-1/2 rounded-r bg-text-head" />
       )}
       <button
         className={cn(

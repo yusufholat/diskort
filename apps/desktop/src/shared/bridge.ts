@@ -1,4 +1,5 @@
 // Electron ana süreci, preload ve arayüz arasında paylaşılan IPC tipleri.
+import type { ThemeId } from './themes';
 
 export type Keybind =
   | { kind: 'key'; keycode: number; ctrl: boolean; alt: boolean; shift: boolean; meta: boolean; label: string }
@@ -37,7 +38,7 @@ export interface AppPreferences {
 }
 
 /** Arayüz teması (pencerenin zemin ve başlık çubuğu renkleri buna uyar) */
-export type AppTheme = 'dark' | 'black';
+export type AppTheme = ThemeId;
 
 export interface TrayState {
   connected: boolean;

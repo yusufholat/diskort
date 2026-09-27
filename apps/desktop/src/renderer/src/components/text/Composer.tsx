@@ -300,7 +300,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
                 </>
               ) : (
                 <>
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand/30 text-[#c9cdfb]">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand/30 text-mention">
                     <AtSign size={14} />
                   </span>
                   <span className="font-medium">@{item.mention.name}</span>

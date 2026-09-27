@@ -10,7 +10,7 @@ import { EmptyState } from '../components/States';
 import { Button } from '../components/ui';
 import { animateNextLayout, useBump } from '../motion';
 import { showChat } from '../stores/nav';
-import { colors, createStyles, font, radius, ripple, space } from '../theme';
+import { brandTint, colors, createStyles, font, radius, ripple, space } from '../theme';
 
 const NOBODY: string[] = [];
 
@@ -116,7 +116,7 @@ export default function NewDmScreen() {
           onChangeText={setQuery}
           placeholder="Kullanıcı ara"
           placeholderTextColor={colors.faint}
-          selectionColor="rgba(88,101,242,0.5)"
+          selectionColor={brandTint(0.5)}
           cursorColor={colors.head}
           autoCapitalize="none"
           autoCorrect={false}
@@ -163,7 +163,7 @@ export default function NewDmScreen() {
             maxLength={DM_NAME_MAX_LENGTH}
             placeholder="Grup adı (isteğe bağlı)"
             placeholderTextColor={colors.faint}
-            selectionColor="rgba(88,101,242,0.5)"
+            selectionColor={brandTint(0.5)}
             cursorColor={colors.head}
             style={styles.nameInput}
           />

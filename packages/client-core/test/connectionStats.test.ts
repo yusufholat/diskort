@@ -54,6 +54,26 @@ describe('getStats raporunu okuma', () => {
     expect(video).toMatchObject({ direction: 'in', codec: 'video/AV1', frameWidth: 1920, framesPerSecond: 60 });
   });
 
+  it('react-native-webrtc raporu: yerel modülün JSON [id, kayıt] dizisinden kurulan Map aynı okunur', () => {
+    // @livekit/react-native-webrtc: getStats() → new Map(JSON.parse(peerConnectionGetStats(...)));
+    // Android'de zaman damgası mikro saniyeden ondalıklı milisaniyeye çevrilir
+    const toNative = (stats: { id: string; timestamp?: number }[]): Map<string, unknown> =>
+      new Map(
+        JSON.parse(
+          JSON.stringify(stats.map((s) => [s.id, { ...s, timestamp: (s.timestamp ?? 0) + 0.123 }])),
+        ) as [string, unknown][],
+      );
+    for (const report of [publisherReport(1), subscriberReport(1)]) {
+      const native = parseTransportStats(toNative(report), 1000);
+      expect(native).toEqual(parseTransportStats(report, 1000));
+      expect(native!.rttMs).not.toBeNull();
+      expect(native!.local?.candidateType).not.toBeNull();
+    }
+    const a = parseTransportStats(toNative(publisherReport(0)), 0)!;
+    const b = parseTransportStats(toNative(publisherReport(1)), 2000)!;
+    expect(describeTransport(b, a).bitrateOut).toBe(32_000);
+  });
+
   it('boş rapor', () => {
     expect(parseTransportStats([])).toBeNull();
     expect(parseTransportStats(new Map())).toBeNull();

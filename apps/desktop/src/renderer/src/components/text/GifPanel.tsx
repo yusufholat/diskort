@@ -191,7 +191,7 @@ export function GifPanel({ onSend }: { onSend: (gif: GifResult) => void }) {
         ) : error && results.length === 0 ? (
           <div className="flex flex-col items-center gap-2 px-6 py-10 text-center text-sm text-text-muted">
             <span>{error}</span>
-            <button className="text-[#00a8fc] hover:underline" onClick={retryGifs}>
+            <button className="text-link hover:underline" onClick={retryGifs}>
               Tekrar dene
             </button>
           </div>
