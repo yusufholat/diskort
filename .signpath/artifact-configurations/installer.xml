@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration "installer": the NSIS setup built by electron-builder.
+  Paste into SignPath: Project "diskort" > Artifact Configurations > new configuration, slug "installer".
+
+  Input: GitHub Actions artifact "diskort-installer-unsigned" uploaded by .github/workflows/release.yml,
+  a ZIP with only Diskort-Setup-<version>.exe at its root. That installer already contains the
+  Diskort.exe signed by the preceding "app" signing request.
+
+  Parameter "version" is passed by the workflow (apps/desktop/package.json, e.g. 0.6.5);
+  the installer's Windows ProductVersion is exactly that string.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file path="Diskort-Setup-${version}.exe" product-name="Diskort" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>
