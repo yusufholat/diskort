@@ -209,7 +209,7 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
         reply,
         400,
         'owner',
-        'Sunucunun sahibi hesabını silemez. Önce Sunucu Ayarları > Üyeler bölümünden sahipliği başka birine devret.',
+        'Sunucunun sahibi hesabını silemez. Önce Sunucu Ayarları > Genel bölümünden sahipliği başka birine devret.',
       );
     }
     await removeAccount(ctx, req.user.id, 'Hesabın silindi.');
