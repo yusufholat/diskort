@@ -1,7 +1,8 @@
 // Arayüz sesleri (katıl, ayrıl, sustur, sağırlaştır, yayın, biri girdi/çıktı, bahsedilme, bağlantı): tek
-// tanımdan (packages/client-core/src/sfx.ts) üretilmiş WAV dosyaları (scripts/generate-sounds.mjs); masaüstü
-// aynı sesleri çalar. expo-audio ile çalınır, haptics.ts'e takılır; çağıran yerler feedback('mute') /
-// soundCue('userJoin') kullanır. Ayarlar → Ses: aç/kapat, seviye ("Ses efektleri") ve dinleme listesi.
+// tanımdan (packages/client-core/src/sfx.ts) üretilmiş WAV dosyaları (scripts/generate-sounds.mjs; her ses
+// paketi için ayrı klasör: assets/sounds/soft, assets/sounds/classic); masaüstü aynı sesleri çalar. expo-audio
+// ile çalınır, haptics.ts'e takılır; çağıran yerler feedback('mute') / soundCue('userJoin') kullanır.
+// Ayarlar → Ses: aç/kapat, seviye ("Ses efektleri"), ses paketi ve dinleme listesi.
 //
 // Görüşme sesiyle birlikte çalmalı: expo-audio'nun "mixWithOthers" kipinde ses odağı (audio focus)
 // istenmez, LiveKit'in görüşmesi kısılmaz ya da duraklatılmaz. Dikkat: setAudioModeAsync Android'de ses
@@ -14,7 +15,7 @@
 //
 // Yerel modül yalnızca yeni APK'larda var: yoksa (ör. eski APK) ses sessizce atlanır, titreşim sürer.
 
-import { OTHERS_SOUNDS, useGuild, useSession, type SoundName } from '@diskort/client-core';
+import { OTHERS_SOUNDS, useGuild, useSession, type SoundName, type SoundPack } from '@diskort/client-core';
 import { requireOptionalNativeModule } from 'expo';
 import { Platform } from 'react-native';
 import type * as ExpoAudio from 'expo-audio';
@@ -24,26 +25,46 @@ import { getSettings, useSettings } from './stores/settings';
 /** Telefonda çalınan sesler (bas-konuş telefonda yok) */
 export type MobileSoundName = Exclude<SoundName, 'pttOn' | 'pttOff'>;
 
-const FILES: Record<MobileSoundName, number> = {
-  join: require('../assets/sounds/join.wav'),
-  leave: require('../assets/sounds/leave.wav'),
-  userJoin: require('../assets/sounds/userJoin.wav'),
-  userLeave: require('../assets/sounds/userLeave.wav'),
-  mute: require('../assets/sounds/mute.wav'),
-  unmute: require('../assets/sounds/unmute.wav'),
-  deafen: require('../assets/sounds/deafen.wav'),
-  undeafen: require('../assets/sounds/undeafen.wav'),
-  streamStart: require('../assets/sounds/streamStart.wav'),
-  streamStop: require('../assets/sounds/streamStop.wav'),
-  userStreamStart: require('../assets/sounds/userStreamStart.wav'),
-  userStreamStop: require('../assets/sounds/userStreamStop.wav'),
-  mention: require('../assets/sounds/mention.wav'),
-  disconnect: require('../assets/sounds/disconnect.wav'),
-  reconnected: require('../assets/sounds/reconnected.wav'),
+// Metro yalnızca sabit yollu require() ile paketler: her paket için her dosya ayrı yazılır
+const FILES: Record<SoundPack, Record<MobileSoundName, number>> = {
+  soft: {
+    join: require('../assets/sounds/soft/join.wav'),
+    leave: require('../assets/sounds/soft/leave.wav'),
+    userJoin: require('../assets/sounds/soft/userJoin.wav'),
+    userLeave: require('../assets/sounds/soft/userLeave.wav'),
+    mute: require('../assets/sounds/soft/mute.wav'),
+    unmute: require('../assets/sounds/soft/unmute.wav'),
+    deafen: require('../assets/sounds/soft/deafen.wav'),
+    undeafen: require('../assets/sounds/soft/undeafen.wav'),
+    streamStart: require('../assets/sounds/soft/streamStart.wav'),
+    streamStop: require('../assets/sounds/soft/streamStop.wav'),
+    userStreamStart: require('../assets/sounds/soft/userStreamStart.wav'),
+    userStreamStop: require('../assets/sounds/soft/userStreamStop.wav'),
+    mention: require('../assets/sounds/soft/mention.wav'),
+    disconnect: require('../assets/sounds/soft/disconnect.wav'),
+    reconnected: require('../assets/sounds/soft/reconnected.wav'),
+  },
+  classic: {
+    join: require('../assets/sounds/classic/join.wav'),
+    leave: require('../assets/sounds/classic/leave.wav'),
+    userJoin: require('../assets/sounds/classic/userJoin.wav'),
+    userLeave: require('../assets/sounds/classic/userLeave.wav'),
+    mute: require('../assets/sounds/classic/mute.wav'),
+    unmute: require('../assets/sounds/classic/unmute.wav'),
+    deafen: require('../assets/sounds/classic/deafen.wav'),
+    undeafen: require('../assets/sounds/classic/undeafen.wav'),
+    streamStart: require('../assets/sounds/classic/streamStart.wav'),
+    streamStop: require('../assets/sounds/classic/streamStop.wav'),
+    userStreamStart: require('../assets/sounds/classic/userStreamStart.wav'),
+    userStreamStop: require('../assets/sounds/classic/userStreamStop.wav'),
+    mention: require('../assets/sounds/classic/mention.wav'),
+    disconnect: require('../assets/sounds/classic/disconnect.wav'),
+    reconnected: require('../assets/sounds/classic/reconnected.wav'),
+  },
 };
 
 /** Ayarlardaki dinleme listesi */
-export const MOBILE_SOUND_NAMES = Object.keys(FILES) as MobileSoundName[];
+export const MOBILE_SOUND_NAMES = Object.keys(FILES.soft) as MobileSoundName[];
 
 /** Olay → ses. Hoparlör, yönetim ve hata olaylarının sesi yok (masaüstünde de yok), yalnızca titreşim. */
 const EVENT_SOUND: Partial<Record<SoundEvent, MobileSoundName>> = {
@@ -64,6 +85,7 @@ const EVENT_SOUND: Partial<Record<SoundEvent, MobileSoundName>> = {
   reconnected: 'reconnected',
 };
 
+/** Hazır oynatıcılar (seçili ses paketinin); paket değişince bırakılır, yenileri istendikçe açılır */
 const players = new Map<MobileSoundName, ExpoAudio.AudioPlayer>();
 let audio: typeof ExpoAudio | null = null;
 
@@ -71,7 +93,7 @@ function player(name: MobileSoundName): ExpoAudio.AudioPlayer | null {
   if (!audio) return null;
   let p = players.get(name);
   if (!p) {
-    p = audio.createAudioPlayer(FILES[name], { keepAudioSessionActive: Platform.OS === 'ios' });
+    p = audio.createAudioPlayer(FILES[getSettings().soundPack][name], { keepAudioSessionActive: Platform.OS === 'ios' });
     p.volume = getSettings().sfxVolume;
     players.set(name, p);
   }
@@ -145,9 +167,13 @@ export function setupSounds(): void {
   // İlk çalışta gecikme olmasın diye en sık kullanılanlar önceden hazırlanır
   for (const name of ['mute', 'unmute', 'join', 'leave'] as const) player(name);
   setFeedbackSound(play);
-  // Seviye değişince hazır oynatıcılar da güncellenir
   useSettings.subscribe((next, prev) => {
-    if (next.sfxVolume === prev.sfxVolume) return;
-    for (const p of players.values()) p.volume = next.sfxVolume;
+    // Ses paketi değişince eski paketin oynatıcıları bırakılır (sıradaki çalışta yenisi açılır)
+    if (next.soundPack !== prev.soundPack) {
+      for (const p of players.values()) p.remove();
+      players.clear();
+    }
+    // Seviye değişince hazır oynatıcılar da güncellenir
+    if (next.sfxVolume !== prev.sfxVolume) for (const p of players.values()) p.volume = next.sfxVolume;
   });
 }

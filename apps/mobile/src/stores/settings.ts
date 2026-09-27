@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DEFAULT_SOUND_PACK, isSoundPack, type SoundPack } from '@diskort/client-core';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
@@ -41,6 +42,8 @@ interface MobileSettings {
   sounds: boolean;
   /** Arayüz seslerinin seviyesi (0–1; telefonun medya sesiyle çarpılır) */
   sfxVolume: number;
+  /** Arayüz seslerinin paketi (Yumuşak / Klasik); bkz. client-core sfx.ts */
+  soundPack: SoundPack;
   /** Uygulama açıkken bahsedilince ve direkt mesaj gelince ses (Rahatsız Etmeyin durumunda çalmaz) */
   notificationSound: boolean;
   /** Mesajlardaki bağlantıların önizlemeleri (kart, YouTube, resim) gösterilsin mi */
@@ -68,6 +71,7 @@ export const useSettings = create<MobileSettings>()(
       haptics: true,
       sounds: true,
       sfxVolume: 1,
+      soundPack: DEFAULT_SOUND_PACK,
       notificationSound: true,
       linkPreviews: true,
       set: (patch) => set(patch),
@@ -86,6 +90,13 @@ export const useSettings = create<MobileSettings>()(
           return { ...rest, noiseMode: noiseSuppression === false ? 'off' : 'dpdfnet' } as unknown as MobileSettings;
         }
         return state as unknown as MobileSettings;
+      },
+      // Ses paketi ayarı yeni: kayıtlı ayarlarda yoksa (herkes) varsayılan Yumuşak paket kullanılır;
+      // tanınmayan bir değer de (ör. kaldırılmış bir paket) varsayılana döner.
+      merge: (persisted, current) => {
+        const merged = { ...current, ...(persisted as Partial<MobileSettings>) };
+        if (!isSoundPack(merged.soundPack)) merged.soundPack = DEFAULT_SOUND_PACK;
+        return merged;
       },
     },
   ),
