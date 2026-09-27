@@ -41,6 +41,11 @@ const bridge: DiskortBridge = {
     onEvent: (cb) => listen<HotkeyEvent>('hotkey', cb),
   },
 
+  feedback: {
+    capture: () => ipcRenderer.invoke('feedback:capture'),
+    systemInfo: () => ipcRenderer.invoke('feedback:system-info'),
+  },
+
   updates: {
     // Ana süreç, pencere oluşturulurken destek türünü komut satırı argümanıyla bildirir
     support: (process.argv.find((a) => a.startsWith('--diskort-update-support='))?.split('=')[1] ??

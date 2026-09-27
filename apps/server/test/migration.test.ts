@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ALL_PERMISSIONS, hasPermission, Permission as P } from '@diskort/shared';
 import { MIGRATIONS, Store } from '../src/db.js';
+import { FeedbackStore } from '../src/feedbackStore.js';
 import { PermissionService } from '../src/permissions.js';
 
 const dirs: string[] = [];
@@ -208,8 +209,7 @@ describe('göç 11: GIF ve videolar', () => {
   it('şema 8 veritabanı 9, 10 ve 11 ile göçer; eski kayıtlar korunur, GIF ve video bilgisi saklanır', () => {
     const store = new Store(schema8Database());
     try {
-      expect(MIGRATIONS).toHaveLength(11);
-      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 11 });
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
       expect(store.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
       const [first, second] = store.listMessages('t1', null, 50, 'u1');
       expect(first).toMatchObject({ content: 'selam', embeds: [], replyToId: null });
@@ -254,6 +254,75 @@ describe('göç 11: GIF ve videolar', () => {
         duration: 12.5,
       });
       expect(store.getAttachment('b'.repeat(32))!.attachment).toMatchObject({ duration: 12.5, width: 1920 });
+    } finally {
+      store.close();
+    }
+  });
+});
+
+/** 0.5.0 sürümündeki (şema 11, üretimdeki) gibi bir veritabanı: kanal mesajı, yanıt, DM konuşması, video */
+function schema11Database(): string {
+  const file = schema8Database();
+  const db = new DatabaseSync(file);
+  // Göç 9 tabloyu yeniden kurduğundan yabancı anahtar denetimi kapalıyken (Store.migrate gibi)
+  db.exec('PRAGMA foreign_keys = OFF');
+  for (const sql of MIGRATIONS.slice(8, 11)) db.exec(sql);
+  db.exec('PRAGMA user_version = 11');
+  db.exec('PRAGMA foreign_keys = ON');
+  db.exec(`
+    INSERT INTO channels (id, guild_id, name, type, position, created_at) VALUES ('d1', NULL, '', 'dm', 0, 8);
+    INSERT INTO dm_channels (channel_id, pair_key, owner_id) VALUES ('d1', 'u1:u2', NULL);
+    INSERT INTO dm_participants (channel_id, user_id, joined_at, open) VALUES ('d1', 'u1', 8, 1), ('d1', 'u2', 8, 1);
+    INSERT INTO messages (channel_id, author_id, content, created_at) VALUES ('d1', 'u2', 'özel', 9);
+    UPDATE messages SET reply_to_id = 1 WHERE id = 2;
+    UPDATE attachments SET duration = 3.5 WHERE id = 'a1';
+  `);
+  db.close();
+  return file;
+}
+
+describe('göç 12: geri bildirimler', () => {
+  it('şema 11 veritabanı 12 ile göçer; önceki veriler (DM, yanıt, video) korunur, geri bildirim yazılır', () => {
+    const store = new Store(schema11Database());
+    try {
+      const db = store.db;
+      expect(MIGRATIONS).toHaveLength(12);
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 12 });
+      expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+      expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+      const count = (table: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+      expect([count('channels'), count('messages'), count('dm_participants'), count('reactions')]).toEqual([3, 3, 2, 1]);
+      const [first, second] = store.listMessages('t1', null, 50, 'u1');
+      expect(first!.attachments[0]).toMatchObject({ id: 'a1', duration: 3.5 });
+      expect(second).toMatchObject({ content: 'naber', replyToId: first!.id });
+      expect(store.listMessages('d1', null, 50, 'u1').map((m) => m.content)).toEqual(['özel']);
+
+      const feedback = new FeedbackStore(db);
+      expect(feedback.ready()).toBe(true);
+      const created = feedback.create({
+        userId: 'u1',
+        type: 'hata',
+        title: null,
+        body: 'Göçten sonra',
+        context: { platform: 'desktop', view: 'direkt mesaj' },
+        screenshotIds: [],
+      });
+      expect(feedback.list()).toEqual([created]);
+      // Hesap silinince geri bildirim kalır, gönderen boşalır
+      store.deleteUser('u1');
+      expect(feedback.get(created.id)!.userId).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
+  it('yeniden açılışta göç tekrar çalışmaz; çalışsa da zararsızdır (IF NOT EXISTS)', () => {
+    const file = schema11Database();
+    new Store(file).close();
+    const store = new Store(file);
+    try {
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 12 });
+      expect(() => store.db.exec(MIGRATIONS[11]!)).not.toThrow();
     } finally {
       store.close();
     }

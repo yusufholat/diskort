@@ -11,11 +11,12 @@ export type Modal =
   | { type: 'newDm'; addTo?: string }
   /** Grup konuşmasının adını değiştirmek */
   | { type: 'renameDm'; channelId: string }
+  | { type: 'feedback' }
   | null;
 
-export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app';
+export type SettingsSection = 'account' | 'voice' | 'stream' | 'keybinds' | 'app' | 'feedback';
 
-export type ServerSettingsSection = 'overview' | 'roles' | 'members' | 'invites' | 'bans';
+export type ServerSettingsSection = 'overview' | 'roles' | 'members' | 'invites' | 'bans' | 'feedback';
 
 export interface ContextMenuItem {
   label: string;

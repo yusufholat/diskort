@@ -37,7 +37,10 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
   kanal başına rol izinleri (özel, salt okunur kanallar, yalnızca bazı rollerin girebildiği ses kanalları),
   hiyerarşi; sunucuda susturma/sağırlaştırma, başka kanala taşıma, sesten çıkarma, atma ve yasaklama
   (ayrıntılar: [Roller ve yetkiler](#roller-ve-yetkiler))
-- **Sunucu Ayarları** (sunucu adının yanındaki menü): genel, roller, üyeler, davetler, yasaklar
+- **Sunucu Ayarları** (sunucu adının yanındaki menü): genel, roller, üyeler, davetler, yasaklar, geri bildirimler
+- **Uygulama içi geri bildirim:** hata/öneri/diğer, en fazla 3 ekran görüntüsü (masaüstünde yalnızca Diskort
+  penceresinin görüntüsü), isteğe bağlı teknik bilgiler; gönderen durumunu "Geri bildirimlerim"de izler
+  (ayrıntılar: [Geri bildirim](#geri-bildirim))
 - **Yedek bağlantı:** doğrudan UDP kurulamayan ağlarda TURN/UDP 3478, yalnızca 443'e izin veren ağlarda
   (okul, yurt, iş yeri) TURN/TLS 443 — röle üzerinden gecikme doğrudan bağlantıya göre ~2 ms fazla (ölçüldü)
 - Tepsiye küçültme, başlangıçta açılma, otomatik güncelleme
@@ -137,6 +140,60 @@ yönetici rolünü verir/alır; yeni olayları tanımadan geçerler).
   bildirimleri üst üste biner (etiket). Dokununca konuşma açılır.
 - Veri modeli DM'de sesli aramaya hazır: konuşma bir kanal olduğundan LiveKit odası (`ch_<kimlik>`) ve yetkiler
   (bağlanma, konuşma) aynı yoldan eklenebilir.
+
+## Geri bildirim
+
+Arkadaşlar uygulamanın içinden hata ve öneri gönderir; sahip/yöneticiler inceler, durumunu değiştirir.
+
+- **Gönderme:** masaüstünde sol çubuğun altındaki yeşil düğme ya da Kullanıcı Ayarları > "Geri bildirim gönder";
+  Android'de Ayarlar > "Geri bildirim gönder". Tür (Hata / Öneri / Diğer), isteğe bağlı başlık, açıklama (en fazla
+  4000 karakter) ve en fazla 3 resim. Masaüstündeki "Uygulamanın ekran görüntüsünü ekle" yalnızca Diskort
+  penceresini çeker (`webContents.capturePage`; masaüstü ya da başka pencereler asla), pencere bir anlığına gizlenir.
+  Resim dosyası da eklenebilir ya da yapıştırılabilir; Android'de galeriden seçilir.
+- **Teknik bilgiler** (kullanıcı "Gönderilecek teknik bilgiler"de görür, kutuyu kaldırıp göndermeyebilir):
+  uygulama sürümü, platform, işletim sistemi ve sürümü, cihaz/mimari, ekran ve pencere boyutu, açık görünümün
+  türü (metin kanalı / ses sahnesi; mesaj ya da kanal adı değil), seste olup olmadığı ve bu oturumdaki son 10
+  uygulama hatasının mesajı. Sunucu bilinmeyen alanları atar.
+- **Sınırlar:** kullanıcı başına saatte 5 geri bildirim; resimler en fazla 12 MB, sunucuda WebP'ye çevrilir (en
+  uzun kenar 2560 px, EXIF/konum dahil hiçbir üst veri kalmaz) ve `/data/feedback/` altında durur.
+- **Ekran görüntüleri herkese açık değildir:** `GET /api/feedback/screenshots/<id>` oturum jetonu ister ve yalnızca
+  Sunucuyu Yönet (ya da Yönetici) yetkililerine ve gönderene verir (masaüstü jetonla indirip blob adresiyle,
+  Android başlıklı `<Image>` ile gösterir).
+- **Durumlar:** `yeni` → `incelendi` / `planlandi` / `tamamlandi` / `reddedildi`. Yöneticinin notunu gönderen de
+  görür ("Yanıt"). Durum değişince gönderenin uygulamasında bildirim çıkar; yeni geri bildirimler yetkililerde
+  kırmızı rozetle görünür (sunucu adı, menüde "Geri Bildirimler", Sunucu Ayarları > Geri Bildirimler).
+- **API:** `POST /api/feedback/screenshots` (ham resim) → `POST /api/feedback` (herkes), `GET /api/feedback/mine`,
+  `GET /api/feedback/:id` (gönderen ya da yetkili); `GET /api/feedback?status=&type=`, `GET /api/feedback/stats`,
+  `PATCH /api/feedback/:id` (`status`, `adminNote`), `DELETE /api/feedback/:id` (Sunucuyu Yönet ya da Yönetici).
+
+### Geri bildirimleri sunucuda okumak (komut satırı)
+
+API imajında `dist/feedback-cli.js` vardır. Veritabanını doğrudan okur (sunucu çalışırken de güvenli); yalnızca
+geri bildirim verisini yazdırır, ortam değişkenlerine ve gizli anahtarlara dokunmaz. Sunucuda `infra` klasöründe:
+
+```bash
+cd /opt/diskort/infra
+docker compose exec api node dist/feedback-cli.js list                     # en yeni 50
+docker compose exec api node dist/feedback-cli.js list --status yeni --json # yeni olanlar, JSON
+docker compose exec api node dist/feedback-cli.js list --type hata --limit 20
+docker compose exec api node dist/feedback-cli.js show 12                   # ayrıntı, teknik bilgiler, resim yolları
+docker compose exec api node dist/feedback-cli.js show 12 --json
+docker compose exec api node dist/feedback-cli.js set 12 planlandi "0.4.5 ile gelecek"   # durum (+ isteğe bağlı not)
+docker compose exec api node dist/feedback-cli.js note 12 "Düzeltildi, güncelle"         # yalnızca not ("" siler)
+docker compose exec api node dist/feedback-cli.js stats
+```
+
+Ekran görüntüsünü bilgisayara almak: `show` çıktısındaki yolu kullan, ör.
+`docker compose cp api:/data/feedback/<id>.webp /tmp/` ve ardından `scp` ile indir.
+Komut satırından yapılan değişiklik açık uygulamalara anında gitmez; listeler yeniden açılınca görünür
+(uygulamadaki değişiklikler ise anında iletilir).
+
+**Önerilen iş akışı:** yeni geri bildirimleri `list --status yeni --json` ile oku, her birini bir göreve çevir,
+`set <id> incelendi` (ya da `planlandi` / `reddedildi` ve kısa bir not) ile işaretle; sürüm çıkınca
+`set <id> tamamlandi "0.x.y ile düzeltildi"`. Gönderen durumu ve notu uygulamada görür.
+
+Ekran görüntüleri `infra/backup-attachments.sh` ile her gün `BACKUP_DIR/feedback`'e de kopyalanır; geri
+bildirim kayıtları veritabanı yedeğindedir.
 
 ## Mimari
 

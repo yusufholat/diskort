@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { MessagesSquare } from 'lucide-react';
+import { MessageSquareHeart, MessagesSquare } from 'lucide-react';
 import type { DmChannel } from '@diskort/shared';
 import {
   dmTitle,
@@ -21,6 +21,7 @@ import { DmAvatar } from './dms/DmAvatar';
  */
 export function GuildRail() {
   const guild = useGuild((s) => s.guild);
+  const openModal = useUi((s) => s.openModal);
   const view = useMainView();
   const inDms = isDmSection(view);
   const dmUnread = useDmUnreadTotal();
@@ -63,6 +64,16 @@ export function GuildRail() {
           {initials(guild?.name ?? 'D')}
         </div>
       </RailItem>
+      {/* Geri bildirim: Discord'un "Sunucu ekle" düğmesi gibi, en altta */}
+      <button
+        className="press mt-auto flex h-12 w-12 shrink-0 items-center justify-center rounded-3xl bg-bg-main text-ok transition-[border-radius,background-color,color] duration-200 hover:rounded-2xl hover:bg-ok hover:text-white"
+        data-tooltip="Geri bildirim gönder"
+        data-tooltip-side="right"
+        aria-label="Geri bildirim gönder"
+        onClick={() => openModal({ type: 'feedback' })}
+      >
+        <MessageSquareHeart size={22} />
+      </button>
     </nav>
   );
 }

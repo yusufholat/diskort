@@ -21,6 +21,8 @@ import { ChannelModal } from './modals/ChannelModal';
 import { ScreenSharePicker } from './modals/ScreenSharePicker';
 import { ServerSettingsModal } from './serverSettings/ServerSettingsModal';
 import { SettingsModal } from './settings/SettingsModal';
+import { FeedbackModal } from './feedback/FeedbackModal';
+import { useFeedbackToasts } from '../features/feedback/useFeedbackToasts';
 
 export function MainLayout() {
   const token = useSession((s) => s.token);
@@ -34,6 +36,7 @@ export function MainLayout() {
   const selfId = useSession((s) => s.user?.id);
   const dmName = useGuild((s) => (dm ? dmTitle(dm, s.users, selfId) : ''));
   const voiceError = useVoice((s) => s.error);
+  useFeedbackToasts();
   // Kapanan pencere, kapanış animasyonu bitene kadar ekranda kalır
   const { value: modal, closing: modalClosing } = usePresence(
     useUi((s) => s.modal),
@@ -111,6 +114,7 @@ export function MainLayout() {
         {modal?.type === 'image' && <ImageViewer attachment={modal.attachment} />}
         {modal?.type === 'newDm' && <NewDmModal addTo={modal.addTo} />}
         {modal?.type === 'renameDm' && <RenameDmModal channelId={modal.channelId} />}
+        {modal?.type === 'feedback' && <FeedbackModal />}
       </PresenceProvider>
       <BanModal />
     </div>

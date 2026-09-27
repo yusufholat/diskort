@@ -144,7 +144,7 @@ async function normalize(input: Buffer): Promise<Buffer> {
 }
 
 /** Gövdeyi en fazla `max` bayt olacak şekilde belleğe okur. */
-async function readLimited(body: Readable, declaredSize: number | null, max: number): Promise<Buffer> {
+export async function readLimited(body: Readable, declaredSize: number | null, max: number): Promise<Buffer> {
   const tooLarge = new UploadError(413, 'too_large', `Resim çok büyük (en fazla ${max / 1024 / 1024} MB).`);
   if (declaredSize !== null && declaredSize > max) throw tooLarge;
   const chunks: Buffer[] = [];

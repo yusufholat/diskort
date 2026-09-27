@@ -1,9 +1,9 @@
 import { ChevronDown, Plus } from 'lucide-react';
 import { Permission, type ChannelType } from '@diskort/shared';
 import { useMainView } from '../../lib/mainView';
-import { useCan, useGuild } from '@diskort/client-core';
+import { useCan, useFeedback, useGuild } from '@diskort/client-core';
 import { useUi, type ContextMenuItem } from '../../stores/ui';
-import { useServerSettingsSections } from '../serverSettings/ServerSettingsModal';
+import { CountBadge, useServerSettingsSections } from '../serverSettings/ServerSettingsModal';
 import { TextChannelItem } from './TextChannelItem';
 import { UserPanel } from './UserPanel';
 import { VoiceChannelItem } from './VoiceChannelItem';
@@ -14,6 +14,8 @@ export function ChannelSidebar() {
   const channels = useGuild((s) => s.channels);
   const canManageChannels = useCan(Permission.MANAGE_CHANNELS);
   const canInvite = useCan(Permission.MANAGE_INVITES);
+  const canManageGuild = useCan(Permission.MANAGE_GUILD);
+  const newFeedback = useFeedback((s) => (canManageGuild ? s.newCount : 0));
   const settingsSections = useServerSettingsSections();
   const openModal = useUi((s) => s.openModal);
   const openContextMenu = useUi((s) => s.openContextMenu);
@@ -31,6 +33,15 @@ export function ChannelSidebar() {
       ? [{ label: 'Davet Oluştur', onClick: () => openModal({ type: 'serverSettings', section: 'invites' }) }]
       : []),
     ...(canManageChannels ? [{ label: 'Kanal Oluştur', onClick: () => openModal({ type: 'channel' }) }] : []),
+    ...(canManageGuild
+      ? [
+          {
+            label: 'Geri Bildirimler',
+            hint: newFeedback > 0 ? `${newFeedback} yeni` : undefined,
+            onClick: () => openModal({ type: 'serverSettings', section: 'feedback' }),
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -44,7 +55,10 @@ export function ChannelSidebar() {
         }}
       >
         <span className="truncate">{guild?.name}</span>
-        {menu.length > 0 && <ChevronDown size={18} />}
+        <span className="flex shrink-0 items-center">
+          {newFeedback > 0 && <CountBadge count={newFeedback} className="mr-1.5" />}
+          {menu.length > 0 && <ChevronDown size={18} />}
+        </span>
       </button>
 
       <div className="flex-1 overflow-y-auto px-2 pt-4 pb-2">

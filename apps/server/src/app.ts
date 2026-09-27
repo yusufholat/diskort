@@ -9,6 +9,8 @@ import { ClientVersionPolicy } from './clientVersion.js';
 import type { Config } from './config.js';
 import type { AppContext } from './context.js';
 import { Store } from './db.js';
+import { FeedbackService } from './feedback.js';
+import { FeedbackStore } from './feedbackStore.js';
 import { Gateway } from './gateway.js';
 import { GifService } from './gifs.js';
 import { LiveKitService } from './livekit.js';
@@ -25,6 +27,7 @@ import { registerClientErrorRoutes } from './routes/clientErrors.js';
 import { registerAvatarRoutes } from './routes/avatars.js';
 import { registerDmRoutes } from './routes/dms.js';
 import { registerDownloadRoutes } from './routes/download.js';
+import { registerFeedbackRoutes } from './routes/feedback.js';
 import { registerGifRoutes } from './routes/gifs.js';
 import { registerMessageRoutes } from './routes/messages.js';
 import { registerRoleRoutes } from './routes/roles.js';
@@ -46,6 +49,8 @@ export interface BuildOptions {
   avatarsDir?: string;
   /** Testler için sahte GIPHY */
   gifFetch?: typeof fetch;
+  /** Geri bildirim ekran görüntülerinin klasörü (varsayılan: <DATA_DIR>/feedback) */
+  feedbackDir?: string;
 }
 
 /** Süresi geçmiş yüklemelerin ve artık dosyaların temizlenme aralığı */
@@ -140,6 +145,11 @@ export async function buildApp(
   registerGifRoutes(app, ctx);
   registerUpdateRoutes(app, ctx);
   registerClientErrorRoutes(app, ctx);
+  registerFeedbackRoutes(
+    app,
+    ctx,
+    new FeedbackService(new FeedbackStore(store.db), opts.feedbackDir ?? path.join(config.dataDir, 'feedback'), app.log),
+  );
 
   return { app, ctx };
 }

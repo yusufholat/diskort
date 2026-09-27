@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { api, errorMessage, gateway, removeAvatar, uploadAvatar, useSession } from '@diskort/client-core';
 import { pickAvatar } from '../attachments';
 import { Avatar } from '../components/Avatar';
@@ -20,6 +21,7 @@ export default function SettingsScreen() {
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [savingName, setSavingName] = useState(false);
   const photo = useProfilePhoto();
+  const router = useRouter();
 
   const saveName = async (): Promise<void> => {
     setSavingName(true);
@@ -87,6 +89,10 @@ export default function SettingsScreen() {
       <NotificationSettings />
 
       <VoiceSettings />
+
+      <SectionTitle>Geri Bildirim</SectionTitle>
+      <Text style={styles.warning}>Hata mı buldun, bir fikrin mi var? Gönderdiklerinin durumunu da orada görürsün.</Text>
+      <Button title="Geri bildirim gönder" variant="secondary" onPress={() => router.push('/feedback')} />
 
       <SectionTitle>Uygulama</SectionTitle>
       <Info label="Sürüm" value={APP_VERSION === NATIVE_VERSION ? APP_VERSION : `${APP_VERSION} (APK ${NATIVE_VERSION})`} />

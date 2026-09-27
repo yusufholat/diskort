@@ -27,6 +27,7 @@ import {
   referenceOf,
 } from '@diskort/shared';
 import { AVATAR_COLORS } from '@diskort/shared';
+import { FEEDBACK_MIGRATION } from './feedbackStore.js';
 
 /**
  * Göç 8'de @everyone'a verilen yetkiler: rollerden önce herkesin yapabildikleri (+ yeni @everyone
@@ -255,6 +256,8 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE messages ADD COLUMN embeds TEXT;
   ALTER TABLE attachments ADD COLUMN duration REAL;
   `,
+  // 12: geri bildirimler (feedbackStore.ts). Kendi başınadır ve yeniden çalışsa da zararsızdır (IF NOT EXISTS).
+  FEEDBACK_MIGRATION,
 ];
 
 type Param = string | number | null;
