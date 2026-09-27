@@ -4,6 +4,14 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 export const DEFAULT_SERVER_URL = 'https://diskort.ziroo.net';
 
+/**
+ * Gürültü engelleme: DPDFNet (telefonda çalışan yapay zekâ modeli; masaüstündekiyle aynı), WebRTC'nin
+ * standart engelleyicisi ya da kapalı. DPDFNet'i desteklemeyen APK'larda (yerel modül yok) standart kullanılır.
+ */
+export type NoiseMode = 'dpdfnet' | 'standard' | 'off';
+/** DPDFNet'in bastırma sınırı (dB); 100 = sınırsız. Masaüstündeki seçeneklerle aynı. */
+export type NoiseStrengthDb = 12 | 24 | 40 | 100;
+
 interface MobileSettings {
   serverUrl: string;
   /** Sesli sohbette hoparlör (true) ya da ahize (false); kulaklık/Bluetooth takılıysa o kullanılır */
@@ -16,7 +24,9 @@ interface MobileSettings {
   /** Yayın sesi sessize alınan yayıncılar (seviye korunur; açınca ona dönülür) */
   streamMuted: Record<string, true>;
   /** Mikrofon işleme (WebRTC ve telefonun kendi ses işlemcisi); sesli sohbete katılırken uygulanır */
-  noiseSuppression: boolean;
+  noiseMode: NoiseMode;
+  /** DPDFNet'in gücü; sesli sohbetteyken de anında uygulanır */
+  noiseStrengthDb: NoiseStrengthDb;
   echoCancellation: boolean;
   autoGainControl: boolean;
   /** Ses algılama: konuşmadığın anlarda mikrofon sessize alınır (arka plan sesi gitmez) */
@@ -44,7 +54,8 @@ export const useSettings = create<MobileSettings>()(
       userVolumes: {},
       streamVolumes: {},
       streamMuted: {},
-      noiseSuppression: true,
+      noiseMode: 'dpdfnet',
+      noiseStrengthDb: 24,
       echoCancellation: true,
       autoGainControl: true,
       voiceActivity: true,
@@ -59,6 +70,17 @@ export const useSettings = create<MobileSettings>()(
       name: 'diskort-settings',
       storage: createJSONStorage(() => AsyncStorage),
       partialize: ({ set: _set, ...rest }) => rest,
+      // Sürüm 0 → 1: gürültü engelleme açık/kapalı yerine türü (DPDFNet/standart/kapalı). Açık olan herkes
+      // DPDFNet'e geçer (destek yoksa standart çalışır).
+      version: 1,
+      migrate: (persisted, version) => {
+        const state = (persisted ?? {}) as Record<string, unknown>;
+        if (version < 1) {
+          const { noiseSuppression, ...rest } = state;
+          return { ...rest, noiseMode: noiseSuppression === false ? 'off' : 'dpdfnet' } as unknown as MobileSettings;
+        }
+        return state as unknown as MobileSettings;
+      },
     },
   ),
 );

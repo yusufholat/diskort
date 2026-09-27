@@ -15,6 +15,7 @@ import {
 } from '@diskort/client-core';
 import {
   type AudioCaptureOptions,
+  type LocalAudioTrack,
   type ConnectionQuality,
   ConnectionState,
   DisconnectReason,
@@ -35,6 +36,7 @@ import { soundCue } from '../haptics';
 import { getSettings, useSettings } from '../stores/settings';
 import { toast } from '../stores/ui';
 import { MicGate, SILENT_LEVEL, type GateConfig, type MicLevel } from './micGate';
+import { onNoiseFilterBypass, prepareNoiseFilter, releaseNoiseFilter, webrtcNoiseSuppression } from './noiseFilter';
 
 function disconnectMessage(reason?: DisconnectReason): string {
   switch (reason) {
@@ -151,14 +153,14 @@ function streamGone(s: VoiceStore, identity: string): Partial<VoiceStore> {
  * ayarlarına çevirir (googNoiseSuppression vb.). Android 10+ telefonlarda LiveKit donanım
  * (telefonun kendi) yankı engelleyicisini açar; WebRTC o zaman yazılımınkini kapatıp onu kullanır.
  * Donanım gürültü engelleyicisi ise kapalı (patches/@livekit__react-native: bazı telefonlarda sesi
- * boğuyordu); gürültüyü WebRTC'nin yazılım engelleyicisi azaltır. Seçenekler mikrofon izi
- * oluşturulurken, yani sesli sohbete katılırken uygulanır.
+ * boğuyordu); gürültüyü DPDFNet (noiseFilter.ts; o zaman WebRTC'ninki kapalı) ya da WebRTC'nin yazılım
+ * engelleyicisi azaltır. Seçenekler mikrofon izi oluşturulurken, yani sesli sohbete katılırken uygulanır.
  */
 function captureOptions(): AudioCaptureOptions {
   const s = getSettings();
   const options = {
     echoCancellation: s.echoCancellation,
-    noiseSuppression: s.noiseSuppression,
+    noiseSuppression: webrtcNoiseSuppression(),
     autoGainControl: s.autoGainControl,
     // Alçak frekans uğultusunu (fan, rüzgâr, masa titreşimi) keser; Android eklentisi bu anahtarı okur
     highpassFilter: true,
@@ -192,6 +194,14 @@ class MobileVoiceClient {
   private readonly gate = new MicGate((micLevel) => useVoice.setState({ micLevel }));
 
   constructor() {
+    // DPDFNet yetişemedi ya da hata verdi: mikrofon WebRTC'nin standart gürültü engellemesiyle yeniden açılır
+    onNoiseFilterBypass(() => {
+      toast('DPDFNet gürültü engelleme durdu (telefon yetişemedi ya da hata); standart gürültü engellemeye geçildi.');
+      const track = this.room?.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack as
+        | LocalAudioTrack
+        | undefined;
+      void track?.restartTrack(captureOptions()).catch((err: unknown) => reportClientError(err, 'dpdfnet-restart'));
+    });
     // Bildirimdeki düğmeler
     VoiceService.addListener('onAction', ({ action }) => {
       if (action === 'toggleMute') this.toggleMute();
@@ -260,6 +270,9 @@ class MobileVoiceClient {
         },
       });
       await AudioSession.startAudioSession();
+      // DPDFNet (seçiliyse) mikrofon açılmadan önce yüklenir; captureOptions() sonucuna göre ayarlanır
+      await prepareNoiseFilter();
+      if (seq !== this.joinSeq) return;
 
       const room = new Room({
         // Görünmeyen yayının (uygulama arka planda, ekran kapalı, ses ekranı kapalı) görüntüsü sunucuda durur
@@ -707,6 +720,7 @@ class MobileVoiceClient {
       await previous;
       if (room) await room.disconnect(true).catch(() => undefined);
       await AudioSession.stopAudioSession().catch(() => undefined);
+      await releaseNoiseFilter();
       try {
         VoiceService.stop();
       } catch {
