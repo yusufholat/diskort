@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
-import { feedback, useHapticsAvailable } from '../haptics';
+import { feedback, soundCue, useHapticsAvailable } from '../haptics';
 import { useSettings } from '../stores/settings';
 import { colors } from '../theme';
 import { useVoice, voice } from '../voice/voice';
@@ -26,6 +26,7 @@ export function VoiceSettings() {
   const inVoice = useVoice((s) => s.status !== 'idle');
   const haptics = useSettings((s) => s.haptics);
   const hapticsAvailable = useHapticsAvailable((s) => s.available);
+  const sounds = useSettings((s) => s.sounds);
   // Eşik sürüklenirken göstergedeki çizgi anında kayar; bırakınca kaydedilir
   const [preview, setPreview] = useState<number | null>(null);
 
@@ -44,6 +45,15 @@ export function VoiceSettings() {
           onChange={(v) => {
             set({ haptics: v });
             if (v) feedback('unmute');
+          }}
+        />
+        <ToggleRow
+          label="Sesli sohbet sesleri"
+          description="Katılınca, ayrılınca, susturunca, sağırlaştırınca, yayın açılıp kapanınca ve kanala biri girip çıkınca kısa ses. Telefon sessizdeyken çalmaz."
+          value={sounds}
+          onChange={(v) => {
+            set({ sounds: v });
+            if (v) soundCue('unmute');
           }}
         />
         <ToggleRow

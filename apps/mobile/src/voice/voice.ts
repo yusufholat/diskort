@@ -26,6 +26,7 @@ import {
 import { Dimensions, PermissionsAndroid, PixelRatio, Platform } from 'react-native';
 import { create } from 'zustand';
 import { VoiceService } from '../../modules/voice-service';
+import { soundCue } from '../haptics';
 import { getSettings, useSettings } from '../stores/settings';
 import { toast } from '../stores/ui';
 import { MicGate, SILENT_LEVEL, type GateConfig, type MicLevel } from './micGate';
@@ -562,8 +563,12 @@ class MobileVoiceClient {
         bump();
       })
       .on(RoomEvent.TrackUnsubscribed, bump)
+      .on(RoomEvent.ParticipantConnected, () => {
+        if (this.room === room) soundCue('userJoin');
+      })
       .on(RoomEvent.ParticipantDisconnected, (p) => {
         useVoice.setState((s) => streamGone(s, p.identity));
+        if (this.room === room) soundCue('userLeave');
       })
       // Bağlantı kalitesi göstergesi: yalnızca kendi bağlantımız (değişince bildirilir, ucuz)
       .on(RoomEvent.ConnectionQualityChanged, (quality: ConnectionQuality, participant: Participant) => {
@@ -604,6 +609,8 @@ class MobileVoiceClient {
           return;
         }
         toast(disconnectMessage(reason), reason === DisconnectReason.CLIENT_INITIATED ? 'info' : 'error');
+        // Kendimiz ayrılmadık (sunucu çıkardı, bağlantı koptu): masaüstündeki gibi ayrılma sesi
+        soundCue('leave');
         void this.leave();
       });
   }

@@ -7,7 +7,7 @@ import { getSettings } from './stores/settings';
  * yönetim işlemlerine basınca kısa titreşim. React Native'in kendi Vibration modülüyle (yeni yerel
  * bağımlılık yok, arayüz güncellemesiyle gelir). Ayarlar → Ses → "Dokunma titreşimi" ile kapatılır.
  *
- * İleride (yeni APK'da yerel ses modülüyle) masaüstündeki gibi kısa sesler de çalınacak: sesi çalan
+ * Masaüstündeki gibi kısa sesler de çalınır (src/sounds.ts, expo-audio): sesi çalan işlev açılışta
  * `setFeedbackSound(...)` ile buraya takılır, çağıran yerler (`feedback('mute')`) değişmez.
  */
 export type FeedbackEvent =
@@ -60,12 +60,24 @@ if (Platform.OS === 'android') {
   useHapticsAvailable.setState({ available: true });
 }
 
-type SoundPlayer = (event: FeedbackEvent) => void;
+/** Ses çalınan olaylar: düğme olayları ve kanala başkasının girip çıkması (yalnızca ses, titreşimsiz) */
+export type SoundEvent = FeedbackEvent | 'userJoin' | 'userLeave';
+
+type SoundPlayer = (event: SoundEvent) => void;
 let playSound: SoundPlayer | null = null;
 
-/** Gelecekteki ses modülü: olay sesini çalan işlev (null: ses yok) */
+/** Ses modülü (src/sounds.ts): olay sesini çalan işlev (null: ses yok) */
 export function setFeedbackSound(player: SoundPlayer | null): void {
   playSound = player;
+}
+
+/** Yalnızca ses (titreşim yok): kendiliğinden olan olaylar için (biri kanala girdi, bağlantı koptu) */
+export function soundCue(event: SoundEvent): void {
+  try {
+    playSound?.(event);
+  } catch {
+    // ses çalınamadı
+  }
 }
 
 /** Olayın geri bildirimini ver: ayar açıksa titreşim, ses modülü takılıysa ses */
@@ -77,9 +89,5 @@ export function feedback(event: FeedbackEvent): void {
       // Titreşim desteklenmiyor: sessizce geç
     }
   }
-  try {
-    playSound?.(event);
-  } catch {
-    // ses çalınamadı
-  }
+  soundCue(event);
 }

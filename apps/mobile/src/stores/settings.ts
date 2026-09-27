@@ -25,6 +25,8 @@ interface MobileSettings {
   vadThresholdDb: number;
   /** Ses düğmelerine ve yönetim işlemlerine basınca kısa titreşim (bkz. haptics.ts) */
   haptics: boolean;
+  /** Sesli sohbet sesleri: katıl/ayrıl, sustur, sağırlaştır, yayın, biri girdi/çıktı (bkz. sounds.ts) */
+  sounds: boolean;
   set: (patch: Partial<Omit<MobileSettings, 'set'>>) => void;
 }
 
@@ -44,6 +46,7 @@ export const useSettings = create<MobileSettings>()(
       vadAuto: true,
       vadThresholdDb: -50,
       haptics: true,
+      sounds: true,
       set: (patch) => set(patch),
     }),
     {

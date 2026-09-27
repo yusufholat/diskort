@@ -91,6 +91,8 @@ const config: ExpoConfig = {
     // servisi (FOREGROUND_SERVICE_MEDIA_PLAYBACK) izni eklenmez. Yerel modül: yeni APK gerekir; eski
     // APK'larda JavaScript modülün varlığını denetler (src/video.ts).
     ['expo-video', { supportsBackgroundPlayback: false, supportsPictureInPicture: false }],
+    // expo-audio (sesli sohbet sesleri, src/sounds.ts) bilerek eklentisiz: eklentisi kilit ekranı
+    // oynatıcısı için ayrı bir ön plan servisi ekliyor; kısa sesler için gerekmez.
     [
       'expo-splash-screen',
       { image: './assets/splash-icon.png', imageWidth: 120, backgroundColor: '#1e1f22', resizeMode: 'contain' },
