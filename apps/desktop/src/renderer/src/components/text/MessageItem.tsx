@@ -1,17 +1,20 @@
 import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
-import { Pencil, SmilePlus, Trash2 } from 'lucide-react';
+import { Pencil, Reply, SmilePlus, Trash2 } from 'lucide-react';
 import { isImageAttachment, MESSAGE_MAX_LENGTH, MESSAGE_MAX_REACTIONS, Permission, type User } from '@diskort/shared';
 import {
   deleteMessage,
   discardMessage,
   editMessage,
   isMentioned,
+  mentionInComposer,
   QUICK_REACTIONS,
   retryMessage,
   setEditing,
+  startReply,
   toggleReaction,
   useCan,
   useMemberColor,
+  useMessages,
   type LocalMessage,
 } from '@diskort/client-core';
 import { renderMarkdown, type MarkdownContext } from '../../features/messages/markdown';
@@ -21,9 +24,11 @@ import { cn } from '../../lib/utils';
 import { toast, useUi, type EmojiPickerAnchor } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 import { downloadAttachment } from '../../features/messages/files';
+import { openProfile } from '../members/ProfilePopover';
 import { AttachmentList, UploadList } from './Attachments';
 import { formatFull, formatStamp, formatTime } from './format';
 import { ReactionPill } from './ReactionPill';
+import { ReplyPreview } from './ReplyPreview';
 
 interface Props {
   message: LocalMessage;
@@ -63,12 +68,26 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
   const canManage = useCan(Permission.MANAGE_MESSAGES, message.channelId);
   // Yeni tepki eklemek yetki ister; var olan tepkiye katılmak serbest
   const canReact = useCan(Permission.ADD_REACTIONS, message.channelId);
+  const canReply = useCan(Permission.SEND_MESSAGES, message.channelId);
   const authorColor = useMemberColor(message.authorId);
   const canDelete = own || canManage;
   const confirmed = !message.status;
   const mentioned = isMentioned(message, self);
+  // Yazma kutusunun üstünde bu mesaja yanıt veriliyor
+  const replying = useMessages((s) => s.replies[message.channelId]?.messageId === message.id);
+  const isReply = Boolean(message.replyToId);
   const react = (emoji: string): void => void toggleReaction(message.channelId, message.id, emoji);
   const pickReaction = (anchor: EmojiPickerAnchor): void => openEmojiPicker({ anchor, onPick: react });
+  const reply = (): void => startReply(message);
+  const showProfile = (el: HTMLElement): void => {
+    if (!author) return;
+    openProfile({ userId: author.id, channelId: message.channelId, anchor: el.getBoundingClientRect(), side: 'right' });
+  };
+  // Ada tıklamak yazma kutusuna bahsetme ekler; kanala yazılamıyorsa profil kartı açılır
+  const mentionAuthor = (el: HTMLElement): void => {
+    if (author && !author.removed && mentionInComposer(message.channelId, author.username)) return;
+    showProfile(el);
+  };
 
   const onContextMenu = (e: MouseEvent): void => {
     if (!confirmed) return;
@@ -83,6 +102,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
       y: e.clientY,
       items: [
         ...(canReact ? [{ label: 'Tepki Ekle', onClick: () => pickReaction(point) }] : []),
+        ...(canReply ? [{ label: 'Yanıtla', onClick: reply }] : []),
         ...(attachment
           ? [
               {
@@ -112,7 +132,8 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
       className={cn(
         'group relative flex pr-12 pl-4 transition-colors duration-75 hover:bg-black/[0.06]',
         compact ? 'py-0.5' : 'mt-[17px] py-0.5',
-        mentioned && 'border-l-2 border-warn bg-warn/[0.08] pl-[14px] hover:bg-warn/[0.12]',
+        mentioned && !replying && 'border-l-2 border-warn bg-warn/[0.08] pl-[14px] hover:bg-warn/[0.12]',
+        replying && 'border-l-2 border-brand bg-brand/[0.08] pl-[14px] hover:bg-brand/[0.12]',
         editing && 'bg-black/[0.06]',
       )}
       onContextMenu={onContextMenu}
@@ -126,20 +147,37 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
           >
             {formatTime(message.createdAt)}
           </span>
+        ) : author ? (
+          // Avatara tıklayınca profil kartı; yanıtlarda üstteki alıntının altına iner
+          <button
+            type="button"
+            aria-label={`${author.displayName} profili`}
+            className={cn('press block rounded-full', isReply ? 'mt-6' : 'mt-0.5')}
+            onClick={(e) => showProfile(e.currentTarget)}
+          >
+            <Avatar user={author} size={40} />
+          </button>
         ) : (
-          <Avatar user={author} size={40} className="mt-0.5" />
+          <Avatar user={author} size={40} className={isReply ? 'mt-6' : 'mt-0.5'} />
         )}
       </div>
 
       <div className="min-w-0 flex-1">
+        {isReply && !compact && <ReplyPreview message={message} md={md} />}
         {!compact && (
           <div className="flex items-baseline gap-2 leading-snug">
-            <span
-              className={cn('font-medium', author ? 'text-text-head' : 'text-text-muted italic')}
-              style={author && authorColor ? { color: authorColor } : undefined}
-            >
-              {author?.displayName ?? 'Silinmiş Kullanıcı'}
-            </span>
+            {author ? (
+              <button
+                type="button"
+                className="font-medium text-text-head hover:underline"
+                style={authorColor ? { color: authorColor } : undefined}
+                onClick={(e) => mentionAuthor(e.currentTarget)}
+              >
+                {author.displayName}
+              </button>
+            ) : (
+              <span className="font-medium text-text-muted italic">Silinmiş Kullanıcı</span>
+            )}
             <span className="text-xs text-text-faint" data-tooltip={formatFull(message.createdAt)}>
               {formatStamp(message.createdAt)}
             </span>
@@ -212,7 +250,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
         )}
       </div>
 
-      {confirmed && !editing && (canReact || own || canDelete) && (
+      {confirmed && !editing && (canReact || canReply || own || canDelete) && (
         // Üstüne gelince hafifçe belirip yükselen düğme şeridi
         <div className="pointer-events-none absolute -top-4 right-4 flex translate-y-1 overflow-hidden rounded-md border border-black/30 bg-bg-main opacity-0 shadow transition-[opacity,translate] duration-100 ease-out group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
           {canReact &&
@@ -235,6 +273,16 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
               onClick={(e) => pickReaction(e.currentTarget.getBoundingClientRect())}
             >
               <SmilePlus size={18} />
+            </button>
+          )}
+          {canReply && (
+            <button
+              className="p-1.5 text-text-muted transition-colors hover:bg-bg-hover hover:text-text-head"
+              data-tooltip="Yanıtla"
+              aria-label="Yanıtla"
+              onClick={reply}
+            >
+              <Reply size={18} />
             </button>
           )}
           {own && (

@@ -1,6 +1,6 @@
 // Masaüstünün ortak çekirdeğe (@diskort/client-core) verdiği platform ayrıntıları.
 // main.tsx'te arayüzden önce içe aktarılır.
-import { configureClient, useGuild } from '@diskort/client-core';
+import { configureClient, useGuild, useSession } from '@diskort/client-core';
 import type { Message } from '@diskort/shared';
 import { bridge } from './lib/bridge';
 import { currentView } from './lib/mainView';
@@ -13,11 +13,13 @@ function showMentionNotification(message: Message): void {
   const guild = useGuild.getState();
   const author = message.authorId ? guild.users[message.authorId]?.displayName : undefined;
   const channel = guild.channels.find((c) => c.id === message.channelId)?.name;
+  const replied = message.replyMentionUserId !== undefined && message.replyMentionUserId === useSession.getState().user?.id;
+  const text = message.content || (message.attachments.length ? '📎 Dosya gönderdi' : '');
   try {
-    const notification = new Notification(`${author ?? 'Biri'} senden bahsetti · #${channel ?? ''}`, {
-      body: message.content.length > 140 ? `${message.content.slice(0, 140)}…` : message.content,
-      silent: true,
-    });
+    const notification = new Notification(
+      `${author ?? 'Biri'} ${replied ? 'sana yanıt verdi' : 'senden bahsetti'} · #${channel ?? ''}`,
+      { body: text.length > 140 ? `${text.slice(0, 140)}…` : text, silent: true },
+    );
     notification.onclick = () => {
       bridge?.showWindow();
       useUi.getState().setView({ kind: 'text', channelId: message.channelId });
