@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Animated, Modal, PanResponder, Pressable, StyleSheet, View } from 'react-native';
+import { Animated, Keyboard, Modal, PanResponder, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EASE_IN, prefersReducedMotion, timing, usePresence } from '../motion';
 import { colors } from '../theme';
@@ -17,10 +17,13 @@ export function BottomSheet({
   visible,
   onClose,
   children,
+  avoidKeyboard = false,
 }: {
   visible: boolean;
   onClose: () => void;
   children: ReactNode;
+  /** Klavye açılınca sayfa klavyenin üstüne çıkar ve sığmazsa içerik daralır (arama kutusu olan sayfalar) */
+  avoidKeyboard?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const mounted = usePresence(visible, CLOSE_MS);
@@ -29,6 +32,7 @@ export function BottomSheet({
   const [height, setHeight] = useState(480);
   const close = useRef(onClose);
   close.current = onClose;
+  const keyboard = useKeyboardOverlap(avoidKeyboard && mounted);
 
   useEffect(() => {
     if (visible) {
@@ -61,12 +65,23 @@ export function BottomSheet({
 
   return (
     <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
-      <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: progress }]}>
+      <Animated.View
+        style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: progress }]}
+        onLayout={(e) => keyboard.setWindowHeight(e.nativeEvent.layout.height)}
+      >
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Kapat" />
       </Animated.View>
       <Animated.View
         onLayout={(e) => setHeight(e.nativeEvent.layout.height)}
-        style={[styles.sheet, { paddingBottom: insets.bottom + 16, transform: [{ translateY }] }]}
+        style={[
+          styles.sheet,
+          { paddingBottom: insets.bottom + 16, transform: [{ translateY }] },
+          keyboard.overlap > 0 && {
+            bottom: keyboard.overlap,
+            paddingBottom: 8,
+            maxHeight: Math.max(200, keyboard.windowHeight - keyboard.overlap - insets.top - 8),
+          },
+        ]}
         {...pan.panHandlers}
       >
         <View style={styles.handle} />
@@ -74,6 +89,31 @@ export function BottomSheet({
       </Animated.View>
     </Modal>
   );
+}
+
+/**
+ * Klavyenin sayfayı ne kadar örttüğü. Pencere klavyeyle küçülüyorsa (adjustResize) örtme yoktur;
+ * küçülmüyorsa (kenardan kenara görünüm) klavyenin üst kenarı ile pencerenin altı arasındaki fark.
+ */
+function useKeyboardOverlap(enabled: boolean): {
+  overlap: number;
+  windowHeight: number;
+  setWindowHeight: (height: number) => void;
+} {
+  const [windowHeight, setWindowHeight] = useState(0);
+  const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    const show = Keyboard.addListener('keyboardDidShow', (e) => setKeyboardTop(e.endCoordinates.screenY));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardTop(null));
+    return () => {
+      show.remove();
+      hide.remove();
+      setKeyboardTop(null);
+    };
+  }, [enabled]);
+  const overlap = enabled && keyboardTop !== null && windowHeight > 0 ? Math.max(0, windowHeight - keyboardTop) : 0;
+  return { overlap, windowHeight, setWindowHeight };
 }
 
 const styles = StyleSheet.create({

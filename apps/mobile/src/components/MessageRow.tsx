@@ -1,11 +1,20 @@
 import { memo, useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
-import { discardMessage, isMentioned, retryMessage, toggleReaction, useMemberColor, type LocalMessage } from '@diskort/client-core';
+import {
+  discardMessage,
+  gifOf,
+  isMentioned,
+  retryMessage,
+  toggleReaction,
+  useMemberColor,
+  type LocalMessage,
+} from '@diskort/client-core';
 import type { User } from '@diskort/shared';
 import { useAppear } from '../motion';
 import { colors } from '../theme';
 import { Avatar } from './Avatar';
 import { AttachmentList, UploadList } from './Attachments';
+import { GifEmbed } from './GifEmbed';
 import { Markdown, type MarkdownContext } from './Markdown';
 import { ReactionPill } from './ReactionPill';
 
@@ -51,6 +60,8 @@ export const MessageRow = memo(function MessageRow({
   animateIn = false,
 }: Props) {
   const mentioned = isMentioned(message, self);
+  // Metni yalnızca GIPHY bağlantısı olan mesaj: bağlantı yerine GIF gösterilir
+  const gif = gifOf(message);
   const authorColor = useMemberColor(message.authorId);
   const appear = useAppear(animateIn, 240);
   // Satır ekrandayken eklenen tepkiler animasyonla belirir
@@ -95,7 +106,8 @@ export const MessageRow = memo(function MessageRow({
               <Text style={styles.time}>{stamp(message.createdAt)}</Text>
             </View>
           )}
-          {message.content ? <Markdown content={message.content} ctx={md} dim={message.status === 'pending'} /> : null}
+          {message.content && !gif ? <Markdown content={message.content} ctx={md} dim={message.status === 'pending'} /> : null}
+          {gif ? <GifEmbed embed={gif} dim={message.status === 'pending'} /> : null}
           {message.editedAt ? <Text style={styles.edited}>(düzenlendi)</Text> : null}
           {message.uploads ? (
             <UploadList message={message} />

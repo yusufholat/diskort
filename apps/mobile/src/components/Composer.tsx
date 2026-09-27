@@ -8,8 +8,10 @@ import {
   formatBytes,
   notifyTyping,
   removeFile,
+  sendGif,
   sendMessage,
   useCan,
+  useFeatures,
   useGuild,
   useMessages,
   type LocalFile,
@@ -22,6 +24,7 @@ import { colors } from '../theme';
 import { fileIcon } from './Attachments';
 import { Avatar } from './Avatar';
 import { BottomSheet } from './BottomSheet';
+import { ExpressionSheet, type ExpressionTab } from './ExpressionSheet';
 import { PressableScale } from './PressableScale';
 
 /** Kanal değiştirince yarım kalan mesaj kaybolmasın */
@@ -45,6 +48,8 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
   const [forcedSelection, setForcedSelection] = useState<{ start: number; end: number } | undefined>();
   const [editText, setEditText] = useState<string | null>(null);
   const [attachMenu, setAttachMenu] = useState(false);
+  const [expressions, setExpressions] = useState<ExpressionTab | null>(null);
+  const gifsEnabled = useFeatures((s) => s.gifs);
   const users = useGuild((s) => s.users);
   const online = useGuild((s) => s.online);
   const files = useMessages((s) => s.pendingFiles[channel.id] ?? NO_FILES);
@@ -80,6 +85,14 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
     setText(before + text.slice(selection.start));
     setSelection({ start: before.length, end: before.length });
     setForcedSelection({ start: before.length, end: before.length });
+  };
+
+  /** Emoji: imlecin olduğu yere (seçiliyse yerine) eklenir */
+  const insert = (emoji: string): void => {
+    setText(text.slice(0, selection.start) + emoji + text.slice(selection.end));
+    const at = selection.start + emoji.length;
+    setSelection({ start: at, end: at });
+    setForcedSelection({ start: at, end: at });
   };
 
   // Dosyalı mesajın metni boş olabilir
@@ -205,6 +218,15 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
           maxLength={MESSAGE_MAX_LENGTH * 2}
           style={styles.input}
         />
+        <PressableScale
+          scaleTo={0.85}
+          onPress={() => setExpressions(gifsEnabled && !editing ? 'gif' : 'emoji')}
+          hitSlop={6}
+          style={styles.attach}
+          accessibilityLabel={gifsEnabled && !editing ? 'GIF ve emoji' : 'Emoji'}
+        >
+          <Ionicons name="happy-outline" size={27} color={colors.muted} />
+        </PressableScale>
         {remaining < 200 && <Text style={[styles.counter, remaining < 0 && { color: colors.danger }]}>{remaining}</Text>}
         <PressableScale
           scaleTo={0.86}
@@ -217,6 +239,21 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
         </PressableScale>
       </View>
 
+      <ExpressionSheet
+        tab={expressions}
+        gifs={gifsEnabled && !editing}
+        onTab={setExpressions}
+        onClose={() => setExpressions(null)}
+        onEmoji={(emoji) => {
+          insert(emoji);
+          setExpressions(null);
+        }}
+        onGif={(gif) => {
+          setExpressions(null);
+          sendGif(channel.id, gif);
+          onSent();
+        }}
+      />
       <BottomSheet visible={attachMenu} onClose={() => setAttachMenu(false)}>
         <AttachOption icon="images-outline" label="Fotoğraf veya video" onPress={() => void attach(pickMedia)} />
         <AttachOption icon="document-outline" label="Dosya" onPress={() => void attach(pickDocuments)} />
