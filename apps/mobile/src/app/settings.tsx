@@ -9,7 +9,7 @@ import { StatusChip } from '../components/StatusPicker';
 import { PressableScale } from '../components/PressableScale';
 import { Button, Card, FadeIn, Field, NavRow, SectionTitle, ui } from '../components/ui';
 import { ThemePicker } from '../components/ThemePicker';
-import { VoiceSettings } from '../components/VoiceSettings';
+import { ToggleRow, VoiceSettings } from '../components/VoiceSettings';
 import { animateNextLayout } from '../motion';
 import { registerForPush, unregisterPush, usePushState } from '../notifications';
 import { APP_VERSION, NATIVE_VERSION } from '../version';
@@ -21,6 +21,8 @@ import { voice } from '../voice/voice';
 export default function SettingsScreen() {
   const user = useSession((s) => s.user);
   const serverUrl = useSettings((s) => s.serverUrl);
+  const linkPreviews = useSettings((s) => s.linkPreviews);
+  const setSettings = useSettings((s) => s.set);
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [savingName, setSavingName] = useState(false);
   const photo = useProfilePhoto();
@@ -103,6 +105,14 @@ export default function SettingsScreen() {
 
       <SectionTitle>Görünüm</SectionTitle>
       <ThemePicker />
+      <Card style={styles.toggleCard}>
+        <ToggleRow
+          label="Bağlantı önizlemelerini göster"
+          description="Mesajlardaki bağlantıların altında sitenin başlığı, açıklaması ve resmi gösterilir."
+          value={linkPreviews}
+          onChange={(value) => setSettings({ linkPreviews: value })}
+        />
+      </Card>
 
       <NotificationSettings />
 
@@ -316,6 +326,7 @@ function DeleteAccount({ onDeleted }: { onDeleted: () => void }) {
 const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.main },
   content: { padding: space.lg, paddingBottom: 48 },
+  toggleCard: { paddingHorizontal: 16, paddingVertical: 4, marginTop: space.md },
   profile: { backgroundColor: colors.side, borderRadius: radius.lg, overflow: 'hidden' },
   banner: { height: 64, backgroundColor: colors.brand },
   profileBody: { alignItems: 'center', paddingHorizontal: space.lg, paddingBottom: space.lg, marginTop: -44 },

@@ -139,6 +139,7 @@ export {
   type PermissionInfo,
 } from './permissionInfo';
 export { memberActions, moderation, moveTargets, type MemberActions } from './moderation';
+export { embedColor, embedHost, embedMediaUrl, embedVideoUrl, visibleLinkEmbeds, youtubePlayerUrl } from './linkEmbeds';
 export {
   ackChannel,
   addFiles,
@@ -155,6 +156,7 @@ export {
   sendGif,
   sendMessage,
   setEditing,
+  suppressEmbeds,
   toggleReaction,
   uploadProgress,
   useMessages,

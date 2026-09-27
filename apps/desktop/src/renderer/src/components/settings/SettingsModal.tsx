@@ -212,6 +212,7 @@ const THEME_PREVIEW: Record<ThemeId, { rail: string; side: string; main: string;
 
 function AppearanceSection() {
   const theme = useSettings((s) => s.theme);
+  const linkPreviews = useSettings((s) => s.linkPreviews);
   const set = useSettings((s) => s.set);
 
   return (
@@ -263,6 +264,14 @@ function AppearanceSection() {
           );
         })}
       </div>
+      <Divider />
+      <SectionTitle>Metin</SectionTitle>
+      <Toggle
+        label="Bağlantı önizlemelerini göster"
+        description="Mesajlardaki bağlantıların altında sitenin başlığı, açıklaması ve resmi gösterilir; YouTube videoları burada oynatılabilir."
+        checked={linkPreviews}
+        onChange={(value) => set({ linkPreviews: value })}
+      />
     </div>
   );
 }

@@ -43,6 +43,8 @@
   --color-danger: #f23f43;
   --color-danger-hover: #da373c;
   --color-warn: #f0b232;
+  /* Bağlantılar */
+  --color-link: #00a8fc;
 
   --font-sans: 'gg sans', 'Segoe UI Variable Text', 'Segoe UI', 'Noto Sans', 'Helvetica Neue', system-ui, sans-serif;
 }

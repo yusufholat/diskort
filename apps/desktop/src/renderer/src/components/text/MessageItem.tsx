@@ -21,10 +21,12 @@ import {
   retryMessage,
   setEditing,
   startReply,
+  suppressEmbeds,
   toggleReaction,
   useCan,
   useMemberColor,
   useMessages,
+  visibleLinkEmbeds,
   type LocalMessage,
   type MemberUser,
 } from '@diskort/client-core';
@@ -34,6 +36,7 @@ import { startDm } from '../../lib/dm';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { useMountedRef } from '../../lib/motion';
 import { cn } from '../../lib/utils';
+import { useSettings } from '../../stores/settings';
 import { toast, useUi, type EmojiPickerAnchor } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 import { downloadAttachment } from '../../features/messages/files';
@@ -41,6 +44,7 @@ import { openProfile } from '../members/ProfilePopover';
 import { AttachmentList, UploadList } from './Attachments';
 import { formatFull, formatStamp, formatTime } from './format';
 import { GifEmbed } from './GifEmbed';
+import { LinkEmbeds } from './LinkEmbeds';
 import { ReactionPill } from './ReactionPill';
 import { ReplyPreview } from './ReplyPreview';
 
@@ -91,6 +95,9 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
   const jumbo = isJumboEmoji(message.content);
   // Metni yalnızca GIPHY bağlantısı olan mesaj: bağlantı yerine GIF gösterilir
   const gif = gifOf(message);
+  // Bağlantı önizlemeleri (ayarlardan kapatılabilir; kaldırılmışsa hiç gelmez)
+  const showPreviews = useSettings((s) => s.linkPreviews);
+  const linkEmbeds = visibleLinkEmbeds(message);
   // Yazma kutusunun üstünde bu mesaja yanıt veriliyor
   const replying = useMessages((s) => s.replies[message.channelId]?.messageId === message.id);
   const isReply = Boolean(message.replyToId);
@@ -165,6 +172,9 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
             ]
           : []),
         ...(own ? [{ label: 'Mesajı Düzenle', onClick: () => setEditing(message.id) }] : []),
+        ...(canDelete && linkEmbeds.length > 0
+          ? [{ label: 'Önizlemeyi Kaldır', onClick: () => void suppressEmbeds(message) }]
+          : []),
         ...(canDelete
           ? [{ label: 'Mesajı Sil', danger: true, onClick: () => void confirmDelete(message, false) }]
           : []),
@@ -265,6 +275,10 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
           <UploadList message={message} />
         ) : (
           message.attachments.length > 0 && <AttachmentList attachments={message.attachments} />
+        )}
+
+        {showPreviews && linkEmbeds.length > 0 && !editing && (
+          <LinkEmbeds embeds={linkEmbeds} dim={message.status === 'pending'} />
         )}
 
         {message.status === 'failed' && message.nonce && (

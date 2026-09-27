@@ -167,6 +167,8 @@ export const api = {
     }),
   updateMessage: (id: string, content: string) => request<Message>('PATCH', `/api/messages/${id}`, { content }),
   deleteMessage: (id: string) => request<void>('DELETE', `/api/messages/${id}`),
+  /** Bağlantı önizlemelerini kaldırır (yazar ya da MANAGE_MESSAGES) */
+  suppressEmbeds: (id: string) => request<Message>('DELETE', `/api/messages/${id}/embeds`),
   addReaction: (messageId: string, emoji: string) =>
     request<void>('PUT', `/api/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`),
   removeReaction: (messageId: string, emoji: string) =>

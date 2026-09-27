@@ -13,6 +13,7 @@ import {
   toggleReaction,
   useMemberColor,
   useMessages,
+  visibleLinkEmbeds,
   type LocalMessage,
 } from '@diskort/client-core';
 import type { User } from '@diskort/shared';
@@ -22,7 +23,9 @@ import { duration, useAppear } from '../motion';
 import { colors, createStyles, font, layout, radius, ripple, space } from '../theme';
 import { Avatar } from './Avatar';
 import { AttachmentList, UploadList } from './Attachments';
+import { useSettings } from '../stores/settings';
 import { GifEmbed } from './GifEmbed';
+import { LinkEmbeds } from './LinkEmbeds';
 import { Markdown, type MarkdownContext } from './Markdown';
 import { ReactionPill } from './ReactionPill';
 import { openReactionsSheet } from './ReactionsSheet';
@@ -92,6 +95,9 @@ export const MessageRow = memo(function MessageRow({
   const mentioned = isMentioned(message, self);
   // Metni yalnızca GIPHY bağlantısı olan mesaj: bağlantı yerine GIF gösterilir
   const gif = gifOf(message);
+  // Bağlantı önizlemeleri (ayarlardan kapatılabilir; kaldırılmışsa hiç gelmez)
+  const showPreviews = useSettings((s) => s.linkPreviews);
+  const linkEmbeds = visibleLinkEmbeds(message);
   const authorColor = useMemberColor(message.authorId);
   const appear = useAppear(animateIn, 240);
   // Yazma kutusunun üstünde bu mesaja yanıt veriliyor
@@ -205,6 +211,9 @@ export const MessageRow = memo(function MessageRow({
                   <UploadList message={message} />
                 ) : message.attachments.length > 0 ? (
                   <AttachmentList attachments={message.attachments} />
+                ) : null}
+                {showPreviews && linkEmbeds.length > 0 ? (
+                  <LinkEmbeds embeds={linkEmbeds} dim={message.status === 'pending'} />
                 ) : null}
                 {message.status === 'failed' && message.nonce && (
                   <Text style={styles.failed}>

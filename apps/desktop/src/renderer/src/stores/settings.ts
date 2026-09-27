@@ -50,6 +50,8 @@ export interface Settings {
   sounds: boolean;
   /** Arayüz teması: koyu (varsayılan) ya da OLED ekranlar için simsiyah */
   theme: ThemeId;
+  /** Mesajlardaki bağlantıların önizlemeleri (kart, YouTube, resim) gösterilsin mi */
+  linkPreviews: boolean;
 
   selfMute: boolean;
   selfDeaf: boolean;
@@ -86,6 +88,7 @@ const defaults: Settings = {
   openAtLogin: false,
   sounds: true,
   theme: 'dark',
+  linkPreviews: true,
   selfMute: false,
   selfDeaf: false,
 };

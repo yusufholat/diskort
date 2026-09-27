@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Image, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Image, Linking, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { isImageAttachment, isVideoAttachment, type Attachment } from '@diskort/shared';
@@ -65,8 +65,11 @@ export function AttachmentList({ attachments }: { attachments: Attachment[] }) {
   );
 }
 
-/** Tam ekran resim: sığdırılmış, altında ad ve "Aç" (telefonun galeri uygulamasında). */
-function ImageViewer({ attachment, onClose }: { attachment: Attachment; onClose: () => void }) {
+/**
+ * Tam ekran resim: sığdırılmış, altında ad ve "Aç" (telefonun galeri uygulamasında). Bağlantı
+ * önizlemesindeki resimde `source` asıl sayfadır: "Aç" onu açar.
+ */
+export function ImageViewer({ attachment, onClose, source }: { attachment: Attachment; onClose: () => void; source?: string }) {
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <SafeAreaView style={styles.viewer}>
@@ -74,7 +77,11 @@ function ImageViewer({ attachment, onClose }: { attachment: Attachment; onClose:
           <Text style={styles.viewerName} numberOfLines={1}>
             {attachment.name}
           </Text>
-          <Pressable hitSlop={10} onPress={() => void openAttachment(attachment)} accessibilityLabel="Başka uygulamada aç">
+          <Pressable
+            hitSlop={10}
+            onPress={() => void (source ? Linking.openURL(source) : openAttachment(attachment))}
+            accessibilityLabel={source ? 'Sayfayı aç' : 'Başka uygulamada aç'}
+          >
             <Ionicons name="open-outline" size={24} color="#fff" />
           </Pressable>
           <Pressable hitSlop={10} onPress={onClose} accessibilityLabel="Kapat">
@@ -85,8 +92,8 @@ function ImageViewer({ attachment, onClose }: { attachment: Attachment; onClose:
           <Image source={{ uri: attachmentUrl(attachment) }} style={StyleSheet.absoluteFill} resizeMode="contain" />
         </Pressable>
         <Text style={styles.viewerInfo}>
-          {attachment.width && attachment.height ? `${attachment.width}×${attachment.height} · ` : ''}
-          {formatBytes(attachment.size)}
+          {attachment.width && attachment.height ? `${attachment.width}×${attachment.height}` : ''}
+          {attachment.size > 0 ? `${attachment.width && attachment.height ? ' · ' : ''}${formatBytes(attachment.size)}` : ''}
         </Text>
       </SafeAreaView>
     </Modal>
