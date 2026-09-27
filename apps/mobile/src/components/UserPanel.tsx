@@ -9,10 +9,12 @@ import { toggleDeafen, toggleMute } from '../voice/actions';
 import { useVoice } from '../voice/voice';
 import { Avatar } from './Avatar';
 import { PressableScale } from './PressableScale';
+import { VoiceBar } from './VoiceBar';
 
 /**
  * Kanal listesinin altındaki kullanıcı paneli (masaüstündeki gibi): avatar ve ad, sustur,
  * sağırlaştır ve ayarlar. Susturma seste değilken de hatırlanır; sonraki katılışta uygulanır.
+ * Sesteyken yerini tek satırlık ses çubuğu alır (aynı düğmeler iki satırda tekrarlanmasın).
  */
 export function UserPanel({ onSettings }: { onSettings: () => void }) {
   const user = useSession((s) => s.user);
@@ -22,6 +24,8 @@ export function UserPanel({ onSettings }: { onSettings: () => void }) {
   const muted = selfMute || selfDeaf || !micAllowed;
   // Ekranın en altında: gezinme çubuğunun arkası da panel renginde olsun
   const insets = useSafeAreaInsets();
+  const inVoice = useVoice((s) => s.status !== 'idle');
+  if (inVoice) return <VoiceBar bottomInset={insets.bottom} onSettings={onSettings} />;
   if (!user) return null;
   return (
     <View style={[styles.panel, { paddingBottom: styles.panel.paddingVertical + insets.bottom }]}>

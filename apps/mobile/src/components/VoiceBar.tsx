@@ -10,20 +10,25 @@ import { useVoice } from '../voice/voice';
 import { PressableScale } from './PressableScale';
 import { qualityLevel, SignalBars } from './VoiceQuality';
 
+/** Alt çubuktaki düğme boyu (tek satırda kalsın diye ses ekranındakilerden küçük) */
+const BUTTON = 38;
+
 const STATUS = { connecting: 'Bağlanıyor…', reconnecting: 'Yeniden bağlanıyor…', connected: 'Ses bağlı', idle: '' };
 
 /**
- * Ekranın altında: bağlı olunan ses kanalı, bağlantı kalitesi ve hızlı sustur/sağırlaştır/ayrıl
- * düğmeleri. Sese katılınca aşağıdan yükselerek belirir; dokununca ses ekranı açılır.
+ * Ekranın altında tek satır (Discord mobil gibi): solda bağlantı kalitesi, kanal adı ve durum
+ * (dokununca ses ekranı açılır), sağda sustur / sağırlaştır / ayrıl. Sese katılınca aşağıdan
+ * yükselerek belirir. `onSettings` verilirse (ana ekranda kullanıcı panelinin yerini alınca) ayarlar
+ * düğmesi de olur; böylece aynı düğmeler iki satırda tekrarlanmaz.
  */
-export function VoiceBar({ bottomInset = 0 }: { bottomInset?: number }) {
+export function VoiceBar({ bottomInset = 0, onSettings }: { bottomInset?: number; onSettings?: () => void }) {
   const status = useVoice((s) => s.status);
   if (status === 'idle') return null;
-  return <VoiceBarInner bottomInset={bottomInset} />;
+  return <VoiceBarInner bottomInset={bottomInset} onSettings={onSettings} />;
 }
 
 /** `bottomInset`: ekranın en altındaysa gezinme çubuğunun arkası da panel renginde olsun diye boşluk */
-function VoiceBarInner({ bottomInset }: { bottomInset: number }) {
+function VoiceBarInner({ bottomInset, onSettings }: { bottomInset: number; onSettings?: () => void }) {
   const router = useRouter();
   const status = useVoice((s) => s.status);
   const quality = useVoice((s) => s.quality);
@@ -51,32 +56,42 @@ function VoiceBarInner({ bottomInset }: { bottomInset: number }) {
         { opacity: appear, transform: [{ translateY: appear.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }] },
       ]}
     >
-      <Pressable
-        style={styles.bar}
-        android_ripple={{ color: 'rgba(255,255,255,0.06)', foreground: true }}
-        onPress={() => router.push('/voice')}
-        accessibilityRole="button"
-        accessibilityLabel={`${STATUS[status]}, ${channel?.name ?? ''}. Ses ekranını aç`}
-      >
-        <SignalBars bars={level.bars} color={level.color} size={17} />
-        <View style={styles.info}>
-          <Text style={[styles.status, { color: level.color }]} numberOfLines={1}>
-            {STATUS[status]}
-          </Text>
-          <Text style={styles.channel} numberOfLines={1}>
-            {channel?.name ?? ''}
-            {count > 0 ? ` · ${count} kişi` : ''}
-          </Text>
-        </View>
-        <VoiceControl icon={muted ? 'mic-off' : 'mic'} off={muted} label={muted ? 'Mikrofonu aç' : 'Sustur'} onPress={toggleMute} />
+      <View style={styles.bar}>
+        <Pressable
+          style={styles.info}
+          android_ripple={{ color: 'rgba(255,255,255,0.07)', foreground: true }}
+          onPress={() => router.push('/voice')}
+          accessibilityRole="button"
+          accessibilityLabel={`${channel?.name ?? 'Ses kanalı'}, ${STATUS[status]}${count > 0 ? `, ${count} kişi` : ''}. Ses ekranını aç`}
+        >
+          <SignalBars bars={level.bars} color={level.color} size={15} />
+          <View style={styles.texts}>
+            <Text style={styles.channel} numberOfLines={1}>
+              {channel?.name ?? 'Ses kanalı'}
+            </Text>
+            <Text style={[styles.status, { color: level.color }]} numberOfLines={1}>
+              {STATUS[status]}
+              {count > 0 ? <Text style={styles.count}>{` · ${count} kişi`}</Text> : null}
+            </Text>
+          </View>
+        </Pressable>
+        {onSettings ? <VoiceControl icon="settings-sharp" size={BUTTON} label="Ayarlar" onPress={onSettings} /> : null}
+        <VoiceControl
+          icon={muted ? 'mic-off' : 'mic'}
+          off={muted}
+          size={BUTTON}
+          label={muted ? 'Mikrofonu aç' : 'Sustur'}
+          onPress={toggleMute}
+        />
         <VoiceControl
           icon={selfDeaf ? 'volume-mute' : 'headset'}
           off={selfDeaf}
+          size={BUTTON}
           label={selfDeaf ? 'Sağırlaştırmayı kaldır' : 'Sağırlaştır'}
           onPress={toggleDeafen}
         />
-        <VoiceControl icon="call" danger label="Bağlantıyı kes" onPress={leaveVoice} />
-      </Pressable>
+        <VoiceControl icon="call" danger size={BUTTON} label="Bağlantıyı kes" onPress={leaveVoice} />
+      </View>
     </Animated.View>
   );
 }
@@ -152,14 +167,27 @@ const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.xs,
-    paddingLeft: space.lg,
+    gap: space.xxs,
+    minHeight: 54,
+    paddingLeft: space.xs,
     paddingRight: space.sm,
-    paddingVertical: space.sm,
   },
-  info: { flex: 1, marginLeft: space.sm },
-  status: { fontSize: font.small + 0.5, fontWeight: '700' },
-  channel: { color: colors.muted, fontSize: font.caption + 0.5 },
+  // Dokunma alanı satır boyu; dalga efekti yuvarlatılmış kutuda kalır
+  info: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm + 2,
+    alignSelf: 'stretch',
+    marginVertical: space.xs,
+    paddingHorizontal: space.sm + 2,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+  },
+  texts: { flex: 1 },
+  channel: { color: colors.head, fontSize: font.body - 0.5, fontWeight: '700' },
+  status: { fontSize: font.caption, fontWeight: '700' },
+  count: { color: colors.muted, fontWeight: '600' },
   control: { alignItems: 'center', gap: 6 },
   caption: { color: colors.muted, fontSize: 11.5, fontWeight: '600' },
 });

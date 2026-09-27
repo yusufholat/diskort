@@ -25,7 +25,6 @@ import { EmptyState } from '../components/States';
 import { GuildIcon, GuildSwitcher, openGuildMenu } from '../components/GuildSwitcher';
 import { TypingDots } from '../components/TypingDots';
 import { UserPanel } from '../components/UserPanel';
-import { VoiceBar } from '../components/VoiceBar';
 import { VoiceStateIcon } from '../components/VoiceStateIcon';
 import { animateNextLayout, useLayoutAnimationOn, useTimingTo } from '../motion';
 import { toast } from '../stores/ui';
@@ -175,7 +174,6 @@ export default function HomeScreen() {
           }
         />
       )}
-      <VoiceBar />
       <UserPanel onSettings={() => router.push('/settings')} />
       <MemberSheet userId={member} onClose={() => setMember(null)} />
     </SafeAreaView>
