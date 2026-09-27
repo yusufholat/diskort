@@ -1,5 +1,9 @@
-import { memo, useEffect, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Reanimated, { interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import {
   discardMessage,
   gifOf,
@@ -12,10 +16,12 @@ import {
   type LocalMessage,
 } from '@diskort/client-core';
 import type { User } from '@diskort/shared';
+import { feedback } from '../haptics';
 import { duration, useAppear } from '../motion';
 import { colors, font, layout, radius, ripple, space } from '../theme';
 import { Avatar } from './Avatar';
 import { AttachmentList, UploadList } from './Attachments';
+import { DRAWER_EDGE } from './ChannelDrawer';
 import { GifEmbed } from './GifEmbed';
 import { Markdown, type MarkdownContext } from './Markdown';
 import { ReactionPill } from './ReactionPill';
@@ -62,7 +68,12 @@ interface Props {
   animateIn?: boolean;
   /** Alıntıdan bu mesaja atlandı: değiştikçe (0 değilse) satır kısa süre vurgulanır */
   flash?: number;
+  /** Satırı sağa kaydırınca yanıtla (yoksa ya da yazma izni yoksa kaydırma kapalı) */
+  onReply?: (message: LocalMessage) => void;
 }
+
+/** Bu kadar sağa kaydırılınca bırakınca yanıtlanır (titreşimle bildirilir) */
+const REPLY_TRIGGER = 64;
 
 export const MessageRow = memo(function MessageRow({
   message,
@@ -75,6 +86,7 @@ export const MessageRow = memo(function MessageRow({
   onLongPress,
   animateIn = false,
   flash = 0,
+  onReply,
 }: Props) {
   const mentioned = isMentioned(message, self);
   // Metni yalnızca GIPHY bağlantısı olan mesaj: bağlantı yerine GIF gösterilir
@@ -95,6 +107,44 @@ export const MessageRow = memo(function MessageRow({
     highlight.setValue(1);
     Animated.timing(highlight, { toValue: 0, duration: 1400, delay: duration(700), useNativeDriver: true }).start();
   }, [flash, highlight]);
+  // Sağa kaydırıp bırakınca yanıtla (Discord'daki gibi). Dikey kaydırma listenin; sola ve kenardan
+  // başlayan kaydırma (kanal çekmecesi) satırın değil. Dokunma ve uzun basma olduğu gibi çalışır.
+  const swipe = useSharedValue(0);
+  const armed = useSharedValue(false);
+  const canSwipe = Boolean(onReply) && !message.status;
+  const pan = useMemo(() => {
+    const reply = (): void => onReply?.(message);
+    return Gesture.Pan()
+      .enabled(canSwipe)
+      .activeOffsetX(16)
+      .failOffsetX(-12)
+      .failOffsetY([-12, 12])
+      .onTouchesDown((e, manager) => {
+        if ((e.allTouches[0]?.absoluteX ?? DRAWER_EDGE) < DRAWER_EDGE) manager.fail();
+      })
+      .onUpdate((e) => {
+        const x = Math.max(0, e.translationX);
+        // Eşikten sonra direnç: satır parmaktan geri kalır
+        swipe.value = x <= REPLY_TRIGGER ? x : REPLY_TRIGGER + (x - REPLY_TRIGGER) * 0.25;
+        const past = x >= REPLY_TRIGGER;
+        if (past !== armed.value) {
+          armed.value = past;
+          if (past) scheduleOnRN(feedback, 'reply');
+        }
+      })
+      .onEnd(() => {
+        if (armed.value) scheduleOnRN(reply);
+      })
+      .onFinalize(() => {
+        armed.value = false;
+        swipe.value = withTiming(0, { duration: 180 });
+      });
+  }, [canSwipe, onReply, message, swipe, armed]);
+  const rowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: swipe.value }] }));
+  const iconStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(swipe.value, [8, REPLY_TRIGGER], [0, 1], 'clamp'),
+    transform: [{ scale: interpolate(swipe.value, [8, REPLY_TRIGGER, REPLY_TRIGGER + 10], [0.5, 1, 1.15], 'clamp') }],
+  }));
   // Ada dokununca yazma kutusuna bahsetme eklenir
   const mentionAuthor = (): void => {
     if (author && !author.removed) mentionInComposer(message.channelId, author.username);
@@ -107,76 +157,87 @@ export const MessageRow = memo(function MessageRow({
       }}
     >
       {(dayBreak || newDivider) && <Separator day={dayBreak ? message.createdAt : null} unread={newDivider} />}
-      <Pressable
-        onLongPress={() => !message.status && onLongPress(message)}
-        delayLongPress={300}
-        // Kaydırmaya başlarken dokunulan satır parlamasın: basma kısa bir gecikmeyle başlar
-        unstable_pressDelay={90}
-        android_ripple={ripple.row}
-        accessibilityHint="Seçenekler için uzun bas"
-        style={[
-          styles.row,
-          compact ? styles.compact : styles.full,
-          mentioned && !replying && styles.mentioned,
-          replying && styles.replying,
-        ]}
-      >
-        <Animated.View pointerEvents="none" style={[styles.flash, { opacity: highlight }]} />
-        <View style={[styles.gutter, isReply && { paddingTop: REPLY_PREVIEW_HEIGHT }]}>
-          {!compact && <Avatar user={author} size={40} />}
-        </View>
-        <View style={styles.body}>
-          {isReply && <ReplyPreview message={message} md={md} />}
-          {!compact && (
-            <View style={styles.header}>
-              <Text
-                style={[styles.author, !author && styles.deleted, author && authorColor ? { color: authorColor } : null]}
-                numberOfLines={1}
-                onPress={author ? mentionAuthor : undefined}
-                onLongPress={() => !message.status && onLongPress(message)}
-                suppressHighlighting
-              >
-                {author?.displayName ?? 'Silinmiş Kullanıcı'}
-              </Text>
-              <Text style={styles.time}>{stamp(message.createdAt)}</Text>
-            </View>
-          )}
-          {message.content && !gif ? <Markdown content={message.content} ctx={{ ...md, flags: message }} dim={message.status === 'pending'} /> : null}
-          {gif ? <GifEmbed embed={gif} dim={message.status === 'pending'} /> : null}
-          {message.editedAt ? <Text style={styles.edited}>(düzenlendi)</Text> : null}
-          {message.uploads ? (
-            <UploadList message={message} />
-          ) : message.attachments.length > 0 ? (
-            <AttachmentList attachments={message.attachments} />
-          ) : null}
-          {message.status === 'failed' && message.nonce && (
-            <Text style={styles.failed}>
-              Gönderilemedi.{' '}
-              <Text style={styles.action} onPress={() => retryMessage(message.channelId, message.nonce!)}>
-                Tekrar dene
-              </Text>
-              {'  ·  '}
-              <Text style={styles.action} onPress={() => discardMessage(message.channelId, message.nonce!)}>
-                Vazgeç
-              </Text>
-            </Text>
-          )}
-          {message.reactions.length > 0 && (
-            <View style={styles.reactions}>
-              {message.reactions.map((r) => (
-                <ReactionPill
-                  key={r.emoji}
-                  emoji={r.emoji}
-                  count={r.count}
-                  me={r.me}
-                  animateIn={mounted.current}
-                  onPress={() => void toggleReaction(message.channelId, message.id, r.emoji)}
-                />
-              ))}
-            </View>
-          )}
-        </View>
-      </Pressable>
+      <View>
+        {canSwipe && (
+          <Reanimated.View pointerEvents="none" style={[styles.replyIcon, iconStyle]}>
+            <Ionicons name="arrow-undo" size={20} color={colors.head} />
+          </Reanimated.View>
+        )}
+        <GestureDetector gesture={pan}>
+          <Reanimated.View style={rowStyle}>
+            <Pressable
+              onLongPress={() => !message.status && onLongPress(message)}
+              delayLongPress={300}
+              // Kaydırmaya başlarken dokunulan satır parlamasın: basma kısa bir gecikmeyle başlar
+              unstable_pressDelay={90}
+              android_ripple={ripple.row}
+              accessibilityHint="Seçenekler için uzun bas"
+              style={[
+                styles.row,
+                compact ? styles.compact : styles.full,
+                mentioned && !replying && styles.mentioned,
+                replying && styles.replying,
+              ]}
+            >
+              <Animated.View pointerEvents="none" style={[styles.flash, { opacity: highlight }]} />
+              <View style={[styles.gutter, isReply && { paddingTop: REPLY_PREVIEW_HEIGHT }]}>
+                {!compact && <Avatar user={author} size={40} />}
+              </View>
+              <View style={styles.body}>
+                {isReply && <ReplyPreview message={message} md={md} />}
+                {!compact && (
+                  <View style={styles.header}>
+                    <Text
+                      style={[styles.author, !author && styles.deleted, author && authorColor ? { color: authorColor } : null]}
+                      numberOfLines={1}
+                      onPress={author ? mentionAuthor : undefined}
+                      onLongPress={() => !message.status && onLongPress(message)}
+                      suppressHighlighting
+                    >
+                      {author?.displayName ?? 'Silinmiş Kullanıcı'}
+                    </Text>
+                    <Text style={styles.time}>{stamp(message.createdAt)}</Text>
+                  </View>
+                )}
+                {message.content && !gif ? <Markdown content={message.content} ctx={{ ...md, flags: message }} dim={message.status === 'pending'} /> : null}
+                {gif ? <GifEmbed embed={gif} dim={message.status === 'pending'} /> : null}
+                {message.editedAt ? <Text style={styles.edited}>(düzenlendi)</Text> : null}
+                {message.uploads ? (
+                  <UploadList message={message} />
+                ) : message.attachments.length > 0 ? (
+                  <AttachmentList attachments={message.attachments} />
+                ) : null}
+                {message.status === 'failed' && message.nonce && (
+                  <Text style={styles.failed}>
+                    Gönderilemedi.{' '}
+                    <Text style={styles.action} onPress={() => retryMessage(message.channelId, message.nonce!)}>
+                      Tekrar dene
+                    </Text>
+                    {'  ·  '}
+                    <Text style={styles.action} onPress={() => discardMessage(message.channelId, message.nonce!)}>
+                      Vazgeç
+                    </Text>
+                  </Text>
+                )}
+                {message.reactions.length > 0 && (
+                  <View style={styles.reactions}>
+                    {message.reactions.map((r) => (
+                      <ReactionPill
+                        key={r.emoji}
+                        emoji={r.emoji}
+                        count={r.count}
+                        me={r.me}
+                        animateIn={mounted.current}
+                        onPress={() => void toggleReaction(message.channelId, message.id, r.emoji)}
+                      />
+                    ))}
+                  </View>
+                )}
+              </View>
+            </Pressable>
+          </Reanimated.View>
+        </GestureDetector>
+      </View>
     </Animated.View>
   );
 });
@@ -215,6 +276,15 @@ const styles = StyleSheet.create({
   failed: { color: colors.muted, fontSize: 13, marginTop: 2 },
   action: { color: colors.link },
   reactions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  replyIcon: {
+    position: 'absolute',
+    left: space.lg,
+    top: 0,
+    bottom: 0,
+    width: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   dayBreak: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginHorizontal: space.lg, marginTop: space.lg, marginBottom: 2, minHeight: 16 },
   dayLine: { flex: 1, height: 1, backgroundColor: colors.line },
   dayText: { color: colors.muted, fontSize: font.caption, fontWeight: '700' },

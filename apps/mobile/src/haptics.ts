@@ -24,7 +24,9 @@ export type FeedbackEvent =
   /** Yönetim işlemi yapıldı (sunucuda sustur, taşı, at…) */
   | 'moderate'
   /** İşlem yapılamadı (izin yok gibi) */
-  | 'error';
+  | 'error'
+  /** Mesaj sağa kaydırıldı, bırakınca yanıtlanacak */
+  | 'reply';
 
 /**
  * Titreşim desenleri (ms; Android: [bekle, titre, bekle, titre…]). Kapatan işlemler çift kısa tık,
@@ -43,6 +45,7 @@ const PATTERNS: Record<FeedbackEvent, number[]> = {
   leave: [0, 26],
   moderate: [0, 16],
   error: [0, 20, 60, 20, 60, 20],
+  reply: [0, 12],
 };
 
 // Titreşim izni (VIBRATE) APK'nın bildiriminde yoksa Vibration yerel tarafta hata fırlatır ve uygulama
