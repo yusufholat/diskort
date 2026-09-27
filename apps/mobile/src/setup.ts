@@ -1,6 +1,7 @@
 // Uygulamanın her şeyden önce çalışan kurulumu (index.ts'te ilk içe aktarılır).
 import { registerGlobals } from '@livekit/react-native';
-import { configureClient, reportClientError, useGuild } from '@diskort/client-core';
+import { configureClient, dmTitle, reportClientError, useGuild, useSession } from '@diskort/client-core';
+import { GIF_SNIPPET, isGifMessage } from '@diskort/shared';
 import * as SecureStore from 'expo-secure-store';
 import { AppState, Vibration } from 'react-native';
 import { uploadFromDevice } from './attachments';
@@ -35,7 +36,17 @@ export const clientReady = configureClient({
     const author = message.authorId ? guild.users[message.authorId]?.displayName : undefined;
     const channel = guild.channels.find((c) => c.id === message.channelId)?.name;
     Vibration.vibrate(60);
-    toast(`${author ?? 'Biri'} senden bahsetti · #${channel ?? ''}`);
+    const replied = message.replyMentionUserId != null && message.replyMentionUserId === useSession.getState().user?.id;
+    toast(`${author ?? 'Biri'} ${replied ? 'sana yanıt verdi' : 'senden bahsetti'} · #${channel ?? ''}`);
+  },
+  // Açık olmayan konuşmaya gelen direkt mesaj (uygulama kapalıyken telefon bildirimi gelir)
+  onDirectMessage: (message, dm) => {
+    const guild = useGuild.getState();
+    const author = (message.authorId ? guild.users[message.authorId]?.displayName : undefined) ?? 'Biri';
+    const from = dm.group ? `${author} · ${dmTitle(dm, guild.users, useSession.getState().user?.id)}` : author;
+    const text = isGifMessage(message) ? GIF_SNIPPET : message.content || (message.attachments.length ? '📎 Dosya gönderdi' : '');
+    Vibration.vibrate(60);
+    toast(`${from}: ${text.length > 80 ? `${text.slice(0, 80)}…` : text}`);
   },
   onUpdateRequired: (version) => useUi.setState({ updateRequired: version }),
   // Yeni sürüm yayınlandı: hemen denetle. Arayüz güncellemesi arka planda iner, uygulamaya dönünce

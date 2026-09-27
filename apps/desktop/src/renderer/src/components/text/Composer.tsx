@@ -15,7 +15,9 @@ import { MESSAGE_MAX_LENGTH, Permission, type Channel, type User } from '@diskor
 import {
   addFiles,
   formatBytes,
+  insertText,
   notifyTyping,
+  registerComposer,
   removeFile,
   sendMessage,
   setEditing,
@@ -30,6 +32,7 @@ import { toast } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 import { FileIcon } from './Attachments';
 import { ComposerToolbar } from './ComposerToolbar';
+import { ReplyBar } from './ReplyBar';
 
 /** Kanal değiştirince yarım kalan mesaj kaybolmasın */
 const drafts = new Map<string, string>();
@@ -87,12 +90,21 @@ function FilePreview({ file }: { file: LocalFile }) {
 }
 
 interface Props {
-  channel: Channel;
+  channel: Pick<Channel, 'id' | 'name'>;
   self: User;
   onSend: () => void;
+  /** Kutudaki ipucu (verilmezse "#kanal kanalına mesaj gönder") */
+  placeholder?: string;
+  /** Yazılamıyorsa kutu yerine gösterilecek açıklama (verilmezse izin yok mesajı) */
+  lockedText?: string;
+  /** Bahsetme önerilerinde yalnızca bu kişiler (ör. konuşmanın katılımcıları) */
+  mentionable?: readonly string[];
 }
 
-export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ channel, self, onSend }, handle) {
+export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
+  { channel, self, onSend, placeholder, lockedText, mentionable },
+  handle,
+) {
   const [value, setValue] = useState(() => drafts.get(channel.id) ?? '');
   const [caret, setCaret] = useState(0);
   const [selected, setSelected] = useState(0);
@@ -120,11 +132,11 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
     if (query === undefined || query === dismissed) return [];
     const q = query.toLocaleLowerCase('tr');
     return Object.values(users)
-      .filter((u) => !u.removed)
+      .filter((u) => !u.removed && (!mentionable || mentionable.includes(u.id)))
       .filter((u) => u.username.startsWith(q) || u.displayName.toLocaleLowerCase('tr').includes(q))
       .sort((a, b) => Number(!!online[b.id]) - Number(!!online[a.id]) || a.username.localeCompare(b.username))
       .slice(0, MAX_SUGGESTIONS);
-  }, [query, dismissed, users, online]);
+  }, [query, dismissed, users, online, mentionable]);
   const active = Math.min(selected, Math.max(0, suggestions.length - 1));
 
   const update = (next: string, nextCaret: number): void => {
@@ -155,6 +167,25 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
     update(next, before.length);
     requestAnimationFrame(() => ref.current?.setSelectionRange(before.length, before.length));
   };
+
+  // Dışarıdan erişim (ada tıklayınca bahsetme, "Yanıtla" deyince odaklanma): bkz. client-core/composer
+  const insertAtCaret = useRef((_text: string) => {});
+  insertAtCaret.current = (text: string): void => {
+    const el = ref.current;
+    const next = insertText(value, el?.selectionStart ?? value.length, el?.selectionEnd ?? value.length, text);
+    update(next.value, next.caret);
+    requestAnimationFrame(() => {
+      ref.current?.focus();
+      ref.current?.setSelectionRange(next.caret, next.caret);
+    });
+  };
+  useEffect(() => {
+    if (!canSend) return;
+    return registerComposer(channel.id, {
+      focus: () => ref.current?.focus(),
+      insert: (text) => insertAtCaret.current(text),
+    });
+  }, [channel.id, canSend]);
 
   const send = (): void => {
     const content = value.trim();
@@ -217,12 +248,12 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
   const remaining = MESSAGE_MAX_LENGTH - value.trim().length;
 
   // Salt okunur kanal: yazma kutusu yerine açıklama
-  if (!canSend) {
+  if (!canSend || lockedText) {
     return (
       <div className="px-4">
         <div className="flex min-h-11 items-center gap-2 rounded-lg bg-bg-hover px-4 text-text-muted">
           <Lock size={16} className="shrink-0" />
-          <span>Bu kanala mesaj gönderme iznin yok.</span>
+          <span>{lockedText ?? 'Bu kanala mesaj gönderme iznin yok.'}</span>
         </div>
       </div>
     );
@@ -257,6 +288,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
         </div>
       )}
       <div className="rounded-lg bg-bg-hover">
+        <ReplyBar channelId={channel.id} />
         {files.length > 0 && <FileTray channelId={channel.id} files={files} />}
         <div className="flex items-end">
           {canAttach ? (
@@ -288,7 +320,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ ch
             rows={1}
             autoFocus
             maxLength={MESSAGE_MAX_LENGTH * 2}
-            placeholder={`#${channel.name} kanalına mesaj gönder`}
+            placeholder={placeholder ?? `#${channel.name} kanalına mesaj gönder`}
             onChange={(e) => {
               update(e.target.value, e.target.selectionStart);
               if (e.target.value.trim()) notifyTyping(channel.id);

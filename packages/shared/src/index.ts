@@ -44,6 +44,28 @@ export interface Channel {
   overwrites: PermissionOverwrite[];
 }
 
+/**
+ * Direkt mesaj konuşması: bire bir ya da küçük bir grup. Mesajları, dosyaları, tepkileri ve okunma
+ * durumu metin kanallarınınkiyle aynıdır (mesajın `channelId`'si konuşmanın kimliğidir), ama topluluğun
+ * kanal listesinde yer almaz; yalnızca katılımcılar görür (rol, kanal izni ve yöneticilik uygulanmaz).
+ */
+export interface DmChannel {
+  id: string;
+  /** Katılımcılar (sen dahil), katılma sırasıyla. Hesabı silinen katılımcı listeden düşer. */
+  participantIds: string[];
+  /** Grup konuşması mı. Bire bir konuşma aynı iki kişi için tektir ve ona katılımcı eklenemez. */
+  group: boolean;
+  /** Grubun adı; verilmemişse (ve bire bir konuşmada) null: katılımcıların adları gösterilir */
+  name: string | null;
+  /** Grubu kuran (ayrılırsa sıradaki katılımcıya geçer); bire bir konuşmada null */
+  ownerId: string | null;
+  createdAt: number;
+  /** Son mesajın kimliği; mesaj yoksa null */
+  lastMessageId: string | null;
+  /** Son mesajın zamanı, mesaj yoksa oluşturulma zamanı (liste buna göre sıralanır) */
+  lastActivityAt: number;
+}
+
 export interface VoiceState {
   userId: string;
   channelId: string;
@@ -155,6 +177,34 @@ export interface Message {
   embeds?: Embed[];
   /** Yazarın yetkisi olan bir @everyone bahsetmesi: kanalı gören herkese bildirim gider */
   mentionEveryone: boolean;
+  /**
+   * Yanıt verilen mesajın kimliği (Discord'daki "message_reference"); yanıt değilse null. Asıl mesaj
+   * silinse de kalır. Yanıtları bilmeyen eski sunucularda hiç gelmez.
+   */
+  replyToId?: string | null;
+  /**
+   * Yanıt verilen mesajın kısa özeti; asıl mesaj silindiyse (ya da yanıt değilse) null. Sunucu bunu
+   * saklamaz, her okumada asıl mesajdan yeniden üretir; bu yüzden asıl mesaj düzenlenince ya da
+   * silinince yeniden yüklenen yanıtlar hep günceldir. Ekrandaki yanıtları istemci, asıl mesajın
+   * MESSAGE_UPDATE / MESSAGE_DELETE olaylarıyla kendisi günceller (ayrı bir olay gönderilmez).
+   */
+  referencedMessage?: ReferencedMessage | null;
+  /**
+   * Yanıtta asıl mesajın yazarı bildirildiyse ("@ AÇIK") onun kimliği: o kişi için bahsetme sayılır
+   * (bildirim gider, mesaj vurgulanır). Asıl mesaj sonradan silinse de kalır.
+   */
+  replyMentionUserId?: string | null;
+}
+
+/** Yanıtın üstünde gösterilen, yanıt verilen mesajın özeti */
+export interface ReferencedMessage {
+  id: string;
+  /** Yazarın hesabı silindiyse null */
+  authorId: string | null;
+  /** Metnin ilk REPLY_EXCERPT_LENGTH karakteri */
+  content: string;
+  /** Dosya eki var mı (metni boş, yalnızca dosyalı mesajlarda "Ek" gösterilir) */
+  hasAttachments: boolean;
 }
 
 /** Gateway'deki mesaj güncellemesi: tepkiler kişiye özel (`me`) olduğundan taşınmaz */
@@ -296,6 +346,10 @@ export interface CreateMessageRequest {
   content: string;
   /** Önce POST /api/channels/:id/attachments ile yüklenen dosyalar */
   attachmentIds?: string[];
+  /** Aynı kanaldaki bir mesaja yanıt (eski sunucular bu alanı yok sayar, mesaj normal gider) */
+  replyToId?: string;
+  /** Yanıtta asıl yazar bildirilsin mi (Discord'daki "@ AÇIK"); verilmezse evet */
+  replyMention?: boolean;
 }
 
 export interface UpdateMessageRequest {
@@ -304,6 +358,22 @@ export interface UpdateMessageRequest {
 
 export interface AckRequest {
   messageId: string;
+}
+
+/**
+ * Direkt mesaj başlatmak. Tek kişi: bire bir konuşma (varsa var olanı döner, 200; yoksa oluşturulur,
+ * 201). Birden çok kişi: yeni grup (en fazla DM_GROUP_MAX_PARTICIPANTS kişi, sen dahil).
+ */
+export interface CreateDmRequest {
+  /** Diğer katılımcılar (sen hariç) */
+  userIds: string[];
+  /** Grubun adı (yalnızca grupta) */
+  name?: string | null;
+}
+
+/** Grubun adını değiştirmek; null ya da boş: ad kaldırılır */
+export interface UpdateDmRequest {
+  name: string | null;
 }
 
 export interface VoiceJoinResponse {
@@ -340,6 +410,13 @@ export interface ReadyPayload {
   attachmentMaxBytes: number;
   /** İsteğe bağlı özellikler (ör. GIF araması); eski sunucularda hiç gelmez */
   features?: ServerFeatures;
+  /**
+   * Kullanıcının listesinde açık direkt mesaj konuşmaları. Yalnızca IDENTIFY'da 'dm' özelliğini bildiren
+   * istemcilere gelir; bunların okunmamış bilgisi (son mesaj, okunan son mesaj, okunmamış mesaj sayısı)
+   * kanallarınkiyle birlikte lastMessageIds / readStates / mentionCounts içindedir. DM'de karşı tarafın
+   * her mesajı bahsetme gibi sayılır.
+   */
+  dms?: DmChannel[];
 }
 
 export type GatewayServerMessage =
@@ -368,6 +445,14 @@ export type GatewayServerMessage =
   | { t: 'MESSAGE_REACTION_ADD'; d: ReactionEvent }
   | { t: 'MESSAGE_REACTION_REMOVE'; d: ReactionEvent }
   | { t: 'TYPING_START'; d: { channelId: string; userId: string } }
+  /**
+   * Direkt mesaj olayları (yalnızca 'dm' özelliğini bildiren istemcilere, yalnızca katılımcılara).
+   * CREATE: konuşma listende göründü (yeni, yeniden açıldı ya da gruba eklendin; mesaj olaylarından önce
+   * gelir). UPDATE: grup adı ya da katılımcılar değişti. DELETE: listenden kalktı (kapattın ya da ayrıldın).
+   */
+  | { t: 'DM_CHANNEL_CREATE'; d: DmChannel }
+  | { t: 'DM_CHANNEL_UPDATE'; d: DmChannel }
+  | { t: 'DM_CHANNEL_DELETE'; d: { id: string } }
   | { t: 'INVALID_SESSION'; d: { reason: string } }
   /** İstemci sürümü eski: bağlantı kapatılır, güncellemeden yeniden bağlanılamaz */
   | { t: 'UPDATE_REQUIRED'; d: { version: string } }
@@ -383,7 +468,15 @@ export interface IdentifyPayload {
   version?: string;
   /** Bildirilmezse masaüstü sayılır (0.1.4 öncesi masaüstü sürümleri göndermez) */
   platform?: ClientPlatform;
+  /**
+   * İstemcinin tanıdığı ek özellikler (bkz. CLIENT_FEATURE_*). Bildirilmeyen özelliğin verisi ve olayları
+   * gönderilmez: ör. eski istemciler direkt mesajları tanımadığından onlara hiç DM gitmez.
+   */
+  features?: string[];
 }
+
+/** İstemci direkt mesajları tanıyor: READY'de `dms`, DM_CHANNEL_* ve DM mesaj olayları gelir */
+export const CLIENT_FEATURE_DM = 'dm';
 
 export type GatewayClientMessage =
   | { t: 'IDENTIFY'; d: IdentifyPayload }
@@ -405,8 +498,13 @@ export const BAN_REASON_MAX_LENGTH = 200;
 export const PASSWORD_MIN_LENGTH = 8;
 export const DISPLAY_NAME_MAX_LENGTH = 32;
 export const CHANNEL_NAME_MAX_LENGTH = 48;
+/** Grup DM'indeki en fazla kişi (kuran dahil) */
+export const DM_GROUP_MAX_PARTICIPANTS = 10;
+export const DM_NAME_MAX_LENGTH = 48;
 export const MESSAGE_MAX_LENGTH = 2000;
 export const MESSAGE_PAGE_SIZE = 50;
+/** Yanıt özetindeki (referencedMessage.content) en fazla karakter */
+export const REPLY_EXCERPT_LENGTH = 200;
 /** Bir mesajdaki en fazla farklı emoji tepkisi sayısı */
 export const MESSAGE_MAX_REACTIONS = 20;
 /** Bir mesajdaki en fazla dosya sayısı */
@@ -464,6 +562,30 @@ export function extractMentions(content: string): string[] {
   for (const m of content.matchAll(/(?<![a-z0-9_.@])@([a-z0-9_.]*[a-z0-9_])/gi)) names.add(m[1]!.toLowerCase());
   return [...names];
 }
+
+/**
+ * Mesajın yanıtların üstünde gösterilen özeti. Sunucu okurken, istemci de ekrandaki yanıtları asıl
+ * mesajın güncellemesiyle tazelerken aynı kuralı kullanır.
+ */
+export function referenceOf(
+  message: Pick<Message, 'id' | 'authorId' | 'content'> & { embeds?: readonly Embed[] | null },
+  hasAttachments: boolean,
+): ReferencedMessage {
+  return {
+    id: message.id,
+    authorId: message.authorId,
+    // GIF mesajının metni GIPHY bağlantısıdır; özette bağlantı yerine "GIF" yazar (eski istemcilerde de)
+    content: isGifMessage(message) ? GIF_SNIPPET : [...message.content].slice(0, REPLY_EXCERPT_LENGTH).join(''),
+    hasAttachments,
+  };
+}
+
+/** Yanıt özetinde ve bildirimlerde GIF mesajının metni */
+export const GIF_SNIPPET = 'GIF';
+
+/** Sunucunun GIF gömdüğü mesaj (metni yalnızca bir GIPHY bağlantısıdır) */
+export const isGifMessage = (message: { embeds?: readonly Embed[] | null }): boolean =>
+  message.embeds?.some((e) => e.type === 'gif') ?? false;
 
 /** Metinde @everyone bahsetmesi var mı (yazarın yetkisi ayrıca denetlenir) */
 export function mentionsEveryone(content: string): boolean {

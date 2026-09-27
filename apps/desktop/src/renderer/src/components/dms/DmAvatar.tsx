@@ -1,0 +1,43 @@
+import { Users } from 'lucide-react';
+import type { DmChannel } from '@diskort/shared';
+import { dmPartner, useGuild, useSession } from '@diskort/client-core';
+import { cn } from '../../lib/utils';
+import { Avatar } from '../ui/Avatar';
+
+/** Grup renkleri: kimlikten türetilir, konuşma her yerde aynı renkte görünür */
+const GROUP_COLORS = ['#5865f2', '#3ba55c', '#faa61a', '#eb459e', '#9b59b6', '#1abc9c', '#e67e22'];
+
+function groupColor(id: string): string {
+  let hash = 0;
+  for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) | 0;
+  return GROUP_COLORS[Math.abs(hash) % GROUP_COLORS.length]!;
+}
+
+/** Konuşmanın resmi: bire bir konuşmada karşı tarafın profil fotoğrafı (çevrimiçi noktasıyla), grupta simge */
+export function DmAvatar({
+  dm,
+  size = 32,
+  status = false,
+  className,
+}: {
+  dm: DmChannel;
+  size?: number;
+  /** Bire bir konuşmada çevrimiçi noktası gösterilsin */
+  status?: boolean;
+  className?: string;
+}) {
+  const selfId = useSession((s) => s.user?.id);
+  const partner = useGuild((s) => dmPartner(dm, s.users, selfId));
+  const online = useGuild((s) => (partner ? Boolean(s.online[partner.id]) : false));
+  if (!dm.group) {
+    return <Avatar user={partner} size={size} online={status && partner && !partner.removed ? online : undefined} className={className} />;
+  }
+  return (
+    <div
+      className={cn('flex shrink-0 items-center justify-center rounded-full text-white', className)}
+      style={{ width: size, height: size, background: groupColor(dm.id) }}
+    >
+      <Users size={Math.round(size * 0.55)} />
+    </div>
+  );
+}

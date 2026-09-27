@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Hash } from 'lucide-react';
-import type { Channel, User } from '@diskort/shared';
-import { loadOlder, useMessages, type LocalMessage, useGuild } from '@diskort/client-core';
+import type { Channel, DmChannel, User } from '@diskort/shared';
+import { clearJump, dmPartner, loadOlder, useMessages, type LocalMessage, useGuild } from '@diskort/client-core';
+import { DmAvatar } from '../dms/DmAvatar';
 import type { MarkdownContext } from '../../features/messages/markdown';
 import { animate, riseIn } from '../../lib/motion';
 import { MessageSkeleton } from '../ui/Skeleton';
@@ -17,7 +18,9 @@ const EMPTY: LocalMessage[] = [];
 const keyOf = (m: LocalMessage): string => m.nonce ?? m.id;
 
 interface Props {
-  channel: Channel;
+  channel: Pick<Channel, 'id' | 'name'>;
+  /** Direkt mesaj konuşmasıysa (başlangıçtaki tanıtım farklıdır) */
+  dm?: DmChannel;
   self: User;
   /** "YENİ" ayracının üstünde duracağı mesaj */
   dividerId: string | null;
@@ -26,11 +29,12 @@ interface Props {
   scrollToBottomSignal: number;
 }
 
-export function MessageList({ channel, self, dividerId, onAtBottomChange, scrollToBottomSignal }: Props) {
+export function MessageList({ channel, dm, self, dividerId, onAtBottomChange, scrollToBottomSignal }: Props) {
   const messages = useMessages((s) => s.channels[channel.id]?.messages ?? EMPTY);
   const hasMore = useMessages((s) => s.channels[channel.id]?.hasMore ?? true);
   const loaded = useMessages((s) => s.channels[channel.id]?.loaded ?? false);
   const editingId = useMessages((s) => s.editingId);
+  const jump = useMessages((s) => s.jump);
   const users = useGuild((s) => s.users);
 
   const md: MarkdownContext = useMemo(
@@ -110,6 +114,25 @@ export function MessageList({ channel, self, dividerId, onAtBottomChange, scroll
     el.scrollTop = el.scrollHeight;
   }, [scrollToBottomSignal]);
 
+  // Yanıtın alıntısına tıklanınca asıl mesaja kaydır ve kısa süre vurgula
+  useLayoutEffect(() => {
+    if (!jump || jump.channelId !== channel.id) return;
+    const target = contentRef.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(jump.messageId)}"]`);
+    if (!target) return;
+    clearJump(jump.seq);
+    stick.current = false;
+    onAtBottomChange(false);
+    // Anında (Discord gibi): yumuşak kaydırmanın ilk adımları "en altta" sayılıp listeyi geri çekebilir
+    target.scrollIntoView({ block: 'center' });
+    // Sınıf değil Web Animations: satır yeniden çizilince (className) vurgu silinmesin; son kare örtük
+    // olduğundan satırın kendi arka planına (ör. bahsetme rengi) döner
+    const flash = 'rgb(88 101 242 / 0.22)';
+    animate(target, [{ backgroundColor: flash, offset: 0 }, { backgroundColor: flash, offset: 0.4 }], {
+      duration: 2000,
+      easing: 'ease-out',
+    });
+  }, [jump, messages, channel.id, onAtBottomChange]);
+
   const onScroll = (): void => {
     const el = scrollRef.current;
     if (!el) return;
@@ -128,6 +151,8 @@ export function MessageList({ channel, self, dividerId, onAtBottomChange, scroll
           <MessageSkeleton rows={8} className="shrink-0" />
         ) : hasMore || !loaded ? (
           <MessageSkeleton rows={2} className="shrink-0 pb-2" />
+        ) : dm ? (
+          <DmIntro dm={dm} name={channel.name} selfId={self.id} />
         ) : (
           <div className="anim-fade-in mx-4 mt-4 mb-2">
             <div className="mb-2 flex h-[68px] w-[68px] items-center justify-center rounded-full bg-bg-active">
@@ -142,10 +167,12 @@ export function MessageList({ channel, self, dividerId, onAtBottomChange, scroll
           const prev = messages[i - 1];
           const newDay = !prev || !sameDay(prev.createdAt, m.createdAt);
           const divider = m.id === dividerId;
+          // Yanıt her zaman başlıklı gösterilir (üstünde alıntısı olur)
           const compact =
             !!prev &&
             !newDay &&
             !divider &&
+            !m.replyToId &&
             prev.authorId === m.authorId &&
             prev.status !== 'failed' &&
             m.createdAt - prev.createdAt < GROUP_WINDOW_MS;
@@ -164,6 +191,30 @@ export function MessageList({ channel, self, dividerId, onAtBottomChange, scroll
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/** Konuşmanın başı: kiminle (ya da hangi grupla) konuşulduğu */
+function DmIntro({ dm, name, selfId }: { dm: DmChannel; name: string; selfId: string }) {
+  const partner = useGuild((s) => dmPartner(dm, s.users, selfId));
+  return (
+    <div className="anim-fade-in mx-4 mt-4 mb-2">
+      <DmAvatar dm={dm} size={80} className="mb-3" />
+      <h2 className="text-[32px] leading-tight font-bold text-text-head">{name}</h2>
+      {partner && <div className="mb-2 text-lg text-text-normal">@{partner.username}</div>}
+      <p className="text-text-muted">
+        {dm.group ? (
+          <>
+            <strong className="text-text-normal">{name}</strong> grubunun başlangıcı.
+          </>
+        ) : (
+          <>
+            <strong className="text-text-normal">{name}</strong> ile direkt mesaj geçmişinin başlangıcı.
+          </>
+        )}{' '}
+        Bu konuşmayı yalnızca {dm.group ? 'gruptakiler' : 'ikiniz'} görebilir.
+      </p>
     </div>
   );
 }

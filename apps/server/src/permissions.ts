@@ -1,6 +1,7 @@
 import {
   basePermissions,
   channelPermissions,
+  dmPermissions,
   hasPermission,
   highestRolePosition,
   outranks,
@@ -37,12 +38,34 @@ export class PermissionService {
     return basePermissions(data, userId, this.rolesOf(userId));
   }
 
-  /** Kanaldaki yetkiler; kanal yoksa 0 */
+  /**
+   * Kanaldaki yetkiler; kanal yoksa 0. Kimlikle verilen kanal bir direkt mesaj konuşmasıysa yalnızca
+   * katılımcılar yetki alır (roller ve yöneticilik uygulanmaz, bkz. dmPermissions).
+   */
   inChannel(userId: string, channel: Channel | string): number {
     const data = this.data;
+    if (typeof channel === 'string') {
+      const dm = data.dms.get(channel);
+      if (dm) return dmPermissions(dm, userId, (id) => !data.removed.has(id));
+    }
     const c = typeof channel === 'string' ? data.channels.get(channel) : channel;
     if (!c || data.removed.has(userId)) return 0;
     return channelPermissions(data, userId, this.rolesOf(userId), c);
+  }
+
+  /** Kimlik bir direkt mesaj konuşmasının mı */
+  isDm(channelId: string): boolean {
+    return this.data.dms.has(channelId);
+  }
+
+  /** Konuşmanın katılımcıları (DM değilse boş) */
+  dmParticipants(channelId: string): readonly string[] {
+    return this.data.dms.get(channelId)?.participantIds ?? [];
+  }
+
+  /** Üye mi (atılmamış, yasaklanmamış) */
+  isMember(userId: string): boolean {
+    return !this.data.removed.has(userId);
   }
 
   /** Yetkisi var mı: kanal verilirse o kanalda, verilmezse sunucu genelinde */

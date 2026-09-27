@@ -37,6 +37,8 @@ const createSchema = z
       .max(MESSAGE_MAX_ATTACHMENTS, `Bir mesaja en fazla ${MESSAGE_MAX_ATTACHMENTS} dosya eklenebilir.`)
       .refine((ids) => new Set(ids).size === ids.length, 'Aynı dosya iki kez eklenemez.')
       .optional(),
+    replyToId: z.string().regex(/^\d+$/, 'Geçersiz yanıt.').nullish(),
+    replyMention: z.boolean().optional(),
   })
   .refine((b) => Boolean(b.content) || Boolean(b.attachmentIds?.length), EMPTY_MESSAGE);
 const editSchema = z.object({ content });
@@ -76,14 +78,19 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
     return { ...message, embeds };
   };
 
-  /** Kullanıcının görebildiği metin kanalı; göremiyorsa kanal yokmuş gibi 404 */
-  const textChannel = (id: string, userId: string, reply: FastifyReply): Channel | null => {
+  /**
+   * Kullanıcının görebildiği, mesaj yazılan kanal: metin kanalı ya da katıldığı direkt mesaj konuşması
+   * (`channel` null). Göremiyorsa kanal yokmuş gibi 404; yönetici de başkasının konuşmasını göremez.
+   */
+  const textChannel = (id: string, userId: string, reply: FastifyReply): { id: string; channel: Channel | null } | null => {
+    // Görülmeyen konuşma olmayan kanaldan ayırt edilemez (aşağıda getChannel DM'leri döndürmez: aynı 404)
+    if (permissions.isDm(id) && permissions.canView(userId, id)) return { id, channel: null };
     const channel = store.getChannel(id);
     if (!channel || channel.type !== 'text' || !permissions.canView(userId, channel)) {
       void sendError(reply, 404, 'not_found', 'Metin kanalı bulunamadı.');
       return null;
     }
-    return channel;
+    return { id, channel };
   };
 
   /** Mesajın bulunduğu kanalı görebiliyorsa mesaj */
@@ -112,10 +119,16 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
     '/api/channels/:id/messages',
     { preHandler: auth.requireUser },
     async (req, reply) => {
-      const channel = textChannel(req.params.id, req.user.id, reply);
-      if (!channel) return reply;
-      const perms = permissions.inChannel(req.user.id, channel);
-      if (!hasPermission(perms, Permission.SEND_MESSAGES)) return forbidden(reply, 'Bu kanala mesaj gönderme iznin yok.');
+      const target = textChannel(req.params.id, req.user.id, reply);
+      if (!target) return reply;
+      const { channel } = target;
+      const perms = permissions.inChannel(req.user.id, channel ?? target.id);
+      if (!hasPermission(perms, Permission.SEND_MESSAGES)) {
+        return forbidden(
+          reply,
+          channel ? 'Bu kanala mesaj gönderme iznin yok.' : 'Bu kişi artık sunucuda olmadığı için mesaj gönderemezsin.',
+        );
+      }
       if (!allowMessage(req.user.id)) {
         return sendError(reply, 429, 'rate_limited', 'Çok hızlı mesaj gönderiyorsun, biraz yavaşla.');
       }
@@ -124,28 +137,61 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
       if (body.attachmentIds?.length && !hasPermission(perms, Permission.ATTACH_FILES)) {
         return forbidden(reply, 'Bu kanala dosya gönderme iznin yok.');
       }
+      // Yanıt: asıl mesaj aynı kanalda/konuşmada olmalı (onu görebildiği için asıl mesajı da görebilir).
+      // "@ AÇIK"sa asıl yazar da bahsedilmiş sayılır (kendi mesajına yanıtta bildirim yok).
+      let replyTo: { toId: number; mentionUserId: string | null } | null = null;
+      if (body.replyToId) {
+        const original = store.replyTarget(target.id, Number(body.replyToId));
+        if (!original) {
+          return sendError(reply, 400, 'invalid_reply', 'Yanıt verilen mesaj bulunamadı; silinmiş olabilir.');
+        }
+        const ping = (body.replyMention ?? true) && original.authorId !== null && original.authorId !== req.user.id;
+        replyTo = { toId: original.id, mentionUserId: ping ? original.authorId : null };
+      }
       const content = body.content ?? '';
       // Metin yalnızca bir GIPHY bağlantısıysa GIF gömülür (seçiciden gönderilen GIF önbellekte hazırdır)
       const embeds = await gifs.embedsFor(content);
-      // @everyone yalnızca yetkisi olan yazarda herkese bildirim olur; bahsedilenlerden kanalı göremeyenler sayılmaz
-      const everyone = mentionsEveryone(content) && hasPermission(perms, Permission.MENTION_EVERYONE);
-      const candidates = everyone
-        ? store.listUsers().filter((u) => !u.removed && u.id !== req.user.id).map((u) => u.id)
-        : store.resolveMentions(content, req.user.id);
-      const mentioned = permissions.viewersOf(channel, candidates);
-      const created = store.createMessage(req.params.id, req.user.id, content, body.attachmentIds, {
-        userIds: mentioned,
-        everyone,
-      });
+      // @everyone yalnızca yetkisi olan yazarda herkese bildirim olur; bahsedilenlerden kanalı göremeyenler
+      // sayılmaz. Direkt mesajda karşı tarafın (üye olan diğer katılımcıların) her mesajı bahsetme sayılır:
+      // okunmamış sayısı ve bildirim onlara gider. Bildirimli yanıtta asıl yazar da (kanalı görüyorsa)
+      // bahsedilir; direkt mesajda zaten katılımcıdır, konuşmadan ayrıldıysa bildirilmez.
+      const everyone = channel !== null && mentionsEveryone(content) && hasPermission(perms, Permission.MENTION_EVERYONE);
+      let mentioned: string[];
+      if (channel) {
+        const candidates = new Set(
+          everyone
+            ? store.listUsers().filter((u) => !u.removed && u.id !== req.user.id).map((u) => u.id)
+            : store.resolveMentions(content, req.user.id),
+        );
+        if (replyTo?.mentionUserId) candidates.add(replyTo.mentionUserId);
+        mentioned = permissions.viewersOf(channel, candidates);
+      } else {
+        mentioned = permissions.dmParticipants(target.id).filter((id) => id !== req.user.id && permissions.isMember(id));
+        if (replyTo?.mentionUserId && !mentioned.includes(replyTo.mentionUserId)) replyTo.mentionUserId = null;
+      }
+      const created = store.createMessage(
+        target.id,
+        req.user.id,
+        content,
+        body.attachmentIds,
+        { userIds: mentioned, everyone },
+        replyTo,
+      );
       if (!created) {
         return sendError(reply, 400, 'invalid_attachment', 'Dosya bulunamadı ya da süresi doldu; yeniden eklemeyi dene.');
       }
       const message = embeds.length ? withEmbeds(created, embeds) : created;
       // Yazar kendi mesajını okumuş sayılır.
-      store.ack(req.user.id, req.params.id, Number(message.id));
-      gateway.dispatchChannel(channel.id, { t: 'MESSAGE_CREATE', d: message });
+      store.ack(req.user.id, target.id, Number(message.id));
+      if (!channel) {
+        // Konuşmayı listesinden kaldırmış katılımcılarda yeniden görünür (mesajdan önce)
+        const reopened = store.reopenDm(target.id);
+        if (reopened.length > 0) gateway.sendDm(reopened, { t: 'DM_CHANNEL_CREATE', d: store.getDm(target.id)! });
+      }
+      gateway.dispatchChannel(target.id, { t: 'MESSAGE_CREATE', d: message });
       // Telefonlara bildirim yanıtı bekletmez
-      void push.notifyMention(message, mentioned, channel.name);
+      if (channel) void push.notifyMention(message, mentioned, channel.name);
+      else void push.notifyDm(message, mentioned, store.getDm(target.id)!);
       return reply.code(201).send(message);
     },
   );

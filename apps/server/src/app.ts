@@ -23,6 +23,7 @@ import { registerAttachmentRoutes } from './routes/attachments.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerClientErrorRoutes } from './routes/clientErrors.js';
 import { registerAvatarRoutes } from './routes/avatars.js';
+import { registerDmRoutes } from './routes/dms.js';
 import { registerDownloadRoutes } from './routes/download.js';
 import { registerGifRoutes } from './routes/gifs.js';
 import { registerMessageRoutes } from './routes/messages.js';
@@ -132,6 +133,7 @@ export async function buildApp(
   registerVoiceRoutes(app, ctx);
   registerDownloadRoutes(app, ctx);
   registerMessageRoutes(app, ctx);
+  registerDmRoutes(app, ctx);
   registerRoleRoutes(app, ctx);
   registerAttachmentRoutes(app, ctx);
   registerAvatarRoutes(app, ctx);

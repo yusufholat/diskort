@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import type { GifPage, Message } from '@diskort/shared';
+import { CLIENT_FEATURE_DM, type GifPage, type Message } from '@diskort/shared';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import type { AppContext } from '../src/context.js';
@@ -312,6 +312,43 @@ describe('mesajdaki GIF', () => {
       app!.inject({ method: 'PATCH', url: `/api/messages/${message.id}`, headers: auth(token), payload: { content } });
     expect(((await edit('artık gif yok')).json() as Message).embeds).toEqual([]);
     expect(((await edit('https://giphy.com/gifs/yapis1')).json() as Message).embeds).toMatchObject([{ id: 'yapis1' }]);
+  });
+
+  it('direkt mesajda ve yanıtta GIF: gömülür, yanıt özeti "GIF", READY DM özelliğiyle birlikte gifs bildirir', async () => {
+    const { get, token, ctx, text } = await setup();
+    const code = (await app!.inject({ method: 'POST', url: '/api/invites', headers: auth(token), payload: {} })).json()
+      .code as string;
+    const veli = (
+      await app!.inject({ method: 'POST', url: '/api/auth/register', payload: { inviteCode: code, username: 'veli', password: 'sifre12345' } })
+    ).json() as { token: string; user: { id: string } };
+    const picked = ((await get('/api/gifs/trending')).json() as GifPage).results[0]!;
+    const dm = (
+      await app!.inject({ method: 'POST', url: '/api/dms', headers: auth(token), payload: { userIds: [veli.user.id] } })
+    ).json() as { id: string };
+
+    const post = (tok: string, channelId: string, payload: Record<string, unknown>) =>
+      app!.inject({ method: 'POST', url: `/api/channels/${channelId}/messages`, headers: auth(tok), payload });
+    const inDm = (await post(token, dm.id, { content: picked.url })).json() as Message;
+    expect(inDm.embeds).toMatchObject([{ type: 'gif', id: picked.id }]);
+    // Karşı taraf GIF'e yanıt verir: özette bağlantı değil "GIF"
+    const reply = (await post(veli.token, dm.id, { content: 'harika', replyToId: inDm.id })).json() as Message;
+    expect(reply.referencedMessage).toMatchObject({ id: inDm.id, content: 'GIF' });
+    const listed = (await app!.inject({ method: 'GET', url: `/api/channels/${dm.id}/messages`, headers: auth(veli.token) })).json() as Message[];
+    expect(listed.map((m) => [m.embeds?.length, m.referencedMessage?.content ?? null])).toEqual([
+      [1, null],
+      [0, 'GIF'],
+    ]);
+    // Kanalda da aynı
+    const inChannel = (await post(token, text.id, { content: picked.url })).json() as Message;
+    const channelReply = (await post(veli.token, text.id, { content: 'x', replyToId: inChannel.id })).json() as Message;
+    expect(channelReply.referencedMessage?.content).toBe('GIF');
+
+    await app!.listen({ port: 0, host: '127.0.0.1' });
+    const client = await connectGateway(app!, veli.token, [CLIENT_FEATURE_DM]);
+    expect(client.ready.features).toEqual({ gifs: true });
+    expect(client.ready.dms?.map((d) => d.id)).toEqual([dm.id]);
+    client.ws.close();
+    expect(ctx.gifs.enabled).toBe(true);
   });
 
   it('bağlantıdan kimlik çıkarma', () => {

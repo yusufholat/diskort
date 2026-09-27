@@ -1,10 +1,12 @@
-import { memberActions, moderation, moveTargets, useGuild } from '@diskort/client-core';
+import { memberActions, moderation, moveTargets, useGuild, useSession } from '@diskort/client-core';
 import { toast, useUi, type ContextMenuItem } from '../stores/ui';
+import { startDm } from './dm';
 import { confirmDialog } from './dialog';
 
 /**
- * Bir üyeye sağ tıklanınca, yetkilere ve hiyerarşiye göre yönetim öğeleri: seste sunucuda susturma,
- * sağırlaştırma, taşıma, sesten çıkarma; rol verme/alma; atma ve yasaklama. Yetki yoksa boş liste.
+ * Bir üyeye sağ tıklanınca: başkasıysa "Mesaj Gönder", sonra yetkilere ve hiyerarşiye göre yönetim
+ * öğeleri: seste sunucuda susturma, sağırlaştırma, taşıma, sesten çıkarma; rol verme/alma; atma ve
+ * yasaklama. Kendisi için ve yetki yoksa boş liste.
  */
 export function memberMenuItems(userId: string): ContextMenuItem[] {
   const guild = useGuild.getState();
@@ -14,6 +16,10 @@ export function memberMenuItems(userId: string): ContextMenuItem[] {
   const actions = memberActions(userId);
   const voice = guild.voiceStates[userId];
   const items: ContextMenuItem[] = [];
+
+  if (userId !== useSession.getState().user?.id) {
+    items.push({ label: 'Mesaj Gönder', onClick: () => void startDm(userId) });
+  }
 
   if (voice && (actions.mute || actions.deafen || actions.move)) {
     items.push({ label: 'Sesli sohbet', heading: true });

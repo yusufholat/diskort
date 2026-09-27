@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Animated, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { MESSAGE_MAX_LENGTH, Permission, type Channel, type User } from '@diskort/shared';
@@ -6,7 +6,9 @@ import {
   addFiles,
   editMessage,
   formatBytes,
+  insertText,
   notifyTyping,
+  registerComposer,
   removeFile,
   sendGif,
   sendMessage,
@@ -26,6 +28,7 @@ import { Avatar } from './Avatar';
 import { BottomSheet } from './BottomSheet';
 import { ExpressionSheet, type ExpressionTab } from './ExpressionSheet';
 import { PressableScale } from './PressableScale';
+import { ReplyBar } from './ReplyBar';
 
 /** Kanal değiştirince yarım kalan mesaj kaybolmasın */
 const drafts = new Map<string, string>();
@@ -34,14 +37,21 @@ const MENTION_QUERY = /(?:^|[\s(])@([a-z0-9_.]{0,32})$/i;
 const NO_FILES: LocalFile[] = [];
 
 interface Props {
-  channel: Channel;
+  /** Metin kanalı ya da direkt mesaj konuşması (kimlik ve görünen ad) */
+  channel: Pick<Channel, 'id' | 'name'>;
   /** Düzenlenen mesaj (varsa kutu düzenleme kipine geçer) */
   editing: LocalMessage | null;
   onDoneEditing: () => void;
   onSent: () => void;
+  /** Kutudaki ipucu (verilmezse "#kanal kanalına mesaj gönder") */
+  placeholder?: string;
+  /** Yazılamıyorsa kutu yerine gösterilecek açıklama (verilmezse izin yok mesajı) */
+  lockedText?: string;
+  /** Bahsetme önerilerinde yalnızca bu kişiler (ör. konuşmanın katılımcıları) */
+  mentionable?: readonly string[];
 }
 
-export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
+export function Composer({ channel, editing, onDoneEditing, onSent, placeholder, lockedText, mentionable }: Props) {
   const [value, setValue] = useState(() => drafts.get(channel.id) ?? '');
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   // İmleç yalnızca bahsetme seçilince bir kez ayarlanır (sürekli kontrol Android'de imleci zıplatır)
@@ -74,11 +84,11 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
     if (query === undefined) return [];
     const q = query.toLocaleLowerCase('tr');
     return Object.values(users)
-      .filter((u) => !u.removed)
+      .filter((u) => !u.removed && (!mentionable || mentionable.includes(u.id)))
       .filter((u) => u.username.startsWith(q) || u.displayName.toLocaleLowerCase('tr').includes(q))
       .sort((a, b) => Number(!!online[b.id]) - Number(!!online[a.id]) || a.username.localeCompare(b.username))
       .slice(0, 5);
-  }, [query, users, online]);
+  }, [query, users, online, mentionable]);
 
   const pick = (user: User): void => {
     const before = text.slice(0, selection.start).replace(/@[a-z0-9_.]*$/i, `@${user.username} `);
@@ -94,6 +104,25 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
     setSelection({ start: at, end: at });
     setForcedSelection({ start: at, end: at });
   };
+
+  // Dışarıdan erişim (yazarın adına dokununca bahsetme, "Yanıtla" deyince odaklanma): bkz. client-core/composer
+  const input = useRef<TextInput>(null);
+  const insertAtCaret = useRef((_text: string) => {});
+  insertAtCaret.current = (inserted: string): void => {
+    const next = insertText(text, selection.start, selection.end, inserted);
+    setText(next.value);
+    setSelection({ start: next.caret, end: next.caret });
+    setForcedSelection({ start: next.caret, end: next.caret });
+    input.current?.focus();
+  };
+  useEffect(() => {
+    if (!canSend && !editing) return;
+    return registerComposer(channel.id, {
+      // Uzun basma menüsü kapanırken odaklanılırsa klavye açılmayabilir; sayfa kapandıktan sonra
+      focus: () => setTimeout(() => input.current?.focus(), 250),
+      insert: (inserted) => insertAtCaret.current(inserted),
+    });
+  }, [channel.id, canSend, editing]);
 
   // Dosyalı mesajın metni boş olabilir
   const canSubmit = Boolean(text.trim()) || (editing ? editing.attachments.length > 0 : files.length > 0);
@@ -129,11 +158,11 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
   const remaining = MESSAGE_MAX_LENGTH - text.trim().length;
 
   // Salt okunur kanal (kendi mesajını düzenlemek yine serbest)
-  if (!canSend && !editing) {
+  if ((!canSend || lockedText) && !editing) {
     return (
       <View style={styles.locked}>
         <Ionicons name="lock-closed" size={16} color={colors.muted} />
-        <Text style={styles.lockedText}>Bu kanala mesaj gönderme iznin yok.</Text>
+        <Text style={styles.lockedText}>{lockedText ?? 'Bu kanala mesaj gönderme iznin yok.'}</Text>
       </View>
     );
   }
@@ -165,6 +194,7 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
           </Pressable>
         </View>
       )}
+      {!editing && <ReplyBar channelId={channel.id} />}
       {!editing && files.length > 0 && (
         <ScrollView horizontal style={styles.tray} contentContainerStyle={styles.trayContent} keyboardShouldPersistTaps="handled">
           {files.map((file, i) => (
@@ -205,6 +235,7 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
           </PressableScale>
         )}
         <TextInput
+          ref={input}
           value={text}
           onChangeText={setText}
           onSelectionChange={(e) => {
@@ -212,7 +243,7 @@ export function Composer({ channel, editing, onDoneEditing, onSent }: Props) {
             setForcedSelection(undefined);
           }}
           selection={forcedSelection}
-          placeholder={`#${channel.name} kanalına mesaj gönder`}
+          placeholder={placeholder ?? `#${channel.name} kanalına mesaj gönder`}
           placeholderTextColor={colors.faint}
           multiline
           maxLength={MESSAGE_MAX_LENGTH * 2}
@@ -311,7 +342,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     backgroundColor: colors.side,
   },
-  lockedText: { color: colors.muted, fontSize: 15 },
+  lockedText: { color: colors.muted, fontSize: 15, flexShrink: 1 },
   tray: { flexGrow: 0, backgroundColor: colors.side },
   trayContent: { gap: 10, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 8 },
   trayItem: { width: 92 },

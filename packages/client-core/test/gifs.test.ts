@@ -5,7 +5,10 @@ import {
   configureClient,
   fitBox,
   gateway,
+  gifEmbed,
   gifOf,
+  sendMessage,
+  startReply,
   loadMoreGifs,
   openGifPicker,
   sendGif,
@@ -95,6 +98,26 @@ describe('GIF', () => {
     resolve(new Response(JSON.stringify(confirmed), { status: 201 }));
     await vi.waitFor(() => expect(useMessages.getState().channels.c1!.messages[0]!.id).toBe('5'));
     expect(useMessages.getState().channels.c1!.messages).toHaveLength(1);
+  });
+
+  it('GIF mesajına yanıt: bekleyen yanıtın özeti bağlantı değil "GIF"', () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => undefined)));
+    const original: Message = {
+      id: '9',
+      channelId: 'c1',
+      authorId: 'u2',
+      content: gif.url,
+      createdAt: 1,
+      editedAt: null,
+      attachments: [],
+      reactions: [],
+      mentionEveryone: false,
+      embeds: [gifEmbed(gif)],
+    };
+    useMessages.setState({ channels: { c1: { messages: [original], hasMore: false, loading: false, loaded: true } } });
+    startReply(original);
+    sendMessage('c1', 'çok iyi');
+    expect(useMessages.getState().channels.c1!.messages.at(-1)!.referencedMessage).toMatchObject({ id: '9', content: 'GIF' });
   });
 
   it('yalnızca GIPHY medyası gösterilir; arama adresi kodlanır', async () => {

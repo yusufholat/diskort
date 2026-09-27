@@ -6,6 +6,7 @@ import type {
   ChangePasswordRequest,
   CreateRoleRequest,
   DeleteAccountRequest,
+  DmChannel,
   Guild,
   PushTokenRequest,
   Message,
@@ -118,14 +119,24 @@ export const api = {
 
   joinVoice: (channelId: string) => request<VoiceJoinResponse>('POST', `/api/voice/${channelId}/join`),
 
-  listMessages: (channelId: string, before?: string) =>
-    request<Message[]>('GET', `/api/channels/${channelId}/messages${before ? `?before=${before}` : ''}`),
-  sendMessage: (channelId: string, content: string, attachmentIds: string[] = []) =>
-    request<Message>(
-      'POST',
-      `/api/channels/${channelId}/messages`,
-      attachmentIds.length ? { content, attachmentIds } : { content },
-    ),
+  listMessages: (channelId: string, before?: string, limit?: number) => {
+    const query = new URLSearchParams();
+    if (before) query.set('before', before);
+    if (limit) query.set('limit', String(limit));
+    const qs = query.toString();
+    return request<Message[]>('GET', `/api/channels/${channelId}/messages${qs ? `?${qs}` : ''}`);
+  },
+  sendMessage: (
+    channelId: string,
+    content: string,
+    attachmentIds: string[] = [],
+    reply?: { replyToId: string; replyMention: boolean },
+  ) =>
+    request<Message>('POST', `/api/channels/${channelId}/messages`, {
+      content,
+      ...(attachmentIds.length ? { attachmentIds } : {}),
+      ...(reply ?? {}),
+    }),
   updateMessage: (id: string, content: string) => request<Message>('PATCH', `/api/messages/${id}`, { content }),
   deleteMessage: (id: string) => request<void>('DELETE', `/api/messages/${id}`),
   addReaction: (messageId: string, emoji: string) =>
@@ -134,6 +145,17 @@ export const api = {
     request<void>('DELETE', `/api/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`),
   ack: (channelId: string, messageId: string) =>
     request<void>('POST', `/api/channels/${channelId}/ack`, { messageId }),
+
+  // Direkt mesajlar: mesajları kanallarla aynı uçlardan (listMessages, sendMessage…) gider
+  listDms: () => request<DmChannel[]>('GET', '/api/dms'),
+  /** Tek kişi: bire bir konuşma (varsa aynısı); birden çok kişi: yeni grup */
+  createDm: (userIds: string[], name?: string | null) =>
+    request<DmChannel>('POST', '/api/dms', name ? { userIds, name } : { userIds }),
+  renameDm: (id: string, name: string | null) => request<DmChannel>('PATCH', `/api/dms/${id}`, { name }),
+  /** Bire bir konuşmayı listeden kaldırır; gruptan ayrılır */
+  closeDm: (id: string) => request<void>('DELETE', `/api/dms/${id}`),
+  addDmParticipant: (id: string, userId: string) =>
+    request<DmChannel>('PUT', `/api/dms/${id}/participants/${userId}`),
 };
 
 export function errorMessage(err: unknown): string {

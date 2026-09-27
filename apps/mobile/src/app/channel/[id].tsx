@@ -10,17 +10,22 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
-import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
-import { Permission } from '@diskort/shared';
+import { DM_GROUP_MAX_PARTICIPANTS, Permission } from '@diskort/shared';
 import {
   ackChannel,
+  clearJump,
   deleteMessage,
+  dmBlockedReason,
+  dmPartner,
+  dmTitle,
   loadInitial,
   loadOlder,
   QUICK_REACTIONS,
+  startReply,
   toggleReaction,
   useCan,
   useGuild,
@@ -48,10 +53,23 @@ const EMPTY: LocalMessage[] = [];
 const NO_REACTIONS: NonNullable<LocalMessage['reactions']> = [];
 const keyOf = (m: LocalMessage): string => m.nonce ?? m.id;
 
+/** Metin kanalı ya da direkt mesaj konuşması (kimlik bir konuşmanınsa) */
 export default function TextChannelScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const channel = useGuild((s) => s.channels.find((c) => c.id === id));
   const self = useSession((s) => s.user);
+  const dm = useGuild((s) => (id ? s.dms[id] : undefined));
+  const dmName = useGuild((s) => (dm ? dmTitle(dm, s.users, self?.id) : ''));
+  const partner = useGuild((s) => (dm ? dmPartner(dm, s.users, self?.id) : undefined));
+  // Bire bir konuşmada karşı taraf ayrıldıysa yazma kutusu yerine neden gösterilir
+  const blocked = useGuild((s) => (dm ? dmBlockedReason(dm, s.users, self?.id) : null));
+  const target = useMemo(
+    () => channel ?? (dm ? { id: dm.id, name: dmName } : undefined),
+    [channel, dm, dmName],
+  );
+  // Kanal "#ad", bire bir konuşma "@ad", grup adıyla geçer
+  const label = channel ? `#${channel.name}` : dm && !dm.group ? `@${dmName}` : dmName;
   const users = useGuild((s) => s.users);
   const messages = useMessages((s) => (id ? s.channels[id]?.messages : undefined) ?? EMPTY);
   const loaded = useMessages((s) => (id ? s.channels[id]?.loaded : false) ?? false);
@@ -63,6 +81,10 @@ export default function TextChannelScreen() {
   // Başkasının mesajını silmek ve yeni tepki eklemek kanaldaki yetkiye bağlı
   const canManageMessages = useCan(Permission.MANAGE_MESSAGES, id);
   const canReact = useCan(Permission.ADD_REACTIONS, id);
+  const canSend = useCan(Permission.SEND_MESSAGES, id);
+  const jump = useMessages((s) => s.jump);
+  // Alıntıdan atlanan mesaj: kısa süre vurgulanır
+  const [flash, setFlash] = useState<{ id: string; seq: number } | null>(null);
 
   const [atBottom, setAtBottom] = useState(true);
   const [active, setActive] = useState(AppState.currentState === 'active');
@@ -100,6 +122,16 @@ export default function TextChannelScreen() {
   // Ters liste: en yeni mesaj en altta (indeks 0)
   const data = useMemo(() => [...messages].reverse(), [messages]);
 
+  // Yanıtın alıntısına dokununca asıl mesaja kaydır (yüklü değilse çekirdek önce geçmişi yükler)
+  useEffect(() => {
+    if (!jump || jump.channelId !== id) return;
+    const index = data.findIndex((m) => m.id === jump.messageId && !m.status);
+    if (index < 0) return;
+    clearJump(jump.seq);
+    list.current?.scrollToIndex({ index, viewPosition: 0.5, animated: true });
+    setFlash({ id: jump.messageId, seq: jump.seq });
+  }, [jump, data, id]);
+
   // Yeni gelen mesajlar animasyonla belirir; geçmiş yüklenirken, eski mesajlar eklenirken ve
   // bekleyen mesajımız onaylanırken (anahtarı değişir) oynatılmaz.
   const seen = useRef<Map<string, LocalMessage>>(new Map());
@@ -136,13 +168,32 @@ export default function TextChannelScreen() {
     .map((uid) => users[uid]?.displayName)
     .filter(Boolean) as string[];
 
-  if (!channel || !self || !id) {
+  if (!target || !self || !id) {
     return <View style={styles.page} />;
   }
 
+  const canAddPeople = dm?.group === true && dm.participantIds.length < DM_GROUP_MAX_PARTICIPANTS;
+
   return (
     <SafeAreaView style={styles.page} edges={['bottom']}>
-      <Stack.Screen options={{ title: `# ${channel.name}` }} />
+      <Stack.Screen
+        options={{
+          title: channel ? `# ${channel.name}` : label,
+          headerRight:
+            canAddPeople && dm
+              ? () => (
+                  <PressableScale
+                    scaleTo={0.8}
+                    hitSlop={10}
+                    accessibilityLabel="Kişi ekle"
+                    onPress={() => router.push({ pathname: '/dm-new', params: { addTo: dm.id } })}
+                  >
+                    <Ionicons name="person-add" size={21} color={colors.muted} />
+                  </PressableScale>
+                )
+              : undefined,
+        }}
+      />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={100}>
         <FlatList
           ref={list}
@@ -153,6 +204,16 @@ export default function TextChannelScreen() {
           scrollEventThrottle={100}
           onEndReached={() => void loadOlder(id)}
           onEndReachedThreshold={0.4}
+          extraData={flash}
+          // Satır yükseklikleri değişken: hedef henüz ölçülmediyse önce tahmini yere, sonra tam yerine kaydır
+          onScrollToIndexFailed={(info) => {
+            list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+            setTimeout(() => {
+              if (info.index < data.length) {
+                list.current?.scrollToIndex({ index: info.index, viewPosition: 0.5, animated: true });
+              }
+            }, 120);
+          }}
           contentContainerStyle={{ paddingVertical: 8 }}
           // Geçmiş gelene kadar mesaj biçimli iskelet
           ListEmptyComponent={!loaded ? <MessageSkeleton rows={8} /> : null}
@@ -162,17 +223,32 @@ export default function TextChannelScreen() {
               <View style={styles.loading}>{loading && messages.length > 0 ? <MessageSkeleton rows={2} /> : null}</View>
             ) : (
               <View style={styles.intro}>
-                <Text style={styles.introTitle}>#{channel.name} kanalına hoş geldin!</Text>
-                <Text style={styles.introText}>Bu, #{channel.name} kanalının başlangıcı.</Text>
+                {dm ? (
+                  <>
+                    <Text style={styles.introTitle}>{dmName}</Text>
+                    {partner && <Text style={styles.introUser}>@{partner.username}</Text>}
+                    <Text style={styles.introText}>
+                      {dm.group ? `${dmName} grubunun başlangıcı.` : `${dmName} ile direkt mesaj geçmişinin başlangıcı.`}{' '}
+                      Bu konuşmayı yalnızca {dm.group ? 'gruptakiler' : 'ikiniz'} görebilir.
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.introTitle}>{label} kanalına hoş geldin!</Text>
+                    <Text style={styles.introText}>Bu, {label} kanalının başlangıcı.</Text>
+                  </>
+                )}
               </View>
             )
           }
           renderItem={({ item, index }) => {
             const older = data[index + 1];
             const dayBreak = !older || !sameDay(older.createdAt, item.createdAt);
+            // Yanıt her zaman başlıklı gösterilir (üstünde alıntısı olur)
             const compact =
               !!older &&
               !dayBreak &&
+              !item.replyToId &&
               older.authorId === item.authorId &&
               older.status !== 'failed' &&
               item.createdAt - older.createdAt < GROUP_WINDOW_MS;
@@ -186,6 +262,7 @@ export default function TextChannelScreen() {
                 md={md}
                 onLongPress={setMenuFor}
                 animateIn={fresh.has(keyOf(item))}
+                flash={flash?.id === item.id ? flash.seq : 0}
               />
             );
           }}
@@ -200,7 +277,10 @@ export default function TextChannelScreen() {
         </Text>
         <Composer
           key={editing?.id ?? 'yeni'}
-          channel={channel}
+          channel={target}
+          placeholder={dm ? `${label} ${dm.group ? 'grubuna' : 'kişisine'} mesaj gönder` : undefined}
+          lockedText={blocked ?? undefined}
+          mentionable={dm?.participantIds}
           editing={editing}
           onDoneEditing={() => setEditing(null)}
           onSent={() => list.current?.scrollToOffset({ offset: 0, animated: true })}
@@ -213,6 +293,7 @@ export default function TextChannelScreen() {
         self={self}
         canManageMessages={canManageMessages}
         canReact={canReact}
+        canReply={canSend}
         onClose={() => setMenuFor(null)}
         onEdit={(m) => setEditing(m)}
       />
@@ -229,6 +310,7 @@ function MessageMenu({
   self,
   canManageMessages,
   canReact,
+  canReply,
   onClose,
   onEdit,
 }: {
@@ -238,6 +320,8 @@ function MessageMenu({
   canManageMessages: boolean;
   /** Yeni tepki ekleyebilir mi (var olan tepkilere katılmak her zaman serbest) */
   canReact: boolean;
+  /** Kanala yazabiliyor mu (yanıt da bir mesajdır) */
+  canReply: boolean;
   onClose: () => void;
   onEdit: (m: LocalMessage) => void;
 }) {
@@ -302,6 +386,7 @@ function MessageMenu({
           </View>
           <MessageMenuItems
             message={shown}
+            canReply={canReply}
             canEdit={canEdit}
             canDelete={canDelete}
             confirm={confirm}
@@ -320,6 +405,7 @@ function MessageMenu({
 
 function MessageMenuItems({
   message,
+  canReply,
   canEdit,
   canDelete,
   confirm,
@@ -328,6 +414,7 @@ function MessageMenuItems({
   onEdit,
 }: {
   message: LocalMessage | null;
+  canReply: boolean;
   canEdit: boolean;
   canDelete: boolean;
   confirm: boolean;
@@ -337,6 +424,16 @@ function MessageMenuItems({
 }) {
   return (
     <>
+      {canReply && (
+        <MenuItem
+          icon="arrow-undo-outline"
+          label="Yanıtla"
+          onPress={() => {
+            if (message) startReply(message);
+            close();
+          }}
+        />
+      )}
       {message?.content ? (
         <MenuItem
           icon="copy-outline"
@@ -402,6 +499,7 @@ const styles = StyleSheet.create({
   intro: { paddingHorizontal: 16, paddingTop: 24, paddingBottom: 8 },
   introTitle: { color: colors.head, fontSize: 24, fontWeight: '800' },
   introText: { color: colors.muted, fontSize: 15, marginTop: 4 },
+  introUser: { color: colors.text, fontSize: 16, marginTop: 2 },
   typing: { color: colors.text, fontSize: 12.5, paddingHorizontal: 16, height: 18 },
   quickRow: {
     flexDirection: 'row',
