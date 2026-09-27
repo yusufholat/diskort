@@ -578,6 +578,9 @@ class VoiceClient {
       source: Track.Source.ScreenShare,
       videoCodec: opts.codec,
       backupCodec: false,
+      // Simulcast kapalı: Electron'daki WebRTC donanım kodlayıcısı kullanamadığında (ör. NVIDIA kartlı test
+      // makinesi) H.264'ü yazılımla (OpenH264) kodluyor; 720p alt katman toplam kodlama süresini ~2 katına
+      // çıkarıp çözünürlüğü CPU yüzünden düşürtüyor. 10–20 kişide sunucu trafiği kazancı bu bedele değmiyor.
       simulcast: false,
       screenShareEncoding: { maxBitrate: preset.bitrate, maxFramerate: preset.fps, priority: 'high' },
       degradationPreference: opts.content === 'motion' ? 'maintain-framerate' : 'maintain-resolution',
