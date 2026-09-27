@@ -149,7 +149,14 @@ export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' |
             </div>
           </div>
         )}
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-edge px-4 shadow-sm">
+        {/* Discord gibi: başlığa (kanal adına ya da boş yerine) tıklamak üye listesini açıp kapatır */}
+        <header
+          className="flex h-12 shrink-0 cursor-pointer items-center gap-2 border-b border-edge px-4 shadow-sm"
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest('button, a')) return;
+            useUi.getState().toggleMemberList();
+          }}
+        >
           {dm ? <DmAvatar dm={dm} size={24} status /> : <Hash size={22} className="text-text-muted" />}
           <span className="min-w-0 truncate font-semibold text-text-head">{channel.name}</span>
           {partner && <span className="min-w-0 truncate text-sm text-text-muted">@{partner.username}</span>}

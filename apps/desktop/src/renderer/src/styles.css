@@ -10,31 +10,32 @@
 @theme {
   --color-bg-deep: #000000;
   --color-bg-rail: #000000;
-  --color-bg-side: #0b0b0b;
+  --color-bg-side: #000000;
   --color-bg-main: #000000;
-  --color-bg-input: #161616;
-  --color-bg-hover: #1a1a1a;
-  --color-bg-active: #262626;
-  --color-bg-float: #111111;
-  --color-bg-panel: #111111;
-  --color-line: #2a2a2a;
+  --color-bg-input: #101010;
+  --color-bg-hover: #161616;
+  --color-bg-active: #222222;
+  --color-bg-float: #0b0b0b;
+  --color-bg-panel: #000000;
+  --color-line: #222222;
+  --color-divider: #1c1c1c;
   --color-text-normal: #dbdee1;
   --color-text-muted: #949ba4;
   --color-text-faint: #878b95;
   --color-text-head: #f2f3f5;
-  --color-edge: #242424;
-  --color-edge-strong: #3a3a3a;
-  --color-frame: #242424;
-  --color-msg-hover: #0f0f0f;
-  --color-control: #2e2f33;
-  --color-control-hover: #45474e;
+  --color-edge: #1c1c1c;
+  --color-edge-strong: #2e2e2e;
+  --color-frame: #1f1f1f;
+  --color-msg-hover: #0a0a0a;
+  --color-control: #262626;
+  --color-control-hover: #363636;
   --color-on-control: #ffffff;
-  --color-bg-raised: #1a1a1a;
-  --color-bg-raised-hover: #262626;
-  --color-scrollbar: #2a2a2a;
-  --color-scrollbar-hover: #3a3a3a;
-  --color-skeleton: #141414;
-  --color-skeleton-hi: #222222;
+  --color-bg-raised: #121212;
+  --color-bg-raised-hover: #1f1f1f;
+  --color-scrollbar: #1f1f1f;
+  --color-scrollbar-hover: #2e2e2e;
+  --color-skeleton: #0f0f0f;
+  --color-skeleton-hi: #1a1a1a;
   --color-brand: #5865f2;
   --color-brand-hover: #4752c4;
   --color-ok: #23a55a;
@@ -50,7 +51,7 @@
   --color-float-edge: rgb(255 255 255 / 0.08);
   --color-check: #80848e;
   --color-check-hover: #b5bac1;
-  --color-toggle-off: #5c5e66;
+  --color-toggle-off: #4a4a4a;
 
   --font-sans: 'gg sans', 'Segoe UI Variable Text', 'Segoe UI', 'Noto Sans', 'Helvetica Neue', system-ui, sans-serif;
 }
@@ -90,6 +91,17 @@
   :focus-visible {
     outline: 2px solid var(--color-brand);
     outline-offset: 1px;
+  }
+
+  /*
+   * Siyah (OLED) temada paneller ve kartlar aynı simsiyah: kenarlığı olmayan yuvarlak kartlar (ayar
+   * satırları, yayın kutusu, bağlantı bilgisi) zeminde kaybolmasın diye silik bir iç çizgiyle ayrılır.
+   */
+  :root[data-theme='black']
+    :is(.rounded, .rounded-md, .rounded-lg, .rounded-xl):is(.bg-bg-side, .bg-bg-rail, .bg-bg-deep, .bg-bg-panel):not(
+      .border
+    ) {
+    box-shadow: inset 0 0 0 1px var(--color-divider);
   }
 }
 

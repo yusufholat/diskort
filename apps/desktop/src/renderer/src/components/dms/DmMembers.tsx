@@ -10,7 +10,7 @@ import { Avatar, PresenceAvatar } from '../ui/Avatar';
 /** Konuşmanın sağındaki katılımcı listesi (metin kanalındaki üye listesinin karşılığı) */
 export function DmMembers({ dm }: { dm: DmChannel }) {
   return (
-    <aside className="w-60 shrink-0 overflow-y-auto bg-bg-side px-2 pb-4" aria-label="Konuşmadakiler">
+    <aside className="w-60 shrink-0 overflow-y-auto border-l border-divider bg-bg-side px-2 pb-4" aria-label="Konuşmadakiler">
       <h3 className="px-2 pt-6 pb-1 text-xs font-bold tracking-wide text-text-muted uppercase">
         Konuşmadakiler — {dm.participantIds.length}
       </h3>

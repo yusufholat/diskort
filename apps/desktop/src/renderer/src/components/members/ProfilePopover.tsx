@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AtSign, Crown, MessageCircle } from 'lucide-react';
+import { AtSign, Crown, Eye, MessageCircle } from 'lucide-react';
 import { create } from 'zustand';
 import {
   hasComposer,
@@ -13,6 +13,7 @@ import {
 import { startDm } from '../../lib/dm';
 import { useEscapeLayer } from '../../lib/escape';
 import { usePresence } from '../../lib/motion';
+import { watchUserStream } from '../../lib/watchStream';
 import { cn } from '../../lib/utils';
 import { Avatar } from '../ui/Avatar';
 
@@ -64,6 +65,11 @@ export function ProfilePopover() {
   const owner = useGuild((s) => (shown ? s.guild?.ownerId === shown.userId : false));
   const allRoles = useGuild((s) => s.roles);
   const selfId = useSession((s) => s.user?.id);
+  // Yayın yapıyorsa kanalı (kartta "Yayını izle" düğmesi için)
+  const streamChannel = useGuild((s) => {
+    const v = shown ? s.voiceStates[shown.userId] : undefined;
+    return v?.streaming ? v.channelId : null;
+  });
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number; origin: string } | null>(null);
 
@@ -121,6 +127,10 @@ export function ProfilePopover() {
     closeProfile();
     void startDm(user.id);
   };
+  const watch = (): void => {
+    closeProfile();
+    if (streamChannel) void watchUserStream(user.id, streamChannel);
+  };
 
   return (
     <div
@@ -175,6 +185,16 @@ export function ProfilePopover() {
           </div>
         )}
 
+        {streamChannel && !user.removed && (
+          <button
+            type="button"
+            className="press mt-4 flex w-full items-center justify-center gap-1.5 rounded bg-danger px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-danger-hover"
+            onClick={watch}
+          >
+            <Eye size={16} />
+            {user.id === selfId ? 'Yayınını göster' : 'Yayını izle'}
+          </button>
+        )}
         {user.removed ? (
           <div className="mt-3 text-sm text-text-muted italic">Artık sunucuda değil.</div>
         ) : (
