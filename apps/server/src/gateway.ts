@@ -41,6 +41,10 @@ interface Session {
   dm: boolean;
   /** İstemcinin bildirdiği platform (bildirmeyen eski masaüstü sürümleri 'desktop') */
   platform: ClientPlatform;
+  /** İstemcinin bildirdiği uygulama sürümü (yönetim paneli için) */
+  version: string | null;
+  /** Bağlantının açıldığı an */
+  connectedAt: number;
   /** İstemci boşta olduğunu bildirebiliyor (CLIENT_FEATURE_PRESENCE) */
   reportsIdle: boolean;
   /** Oturum boşta (masaüstünde girdi yok / ekran kilitli, telefonda uygulama arka planda) */
@@ -244,6 +248,16 @@ export class Gateway {
     return [...this.byUser.keys()];
   }
 
+  /** Kimliği doğrulanmış açık bağlantılar (yönetim paneli: platform, sürüm, boşta mı) */
+  sessionsInfo(): { userId: string; platform: ClientPlatform; version: string | null; idle: boolean; connectedAt: number }[] {
+    const result = [];
+    for (const s of this.sessions) {
+      if (!s.userId) continue;
+      result.push({ userId: s.userId, platform: s.platform, version: s.version, idle: s.idle, connectedAt: s.connectedAt });
+    }
+    return result;
+  }
+
   /** Bağlı kullanıcıların şu an gördüğü kanallar; yetkileri değiştirmeden önce alınır (bkz. syncVisibility). */
   visibility(): Visibility {
     const result: Visibility = new Map();
@@ -374,6 +388,8 @@ export class Gateway {
       lastTyping: new Map(),
       dm: false,
       platform: 'desktop',
+      version: null,
+      connectedAt: Date.now(),
       reportsIdle: false,
       idle: false,
     };
@@ -455,6 +471,7 @@ export class Gateway {
       s.reportsIdle = features.includes(CLIENT_FEATURE_PRESENCE);
       const platform = msg.d.platform;
       s.platform = platform === 'android' || platform === 'ios' ? platform : 'desktop';
+      s.version = typeof msg.d.version === 'string' && msg.d.version ? msg.d.version.slice(0, 32) : null;
       this.identify(s, user);
       return;
     }

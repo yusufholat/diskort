@@ -1,6 +1,7 @@
 import type { FastifyReply } from 'fastify';
 import type { ZodType } from 'zod';
 import type { Guild } from '@diskort/shared';
+import type { ErrorLog } from './activity.js';
 import type { AttachmentService } from './attachments.js';
 import type { AvatarService } from './avatars.js';
 import type { AuthService } from './auth.js';
@@ -43,6 +44,8 @@ export interface AppContext {
   moderation: VoiceModeration;
   /** Yayın önizlemeleri (yalnızca bellekte) */
   streamPreviews: StreamPreviewStore;
+  /** Son istemci ve sunucu hataları (yalnızca bellekte; yönetim paneli) */
+  errors: ErrorLog;
   /**
    * Ana sunucu (ilk kurulan; hesap yöneticileri onun yöneticileridir). Adı, simgesi ya da sahibi değişince
    * yerinde güncellenir. Diğer sunucular veritabanındadır.

@@ -105,6 +105,11 @@ export class ReleaseService {
     return this.refresh();
   }
 
+  /** Son bilinen sürüm, GitHub'a gitmeden (henüz okunmadıysa null; yönetim paneli) */
+  known(): LatestRelease | null {
+    return this.cache?.value ?? null;
+  }
+
   /** Yayınlanmış son sürümlerin notları, yeniden eskiye (önbellekli; GitHub'a ulaşılamazsa son bilinen). */
   recentNotes(): Promise<ReleaseNotes[]> {
     if (this.notesCache && Date.now() - this.notesCache.at < CACHE_TTL_MS) {
