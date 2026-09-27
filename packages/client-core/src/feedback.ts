@@ -1,11 +1,9 @@
 // Uygulama içi geri bildirim: gönderme (ekran görüntüleriyle), kendi gönderdiklerinin durumu ve
-// Sunucuyu Yönet yetkilileri için liste, durum/not ve "yeni" sayısı (rozet).
+// hesap yöneticileri için liste, durum/not ve "yeni" sayısı (rozet).
 import { create } from 'zustand';
 import {
   FEEDBACK_MAX_SCREENSHOTS,
   FEEDBACK_SCREENSHOT_MAX_BYTES,
-  hasPermission,
-  Permission,
   type CreateFeedbackRequest,
   type Feedback,
   type FeedbackContext,
@@ -14,13 +12,13 @@ import {
   type FeedbackType,
   type GatewayServerMessage,
   type UpdateFeedbackRequest,
+  type User,
 } from '@diskort/shared';
-import { ApiError, normalizeServerUrl, request } from './api';
+import { api, ApiError, normalizeServerUrl, request } from './api';
 import { env, type LocalFile } from './env';
 import { recentClientErrors } from './errors';
 import { gateway } from './gateway';
 import { useGuild } from './guild';
-import { permissionsInGuild } from './permissions';
 import { useSession } from './session';
 import { formatBytes, sendFile } from './uploads';
 
@@ -46,23 +44,21 @@ interface FeedbackStore {
   all: Feedback[] | null;
   /** Yetkili için "yeni" durumundakilerin sayısı (rozet) */
   newCount: number;
+  /**
+   * Yetkili için gönderenlerin profilleri (tüm hesaplar). Hesap yöneticiliği sunucuya bağlı olmadığından
+   * gönderen, yöneticiyle ortak bir sunucuda olmayabilir.
+   */
+  authors: Record<string, User>;
 }
 
-const initial = (): FeedbackStore => ({ mine: null, all: null, newCount: 0 });
+const initial = (): FeedbackStore => ({ mine: null, all: null, newCount: 0, authors: {} });
 
 export const useFeedback = create<FeedbackStore>()(initial);
 
 const selfId = (): string | undefined => useSession.getState().user?.id;
 
-/**
- * Oturumdaki kullanıcı geri bildirimleri yönetebilir mi: ana sunucuda (hesap yöneticilerinin sunucusu)
- * Sunucuyu Yönet ya da Yönetici yetkisi
- */
-export const canManageFeedback = (): boolean => {
-  const s = useGuild.getState();
-  const primary = s.primaryGuildId ? s.guilds[s.primaryGuildId] : undefined;
-  return hasPermission(permissionsInGuild(primary, selfId()), Permission.MANAGE_GUILD);
-};
+/** Oturumdaki kullanıcı geri bildirimleri yönetebilir mi: hesap yöneticisi (hiçbir sunucuya bağlı değil) */
+export const canManageFeedback = (): boolean => useSession.getState().user?.isAdmin === true;
 
 const countNew = (list: Feedback[]): number => list.filter((f) => f.status === 'yeni').length;
 
@@ -83,10 +79,22 @@ export async function loadMyFeedback(): Promise<Feedback[]> {
 
 /** Yetkili: tüm listeyi yükler (süzme istemcide yapılır; topluluk küçük) */
 export async function loadAllFeedback(): Promise<Feedback[]> {
-  const all = await feedbackApi.list();
-  useFeedback.setState({ all, newCount: countNew(all) });
+  // Hesap listesi yalnızca gönderen adları için; eski sunucuda (uç yok) ortak sunuculardaki profiller kullanılır
+  const [all, users] = await Promise.all([feedbackApi.list(), api.listUsers().catch(() => null)]);
+  useFeedback.setState((s) => ({
+    all,
+    newCount: countNew(all),
+    authors: users ? Object.fromEntries(users.map((u) => [u.id, u])) : s.authors,
+  }));
   return all;
 }
+
+/** Geri bildirimi gönderenin profili (bilinmiyorsa undefined) */
+export const useFeedbackAuthor = (userId: string | null): User | undefined => {
+  const author = useFeedback((s) => (userId ? s.authors[userId] : undefined));
+  const known = useGuild((s) => (userId ? s.profiles[userId] : undefined));
+  return known ?? author;
+};
 
 /** Yetkili: yalnızca rozet için "yeni" sayısı */
 export async function refreshFeedbackCount(): Promise<void> {
@@ -258,11 +266,10 @@ gateway.on((msg: GatewayServerMessage) => {
       if (!hadAll) void refreshFeedbackCount();
       break;
     }
-    case 'ROLES_UPDATE':
     case 'USER_UPDATE':
-      // Yetki değişmiş olabilir
-      if (msg.t === 'ROLES_UPDATE' || msg.d.id === selfId()) {
-        if (!canManageFeedback()) useFeedback.setState({ all: null, newCount: 0 });
+      // Hesap yöneticiliği verilmiş ya da alınmış olabilir (oturumdaki kullanıcı bu noktada güncellenmiştir)
+      if (msg.d.id === selfId()) {
+        if (!msg.d.isAdmin) useFeedback.setState({ all: null, newCount: 0 });
         else void refreshFeedbackCount();
       }
       break;

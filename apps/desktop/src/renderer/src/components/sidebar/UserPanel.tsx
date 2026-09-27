@@ -4,7 +4,7 @@ import { voice } from '../../features/voice/voiceClient';
 import { useMountedRef } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { STATUS_LABELS } from '@diskort/shared';
-import { useCustomStatus, useGuild, useSession, useStatus } from '@diskort/client-core';
+import { useCustomStatus, useFeedback, useGuild, useSession, useStatus } from '@diskort/client-core';
 import { useSettings } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
@@ -25,6 +25,8 @@ export function UserPanel() {
   const openModal = useUi((s) => s.openModal);
   const status = useStatus(user?.id);
   const custom = useCustomStatus(user?.id);
+  // Hesap yöneticisine yeni geri bildirim sayısı (Ayarlar > Geri bildirimler (yönetim))
+  const newFeedback = useFeedback((s) => (user?.isAdmin ? s.newCount : 0));
 
   const muted = selfMute || selfDeaf || !micAllowed;
   const deaf = selfDeaf || serverDeaf;
@@ -72,9 +74,10 @@ export function UserPanel() {
         icon={deaf ? <HeadphoneOff size={20} /> : <Headphones size={20} />}
       />
       <PanelButton
-        title="Kullanıcı Ayarları"
-        onClick={() => openModal({ type: 'settings' })}
+        title={newFeedback > 0 ? `Kullanıcı Ayarları · ${newFeedback} yeni geri bildirim` : 'Kullanıcı Ayarları'}
+        onClick={() => openModal({ type: 'settings', section: newFeedback > 0 ? 'feedbackAdmin' : undefined })}
         icon={<Settings size={20} className="transition-transform duration-300 group-hover:rotate-90" />}
+        badge={newFeedback}
       />
     </div>
   );
@@ -85,11 +88,14 @@ function PanelButton({
   title,
   onClick,
   active,
+  badge = 0,
 }: {
   icon: ReactNode;
   title: string;
   onClick: () => void;
   active?: boolean;
+  /** Sağ üst köşede kırmızı sayı (ör. yeni geri bildirimler) */
+  badge?: number;
 }) {
   // Simge değişince (sustur ↔ sesi aç) kısa bir dönüşle yenisine geçer; ilk açılışta oynamaz
   const mounted = useMountedRef();
@@ -100,13 +106,22 @@ function PanelButton({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        'press-icon group flex h-8 w-8 items-center justify-center rounded hover:bg-bg-hover',
+        'press-icon group relative flex h-8 w-8 items-center justify-center rounded hover:bg-bg-hover',
         active ? 'text-danger' : 'text-text-normal hover:text-text-head',
       )}
     >
       <span key={title} className={mounted.current ? 'anim-icon-swap' : 'inline-flex'}>
         {icon}
       </span>
+      {badge > 0 && (
+        <span
+          key={badge}
+          className="anim-pill-in pointer-events-none absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] leading-none font-bold text-white ring-2 ring-bg-panel"
+          aria-hidden
+        >
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
     </button>
   );
 }

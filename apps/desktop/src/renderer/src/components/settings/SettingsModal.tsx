@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Check, X } from 'lucide-react';
 import { AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH } from '@diskort/shared';
-import { gateway, api, errorMessage, useGuild, useSession } from '@diskort/client-core';
+import { gateway, api, errorMessage, useFeedback, useGuild, useSession } from '@diskort/client-core';
 import { SCREEN_CODECS, SCREEN_PRESETS } from '../../features/voice/screenPresets';
 import { voice } from '../../features/voice/voiceClient';
 import { bridge, isWindows } from '../../lib/bridge';
@@ -20,9 +20,13 @@ import { KeybindInput } from './KeybindInput';
 import { ProfilePhoto } from './ProfilePhoto';
 import { VoiceSettings } from './VoiceSettings';
 import { MyFeedback } from '../feedback/MyFeedback';
+import { FeedbackAdminSection } from '../feedback/FeedbackAdminSection';
+import { CountBadge } from '../ui/CountBadge';
+import { AdminSection } from './AdminSection';
 import { WhatsNewSection } from './WhatsNewSection';
 
-// Üyeler ve davetler Sunucu Ayarları'na taşındı (sunucu adının yanındaki menü)
+// Üyeler ve sunucu davetleri Sunucu Ayarları'nda (sunucu adının yanındaki menü). Hesap yöneticiliği
+// sunucuya bağlı olmadığından geri bildirim yönetimi ve hesap işleri buradadır (yalnızca yöneticilere).
 const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'account', label: 'Hesabım' },
   { id: 'appearance', label: 'Görünüm' },
@@ -34,10 +38,19 @@ const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'whatsNew', label: 'Yenilikler' },
 ];
 
+const ADMIN_SECTIONS: { id: SettingsSection; label: string }[] = [
+  { id: 'feedbackAdmin', label: 'Geri bildirimler (yönetim)' },
+  { id: 'admin', label: 'Yönetim' },
+];
+
 export function SettingsModal({ initial }: { initial?: SettingsSection }) {
   const close = useUi((s) => s.closeModal);
   const openModal = useUi((s) => s.openModal);
-  const [section, setSection] = useState<SettingsSection>(initial ?? 'account');
+  const [chosen, setSection] = useState<SettingsSection>(initial ?? 'account');
+  const isAdmin = useSession((s) => s.user?.isAdmin === true);
+  const newFeedback = useFeedback((s) => (isAdmin ? s.newCount : 0));
+  // Yöneticilik alınırsa yönetim bölümünden Hesabım'a dönülür
+  const section = !isAdmin && ADMIN_SECTIONS.some((s) => s.id === chosen) ? 'account' : chosen;
   const closing = usePresenceClosing();
   useEscapeLayer(close, !closing);
 
@@ -63,6 +76,18 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
               {s.label}
             </NavItem>
           ))}
+          {isAdmin && (
+            <>
+              <div className="mx-2.5 my-2 h-px bg-line" />
+              <div className="px-2.5 pb-1.5 text-xs font-bold text-text-muted uppercase">Hesap Yönetimi</div>
+              {ADMIN_SECTIONS.map((s) => (
+                <NavItem key={s.id} active={section === s.id} onClick={() => setSection(s.id)}>
+                  {s.label}
+                  {s.id === 'feedbackAdmin' && newFeedback > 0 && <CountBadge count={newFeedback} />}
+                </NavItem>
+              ))}
+            </>
+          )}
           <div className="mx-2.5 my-2 h-px bg-line" />
           <NavItem onClick={() => openModal({ type: 'feedback' })}>Geri bildirim gönder</NavItem>
           <div className="mx-2.5 my-2 h-px bg-line" />
@@ -82,6 +107,8 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
           {section === 'app' && <AppSection />}
           {section === 'feedback' && <MyFeedback />}
           {section === 'whatsNew' && <WhatsNewSection />}
+          {section === 'feedbackAdmin' && <FeedbackAdminSection />}
+          {section === 'admin' && <AdminSection />}
         </div>
         <button
           onClick={close}

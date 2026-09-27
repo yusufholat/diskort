@@ -11,7 +11,6 @@ import {
   FEEDBACK_STATUSES,
   FEEDBACK_TITLE_MAX_LENGTH,
   FEEDBACK_TYPES,
-  Permission,
   type Feedback,
   type FeedbackStatus,
   type FeedbackType,
@@ -85,7 +84,7 @@ const SWEEP_INTERVAL_MS = 10 * 60_000;
 
 /**
  * Geri bildirimler. Her üye gönderebilir ve kendi gönderdiklerini (durum ve yönetici notuyla) görür;
- * listeyi, durumu, notu ve silmeyi Sunucuyu Yönet (ya da Yönetici) yetkisi olanlar yönetir.
+ * listeyi, durumu, notu ve silmeyi hesap yöneticileri yönetir.
  *
  * Ekran görüntüleri iki adımda gelir (dosya ekleri gibi): önce POST /api/feedback/screenshots ile ham
  * resim yüklenir, dönen kimlikler geri bildirim oluşturulurken verilir. Resimler herkese açık adreslerden
@@ -96,11 +95,8 @@ export function registerFeedbackRoutes(app: FastifyInstance, ctx: AppContext, fe
   const store = feedback.store;
   const allowUpload = createRateLimiter(15, HOUR_MS);
 
-  // Geri bildirimler uygulamanın kendisi hakkındadır: ana sunucuyu yönetenler (hesap yöneticileri) görür
-  const isManager = (userId: string): boolean => {
-    const primary = permissions.primaryGuildId;
-    return primary !== null && permissions.canInGuild(primary, userId, Permission.MANAGE_GUILD);
-  };
+  // Geri bildirimler uygulamanın kendisi hakkındadır: hesap yöneticileri yönetir (hiçbir sunucuya bağlı değil)
+  const isManager = (userId: string): boolean => permissions.isInstanceAdmin(userId);
   const managersOnline = (): string[] => gateway.connectedUserIds().filter(isManager);
   const notify = (msg: GatewayServerMessage, ownerId: string | null): void => {
     const to = managersOnline();
@@ -202,7 +198,7 @@ export function registerFeedbackRoutes(app: FastifyInstance, ctx: AppContext, fe
     store.list({ userId: req.user.id, limit: 100 }),
   );
 
-  // ---------- Yönetim (Sunucuyu Yönet) ----------
+  // ---------- Yönetim (hesap yöneticileri) ----------
 
   const requireManager = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     await auth.requireUser(req, reply);

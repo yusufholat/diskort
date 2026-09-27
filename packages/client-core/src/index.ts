@@ -29,6 +29,7 @@ export {
   submitFeedback,
   updateFeedback,
   useFeedback,
+  useFeedbackAuthor,
   type FeedbackDraft,
 } from './feedback';
 export { reportVoiceLog, SpuriousDuplicateGuard } from './voiceDiagnostics';

@@ -10,7 +10,7 @@ import {
   type FeedbackStatus,
   type FeedbackType,
 } from '@diskort/shared';
-import { deleteFeedback, errorMessage, loadAllFeedback, updateFeedback, useFeedback, useGuild } from '@diskort/client-core';
+import { deleteFeedback, errorMessage, loadAllFeedback, updateFeedback, useFeedback, useFeedbackAuthor } from '@diskort/client-core';
 import { confirmDialog } from '../../lib/dialog';
 import { cn } from '../../lib/utils';
 import { toast } from '../../stores/ui';
@@ -21,7 +21,10 @@ import { ContextTable, ScreenshotThumb, StatusBadge, TypeBadge, feedbackSummary,
 
 type Filter<T extends string> = T | 'all';
 
-/** Sunucu Ayarları > Geri Bildirimler: liste (durum/tür süzgeci, en yeni önce) ve ayrıntı. */
+/**
+ * Kullanıcı Ayarları > Geri bildirimler (yönetim), yalnızca hesap yöneticilerine: liste (durum/tür süzgeci,
+ * en yeni önce) ve ayrıntı.
+ */
 export function FeedbackAdminSection() {
   const all = useFeedback((s) => s.all);
   const [status, setStatus] = useState<Filter<FeedbackStatus>>('all');
@@ -49,7 +52,7 @@ export function FeedbackAdminSection() {
 
   return (
     <div>
-      <h2 className="mb-2 text-xl font-bold text-text-head">Geri Bildirimler</h2>
+      <h2 className="mb-2 text-xl font-bold text-text-head">Geri bildirimler (yönetim)</h2>
       <p className="mb-5 text-sm text-text-muted">
         Üyelerin gönderdiği hata ve öneriler. Durumu değiştirince gönderen görür; notunu da okuyabilir.
       </p>
@@ -103,8 +106,8 @@ export function FeedbackAdminSection() {
 }
 
 function Author({ userId, size = 20 }: { userId: string | null; size?: number }) {
-  const user = useGuild((s) => (userId ? s.users[userId] : undefined));
-  if (!user) return <span className="text-text-muted italic">Silinmiş kullanıcı</span>;
+  const user = useFeedbackAuthor(userId);
+  if (!user) return <span className="text-text-muted italic">{userId ? 'Bilinmeyen kullanıcı' : 'Silinmiş kullanıcı'}</span>;
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5">
       <Avatar user={user} size={size} />

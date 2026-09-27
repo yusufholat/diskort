@@ -92,7 +92,7 @@ export class AuthService {
     };
   }
 
-  /** Fastify preHandler: hesap yöneticisi (ana sunucunun sahibi ya da yöneticisi) */
+  /** Fastify preHandler: hesap yöneticisi (users.is_admin; sunuculardan bağımsız) */
   requireInstanceAdmin = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     await this.requireUser(req, reply);
     if (reply.sent) return;

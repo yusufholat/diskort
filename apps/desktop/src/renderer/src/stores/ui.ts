@@ -27,9 +27,21 @@ export type Modal =
   | { type: 'reactions'; channelId: string; messageId: string; emoji?: string }
   | null;
 
-export type SettingsSection = 'account' | 'appearance' | 'voice' | 'stream' | 'keybinds' | 'app' | 'feedback' | 'whatsNew';
+export type SettingsSection =
+  | 'account'
+  | 'appearance'
+  | 'voice'
+  | 'stream'
+  | 'keybinds'
+  | 'app'
+  | 'feedback'
+  | 'whatsNew'
+  /** Yalnızca hesap yöneticilerine: gelen geri bildirimler */
+  | 'feedbackAdmin'
+  /** Yalnızca hesap yöneticilerine: hesap yöneticileri, hesap davetleri, hesaplar */
+  | 'admin';
 
-export type ServerSettingsSection = 'overview' | 'roles' | 'members' | 'invites' | 'bans' | 'feedback';
+export type ServerSettingsSection = 'overview' | 'roles' | 'members' | 'invites' | 'bans';
 
 export interface ContextMenuItem {
   label: string;

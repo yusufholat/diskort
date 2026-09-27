@@ -61,25 +61,6 @@ export function canAssignRole(ctx: AppContext, guildId: string, actorId: string,
   return null;
 }
 
-/**
- * Ana sunucuda yöneticilik değişince hesap yöneticiliği de değişir: değişenlerin profili (isAdmin) duyurulur.
- * `before`: değişiklikten önce adminFlags() ile alınır.
- */
-export function adminFlags(ctx: AppContext): Map<string, boolean> {
-  const primary = ctx.permissions.primaryGuildId;
-  if (!primary) return new Map();
-  return new Map(ctx.store.guildMemberIds(primary).map((id) => [id, ctx.permissions.isInstanceAdmin(id)]));
-}
-
-export function announceAdminChanges(ctx: AppContext, before: Map<string, boolean>): void {
-  const after = adminFlags(ctx);
-  for (const id of new Set([...before.keys(), ...after.keys()])) {
-    if ((before.get(id) ?? false) === (after.get(id) ?? false)) continue;
-    const user = ctx.store.getUser(id);
-    if (user) ctx.gateway.sendUserUpdate(user);
-  }
-}
-
 /** Üyeye rol verir/alır ve sonuçlarını yayar (üyelik bilgisi, kanal görünümü, ses izinleri). */
 export async function setMemberRole(
   ctx: AppContext,
@@ -89,11 +70,9 @@ export async function setMemberRole(
   add: boolean,
 ): Promise<void> {
   const before = ctx.gateway.visibility();
-  const admins = adminFlags(ctx);
   const changed = add ? ctx.store.addMemberRole(userId, roleId) : ctx.store.removeMemberRole(userId, roleId);
   if (!changed) return;
   ctx.gateway.announceMember(guildId, userId);
-  announceAdminChanges(ctx, admins);
   await afterPermissionChange(ctx, before);
 }
 
@@ -162,11 +141,9 @@ export function registerRoleRoutes(app: FastifyInstance, ctx: AppContext): void 
         return forbidden(reply, 'Kendinde olmayan bir yetkiyi verip alamazsın.');
       }
       const before = gateway.visibility();
-      const admins = adminFlags(ctx);
       const updated = store.updateRole(role.id, body)!;
       broadcastRoles(guildId);
       if (permissionsChanged) {
-        announceAdminChanges(ctx, admins);
         await afterPermissionChange(ctx, before);
       }
       return updated;
@@ -191,11 +168,9 @@ export function registerRoleRoutes(app: FastifyInstance, ctx: AppContext): void 
         .filter((c) => c.overwrites.some((o) => o.roleId === role.id))
         .map((c) => c.id);
       const before = gateway.visibility();
-      const admins = adminFlags(ctx);
       store.deleteRole(guildId, role.id);
       broadcastRoles(guildId);
       for (const member of holders) gateway.announceMember(guildId, member.userId);
-      announceAdminChanges(ctx, admins);
       await afterPermissionChange(ctx, before, channels);
       return reply.code(204).send();
     },
