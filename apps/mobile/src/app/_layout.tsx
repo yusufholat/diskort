@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react';
 import { AppState, StyleSheet, Text, View } from 'react-native';
-import { Stack, useRouter, type ErrorBoundaryProps } from 'expo-router';
+import { Stack, type ErrorBoundaryProps } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { gateway, reportClientError, useGuild, useSession } from '@diskort/client-core';
+import { gateway, reportClientError, useSession } from '@diskort/client-core';
 import { Toast } from '../components/Toast';
 import { Button } from '../components/ui';
 import { UpdateScreen } from '../components/UpdateScreen';
 import { channelFromResponse, registerForPush } from '../notifications';
 import { clientReady } from '../setup';
 import { applyOta, checkForUpdate, cleanupDownloads, updateOnLaunch, useAppUpdate } from '../update/updater';
+import { showChat } from '../stores/nav';
 import { useUi } from '../stores/ui';
 import { colors } from '../theme';
 import { useVoice, voice } from '../voice/voice';
@@ -83,23 +84,18 @@ export default function RootLayout() {
     if (ready && token) void registerForPush();
   }, [ready, token]);
 
-  // Bildirime dokunulunca o kanalı aç (uygulama kapalıyken açıldıysa da)
-  const router = useRouter();
+  // Bildirime dokunulunca o kanalı aç (uygulama kapalıyken açıldıysa da): ana ekranın sohbeti olur,
+  // kanal başka bir sunucudaysa o sunucuya geçilir (üyeler, başlık o sunucunun olsun)
   useEffect(() => {
     if (!ready || !token) return;
     const open = (response: Notifications.NotificationResponse | null): void => {
       const channelId = channelFromResponse(response);
-      if (!channelId) return;
-      // Kanal başka bir sunucudaysa o sunucuya geçilir (üyeler, başlık o sunucunun olsun)
-      const guild = useGuild.getState();
-      const guildId = guild.channelGuild[channelId];
-      if (guildId) guild.selectGuild(guildId);
-      router.push(`/channel/${channelId}`);
+      if (channelId) showChat(channelId);
     };
     open(Notifications.getLastNotificationResponse());
     const sub = Notifications.addNotificationResponseReceivedListener(open);
     return () => sub.remove();
-  }, [ready, token, router]);
+  }, [ready, token]);
 
   // Oturum açıkken gateway'e bağlan; uygulama öne gelince beklemeden yeniden bağlan.
   // Ses ve gateway bu bileşenden uzun yaşar: Android ekranı (Activity) kapatıp yeniden kurunca
@@ -130,7 +126,7 @@ export default function RootLayout() {
   }
 
   return (
-    // Kaydırma hareketleri (kanal çekmecesi, kaydırarak yanıtlama) için kök görünüm
+    // Kaydırma hareketleri (sol panel, kaydırarak yanıtlama) için kök görünüm
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <StatusBar style="light" />
@@ -155,8 +151,10 @@ export default function RootLayout() {
               }}
             >
               <Stack.Protected guard={Boolean(token)}>
-                <Stack.Screen name="index" options={{ headerShown: false, contentStyle: { backgroundColor: colors.side } }} />
-                <Stack.Screen name="channel/[id]" />
+                {/* Ana ekran: sohbet ve soldan açılan sunucu/kanal paneli */}
+                <Stack.Screen name="index" options={{ headerShown: false, contentStyle: { backgroundColor: colors.main } }} />
+                {/* Eski kanal bağlantıları: sohbeti seçip ana ekrana döner */}
+                <Stack.Screen name="channel/[id]" options={{ headerShown: false, animation: 'none' }} />
                 {/* Ses ekranı alttan yükselir; yeni mesaj seçimi alttan belirir */}
                 <Stack.Screen
                   name="voice"
