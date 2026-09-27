@@ -43,6 +43,9 @@ import { colors } from '../../theme';
 
 const GROUP_WINDOW_MS = 7 * 60_000;
 const EMPTY: LocalMessage[] = [];
+// Seçiciler her çağrıda aynı boş diziyi döndürmeli: yeni dizi (?? []) zustand 5'te sonsuz yeniden çizime,
+// yani ekranın açılamamasına yol açar.
+const NO_REACTIONS: NonNullable<LocalMessage['reactions']> = [];
 const keyOf = (m: LocalMessage): string => m.nonce ?? m.id;
 
 export default function TextChannelScreen() {
@@ -256,7 +259,7 @@ function MessageMenu({
 
   // Menü açıkken gelen tepki değişiklikleri de görünsün
   const reactions = useMessages(
-    (s) => (shown ? s.channels[shown.channelId]?.messages.find((m) => m.id === shown.id)?.reactions : undefined) ?? [],
+    (s) => (shown ? s.channels[shown.channelId]?.messages.find((m) => m.id === shown.id)?.reactions : undefined) ?? NO_REACTIONS,
   );
   const react = (emoji: string): void => {
     if (shown) void toggleReaction(shown.channelId, shown.id, emoji);
