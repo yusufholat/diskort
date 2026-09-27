@@ -78,7 +78,7 @@ export const OTHERS_SOUNDS: ReadonlySet<SoundName> = new Set<SoundName>([
 /** Hazır seslerin örnekleme hızı (telefondaki WAV dosyaları da bu hızda) */
 export const SFX_SAMPLE_RATE = 48000;
 /** Hiçbir sesin geçmediği tepe seviyesi (dBFS); çalarken kullanıcının "Ses efektleri" seviyesiyle çarpılır */
-export const SFX_PEAK_DBFS = -15;
+export const SFX_PEAK_DBFS = -8;
 
 interface Tone {
   /** MIDI nota numarası (varılan perde; 69 = La4 = 440 Hz) */
@@ -318,7 +318,7 @@ const FADE_OUT_MS = 30;
  * kısmilerinin başlangıç tepesi yüksek olan çok kısa sesler (sustur/aç) tepe sınırına takılıp hedefin hemen
  * altında kalır. Böylece kısa tek notalı sesler uzun olanlardan cılız duyulmaz.
  */
-export const SFX_TARGET_RMS_DBFS = -23;
+export const SFX_TARGET_RMS_DBFS = -16;
 const RMS_WINDOW_MS = 50;
 /**
  * Küçük oda: tek, belirgin bir yankı (tekrar eden "tık tık") yerine yakın aralıklı, giderek kısılan ve

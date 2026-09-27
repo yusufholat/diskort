@@ -367,25 +367,12 @@ export function VoiceSettings() {
   );
 }
 
-/** Ses efektleri: açık/kapalı, seviye ve her sesi dinleme listesi */
+/** Ses efektleri: açık/kapalı ve her sesi dinleme listesi */
 function SoundSettings() {
   const s = useSettings();
-  const volume = Math.round(s.sfxVolume * 100);
   return (
     <>
-      <SectionTitle>Ses Efektleri — %{volume}</SectionTitle>
-      <Slider
-        className="w-full"
-        aria-label="Ses efektleri seviyesi"
-        min={0}
-        max={100}
-        step={5}
-        value={volume}
-        onValueChange={(v) => s.set({ sfxVolume: v / 100 })}
-        // Bırakınca yeni seviyede bir örnek
-        onPointerUp={() => playSound('unmute', { preview: true })}
-        onKeyUp={() => playSound('unmute', { preview: true })}
-      />
+      <SectionTitle>Ses Efektleri</SectionTitle>
       <div className="mt-4 space-y-4">
         <Toggle
           label="Arayüz sesleri"

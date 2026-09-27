@@ -110,11 +110,10 @@ export function VoiceSettings() {
   );
 }
 
-/** Arayüz sesleri: aç/kapat, bildirim sesi, seviye ve her sesi dinleme listesi */
+/** Arayüz sesleri: aç/kapat, bildirim sesi ve her sesi dinleme listesi */
 function SoundSettings() {
   const sounds = useSettings((s) => s.sounds);
   const notificationSound = useSettings((s) => s.notificationSound);
-  const volume = useSettings((s) => s.sfxVolume);
   const set = useSettings((s) => s.set);
   const [listOpen, setListOpen] = useState(false);
   // Eski APK'larda (expo-audio yok) ses çalınamaz; ayarlar gösterilmez
@@ -140,19 +139,6 @@ function SoundSettings() {
         }}
       />
       <View style={styles.choiceBlock}>
-        <Text style={styles.label}>Ses efektleri — %{Math.round(volume * 100)}</Text>
-        <Slider
-          value={volume}
-          min={0}
-          max={1}
-          step={0.05}
-          accessibilityLabel="Ses efektleri seviyesi"
-          accessibilityText={(v) => `%${Math.round(v * 100)}`}
-          onChangeEnd={(v) => {
-            set({ sfxVolume: Math.round(v * 100) / 100 });
-            previewSound('unmute');
-          }}
-        />
         <Pressable
           onPress={() => setListOpen((o) => !o)}
           style={({ pressed }) => [styles.listToggle, pressed && { opacity: 0.8 }]}

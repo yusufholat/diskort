@@ -107,12 +107,10 @@ function allowed(name: SoundName): boolean {
 }
 
 /**
- * Sesi çalar. `preview`: ayarlardaki dinleme düğmesi (açık/kapalı ayarlarına bakılmaz, seviye uygulanır).
+ * Sesi çalar. `preview`: ayarlardaki dinleme düğmesi (açık/kapalı ayarlarına bakılmaz).
  */
 export function playSound(name: SoundName, opts: { preview?: boolean } = {}): void {
   if (!opts.preview && !allowed(name)) return;
-  const volume = getSettings().sfxVolume;
-  if (volume <= 0) return;
   const now = performance.now();
   if (now - (lastPlayed.get(name) ?? -Infinity) < SAME_SOUND_GAP_MS) return;
   lastPlayed.set(name, now);
@@ -120,10 +118,8 @@ export function playSound(name: SoundName, opts: { preview?: boolean } = {}): vo
     .then((ac) => {
       const src = ac.createBufferSource();
       src.buffer = buffer(ac, name);
-      const gain = ac.createGain();
-      gain.gain.value = volume;
-      src.connect(gain).connect(ac.destination);
-      src.onended = () => gain.disconnect();
+      src.connect(ac.destination);
+      src.onended = () => src.disconnect();
       src.start(ac.currentTime + 0.005);
     })
     .catch(() => undefined);

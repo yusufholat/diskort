@@ -19,7 +19,7 @@ import { requireOptionalNativeModule } from 'expo';
 import { Platform } from 'react-native';
 import type * as ExpoAudio from 'expo-audio';
 import { setFeedbackSound, type SoundEvent } from './haptics';
-import { getSettings, useSettings } from './stores/settings';
+import { getSettings } from './stores/settings';
 
 /** Telefonda çalınan sesler (bas-konuş telefonda yok) */
 export type MobileSoundName = Exclude<SoundName, 'pttOn' | 'pttOff'>;
@@ -73,7 +73,6 @@ function player(name: MobileSoundName): ExpoAudio.AudioPlayer | null {
   let p = players.get(name);
   if (!p) {
     p = audio.createAudioPlayer(FILES[name], { keepAudioSessionActive: Platform.OS === 'ios' });
-    p.volume = getSettings().sfxVolume;
     players.set(name, p);
   }
   return p;
@@ -95,7 +94,6 @@ function allowed(name: MobileSoundName): boolean {
 }
 
 function start(name: MobileSoundName): void {
-  if (getSettings().sfxVolume <= 0) return;
   const p = player(name);
   if (!p) return;
   // Oynatıcı bir önceki çalışın sonunda durur: başa sarıp yeniden çal
@@ -146,9 +144,4 @@ export function setupSounds(): void {
   // İlk çalışta gecikme olmasın diye en sık kullanılanlar önceden hazırlanır
   for (const name of ['mute', 'unmute', 'join', 'leave'] as const) player(name);
   setFeedbackSound(play);
-  // Seviye değişince hazır oynatıcılar da güncellenir
-  useSettings.subscribe((next, prev) => {
-    if (next.sfxVolume === prev.sfxVolume) return;
-    for (const p of players.values()) p.volume = next.sfxVolume;
-  });
 }

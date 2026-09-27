@@ -39,8 +39,6 @@ interface MobileSettings {
   haptics: boolean;
   /** Sesli sohbet sesleri: katıl/ayrıl, sustur, sağırlaştır, yayın, biri girdi/çıktı (bkz. sounds.ts) */
   sounds: boolean;
-  /** Arayüz seslerinin seviyesi (0–1; telefonun medya sesiyle çarpılır) */
-  sfxVolume: number;
   /** Uygulama açıkken bahsedilince ve direkt mesaj gelince ses (Rahatsız Etmeyin durumunda çalmaz) */
   notificationSound: boolean;
   /** Mesajlardaki bağlantıların önizlemeleri (kart, YouTube, resim) gösterilsin mi */
@@ -67,7 +65,6 @@ export const useSettings = create<MobileSettings>()(
       vadThresholdDb: -50,
       haptics: true,
       sounds: true,
-      sfxVolume: 1,
       notificationSound: true,
       linkPreviews: true,
       set: (patch) => set(patch),
@@ -78,7 +75,8 @@ export const useSettings = create<MobileSettings>()(
       partialize: ({ set: _set, ...rest }) => rest,
       // Sürüm 0 → 1: gürültü engelleme açık/kapalı yerine türü (DPDFNet/standart/kapalı). Açık olan herkes
       // DPDFNet'e geçer (destek yoksa standart çalışır).
-      // Sürüm 1 → 2: ses paketleri kaldırıldı (tek ses takımı); kayıtlı soundPack ayarı silinir.
+      // Sürüm 1 → 2: ses paketleri kaldırıldı (tek ses takımı); kayıtlı soundPack ayarı silinir; ses efekti
+      // seviyesi ayarı da kaldırıldı (sesler tek, sabit seviyede).
       version: 2,
       migrate: (persisted, version) => {
         let state = (persisted ?? {}) as Record<string, unknown>;
@@ -87,7 +85,7 @@ export const useSettings = create<MobileSettings>()(
           state = { ...rest, noiseMode: noiseSuppression === false ? 'off' : 'dpdfnet' };
         }
         if (version < 2) {
-          const { soundPack: _soundPack, ...rest } = state;
+          const { soundPack: _soundPack, sfxVolume: _sfxVolume, ...rest } = state;
           state = rest;
         }
         return state as unknown as MobileSettings;

@@ -57,8 +57,6 @@ export interface Settings {
   openAtLogin: boolean;
   /** Arayüz sesleri: katıl/ayrıl, sustur, sağırlaştır, yayın, biri girdi/çıktı (bkz. lib/sfx.ts) */
   sounds: boolean;
-  /** Arayüz seslerinin seviyesi (0–1) */
-  sfxVolume: number;
   /** Bahsedilince ve direkt mesaj gelince ses (Rahatsız Etmeyin durumunda çalmaz) */
   notificationSound: boolean;
   /** Bas-konuş tuşuna basınca ve bırakınca kısa ses */
@@ -106,7 +104,6 @@ const defaults: Settings = {
   minimizeToTray: true,
   openAtLogin: false,
   sounds: true,
-  sfxVolume: 0.7,
   notificationSound: true,
   pttSounds: false,
   theme: DEFAULT_THEME,
@@ -147,7 +144,6 @@ function sanitize(saved: Partial<Settings>): Partial<Settings> {
   if (s.screenPreset !== undefined && !SCREEN_PRESET_IDS.includes(s.screenPreset)) s.screenPreset = defaults.screenPreset;
   if (s.sidebarWidth !== undefined) s.sidebarWidth = clampSidebarWidth(s.sidebarWidth);
   if (s.theme !== undefined && !isThemeId(s.theme)) s.theme = defaults.theme;
-  if (s.sfxVolume !== undefined) s.sfxVolume = Number.isFinite(s.sfxVolume) ? Math.min(1, Math.max(0, s.sfxVolume)) : defaults.sfxVolume;
   if (s.screenCodec !== undefined && !SCREEN_CODEC_IDS.includes(s.screenCodec)) s.screenCodec = defaults.screenCodec;
   return s;
 }
@@ -174,7 +170,8 @@ export const useSettings = create<SettingsStore>()(
       // herkes yeni varsayılan 1080p60'a geçer, başka bir kaliteyi bilerek seçmiş olanlar olduğu gibi kalır.
       // Sürüm 8 → 9: Yumuşak ses paketi eklendi ve varsayılan oldu (katılma sesi sert/takılır bulundu); herkes
       // Yumuşak pakete geçer, isteyen Ses → Ses efektleri → Ses paketi'nden Klasik'e dönebilir.
-      // Sürüm 9 → 10: ses paketleri kaldırıldı, tek (yumuşak) ses takımı kaldı; kayıtlı soundPack ayarı silinir.
+      // Sürüm 9 → 10: ses paketleri kaldırıldı, tek (yumuşak) ses takımı kaldı; kayıtlı soundPack ayarı silinir; ses efekti seviyesi
+      // ayarı da kaldırıldı (sesler tek, sabit seviyede).
       migrate: (saved, version) => {
         const s = { ...(saved as Partial<Settings>) };
         if (version < 3) s.noiseStrengthDb = defaults.noiseStrengthDb;
@@ -184,7 +181,10 @@ export const useSettings = create<SettingsStore>()(
         if (version < 7 && (s.screenPreset === undefined || s.screenPreset === '1080p30')) s.screenPreset = '1080p60';
         if (version < 8 && (s.screenPreset as string | undefined) === 'auto') s.screenPreset = '1080p60';
         // Artık olmayan ayar: türde yok, kayıtta kalmasın
-        if (version < 10) delete (s as Record<string, unknown>).soundPack;
+        if (version < 10) {
+          delete (s as Record<string, unknown>).soundPack;
+          delete (s as Record<string, unknown>).sfxVolume;
+        }
         return s as Settings;
       },
       merge: (saved, current) => ({ ...current, ...sanitize((saved ?? {}) as Partial<Settings>) }),

@@ -74,8 +74,8 @@ const TRIM_DB: Record<SoundName, number> = {
 
 describe('arayüz sesleri', () => {
   it('her sesin adı var, seviye hedefinde (algılanan -23 dBFS ya da tepe -15 dBFS, + sese özel ayar), kırpılma yok', () => {
-    expect(SFX_PEAK_DBFS).toBe(-15);
-    expect(SFX_TARGET_RMS_DBFS).toBe(-23);
+    expect(SFX_PEAK_DBFS).toBe(-8);
+    expect(SFX_TARGET_RMS_DBFS).toBe(-16);
     for (const name of SOUND_NAMES) {
       expect(SOUND_LABELS[name], name).toBeTruthy();
       const b = renderSound(name);
@@ -109,7 +109,8 @@ describe('arayüz sesleri', () => {
       // 5 ms'lik yumuşak başlangıç: ilk 0,5 ms tepenin %5, ilk 1 ms %12 altında (sert vuruş yok)
       expect(peak(b.subarray(0, Math.round(0.0005 * SFX_SAMPLE_RATE))), name).toBeLessThan(0.05 * peak(b));
       expect(peak(b.subarray(0, Math.round(0.001 * SFX_SAMPLE_RATE))), name).toBeLessThan(0.12 * peak(b));
-      expect(maxJump(b), name).toBeLessThan(0.04);
+      // Tık koruması tepe seviyesine göre (-15 dBFS tepede 0,04 idi); seviye değişse de aynı sıkılıkta kalır
+      expect(maxJump(b), name).toBeLessThan(0.225 * Math.pow(10, SFX_PEAK_DBFS / 20));
       const mean = b.reduce((s, v) => s + v, 0) / b.length;
       expect(Math.abs(mean), name).toBeLessThan(1e-4);
     }
