@@ -1,13 +1,25 @@
 import { memo, useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
-import { discardMessage, isMentioned, retryMessage, toggleReaction, useMemberColor, type LocalMessage } from '@diskort/client-core';
+import {
+  discardMessage,
+  gifOf,
+  isMentioned,
+  mentionInComposer,
+  retryMessage,
+  toggleReaction,
+  useMemberColor,
+  useMessages,
+  type LocalMessage,
+} from '@diskort/client-core';
 import type { User } from '@diskort/shared';
-import { useAppear } from '../motion';
+import { duration, useAppear } from '../motion';
 import { colors } from '../theme';
 import { Avatar } from './Avatar';
 import { AttachmentList, UploadList } from './Attachments';
+import { GifEmbed } from './GifEmbed';
 import { Markdown, type MarkdownContext } from './Markdown';
 import { ReactionPill } from './ReactionPill';
+import { REPLY_PREVIEW_HEIGHT, ReplyPreview } from './ReplyPreview';
 
 const time = new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' });
 const shortDate = new Intl.DateTimeFormat('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -38,6 +50,8 @@ interface Props {
   onLongPress: (message: LocalMessage) => void;
   /** Yeni gelen mesaj: hafifçe yükselerek belirir (geçmiş yüklenirken false) */
   animateIn?: boolean;
+  /** Alıntıdan bu mesaja atlandı: değiştikçe (0 değilse) satır kısa süre vurgulanır */
+  flash?: number;
 }
 
 export const MessageRow = memo(function MessageRow({
@@ -49,15 +63,31 @@ export const MessageRow = memo(function MessageRow({
   md,
   onLongPress,
   animateIn = false,
+  flash = 0,
 }: Props) {
   const mentioned = isMentioned(message, self);
+  // Metni yalnızca GIPHY bağlantısı olan mesaj: bağlantı yerine GIF gösterilir
+  const gif = gifOf(message);
   const authorColor = useMemberColor(message.authorId);
   const appear = useAppear(animateIn, 240);
+  // Yazma kutusunun üstünde bu mesaja yanıt veriliyor
+  const replying = useMessages((s) => s.replies[message.channelId]?.messageId === message.id);
+  const isReply = Boolean(message.replyToId) && !compact;
   // Satır ekrandayken eklenen tepkiler animasyonla belirir
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
   }, []);
+  const highlight = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!flash) return;
+    highlight.setValue(1);
+    Animated.timing(highlight, { toValue: 0, duration: 1400, delay: duration(700), useNativeDriver: true }).start();
+  }, [flash, highlight]);
+  // Ada dokununca yazma kutusuna bahsetme eklenir
+  const mentionAuthor = (): void => {
+    if (author && !author.removed) mentionInComposer(message.channelId, author.username);
+  };
   return (
     <Animated.View
       style={{
@@ -78,24 +108,33 @@ export const MessageRow = memo(function MessageRow({
         style={({ pressed }) => [
           styles.row,
           compact ? styles.compact : styles.full,
-          mentioned && styles.mentioned,
+          mentioned && !replying && styles.mentioned,
+          replying && styles.replying,
           pressed && styles.pressed,
         ]}
       >
-        <View style={styles.gutter}>{!compact && <Avatar user={author} size={40} />}</View>
+        <Animated.View pointerEvents="none" style={[styles.flash, { opacity: highlight }]} />
+        <View style={[styles.gutter, isReply && { paddingTop: REPLY_PREVIEW_HEIGHT }]}>
+          {!compact && <Avatar user={author} size={40} />}
+        </View>
         <View style={styles.body}>
+          {isReply && <ReplyPreview message={message} md={md} />}
           {!compact && (
             <View style={styles.header}>
               <Text
                 style={[styles.author, !author && styles.deleted, author && authorColor ? { color: authorColor } : null]}
                 numberOfLines={1}
+                onPress={author ? mentionAuthor : undefined}
+                onLongPress={() => !message.status && onLongPress(message)}
+                suppressHighlighting
               >
                 {author?.displayName ?? 'Silinmiş Kullanıcı'}
               </Text>
               <Text style={styles.time}>{stamp(message.createdAt)}</Text>
             </View>
           )}
-          {message.content ? <Markdown content={message.content} ctx={md} dim={message.status === 'pending'} /> : null}
+          {message.content && !gif ? <Markdown content={message.content} ctx={md} dim={message.status === 'pending'} /> : null}
+          {gif ? <GifEmbed embed={gif} dim={message.status === 'pending'} /> : null}
           {message.editedAt ? <Text style={styles.edited}>(düzenlendi)</Text> : null}
           {message.uploads ? (
             <UploadList message={message} />
@@ -140,6 +179,8 @@ const styles = StyleSheet.create({
   compact: { paddingVertical: 2 },
   pressed: { backgroundColor: 'rgba(0,0,0,0.12)' },
   mentioned: { backgroundColor: 'rgba(240,178,50,0.09)', borderLeftWidth: 2, borderLeftColor: colors.warn },
+  replying: { backgroundColor: 'rgba(88,101,242,0.1)', borderLeftWidth: 2, borderLeftColor: colors.brand },
+  flash: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(88,101,242,0.25)' },
   gutter: { width: 64, alignItems: 'center' },
   body: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 2 },

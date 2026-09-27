@@ -84,6 +84,10 @@ const config: ExpoConfig = {
     // Galeriden seçim (fotoğraf seçicisi). microphonePermission false VERİLMEMELİ: RECORD_AUDIO'yu
     // engeller ve sesli sohbet çalışmaz.
     ['expo-image-picker', { cameraPermission: false }],
+    // Mesajdaki videoları oynatmak için. Arka planda oynatma ve resim içinde resim kapalı: ön plan
+    // servisi (FOREGROUND_SERVICE_MEDIA_PLAYBACK) izni eklenmez. Yerel modül: yeni APK gerekir; eski
+    // APK'larda JavaScript modülün varlığını denetler (src/video.ts).
+    ['expo-video', { supportsBackgroundPlayback: false, supportsPictureInPicture: false }],
     [
       'expo-splash-screen',
       { image: './assets/splash-icon.png', imageWidth: 120, backgroundColor: '#1e1f22', resizeMode: 'contain' },

@@ -10,6 +10,7 @@ import {
   useSession,
 } from '@diskort/client-core';
 import {
+  type AudioCaptureOptions,
   ConnectionState,
   DisconnectReason,
   type Participant,
@@ -26,6 +27,7 @@ import { create } from 'zustand';
 import { VoiceService } from '../../modules/voice-service';
 import { getSettings, useSettings } from '../stores/settings';
 import { toast } from '../stores/ui';
+import { MicGate, SILENT_LEVEL, type GateConfig, type MicLevel } from './micGate';
 
 function disconnectMessage(reason?: DisconnectReason): string {
   switch (reason) {
@@ -65,8 +67,12 @@ interface VoiceStore {
   speaking: Record<string, true>;
   /** Kanalda yayın yapan kullanıcılar */
   streams: Record<string, true>;
+  /** Yayınında ses de olan kullanıcılar */
+  streamAudio: Record<string, true>;
   /** İzlenen yayın (tek seferde bir tane; telefonda ekran küçük) */
   watching: string | null;
+  /** İzlenirken biten yayın ("Yayın sona erdi" gösterilir) */
+  streamEnded: string | null;
   /** Mikrofon izni yoksa yalnızca dinlenir */
   listenOnly: boolean;
   /** Kanalda konuşma izni var mı (yetki ya da sunucuda susturma; LiveKit izninden gelir) */
@@ -75,16 +81,21 @@ interface VoiceStore {
   sharing: boolean;
   /** Abonelikler değişince artar (video bileşenlerini tazelemek için) */
   tracksVersion: number;
+  /** Mikrofon seviyesi (yalnızca ayarlardaki gösterge açıkken güncellenir) */
+  micLevel: MicLevel;
 }
 
 const IDLE: Omit<VoiceStore, 'channelId' | 'status'> = {
   speaking: {},
   streams: {},
+  streamAudio: {},
   watching: null,
+  streamEnded: null,
   listenOnly: false,
   micAllowed: true,
   sharing: false,
   tracksVersion: 0,
+  micLevel: SILENT_LEVEL,
 };
 
 export const useVoice = create<VoiceStore>()(() => ({ channelId: null, status: 'idle', ...IDLE }));
@@ -109,6 +120,37 @@ const isAudio = (pub: RemoteTrackPublication): boolean =>
   pub.source === Track.Source.Microphone ||
   (pub.kind === Track.Kind.Audio && pub.source !== Track.Source.ScreenShareAudio);
 
+/** Yayın bitti ya da yayıncı ayrıldı: izleniyorsa "sona erdi" durumuna geçilir */
+function streamGone(s: VoiceStore, identity: string): Partial<VoiceStore> {
+  const { [identity]: _gone, ...streams } = s.streams;
+  const { [identity]: _audio, ...streamAudio } = s.streamAudio;
+  const ended = s.watching === identity;
+  return { streams, streamAudio, watching: ended ? null : s.watching, streamEnded: ended ? identity : s.streamEnded };
+}
+
+/**
+ * Mikrofon işleme seçenekleri. Android'de WebRTC eklentisi bunları ses kaynağının işleme
+ * ayarlarına çevirir (googNoiseSuppression vb.). Android 10+ telefonlarda LiveKit donanım
+ * (telefonun kendi) gürültü/yankı engelleyicisini açar; WebRTC o zaman yazılımınkini kapatıp onu
+ * kullanır. Seçenekler mikrofon izi oluşturulurken, yani sesli sohbete katılırken uygulanır.
+ */
+function captureOptions(): AudioCaptureOptions {
+  const s = getSettings();
+  const options = {
+    echoCancellation: s.echoCancellation,
+    noiseSuppression: s.noiseSuppression,
+    autoGainControl: s.autoGainControl,
+    // Alçak frekans uğultusunu (fan, rüzgâr, masa titreşimi) keser; Android eklentisi bu anahtarı okur
+    highpassFilter: true,
+  };
+  return options as AudioCaptureOptions;
+}
+
+function gateConfig(): GateConfig {
+  const s = getSettings();
+  return { enabled: s.voiceActivity, auto: s.vadAuto, threshold: s.vadThresholdDb };
+}
+
 async function requestPermissions(): Promise<boolean> {
   if (Platform.OS !== 'android') return true;
   const wanted = [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO];
@@ -127,6 +169,7 @@ class MobileVoiceClient {
   private room: Room | null = null;
   private joinSeq = 0;
   private readonly duplicates = new SpuriousDuplicateGuard();
+  private readonly gate = new MicGate((micLevel) => useVoice.setState({ micLevel }));
 
   constructor() {
     // Bildirimdeki düğmeler
@@ -147,6 +190,17 @@ class MobileVoiceClient {
       const selfId = useSession.getState().user?.id;
       if (selfId && next.voiceStates[selfId]?.serverDeaf !== prev.voiceStates[selfId]?.serverDeaf) {
         void this.applyLocalState();
+      }
+    });
+    // Kişi/yayın ses seviyeleri ve ses algılama ayarları anında uygulanır
+    useSettings.subscribe((next, prev) => {
+      if (next.userVolumes !== prev.userVolumes || next.streamVolumes !== prev.streamVolumes) this.applyVolumes();
+      if (
+        next.voiceActivity !== prev.voiceActivity ||
+        next.vadAuto !== prev.vadAuto ||
+        next.vadThresholdDb !== prev.vadThresholdDb
+      ) {
+        this.gate.setConfig(gateConfig());
       }
     });
   }
@@ -182,9 +236,11 @@ class MobileVoiceClient {
       await AudioSession.startAudioSession();
 
       const room = new Room({
+        // Görünmeyen yayının (uygulama arka planda, ekran kapalı, ses ekranı kapalı) görüntüsü sunucuda durur
         adaptiveStream: { pixelDensity: 'screen' },
         dynacast: true,
         publishDefaults: { dtx: true, red: true },
+        audioCaptureDefaults: captureOptions(),
       });
       this.room = room;
       this.bind(room);
@@ -203,7 +259,8 @@ class MobileVoiceClient {
         micAllowed: canPublish(room, PROTO_SOURCE.microphone),
       });
       // Konuşma izni yoksa (ya da sunucuda susturulduysa) yalnızca dinlenir; izin gelince açılır
-      if (micGranted && !this.micMuted()) await room.localParticipant.setMicrophoneEnabled(true);
+      if (micGranted && !this.micMuted()) await room.localParticipant.setMicrophoneEnabled(true, captureOptions());
+      this.gate.attach(room, gateConfig());
 
       const name = useGuild.getState().channels.find((c) => c.id === channelId)?.name ?? 'Ses kanalı';
       try {
@@ -272,7 +329,36 @@ class MobileVoiceClient {
         else if (p.identity === previous) pub.setSubscribed(false);
       }
     }
-    useVoice.setState({ watching: userId });
+    useVoice.setState({ watching: userId, streamEnded: null });
+  }
+
+  /** "Yayın sona erdi" bilgisini kapatır */
+  dismissEndedStream(): void {
+    useVoice.setState({ streamEnded: null });
+  }
+
+  /**
+   * Bir kişinin sesini ya da yayın sesini (0–2) ayarlar. `persist` false iken (kaydırıcı sürüklenirken)
+   * yalnızca uygulanır; bırakınca kaydedilir. %100 (varsayılan) kaydedilmez.
+   */
+  setVolume(userId: string, kind: 'voice' | 'stream', volume: number, persist = true): void {
+    const participant = this.room?.remoteParticipants.get(userId);
+    if (participant) {
+      if (kind === 'voice') participant.setVolume(volume, Track.Source.Microphone);
+      else participant.setVolume(this.deafened() ? 0 : volume, Track.Source.ScreenShareAudio);
+    }
+    if (!persist) return;
+    const s = getSettings();
+    const key = kind === 'voice' ? 'userVolumes' : 'streamVolumes';
+    const next = { ...s[key] };
+    if (Math.abs(volume - 1) < 0.005) delete next[userId];
+    else next[userId] = Math.round(volume * 100) / 100;
+    s.set({ [key]: next });
+  }
+
+  /** Ayarlardaki mikrofon seviyesi göstergesi için ölçümü başlatır; dönen işlev durdurur */
+  watchMicLevel(): () => void {
+    return this.gate.watchLevel();
   }
 
   /**
@@ -392,9 +478,24 @@ class MobileVoiceClient {
     for (const p of room.remoteParticipants.values()) {
       for (const pub of p.trackPublications.values()) if (isAudio(pub)) pub.setSubscribed(!deaf);
     }
-    if (!useVoice.getState().listenOnly) await room.localParticipant.setMicrophoneEnabled(!this.micMuted()).catch(() => undefined);
+    // Yayın sesi de sağırken duyulmaz
+    this.applyVolumes();
+    if (!useVoice.getState().listenOnly) {
+      await room.localParticipant.setMicrophoneEnabled(!this.micMuted(), captureOptions()).catch(() => undefined);
+    }
     const name = useGuild.getState().channels.find((c) => c.id === useVoice.getState().channelId)?.name ?? 'Ses kanalı';
     VoiceService.update(name, this.notificationText(), this.micMuted());
+  }
+
+  /** Kaydedilmiş kişi/yayın ses seviyelerini uygular (iz sonradan gelirse LiveKit aboneliğe uygular) */
+  private applyVolumes(): void {
+    for (const p of this.room?.remoteParticipants.values() ?? []) this.applyVolume(p);
+  }
+
+  private applyVolume(p: RemoteParticipant): void {
+    const s = getSettings();
+    p.setVolume(s.userVolumes[p.identity] ?? 1, Track.Source.Microphone);
+    p.setVolume(this.deafened() ? 0 : (s.streamVolumes[p.identity] ?? 1), Track.Source.ScreenShareAudio);
   }
 
   private syncVoiceState(): void {
@@ -410,6 +511,7 @@ class MobileVoiceClient {
       useVoice.setState((s) => ({ streams: { ...s.streams, [participant.identity]: true } }));
       if (useVoice.getState().watching === participant.identity) pub.setSubscribed(true);
     } else if (pub.source === Track.Source.ScreenShareAudio) {
+      useVoice.setState((s) => ({ streamAudio: { ...s.streamAudio, [participant.identity]: true } }));
       if (useVoice.getState().watching === participant.identity) pub.setSubscribed(true);
     }
   }
@@ -419,22 +521,26 @@ class MobileVoiceClient {
     room
       .on(RoomEvent.TrackPublished, (pub, p) => this.onPublication(pub, p))
       .on(RoomEvent.TrackUnpublished, (pub, p) => {
+        if (pub.source === Track.Source.ScreenShareAudio) {
+          useVoice.setState((s) => {
+            const { [p.identity]: _gone, ...streamAudio } = s.streamAudio;
+            return { streamAudio };
+          });
+        }
         if (pub.source !== Track.Source.ScreenShare) return;
-        useVoice.setState((s) => {
-          const { [p.identity]: _gone, ...streams } = s.streams;
-          return { streams, watching: s.watching === p.identity ? null : s.watching };
-        });
+        useVoice.setState((s) => streamGone(s, p.identity));
       })
       .on(RoomEvent.LocalTrackUnpublished, (pub) => {
         if (pub.source === Track.Source.ScreenShare) useVoice.setState({ sharing: false });
       })
-      .on(RoomEvent.TrackSubscribed, bump)
+      .on(RoomEvent.TrackSubscribed, (track, _pub, p) => {
+        // Kaydedilmiş ses seviyesi (kişi ya da yayın sesi)
+        if (track.kind === Track.Kind.Audio) this.applyVolume(p);
+        bump();
+      })
       .on(RoomEvent.TrackUnsubscribed, bump)
       .on(RoomEvent.ParticipantDisconnected, (p) => {
-        useVoice.setState((s) => {
-          const { [p.identity]: _gone, ...streams } = s.streams;
-          return { streams, watching: s.watching === p.identity ? null : s.watching };
-        });
+        useVoice.setState((s) => streamGone(s, p.identity));
       })
       .on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => {
         useVoice.setState({ speaking: Object.fromEntries(speakers.map((p) => [p.identity, true as const])) });
@@ -478,6 +584,7 @@ class MobileVoiceClient {
   private async teardown(): Promise<void> {
     const room = this.room;
     this.room = null;
+    this.gate.detach();
     if (room) await room.disconnect(true).catch(() => undefined);
     await AudioSession.stopAudioSession().catch(() => undefined);
     try {

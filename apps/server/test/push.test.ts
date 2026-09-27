@@ -134,6 +134,33 @@ describe('telefon bildirimleri', () => {
     expect(body.message.android.notification.channel_id).toBe('diskort-mentions');
   });
 
+  it('direkt mesaj ayrı Android kanalından, konuşma başına tek bildirim olarak gider', async () => {
+    const google = fakeGoogle();
+    const { admin, member, push } = await start(google);
+    ctx.store.savePushToken(member.user.id, 'mehmetin-telefonu', 'android');
+    const { dm } = ctx.store.openDirectDm(admin.user.id, member.user.id);
+    const message = ctx.store.createMessage(dm.id, admin.user.id, 'akşam @mehmet ile görüşelim mi?')!;
+    await push.notifyDm(message, [member.user.id], ctx.store.getDm(dm.id)!);
+
+    const send = google.requests.find((r) => r.url.includes('fcm.googleapis.com'))!;
+    const body = JSON.parse(send.body) as { message: Record<string, any> };
+    expect(body.message.token).toBe('mehmetin-telefonu');
+    expect(body.message.notification).toEqual({ title: 'ayse', body: 'akşam @Mehmet ile görüşelim mi?' });
+    expect(body.message.data).toEqual({ type: 'dm', channelId: dm.id, messageId: message.id });
+    expect(body.message.android.notification).toMatchObject({ channel_id: 'diskort-dm', tag: `dm-${dm.id}` });
+
+    // Grup: başlıkta grubun adı; yalnızca dosya içeren mesajda dosya bilgisi
+    google.requests.length = 0;
+    const group = ctx.store.createGroupDm(admin.user.id, [member.user.id], 'Hafta sonu');
+    const onlyFiles = ctx.store.createMessage(group.id, admin.user.id, '')!;
+    const file = { id: 'a', name: 'x.png', size: 1, contentType: 'image/png', width: 1, height: 1, url: '/x' };
+    await push.notifyDm({ ...onlyFiles, attachments: [file, file] }, [member.user.id], group);
+    const groupSend = JSON.parse(google.requests.find((r) => r.url.includes('fcm.googleapis.com'))!.body) as {
+      message: Record<string, any>;
+    };
+    expect(groupSend.message.notification).toEqual({ title: 'ayse · Hafta sonu', body: '📎 2 dosya gönderdi' });
+  });
+
   it('uygulama kaldırılmışsa (UNREGISTERED) jeton silinir; erişim jetonu önbelleklenir', async () => {
     const google = fakeGoogle(404, '{"error":{"status":"NOT_FOUND","details":[{"errorCode":"UNREGISTERED"}]}}');
     const { admin, member, text, push } = await start(google);

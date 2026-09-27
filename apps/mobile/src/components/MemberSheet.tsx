@@ -1,7 +1,16 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { memberActions, memberColorOf, moderation, moveTargets, useGuild } from '@diskort/client-core';
+import {
+  memberActions,
+  memberColorOf,
+  moderation,
+  moveTargets,
+  openDirectMessage,
+  useGuild,
+  useSession,
+} from '@diskort/client-core';
 import { toast } from '../stores/ui';
 import { colors } from '../theme';
 import { Avatar } from './Avatar';
@@ -10,10 +19,20 @@ import { BottomSheet } from './BottomSheet';
 type Confirm = 'kick' | 'ban' | 'disconnect' | null;
 
 /**
- * Bir üyeye uzun basınca açılan yönetim menüsü (yetkiye ve hiyerarşiye göre): seste sunucuda susturma,
- * sağırlaştırma, başka kanala taşıma, sesten çıkarma; atma ve yasaklama. Rol düzenleme masaüstünde.
+ * Bir üyeye basınca açılan menü: başkasıysa "Mesaj gönder", sonra yetkiye ve hiyerarşiye göre yönetim:
+ * seste sunucuda susturma, sağırlaştırma, başka kanala taşıma, sesten çıkarma; atma ve yasaklama. Rol
+ * düzenleme masaüstünde.
  */
-export function MemberSheet({ userId: requested, onClose }: { userId: string | null; onClose: () => void }) {
+export function MemberSheet({
+  userId: requested,
+  onClose,
+  renderExtra,
+}: {
+  userId: string | null;
+  onClose: () => void;
+  /** Başlığın altında gösterilecek ek bölüm (ör. ses ekranında kişinin ses seviyesi) */
+  renderExtra?: (userId: string) => ReactNode;
+}) {
   // Kapanış animasyonu sürerken içerik kaybolmasın: son üye tutulur
   const last = useRef(requested);
   if (requested) last.current = requested;
@@ -31,6 +50,9 @@ export function MemberSheet({ userId: requested, onClose }: { userId: string | n
   );
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [moving, setMoving] = useState(false);
+  const router = useRouter();
+  const selfId = useSession((s) => s.user?.id);
+  const canMessage = Boolean(user && !user.removed && userId !== selfId);
 
   const close = (): void => {
     setConfirm(null);
@@ -55,8 +77,20 @@ export function MemberSheet({ userId: requested, onClose }: { userId: string | n
   };
 
   const name = user?.displayName ?? '';
+  const extra = userId ? renderExtra?.(userId) : null;
   const nothing =
-    actions && !(voice && (actions.mute || actions.deafen || actions.move)) && !actions.kick && !actions.ban;
+    !extra &&
+    !canMessage &&
+    actions &&
+    !(voice && (actions.mute || actions.deafen || actions.move)) &&
+    !actions.kick &&
+    !actions.ban;
+
+  const message = async (): Promise<void> => {
+    close();
+    const dm = await openDirectMessage(userId!);
+    if (dm) router.push(`/channel/${dm.id}`);
+  };
 
   return (
     <BottomSheet visible={Boolean(requested && user)} onClose={close}>
@@ -72,6 +106,7 @@ export function MemberSheet({ userId: requested, onClose }: { userId: string | n
           </Text>
         </View>
       </View>
+      {!moving && extra}
       <ScrollView style={{ maxHeight: 420 }}>
         {moving ? (
           <>
@@ -90,6 +125,7 @@ export function MemberSheet({ userId: requested, onClose }: { userId: string | n
           </>
         ) : (
           <>
+            {canMessage && <Item icon="chatbubble-outline" label="Mesaj gönder" onPress={() => void message()} />}
             {voice && actions?.mute && (
               <Item
                 icon={voice.serverMute ? 'mic' : 'mic-off'}

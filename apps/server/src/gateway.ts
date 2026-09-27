@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
 import {
+  CLIENT_FEATURE_DM,
   DEFAULT_ATTACHMENT_MAX_BYTES,
   GATEWAY_CLOSE_UPDATE_REQUIRED,
   GATEWAY_HEARTBEAT_INTERVAL_MS,
@@ -9,6 +10,7 @@ import {
   type GatewayClientMessage,
   type GatewayServerMessage,
   type Guild,
+  type ServerFeatures,
   type User,
 } from '@diskort/shared';
 import type { AuthService } from './auth.js';
@@ -28,6 +30,8 @@ interface Session {
   alive: boolean;
   /** Kanal başına son "yazıyor" bildirimi (sel koruması) */
   lastTyping: Map<string, number>;
+  /** İstemci direkt mesajları tanıyor (IDENTIFY'da bildirdi); tanımayana DM verisi ve olayı gitmez */
+  dm: boolean;
 }
 
 /** Kullanıcı → gördüğü kanallar (yetki değişikliğinden önceki durum) */
@@ -51,6 +55,7 @@ export class Gateway {
     private readonly permissions: PermissionService,
     private readonly clientVersions?: ClientVersionPolicy,
     private readonly attachmentMaxBytes = DEFAULT_ATTACHMENT_MAX_BYTES,
+    private readonly features: ServerFeatures = { gifs: false },
   ) {
     // Kişi kendi ses durumunu her zaman alır (kanalı görme yetkisini kaybedip çıkarılırken de)
     voice.on('update', (state) =>
@@ -89,7 +94,10 @@ export class Gateway {
     }
   }
 
-  /** Yalnızca kanalı görebilen kullanıcılara gönderir. */
+  /**
+   * Yalnızca kanalı görebilen kullanıcılara gönderir. Direkt mesaj konuşmasında bu, katılımcılardır (ve
+   * yalnızca DM'leri tanıyan istemcileri).
+   */
   dispatchChannel(
     channelId: string,
     msg: GatewayServerMessage,
@@ -97,8 +105,9 @@ export class Gateway {
   ): void {
     const data = JSON.stringify(msg);
     const allowed = new Map<string, boolean>();
+    const dm = this.permissions.isDm(channelId);
     for (const s of this.sessions) {
-      if (!s.userId || s.userId === opts.except) continue;
+      if (!s.userId || s.userId === opts.except || (dm && !s.dm)) continue;
       let ok = allowed.get(s.userId);
       if (ok === undefined) {
         ok = s.userId === opts.include || this.permissions.canView(s.userId, channelId);
@@ -114,6 +123,16 @@ export class Gateway {
     for (const userId of new Set(userIds)) {
       for (const s of this.byUser.get(userId) ?? []) {
         if (s.socket.readyState === s.socket.OPEN) s.socket.send(data);
+      }
+    }
+  }
+
+  /** Direkt mesaj olayını (DM_CHANNEL_*) belirli kullanıcıların DM'leri tanıyan oturumlarına gönderir. */
+  sendDm(userIds: Iterable<string>, msg: GatewayServerMessage): void {
+    const data = JSON.stringify(msg);
+    for (const userId of new Set(userIds)) {
+      for (const s of this.byUser.get(userId) ?? []) {
+        if (s.dm && s.socket.readyState === s.socket.OPEN) s.socket.send(data);
       }
     }
   }
@@ -173,7 +192,7 @@ export class Gateway {
   }
 
   private accept(socket: WebSocket): void {
-    const session: Session = { socket, userId: null, alive: true, lastTyping: new Map() };
+    const session: Session = { socket, userId: null, alive: true, lastTyping: new Map(), dm: false };
     this.sessions.add(session);
     this.send(session, { t: 'HELLO', d: { heartbeatInterval: GATEWAY_HEARTBEAT_INTERVAL_MS } });
 
@@ -226,6 +245,8 @@ export class Gateway {
         s.socket.close(4004, 'authentication failed');
         return;
       }
+      const features = Array.isArray(msg.d.features) ? msg.d.features : [];
+      s.dm = features.includes(CLIENT_FEATURE_DM);
       this.identify(s, user);
       return;
     }
@@ -247,7 +268,8 @@ export class Gateway {
         const channelId = String(msg.d?.channelId ?? '');
         const now = Date.now();
         if (now - (s.lastTyping.get(channelId) ?? 0) < TYPING_MIN_INTERVAL_MS) break;
-        if (this.store.permissionData().channels.get(channelId)?.type !== 'text') break;
+        const dm = this.permissions.isDm(channelId);
+        if (dm ? !s.dm : this.store.permissionData().channels.get(channelId)?.type !== 'text') break;
         if (!this.permissions.can(s.userId, Permission.VIEW_CHANNEL | Permission.SEND_MESSAGES, channelId)) break;
         s.lastTyping.set(channelId, now);
         this.dispatchChannel(channelId, { t: 'TYPING_START', d: { channelId, userId: s.userId } }, { except: s.userId });
@@ -263,9 +285,11 @@ export class Gateway {
     if (!set) this.byUser.set(user.id, (set = new Set()));
     set.add(s);
 
-    // Kullanıcı yalnızca görebildiği kanalları ve onlara ait bilgileri alır
+    // Kullanıcı yalnızca görebildiği kanalları ve onlara ait bilgileri alır. Direkt mesajlar ayrı alandadır
+    // (eski istemciler tanımadıkları türü kanal listesinde göstermesin) ve yalnızca tanıyan istemciye gider.
     const channels = this.permissions.visibleChannels(user.id);
-    const visible = new Set(channels.map((c) => c.id));
+    const dms = s.dm ? this.store.listDms(user.id) : undefined;
+    const visible = new Set([...channels.map((c) => c.id), ...(dms ?? []).map((d) => d.id)]);
     const onlyVisible = <T>(byChannel: Record<string, T>): Record<string, T> =>
       Object.fromEntries(Object.entries(byChannel).filter(([channelId]) => visible.has(channelId)));
     this.send(s, {
@@ -282,6 +306,8 @@ export class Gateway {
         readStates: onlyVisible(this.store.readStates(user.id)),
         mentionCounts: onlyVisible(this.store.mentionCounts(user.id)),
         attachmentMaxBytes: this.attachmentMaxBytes,
+        features: this.features,
+        ...(dms ? { dms } : {}),
       },
     });
     if (!wasOnline) this.broadcast({ t: 'PRESENCE_UPDATE', d: { userId: user.id, online: true } });

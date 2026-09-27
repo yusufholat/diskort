@@ -1,4 +1,5 @@
 import {
+  CLIENT_FEATURE_DM,
   GATEWAY_CLOSE_UPDATE_REQUIRED,
   type GatewayClientMessage,
   type GatewayServerMessage,
@@ -95,7 +96,10 @@ class GatewayClient {
   private handle(msg: GatewayServerMessage, token: string): void {
     switch (msg.t) {
       case 'HELLO':
-        this.send({ t: 'IDENTIFY', d: { token, version: env().version, platform: env().platform } });
+        this.send({
+          t: 'IDENTIFY',
+          d: { token, version: env().version, platform: env().platform, features: [CLIENT_FEATURE_DM] },
+        });
         this.startHeartbeat(msg.d.heartbeatInterval);
         break;
       case 'READY':

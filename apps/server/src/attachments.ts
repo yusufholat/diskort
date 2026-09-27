@@ -3,9 +3,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Transform, type Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { INLINE_IMAGE_TYPES, type Attachment } from '@diskort/shared';
+import { INLINE_IMAGE_TYPES, INLINE_VIDEO_TYPES, type Attachment } from '@diskort/shared';
 import type { Store } from './db.js';
-import { declaredType, inspectImage, sanitizeFileName, type ImageInfo } from './fileInfo.js';
+import {
+  declaredType,
+  inspectImage,
+  inspectVideo,
+  mp4Metadata,
+  sanitizeFileName,
+  type ImageInfo,
+  type ReadAt,
+  type VideoInfo,
+} from './fileInfo.js';
 
 /** Dosya kimliği: 128 bit rastgele, küçük harf onaltılık */
 export const ATTACHMENT_ID = /^[0-9a-f]{32}$/;
@@ -83,12 +92,15 @@ export class AttachmentService {
       },
     });
     let image: ImageInfo | null;
+    let video: VideoInfo | null = null;
     try {
       await pipeline(input.body, counter, fs.createWriteStream(partial, { flags: 'wx' }));
       if (size === 0) throw new UploadError(400, 'empty_file', 'Dosya boş.');
-      image = inspectImage(Buffer.concat(head));
+      const start = Buffer.concat(head);
+      image = inspectImage(start);
       // Telefon fotoğraflarındaki konum bilgisi paylaşılmasın
       if (image?.scrub.length) await this.zeroRegions(partial, image.scrub);
+      if (!image) video = await this.inspectVideoFile(partial, start, size);
       await fs.promises.rename(partial, this.pathOf(id));
     } catch (err) {
       await fs.promises.rm(partial, { force: true });
@@ -96,10 +108,14 @@ export class AttachmentService {
       throw new UploadError(400, 'upload_failed', 'Dosya yüklenemedi, bağlantı kesildi.');
     }
 
-    // Resim türü yalnızca içerik gerçekten o resimse verilir; bildirilen tür yalan olabilir
+    // Resim ve video türü yalnızca içerik gerçekten oysa verilir (yalnızca bunlar tarayıcıda
+    // gösterilir); bildirilen tür yalan olabilir
     let contentType = declaredType(input.contentType);
     if (image) contentType = image.type;
-    else if (INLINE_IMAGE_TYPES.includes(contentType)) contentType = 'application/octet-stream';
+    else if (video) contentType = video.type;
+    else if (INLINE_IMAGE_TYPES.includes(contentType) || INLINE_VIDEO_TYPES.includes(contentType)) {
+      contentType = 'application/octet-stream';
+    }
     return this.store.createAttachment({
       id,
       channelId: input.channelId,
@@ -107,8 +123,9 @@ export class AttachmentService {
       name: sanitizeFileName(input.name),
       size,
       contentType,
-      width: image?.width ?? null,
-      height: image?.height ?? null,
+      width: image?.width ?? video?.width ?? null,
+      height: image?.height ?? video?.height ?? null,
+      duration: video?.duration ?? null,
     });
   }
 
@@ -142,6 +159,29 @@ export class AttachmentService {
     }
     if (removed > 0) this.log?.info({ removed }, 'kullanılmayan dosya ekleri silindi');
     return removed;
+  }
+
+  /**
+   * Video kabı mı (dosyanın başından); MP4/QuickTime'da boyut ve süre dosyadaki "moov" kutusundan
+   * okunur. Görüntü izi olmayan MP4 (ör. M4A ses) video sayılmaz.
+   */
+  private async inspectVideoFile(file: string, head: Buffer, size: number): Promise<VideoInfo | null> {
+    const video = inspectVideo(head);
+    if (!video || (video.type !== 'video/mp4' && video.type !== 'video/quicktime')) return video;
+    const handle = await fs.promises.open(file, 'r');
+    try {
+      const read: ReadAt = async (position, length) => {
+        const buffer = Buffer.alloc(Math.max(0, Math.min(length, size - position)));
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+        return buffer.subarray(0, bytesRead);
+      };
+      const meta = await mp4Metadata(read, size).catch(() => null);
+      if (!meta) return video;
+      if (!meta.video) return null;
+      return { ...video, width: meta.width, height: meta.height, duration: meta.duration };
+    } finally {
+      await handle.close();
+    }
   }
 
   private async ensureSpace(bytes: number): Promise<void> {

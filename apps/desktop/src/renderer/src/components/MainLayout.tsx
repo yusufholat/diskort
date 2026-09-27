@@ -1,15 +1,18 @@
 import { useEffect } from 'react';
 import { AudioLines } from 'lucide-react';
-import { gateway, useGuild, useSession } from '@diskort/client-core';
+import { dmTitle, gateway, useGuild, useSession } from '@diskort/client-core';
 import { voice } from '../features/voice/voiceClient';
 import { toast, useUi } from '../stores/ui';
 import { useVoice } from '../stores/voice';
-import { useMainView } from '../lib/mainView';
+import { isDmSection, useMainView } from '../lib/mainView';
 import { DURATION, PresenceProvider, usePresence } from '../lib/motion';
 import { ImageViewer } from './text/ImageViewer';
 import { TextChannelView } from './text/TextChannelView';
 import { UpdateReadyBar } from './UpdateRequired';
 import { ChannelSidebar } from './sidebar/ChannelSidebar';
+import { DmHome } from './dms/DmHome';
+import { NewDmModal, RenameDmModal } from './dms/DmModals';
+import { DmSidebar } from './dms/DmSidebar';
 import { GuildRail } from './GuildRail';
 import { VoiceStage } from './stage/VoiceStage';
 import { Welcome } from './stage/Welcome';
@@ -29,6 +32,9 @@ export function MainLayout() {
   const textChannel = useGuild((s) =>
     view.kind === 'text' ? s.channels.find((c) => c.id === view.channelId) : undefined,
   );
+  const dm = useGuild((s) => (view.kind === 'dm' ? s.dms[view.channelId] : undefined));
+  const selfId = useSession((s) => s.user?.id);
+  const dmName = useGuild((s) => (dm ? dmTitle(dm, s.users, selfId) : ''));
   const voiceError = useVoice((s) => s.error);
   useFeedbackToasts();
   // Kapanan pencere, kapanış animasyonu bitene kadar ekranda kalır
@@ -72,7 +78,7 @@ export function MainLayout() {
   return (
     <div className="relative flex h-full min-h-0">
       <GuildRail />
-      <ChannelSidebar />
+      {isDmSection(view) ? <DmSidebar /> : <ChannelSidebar />}
       <main className="flex min-w-0 flex-1 flex-col">
         <UpdateReadyBar />
         {status === 'reconnecting' && (
@@ -86,6 +92,10 @@ export function MainLayout() {
             <div key="voice" className="anim-fade-in h-full">
               <VoiceStage />
             </div>
+          ) : dm ? (
+            <TextChannelView key={dm.id} channel={{ id: dm.id, name: dmName }} dm={dm} />
+          ) : view.kind === 'dms' ? (
+            <DmHome key="dms" />
           ) : textChannel ? (
             <TextChannelView key={textChannel.id} channel={textChannel} />
           ) : (
@@ -102,6 +112,8 @@ export function MainLayout() {
         {modal?.type === 'screenPicker' && <ScreenSharePicker />}
         {modal?.type === 'channel' && <ChannelModal channel={modal.channel} channelType={modal.channelType} />}
         {modal?.type === 'image' && <ImageViewer attachment={modal.attachment} />}
+        {modal?.type === 'newDm' && <NewDmModal addTo={modal.addTo} />}
+        {modal?.type === 'renameDm' && <RenameDmModal channelId={modal.channelId} />}
         {modal?.type === 'feedback' && <FeedbackModal />}
       </PresenceProvider>
       <BanModal />

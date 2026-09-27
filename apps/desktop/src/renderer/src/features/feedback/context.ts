@@ -4,13 +4,24 @@ import { bridge, platform } from '../../lib/bridge';
 import { currentView } from '../../lib/mainView';
 import { useVoice } from '../../stores/voice';
 
-/** Açık görünümün türü (kanal adı ya da mesaj içeriği gönderilmez) */
+/**
+ * Açık görünümün yalnızca türü: kanal ya da konuşma adı, kimliği, katılımcıları ve mesaj içeriği
+ * gönderilmez (direkt mesajlar özeldir).
+ */
 function describeView(): string {
   const view = currentView();
-  if (view.kind === 'voice') return 'ses sahnesi';
-  if (view.kind === 'home') return 'ana ekran';
-  const channel = useGuild.getState().channels.find((c) => c.id === view.channelId);
-  return channel ? 'metin kanalı' : 'ana ekran';
+  switch (view.kind) {
+    case 'voice':
+      return 'ses sahnesi';
+    case 'dm':
+      return 'direkt mesaj';
+    case 'dms':
+      return 'direkt mesajlar';
+    case 'text':
+      return useGuild.getState().channels.some((c) => c.id === view.channelId) ? 'metin kanalı' : 'ana ekran';
+    default:
+      return 'ana ekran';
+  }
 }
 
 const fmt = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, ''));

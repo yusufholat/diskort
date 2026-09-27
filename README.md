@@ -21,6 +21,10 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
   **kalın**/*italik*/~~çizik~~/`kod`/kod bloğu/alıntı/sürpriz (`||metin||`) biçimlendirme, bağlantılar,
   “yazıyor…” göstergesi, okunmamış kanal ve **@bahsetme** rozetleri (sunucuda tutulur, çevrimdışıyken gelenler de
   görünür), bahsetmede bildirim + görev çubuğu uyarısı, “YENİ” ayracı
+- **Direkt mesajlar:** bire bir ve küçük grup (en fazla 10 kişi) konuşmaları; metin kanallarının her özelliği
+  (biçimlendirme, dosya, tepki, düzenleme/silme, “yazıyor…”, okunmamış rozetleri). Yalnızca konuşmadakiler görür,
+  sunucu yöneticileri de okuyamaz. Her mesajda telefon bildirimi (ayrı bildirim kanalı). Üyeye sağ tık (Android'de
+  dokun) → “Mesaj Gönder”
 - **Emoji tepkileri:** mesajın altında tepki hapları, hızlı tepkiler ve kategorili seçici (canlı güncellenir)
 - **Dosya ve resim paylaşımı:** düğme, sürükle-bırak, panodan yapıştırma (Android'de galeri/dosya seçici);
   yükleme ilerlemesi, resimler mesajın içinde, tam boyut görüntüleyici; dosya başına varsayılan en fazla 25 MB.
@@ -46,6 +50,7 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
 | Ses, mute/deafen | ✅ | ✅ | ✅ | ✅ (hoparlör/ahize, ekran kilitliyken de) |
 | Metin kanalları | ✅ | ✅ | ✅ | ✅ |
 | Tepkiler, dosya/resim paylaşımı | ✅ | ✅ | ✅ | ✅ |
+| Direkt mesajlar (bire bir, grup) | ✅ | ✅ | ✅ | ✅ |
 | Rol renkleri, üye listesi, gizli kanallar | ✅ | ✅ | ✅ | ✅ |
 | Seste yönetim (sustur, taşı, çıkar), at/yasakla, mesaj silme | ✅ | ✅ | ✅ | ✅ (uzun basınca) |
 | Rol ve kanal izni düzenleme (Sunucu Ayarları) | ✅ | ✅ | ✅ | ❌ (şimdilik masaüstünde) |
@@ -111,6 +116,30 @@ yönetici sahip olur; diğer herkesin bugünkü yetkileri @everyone'da kalır ve
 herkes her kanalı görmeye devam eder. `users.is_admin` artık rollerden hesaplanır ve eski sürüme dönülürse diye
 güncel tutulur. Rollerden önceki istemciler çalışmaya devam eder (`isAdmin` alanı ve "yönetici yap" isteği
 yönetici rolünü verir/alır; yeni olayları tanımadan geçerler).
+
+## Direkt mesajlar
+
+- **Veri modeli (şema 9):** konuşma da bir kanaldır (`channels.type = 'dm'`, topluluğa bağlı değil); mesajlar,
+  dosyalar, tepkiler ve okunma durumu metin kanallarıyla aynı tablolarda ve aynı uçlardan
+  (`/api/channels/:id/messages`…). `dm_channels` (bire bir konuşmada iki kişinin anahtarı, grubun sahibi) ve
+  `dm_participants` (katılımcılar, konuşma listede açık mı). Göç 9 `channels` tablosunu SQLite'ın önerdiği yolla
+  yeniden kurar (yabancı anahtar denetimi göç boyunca kapalı); hiçbir mesaj taşınmaz ya da silinmez.
+- **Gizlilik:** yalnızca katılımcılar okur, yazar ve olay alır. Roller, kanal izinleri ve Yönetici yetkisi DM'de
+  uygulanmaz; sahip de başkasının konuşmasını hiçbir uçtan göremez (yokmuş gibi 404). Kanal yönetimi ve ses
+  uçları DM'lere ulaşamaz. Dosya adresleri, kanallardaki gibi tahmin edilemeyen yetenek adresleridir.
+- **Konuşmalar:** aynı iki kişi için tek bire bir konuşma (yeniden açınca aynısı). Boş konuşma karşı tarafta ilk
+  mesajla görünür; "Konuşmayı kapat" listeden kaldırır, yeni mesaj gelince geri döner. Grup: en fazla 10 kişi,
+  isteğe bağlı ad, her katılımcı kişi ekleyebilir (eklenen geçmişi görür), ayrılan sahipse sahiplik sıradakine geçer,
+  son kişi ayrılınca konuşma silinir.
+- **Atma/yasaklama:** atılanın mesajları kalır; bire bir konuşmada karşı taraf geçmişi okur ama yazamaz (geri
+  dönerse konuşma kaldığı yerden sürer). Hesap silinince konuşmadan düşer; kimse kalmayan konuşma silinir.
+- **Eski istemciler:** DM'ler READY'de ayrı alanda (`dms`) ve ayrı olaylarla (`DM_CHANNEL_*`) gelir, yalnızca
+  IDENTIFY'da `features: ['dm']` bildiren istemcilere. Bildirmeyen eski sürümler hiçbir DM verisi ya da olayı
+  almaz, kanal listeleri değişmez.
+- **Telefon bildirimi:** her DM mesajı diğer katılımcılara `diskort-dm` Android kanalından gider; aynı konuşmanın
+  bildirimleri üst üste biner (etiket). Dokununca konuşma açılır.
+- Veri modeli DM'de sesli aramaya hazır: konuşma bir kanal olduğundan LiveKit odası (`ch_<kimlik>`) ve yetkiler
+  (bağlanma, konuşma) aynı yoldan eklenebilir.
 
 ## Geri bildirim
 
@@ -374,10 +403,16 @@ taşınır (adlarında eski sürüm numarası kalır); böylece yalnızca arayü
 - Zorunluluk: sürümde OTA varsa sürümün kendisi, yoksa APK'nın sürümü gerekir. Sunucudaki `MIN_ANDROID_VERSION`
   yalnızca bunun altına inilmemesi içindir (normalde boş).
 - Yerel derlemeler (`expo run:android`) `runtimeVersion` = `gelistirme` alır ve OTA almaz.
-- **Bildirimler (bahsetmeler):** sunucu, Google'ın FCM HTTP v1 arayüzüne doğrudan gönderir; Firebase yalnızca
+- **Bildirimler (bahsetmeler ve direkt mesajlar, iki ayrı Android kanalı):** sunucu, Google'ın FCM HTTP v1 arayüzüne doğrudan gönderir; Firebase yalnızca
   teslimat yapar. Sunucuda `infra/secrets/fcm.json` (Firebase → Proje ayarları → Service accounts →
   Generate new private key, `chmod 600`) ve `.env`'de `FCM_SERVICE_ACCOUNT_FILE=/run/secrets/fcm.json`.
   Uygulama tarafı `google-services.json` GitHub gizli değişkeni `GOOGLE_SERVICES_JSON`'dan (base64) derlemede yazılır.
+- **GIF araması (GIPHY):** sunucu `.env`'de `GIPHY_API_KEY` (developers.giphy.com → Create an App → **API**)
+  tanımlıysa mesaj kutusunda GIF düğmesi çıkar; yoksa gizlenir. İstemciler GIPHY'ye değil sunucuya sorar
+  (`/api/gifs/search`, `/api/gifs/trending`; anahtar sunucuda kalır, sonuçlar 5 dk önbellekte, kişi başı dakikada
+  30 istek). GIF'ler GIPHY'nin sunucularından doğrudan yüklenir. İçerik sınırı `GIPHY_RATING` (varsayılan
+  `pg-13`), arama dili `GIPHY_LANG` (varsayılan `tr`). Deneme ("beta") anahtarı saatte ~100 istekle sınırlıdır;
+  sınır aşılırsa arama bir dakika yalnızca önbellekten yanıt verir.
 
 ### Sürüm yayınlama
 
@@ -405,7 +440,7 @@ Yalnızca Windows paketini kendi bilgisayarından yüklemek için: `pnpm release
 
 - Kod imzalama (Windows: Certum Open Source veya SignPath Foundation; macOS: Apple Developer ID)
 - Mesaj arama, özel (sunucuya ait) emojiler, satır içi video oynatma
-- Özel mesajlar (DM); Android'de rol ve kanal izni düzenleme
+- Direkt mesajlarda sesli/görüntülü arama; Android'de rol ve kanal izni düzenleme
 - Kamera, Linux/macOS'ta yayın sesi, mobil uygulama
 - Birden çok topluluk (sunucu) desteği — veri modeli hazır (`guilds` tablosu)
 

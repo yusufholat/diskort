@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import type { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
-import { isImageAttachment, Permission } from '@diskort/shared';
+import { isImageAttachment, isVideoAttachment, Permission } from '@diskort/shared';
 import { ATTACHMENT_ID, UploadError } from '../attachments.js';
 import { forbidden, sendError, type AppContext } from '../context.js';
-import { contentDisposition, servedType } from '../fileInfo.js';
+import { contentDisposition, parseRange, servedType } from '../fileInfo.js';
 import { createRateLimiter } from './messages.js';
 
 /**
@@ -33,12 +33,18 @@ export function registerAttachmentRoutes(app: FastifyInstance, ctx: AppContext):
         },
       },
       async (req, reply) => {
-        const channel = store.getChannel(req.params.id);
-        if (!channel || channel.type !== 'text' || !permissions.canView(req.user.id, channel)) {
+        // Metin kanalı ya da katılımcısı olunan direkt mesaj konuşması
+        const dm = permissions.isDm(req.params.id);
+        const channel = dm ? null : store.getChannel(req.params.id);
+        if (
+          dm
+            ? !permissions.canView(req.user.id, req.params.id)
+            : !channel || channel.type !== 'text' || !permissions.canView(req.user.id, channel)
+        ) {
           return sendError(reply, 404, 'not_found', 'Metin kanalı bulunamadı.');
         }
-        if (!permissions.can(req.user.id, Permission.SEND_MESSAGES | Permission.ATTACH_FILES, channel)) {
-          return forbidden(reply, 'Bu kanala dosya gönderme iznin yok.');
+        if (!permissions.can(req.user.id, Permission.SEND_MESSAGES | Permission.ATTACH_FILES, channel ?? req.params.id)) {
+          return forbidden(reply, dm ? 'Bu konuşmaya dosya gönderemezsin.' : 'Bu kanala dosya gönderme iznin yok.');
         }
         if (!allowUpload(req.user.id)) {
           return sendError(reply, 429, 'rate_limited', 'Çok hızlı dosya yüklüyorsun, biraz bekle.');
@@ -50,7 +56,7 @@ export function registerAttachmentRoutes(app: FastifyInstance, ctx: AppContext):
             declaredSize: length !== undefined && /^\d+$/.test(length) ? Number(length) : null,
             name: typeof req.query.name === 'string' ? req.query.name : '',
             contentType: req.headers['content-type'],
-            channelId: channel.id,
+            channelId: req.params.id,
             uploaderId: req.user.id,
           });
           return reply.code(201).send(attachment);
@@ -74,20 +80,43 @@ export function registerAttachmentRoutes(app: FastifyInstance, ctx: AppContext):
     if (!stat) return sendError(reply, 404, 'not_found', 'Dosya bulunamadı.');
 
     const { attachment } = found;
-    const image = isImageAttachment(attachment);
+    // Yalnızca türü içerikten belirlenmiş resim ve videolar tarayıcıda gösterilir; gerisi indirilir
+    const inline = isImageAttachment(attachment) || isVideoAttachment(attachment);
     const etag = `"${id}"`;
     void reply
       .header('Cache-Control', 'private, max-age=31536000, immutable')
       .header('ETag', etag)
+      .header('Accept-Ranges', 'bytes')
       .header('X-Content-Type-Options', 'nosniff')
-      // Tarayıcıda doğrudan açılsa bile betik çalışamaz
-      .header('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox")
-      .header('Cross-Origin-Resource-Policy', 'cross-origin');
+      // Tarayıcıda doğrudan açılsa bile betik çalışamaz (resim ve video kendi sayfasında gösterilebilir)
+      .header(
+        'Content-Security-Policy',
+        "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox",
+      )
+      .header('Cross-Origin-Resource-Policy', 'cross-origin')
+      .header('Content-Type', servedType(attachment.contentType, inline))
+      .header('Content-Disposition', contentDisposition(inline ? 'inline' : 'attachment', attachment.name));
     if (req.headers['if-none-match'] === etag) return reply.code(304).send();
-    return reply
-      .header('Content-Type', servedType(attachment.contentType, image))
-      .header('Content-Disposition', contentDisposition(image ? 'inline' : 'attachment', attachment.name))
-      .header('Content-Length', stat.size)
-      .send(fs.createReadStream(file));
+
+    // Parça parça okuma (video oynatıcıları ileri sarmak için ister). If-Range başka sürümü
+    // gösteriyorsa tüm dosya gönderilir; dosyalar değişmediğinden ETag hep aynıdır.
+    const ifRange = req.headers['if-range'];
+    const range = ifRange === undefined || ifRange === etag ? parseRange(req.headers.range, stat.size) : null;
+    if (range?.kind === 'invalid') {
+      reply.removeHeader('Content-Disposition');
+      return reply
+        .code(416)
+        .header('Content-Range', `bytes */${stat.size}`)
+        .header('Content-Type', 'application/json; charset=utf-8')
+        .send({ error: 'range_not_satisfiable', message: 'İstenen aralık dosyada yok.' });
+    }
+    if (range?.kind === 'range') {
+      return reply
+        .code(206)
+        .header('Content-Range', `bytes ${range.start}-${range.end}/${stat.size}`)
+        .header('Content-Length', range.end - range.start + 1)
+        .send(fs.createReadStream(file, { start: range.start, end: range.end }));
+    }
+    return reply.header('Content-Length', stat.size).send(fs.createReadStream(file));
   });
 }

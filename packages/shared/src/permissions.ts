@@ -170,6 +170,26 @@ export function channelPermissions(
   return permissions;
 }
 
+/** Direkt mesaj katılımcılarının yetkileri (başkalarının mesajlarını silmek ve @everyone yok) */
+export const DM_PERMISSIONS =
+  Permission.VIEW_CHANNEL | Permission.SEND_MESSAGES | Permission.ATTACH_FILES | Permission.ADD_REACTIONS;
+
+/**
+ * Direkt mesaj konuşmasındaki yetkiler. Roller, kanal izinleri, sahiplik ve ADMINISTRATOR uygulanmaz:
+ * katılımcı olmayan (yönetici de olsa) hiçbir şey göremez. Üye olmayan (atılan/yasaklanan) katılımcının
+ * yetkisi yoktur. Bire bir konuşmada karşı taraf artık üye değilse (ya da hesabı silindiyse) geçmiş
+ * okunabilir ama mesaj gönderilemez.
+ */
+export function dmPermissions(
+  dm: { participantIds: readonly string[]; group: boolean },
+  userId: string,
+  isMember: (userId: string) => boolean,
+): number {
+  if (!dm.participantIds.includes(userId) || !isMember(userId)) return 0;
+  if (!dm.group && !dm.participantIds.some((id) => id !== userId && isMember(id))) return Permission.VIEW_CHANNEL;
+  return DM_PERMISSIONS;
+}
+
 /** Kullanıcının en üstteki rolünün sırası; sahip herkesin üstündedir (sonsuz), rolü yoksa 0 */
 export function highestRolePosition(ctx: PermissionContext, userId: string, roleIds: readonly string[]): number {
   if (ctx.ownerId !== null && userId === ctx.ownerId) return Number.POSITIVE_INFINITY;

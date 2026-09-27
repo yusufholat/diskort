@@ -13,14 +13,18 @@ import {
   type Attachment,
   type Channel,
   type ChannelType,
+  type DmChannel,
+  type Embed,
   type Guild,
   type Invite,
   type Message,
   type PermissionContext,
   type PermissionOverwrite,
   type Reaction,
+  type ReferencedMessage,
   type Role,
   type User,
+  referenceOf,
 } from '@diskort/shared';
 import { AVATAR_COLORS } from '@diskort/shared';
 import { FEEDBACK_MIGRATION } from './feedbackStore.js';
@@ -204,8 +208,55 @@ export const MIGRATIONS: string[] = [
     WHERE u.is_admin = 1;
   UPDATE guilds SET owner_id = (SELECT id FROM users ORDER BY is_admin DESC, created_at, rowid LIMIT 1);
   `,
-  // Göç 12: geri bildirimler (feedbackStore.ts). 9–11 paralel dallarda (DM, yanıtlar, GIF); birleştirmede
-  // bunların ardına konur. Kendi başınadır ve yeniden çalışsa da zararsızdır (IF NOT EXISTS).
+  // 9: direkt mesajlar. Konuşma da bir kanaldır (type 'dm', topluluğa bağlı değil: guild_id boş); mesajlar,
+  // dosyalar, tepkiler ve okunma durumu kanallarınkiyle aynı tablolardadır. Tür denetimi değiştiğinden
+  // channels tablosu SQLite'ın önerdiği yolla yeniden kurulur (yeni tablo, kopya, eskisini sil, yeniden
+  // adlandır); bu yüzden göçler yabancı anahtar denetimi kapalıyken çalışır (bkz. migrate).
+  // dm_channels.pair_key: bire bir konuşmada iki kimliğin sıralı birleşimi (aynı iki kişiye tek konuşma);
+  // grupta boş. dm_participants.open: konuşma kişinin listesinde mi (kapatılan konuşma yeni mesajla açılır).
+  `
+  CREATE TABLE channels_new (
+    id         TEXT PRIMARY KEY,
+    guild_id   TEXT REFERENCES guilds(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    type       TEXT NOT NULL CHECK (type IN ('voice', 'text', 'dm')),
+    position   INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    CHECK ((type = 'dm') = (guild_id IS NULL))
+  );
+  INSERT INTO channels_new (id, guild_id, name, type, position, created_at)
+    SELECT id, guild_id, name, type, position, created_at FROM channels;
+  DROP TABLE channels;
+  ALTER TABLE channels_new RENAME TO channels;
+  CREATE TABLE dm_channels (
+    channel_id TEXT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
+    pair_key   TEXT UNIQUE,
+    owner_id   TEXT REFERENCES users(id) ON DELETE SET NULL
+  );
+  CREATE TABLE dm_participants (
+    channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    joined_at  INTEGER NOT NULL,
+    open       INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (channel_id, user_id)
+  ) WITHOUT ROWID;
+  CREATE INDEX dm_participants_by_user ON dm_participants(user_id);
+  `,
+  // 10: mesaj yanıtları. reply_to_id yanıt verilen mesajdır; bilerek yabancı anahtar değildir: asıl mesaj
+  // silinince yanıt "asıl mesaj silindi" olarak kalır (kimlikler AUTOINCREMENT, yeniden kullanılmaz).
+  // reply_mention_user_id: yanıtta bildirilen asıl yazar ("@ AÇIK"), asıl mesaj silinse de kalır.
+  // Asıl mesajın özeti saklanmaz; her okumada asıl mesajdan üretilir (bkz. withDetails).
+  `
+  ALTER TABLE messages ADD COLUMN reply_to_id INTEGER;
+  ALTER TABLE messages ADD COLUMN reply_mention_user_id TEXT;
+  `,
+  // 11: GIF'ler ve videolar. embeds: mesaja sunucunun eklediği gömülü içerik (GIPHY GIF'i; JSON dizi,
+  // yoksa boş). duration: videonun süresi (saniye).
+  `
+  ALTER TABLE messages ADD COLUMN embeds TEXT;
+  ALTER TABLE attachments ADD COLUMN duration REAL;
+  `,
+  // 12: geri bildirimler (feedbackStore.ts). Kendi başınadır ve yeniden çalışsa da zararsızdır (IF NOT EXISTS).
   FEEDBACK_MIGRATION,
 ];
 
@@ -246,14 +297,22 @@ const toRole = (r: RoleRow): Role => ({
   permissions: r.permissions,
 });
 
+/** Yetki denetimi için bir DM'in katılımcıları */
+export interface DmAccess {
+  participantIds: readonly string[];
+  group: boolean;
+}
+
 /** Yetki hesaplaması için topluluğun anlık görüntüsü (her yazma işleminden sonra yeniden okunur) */
 export interface PermissionData extends PermissionContext {
   /** Üye → rolleri (@everyone hariç); rolü olmayan üye listede yoktur */
   memberRoles: ReadonlyMap<string, readonly string[]>;
   /** Üye olmayan hesaplar (atıldı ya da yasaklandı) */
   removed: ReadonlySet<string>;
-  /** Kanallar, izinleriyle */
+  /** Topluluğun kanalları, izinleriyle (DM'ler hariç) */
   channels: ReadonlyMap<string, Channel>;
+  /** Direkt mesaj konuşmaları: kimlik → katılımcılar */
+  dms: ReadonlyMap<string, DmAccess>;
 }
 
 export interface BanRow {
@@ -283,6 +342,26 @@ interface ChannelRow {
   position: number;
 }
 
+interface DmRow {
+  id: string;
+  name: string;
+  created_at: number;
+  pair_key: string | null;
+  owner_id: string | null;
+  last_id: number | null;
+  last_at: number | null;
+}
+
+/** Bire bir konuşmanın anahtarı: iki kimliğin sıralı birleşimi */
+const pairKey = (a: string, b: string): string => (a < b ? `${a}:${b}` : `${b}:${a}`);
+
+/** Konuşma satırlarını (son mesaj bilgisiyle) seçen sorgunun başı; WHERE ile tamamlanır */
+const DM_SELECT = `
+  SELECT c.id, c.name, c.created_at, d.pair_key, d.owner_id,
+    (SELECT MAX(m.id) FROM messages m WHERE m.channel_id = c.id) AS last_id,
+    (SELECT MAX(m.created_at) FROM messages m WHERE m.channel_id = c.id) AS last_at
+  FROM channels c JOIN dm_channels d ON d.channel_id = c.id`;
+
 
 const toInvite = (r: InviteRow): Invite => ({
   code: r.code,
@@ -301,6 +380,20 @@ interface MessageRow {
   created_at: number;
   edited_at: number | null;
   mention_everyone: number;
+  reply_to_id: number | null;
+  reply_mention_user_id: string | null;
+  embeds: string | null;
+}
+
+/** Saklanan gömülü içerik (sunucunun kendi yazdığı JSON); okunamazsa boş */
+function parseEmbeds(raw: string | null): Embed[] {
+  if (!raw) return [];
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return Array.isArray(value) ? (value as Embed[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 const toMessage = (r: MessageRow): Message => ({
@@ -313,7 +406,17 @@ const toMessage = (r: MessageRow): Message => ({
   attachments: [],
   reactions: [],
   mentionEveryone: r.mention_everyone === 1,
+  embeds: parseEmbeds(r.embeds),
+  replyToId: r.reply_to_id === null ? null : String(r.reply_to_id),
+  referencedMessage: null,
+  replyMentionUserId: r.reply_mention_user_id,
 });
+
+/** Yanıt verilecek mesaj: aynı kanalda ve hâlâ duruyorsa */
+export interface ReplyTarget {
+  id: number;
+  authorId: string | null;
+}
 
 interface AttachmentRow {
   id: string;
@@ -325,6 +428,7 @@ interface AttachmentRow {
   content_type: string;
   width: number | null;
   height: number | null;
+  duration: number | null;
 }
 
 const toAttachment = (r: AttachmentRow): Attachment => ({
@@ -334,6 +438,7 @@ const toAttachment = (r: AttachmentRow): Attachment => ({
   contentType: r.content_type,
   width: r.width,
   height: r.height,
+  duration: r.duration ?? null,
   url: `/api/attachments/${r.id}/${encodeURIComponent(r.name)}`,
 });
 
@@ -376,11 +481,20 @@ export class Store {
 
   private migrate(): void {
     const current = this.one<{ user_version: number }>('PRAGMA user_version')!.user_version;
-    for (let v = current; v < MIGRATIONS.length; v++) {
-      this.tx(() => {
-        this.db.exec(MIGRATIONS[v]!);
-        this.db.exec(`PRAGMA user_version = ${v + 1}`);
-      });
+    if (current >= MIGRATIONS.length) return;
+    // Tabloyu yeniden kuran göçler (9) yabancı anahtar denetimi kapalıyken çalışmalı: açıkken eski tablonun
+    // silinmesi ona bağlı satırları (mesajları!) da siler. Denetim işlem içinde değiştirilemediğinden
+    // göçlerin tamamı için dışarıda kapatılır; göçler yalnızca var olan satırları taşır.
+    this.db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      for (let v = current; v < MIGRATIONS.length; v++) {
+        this.tx(() => {
+          this.db.exec(MIGRATIONS[v]!);
+          this.db.exec(`PRAGMA user_version = ${v + 1}`);
+        });
+      }
+    } finally {
+      this.db.exec('PRAGMA foreign_keys = ON');
     }
   }
 
@@ -682,7 +796,18 @@ export class Store {
       this.all<{ id: string }>('SELECT id FROM users WHERE removed_at IS NOT NULL').map((r) => r.id),
     );
     const channels = new Map(this.listChannels(guildId).map((c) => [c.id, c]));
-    const data: PermissionData = { guildId, ownerId: guild?.owner_id ?? null, roles, memberRoles, removed, channels };
+    const dms = new Map<string, { participantIds: string[]; group: boolean }>();
+    for (const r of this.all<{ id: string; pair_key: string | null }>(
+      'SELECT channel_id AS id, pair_key FROM dm_channels',
+    )) {
+      dms.set(r.id, { participantIds: [], group: r.pair_key === null });
+    }
+    for (const r of this.all<{ channel_id: string; user_id: string }>(
+      'SELECT channel_id, user_id FROM dm_participants ORDER BY joined_at, user_id',
+    )) {
+      dms.get(r.channel_id)?.participantIds.push(r.user_id);
+    }
+    const data: PermissionData = { guildId, ownerId: guild?.owner_id ?? null, roles, memberRoles, removed, channels, dms };
     this.permissionCache = data;
     return data;
   }
@@ -960,8 +1085,9 @@ export class Store {
     ).map((r) => toChannel(r, overwrites.get(r.id)));
   }
 
+  /** Topluluğun kanalı; DM'ler burada yoktur (bkz. getDm), kanal yönetimi onlara hiç ulaşamaz. */
   getChannel(id: string): Channel | null {
-    const row = this.one<ChannelRow>('SELECT * FROM channels WHERE id = ?', id);
+    const row = this.one<ChannelRow>("SELECT * FROM channels WHERE id = ? AND type != 'dm'", id);
     if (!row) return null;
     const overwrites = this.all<{ role_id: string; allow: number; deny: number }>(
       `SELECT o.role_id, o.allow, o.deny FROM channel_overwrites o JOIN roles r ON r.id = o.role_id
@@ -996,7 +1122,211 @@ export class Store {
   }
 
   deleteChannel(id: string): boolean {
-    return this.run('DELETE FROM channels WHERE id = ?', id) > 0;
+    return this.run("DELETE FROM channels WHERE id = ? AND type != 'dm'", id) > 0;
+  }
+
+  // ---------- Direkt mesajlar ----------
+  // Yetki burada denetlenmez: çağıran (routes/dms.ts, routes/messages.ts) kişinin katılımcı olduğuna bakar.
+
+  private toDm(r: DmRow, participantIds: string[]): DmChannel {
+    const group = r.pair_key === null;
+    return {
+      id: r.id,
+      participantIds,
+      group,
+      name: group && r.name ? r.name : null,
+      ownerId: group ? r.owner_id : null,
+      createdAt: r.created_at,
+      lastMessageId: r.last_id === null ? null : String(r.last_id),
+      lastActivityAt: r.last_at ?? r.created_at,
+    };
+  }
+
+  /** Konuşmaların katılımcıları, katılma sırasıyla */
+  private participantsByDm(ids: string[]): Map<string, string[]> {
+    const map = new Map<string, string[]>(ids.map((id) => [id, []]));
+    if (ids.length === 0) return map;
+    for (const r of this.all<{ channel_id: string; user_id: string }>(
+      `SELECT channel_id, user_id FROM dm_participants WHERE channel_id IN (${ids.map(() => '?').join(',')})
+       ORDER BY joined_at, user_id`,
+      ...ids,
+    )) {
+      map.get(r.channel_id)?.push(r.user_id);
+    }
+    return map;
+  }
+
+  getDm(id: string): DmChannel | null {
+    const row = this.one<DmRow>(`${DM_SELECT} WHERE c.id = ?`, id);
+    return row ? this.toDm(row, this.participantsByDm([id]).get(id)!) : null;
+  }
+
+  isDm(id: string): boolean {
+    return this.one('SELECT 1 FROM dm_channels WHERE channel_id = ?', id) !== undefined;
+  }
+
+  /** Kullanıcının listesinde açık konuşmaları */
+  listDms(userId: string): DmChannel[] {
+    const rows = this.all<DmRow>(
+      `${DM_SELECT} JOIN dm_participants p ON p.channel_id = c.id WHERE p.user_id = ? AND p.open = 1`,
+      userId,
+    );
+    const participants = this.participantsByDm(rows.map((r) => r.id));
+    return rows.map((r) => this.toDm(r, participants.get(r.id)!));
+  }
+
+  /** Kullanıcının katıldığı tüm konuşmaların kimlikleri (listesinde kapalı olanlar dahil) */
+  dmIdsOf(userId: string): string[] {
+    return this.all<{ id: string }>('SELECT channel_id AS id FROM dm_participants WHERE user_id = ?', userId).map(
+      (r) => r.id,
+    );
+  }
+
+  /** İki kişi arasındaki bire bir konuşmanın kimliği (yoksa null) */
+  directDmId(a: string, b: string): string | null {
+    return this.one<{ id: string }>('SELECT channel_id AS id FROM dm_channels WHERE pair_key = ?', pairKey(a, b))?.id ?? null;
+  }
+
+  /**
+   * İki kişi arasındaki bire bir konuşmayı bulur, yoksa oluşturur. Konuşma açan kişinin listesinde açılır;
+   * karşı tarafın listesinde ilk mesaj gelince görünür (boş konuşma kimseyi rahatsız etmesin).
+   * `opened`: konuşma açan kişinin listesine yeni girdi (yeni ya da önceden kapatılmıştı).
+   */
+  openDirectDm(userId: string, otherId: string): { dm: DmChannel; created: boolean; opened: boolean } {
+    return this.tx(() => {
+      const existing = this.directDmId(userId, otherId);
+      if (existing) {
+        // Hesap silinip yeniden kurulamayacağından kişi hâlâ katılımcıdır; yine de satır yoksa eklenir
+        const opened =
+          this.run(
+            `INSERT INTO dm_participants (channel_id, user_id, joined_at, open) VALUES (?, ?, ?, 1)
+             ON CONFLICT (channel_id, user_id) DO UPDATE SET open = 1 WHERE open = 0`,
+            existing,
+            userId,
+            Date.now(),
+          ) > 0;
+        return { dm: this.getDm(existing)!, created: false, opened };
+      }
+      const id = this.insertDm(pairKey(userId, otherId), null, null);
+      const now = Date.now();
+      this.addParticipant(id, userId, now, true);
+      this.addParticipant(id, otherId, now, false);
+      return { dm: this.getDm(id)!, created: true, opened: true };
+    });
+  }
+
+  /** Yeni grup konuşması; herkesin listesinde hemen görünür. */
+  createGroupDm(ownerId: string, otherIds: string[], name: string | null): DmChannel {
+    return this.tx(() => {
+      const id = this.insertDm(null, ownerId, name);
+      const now = Date.now();
+      // Katılma sırası seçilme sırasıdır (sahiplik bu sırayla devredilir): aynı ana birer ms aralıkla
+      this.addParticipant(id, ownerId, now, true);
+      otherIds.forEach((userId, i) => this.addParticipant(id, userId, now + i + 1, true));
+      return this.getDm(id)!;
+    });
+  }
+
+  private insertDm(key: string | null, ownerId: string | null, name: string | null): string {
+    const id = nanoid(12);
+    this.run(
+      "INSERT INTO channels (id, guild_id, name, type, position, created_at) VALUES (?, NULL, ?, 'dm', 0, ?)",
+      id,
+      name ?? '',
+      Date.now(),
+    );
+    this.run('INSERT INTO dm_channels (channel_id, pair_key, owner_id) VALUES (?, ?, ?)', id, key, ownerId);
+    return id;
+  }
+
+  private addParticipant(channelId: string, userId: string, joinedAt: number, open: boolean): boolean {
+    return (
+      this.run(
+        'INSERT OR IGNORE INTO dm_participants (channel_id, user_id, joined_at, open) VALUES (?, ?, ?, ?)',
+        channelId,
+        userId,
+        joinedAt,
+        open ? 1 : 0,
+      ) > 0
+    );
+  }
+
+  /** Gruba katılımcı ekler (listesinde hemen açılır); zaten katılımcıysa false. */
+  addDmParticipant(channelId: string, userId: string): boolean {
+    return this.addParticipant(channelId, userId, Date.now(), true);
+  }
+
+  /** Konuşmayı kullanıcının listesinden kaldırır (bire bir konuşmada "kapat"); değiştiyse true. */
+  closeDm(channelId: string, userId: string): boolean {
+    return (
+      this.run('UPDATE dm_participants SET open = 0 WHERE channel_id = ? AND user_id = ? AND open = 1', channelId, userId) >
+      0
+    );
+  }
+
+  /** Yeni mesaj geldiğinde: konuşmayı kapatmış katılımcıların listesinde yeniden açar; açılanları döner. */
+  reopenDm(channelId: string): string[] {
+    return this.tx(() => {
+      const closed = this.all<{ user_id: string }>(
+        'SELECT user_id FROM dm_participants WHERE channel_id = ? AND open = 0',
+        channelId,
+      ).map((r) => r.user_id);
+      if (closed.length > 0) this.run('UPDATE dm_participants SET open = 1 WHERE channel_id = ? AND open = 0', channelId);
+      return closed;
+    });
+  }
+
+  renameDm(channelId: string, name: string | null): DmChannel | null {
+    this.run("UPDATE channels SET name = ? WHERE id = ? AND type = 'dm'", name ?? '', channelId);
+    return this.getDm(channelId);
+  }
+
+  /**
+   * Katılımcı gruptan ayrılır; sahipse sahiplik sıradaki katılımcıya geçer. Kimse kalmazsa konuşma
+   * silinir: diskten silinecek dosyalar döner.
+   */
+  leaveDm(channelId: string, userId: string): { deleted: boolean; files: string[] } {
+    return this.tx(() => {
+      this.run('DELETE FROM dm_participants WHERE channel_id = ? AND user_id = ?', channelId, userId);
+      this.fixDmOwner(channelId);
+      const files = this.deleteEmptyDms();
+      return { deleted: !this.isDm(channelId), files };
+    });
+  }
+
+  /** Grubun sahibi artık katılımcı değilse sahiplik en eski katılımcıya geçer. */
+  private fixDmOwner(channelId: string): void {
+    this.run(
+      `UPDATE dm_channels SET owner_id = (
+         SELECT user_id FROM dm_participants WHERE channel_id = ?1 ORDER BY joined_at, user_id LIMIT 1)
+       WHERE channel_id = ?1 AND pair_key IS NULL AND (owner_id IS NULL OR owner_id NOT IN (
+         SELECT user_id FROM dm_participants WHERE channel_id = ?1))`,
+      channelId,
+    );
+  }
+
+  /**
+   * Hesap silindikten sonra: grupların sahipliğini düzeltir, katılımcısı kalmayan konuşmaları siler.
+   * Diskten silinecek dosyalar döner.
+   */
+  cleanupDms(channelIds: string[]): string[] {
+    return this.tx(() => {
+      for (const id of channelIds) this.fixDmOwner(id);
+      return this.deleteEmptyDms();
+    });
+  }
+
+  private deleteEmptyDms(): string[] {
+    const empty = this.all<{ id: string }>(
+      `SELECT channel_id AS id FROM dm_channels d
+       WHERE NOT EXISTS (SELECT 1 FROM dm_participants p WHERE p.channel_id = d.channel_id)`,
+    ).map((r) => r.id);
+    const files: string[] = [];
+    for (const id of empty) {
+      files.push(...this.channelAttachmentIds(id));
+      this.run("DELETE FROM channels WHERE id = ? AND type = 'dm'", id);
+    }
+    return files;
   }
 
   // ---------- Bildirim jetonları ----------
@@ -1076,11 +1406,46 @@ export class Store {
       list.push({ emoji: r.emoji, count: r.n, me: r.me === 1 });
       reactions.set(String(r.message_id), list);
     }
+    const references = this.references(messages);
     return messages.map((m) => ({
       ...m,
       attachments: attachments.get(m.id) ?? [],
       reactions: reactions.get(m.id) ?? [],
+      referencedMessage: (m.replyToId && references.get(m.replyToId)) || null,
     }));
+  }
+
+  /**
+   * Yanıtların üstünde gösterilen asıl mesaj özetleri (tek sorguda). Özet saklanmaz, her okumada
+   * asıl mesajdan üretilir: düzenlenen mesajın yanıtları yeni metni gösterir, silinmişse listede yoktur.
+   */
+  private references(messages: Message[]): Map<string, ReferencedMessage> {
+    const ids = [...new Set(messages.map((m) => m.replyToId).filter((id): id is string => Boolean(id)))];
+    const map = new Map<string, ReferencedMessage>();
+    if (ids.length === 0) return map;
+    for (const r of this.all<{ id: number; author_id: string | null; content: string; embeds: string | null; files: number }>(
+      `SELECT m.id, m.author_id, m.content, m.embeds,
+         EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id) AS files
+       FROM messages m WHERE m.id IN (${ids.map(() => '?').join(',')})`,
+      ...ids.map(Number),
+    )) {
+      const reference = referenceOf(
+        { id: String(r.id), authorId: r.author_id, content: r.content, embeds: parseEmbeds(r.embeds) },
+        r.files === 1,
+      );
+      map.set(reference.id, reference);
+    }
+    return map;
+  }
+
+  /** Yanıt verilecek mesaj: bu kanalda duruyorsa kimliği ve yazarı, yoksa null */
+  replyTarget(channelId: string, messageId: number): ReplyTarget | null {
+    const row = this.one<{ id: number; author_id: string | null }>(
+      'SELECT id, author_id FROM messages WHERE id = ? AND channel_id = ?',
+      messageId,
+      channelId,
+    );
+    return row ? { id: row.id, authorId: row.author_id } : null;
   }
 
   /** Kullanıcının tepkisini ekler; mesajda en fazla MESSAGE_MAX_REACTIONS farklı emoji olabilir. */
@@ -1115,7 +1480,7 @@ export class Store {
   /**
    * Mesajı kaydeder ve yüklenmiş dosyaları ona bağlar (dosyalar bu kullanıcının, bu kanala yüklediği ve
    * henüz kullanılmamış dosyalar olmalı; değilse null döner). Bahsedilen kullanıcıların okunmamış
-   * bahsetme sayısını artırır.
+   * bahsetme sayısını artırır. `reply` verilirse mesaj ona yanıttır (aynı kanalda olduğu önceden denetlenir).
    */
   createMessage(
     channelId: string,
@@ -1126,6 +1491,7 @@ export class Store {
       userIds: this.resolveMentions(content, authorId),
       everyone: false,
     },
+    reply: { toId: number; mentionUserId: string | null } | null = null,
   ): Message | null {
     return this.tx((): Message | null => {
       for (const attachmentId of attachmentIds) {
@@ -1135,9 +1501,18 @@ export class Store {
       const id = Number(
         this.db
           .prepare(
-            'INSERT INTO messages (channel_id, author_id, content, created_at, mention_everyone) VALUES (?, ?, ?, ?, ?)',
+            `INSERT INTO messages (channel_id, author_id, content, created_at, mention_everyone, reply_to_id, reply_mention_user_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
           )
-          .run(channelId, authorId, content, Date.now(), mentions.everyone ? 1 : 0).lastInsertRowid,
+          .run(
+            channelId,
+            authorId,
+            content,
+            Date.now(),
+            mentions.everyone ? 1 : 0,
+            reply?.toId ?? null,
+            reply?.mentionUserId ?? null,
+          ).lastInsertRowid,
       );
       attachmentIds.forEach((attachmentId, position) => {
         this.run('UPDATE attachments SET message_id = ?, position = ? WHERE id = ?', id, position, attachmentId);
@@ -1167,6 +1542,11 @@ export class Store {
     return ids;
   }
 
+  /** Mesajın gömülü içeriğini (GIF) değiştirir; boş dizi hepsini kaldırır. */
+  setMessageEmbeds(id: number, embeds: Embed[]): void {
+    this.run('UPDATE messages SET embeds = ? WHERE id = ?', embeds.length ? JSON.stringify(embeds) : null, id);
+  }
+
   updateMessage(id: number, content: string, viewerId: string | null = null): Message | null {
     this.run('UPDATE messages SET content = ?, edited_at = ? WHERE id = ?', content, Date.now(), id);
     return this.getMessage(id, viewerId);
@@ -1192,10 +1572,12 @@ export class Store {
     contentType: string;
     width: number | null;
     height: number | null;
+    /** Videolarda süre (saniye) */
+    duration?: number | null;
   }): Attachment {
     this.run(
-      `INSERT INTO attachments (id, channel_id, uploader_id, name, size, content_type, width, height, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO attachments (id, channel_id, uploader_id, name, size, content_type, width, height, duration, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       a.id,
       a.channelId,
       a.uploaderId,
@@ -1204,6 +1586,7 @@ export class Store {
       a.contentType,
       a.width,
       a.height,
+      a.duration ?? null,
       Date.now(),
     );
     return this.getAttachment(a.id)!.attachment;

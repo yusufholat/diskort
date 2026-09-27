@@ -139,6 +139,9 @@ export default function RootLayout() {
               {/* Ses ekranı alttan yükselir; ayarlar ve giriş yumuşakça belirir */}
               <Stack.Screen name="voice" options={{ title: 'Ses', animation: 'slide_from_bottom' }} />
               <Stack.Screen name="members" options={{ title: 'Üyeler' }} />
+              <Stack.Screen name="dms" options={{ title: 'Direkt Mesajlar' }} />
+              <Stack.Screen name="dm-new" options={{ title: 'Yeni mesaj', animation: 'slide_from_bottom' }} />
+              <Stack.Screen name="dm-rename" options={{ title: 'Grubun adı' }} />
               <Stack.Screen name="settings" options={{ title: 'Ayarlar' }} />
               <Stack.Screen name="feedback" options={{ title: 'Geri bildirim' }} />
             </Stack.Protected>

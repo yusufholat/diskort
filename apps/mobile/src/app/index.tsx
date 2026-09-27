@@ -4,7 +4,16 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { hasPermission, Permission, type Channel, type VoiceState } from '@diskort/shared';
-import { isUnread, membersOf, useCan, useGuild, useMemberColor, useMessages, useSession } from '@diskort/client-core';
+import {
+  isUnread,
+  membersOf,
+  useCan,
+  useDmUnreadTotal,
+  useGuild,
+  useMemberColor,
+  useMessages,
+  useSession,
+} from '@diskort/client-core';
 import { Avatar } from '../components/Avatar';
 import { MemberSheet } from '../components/MemberSheet';
 import { PressableScale } from '../components/PressableScale';
@@ -49,6 +58,7 @@ export default function HomeScreen() {
           {guild?.name ?? 'Diskort'}
         </Text>
         <View style={styles.headerButtons}>
+          <DmButton onPress={() => router.push('/dms')} />
           <PressableScale scaleTo={0.8} hitSlop={10} onPress={() => router.push('/members')} accessibilityLabel="Üyeler">
             <Ionicons name="people" size={23} color={colors.muted} />
           </PressableScale>
@@ -90,6 +100,26 @@ export default function HomeScreen() {
       <VoiceBar />
       <MemberSheet userId={member} onClose={() => setMember(null)} />
     </SafeAreaView>
+  );
+}
+
+/** Direkt mesajlar düğmesi: okunmamış mesaj sayısıyla */
+function DmButton({ onPress }: { onPress: () => void }) {
+  const unread = useDmUnreadTotal();
+  return (
+    <PressableScale
+      scaleTo={0.8}
+      hitSlop={10}
+      onPress={onPress}
+      accessibilityLabel={unread > 0 ? `Direkt mesajlar, ${unread} okunmamış` : 'Direkt mesajlar'}
+    >
+      <Ionicons name="chatbubbles" size={23} color={unread > 0 ? colors.head : colors.muted} />
+      {unread > 0 && (
+        <View style={styles.headerBadge}>
+          <Text style={styles.badgeText}>{unread > 99 ? '99+' : unread}</Text>
+        </View>
+      )}
+    </PressableScale>
   );
 }
 
@@ -233,6 +263,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   badgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  headerBadge: {
+    position: 'absolute',
+    top: -7,
+    right: -10,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    backgroundColor: colors.danger,
+    borderWidth: 2,
+    borderColor: colors.side,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   member: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 48, paddingRight: 16, height: 36 },
   memberName: { color: colors.muted, fontSize: 15, flex: 1 },
   live: { backgroundColor: colors.danger, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 },
