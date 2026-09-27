@@ -108,3 +108,19 @@
 .animate-pop {
   animation: dk-pop-in var(--dur-fast) var(--ease-out);
 }
+
+/* Yanıtın üstündeki alıntıyı avatara bağlayan kavisli çizgi (Discord'daki gibi). Alıntı satırı 20 px
+   (+2 px boşluk), içerik sütunu avatar sütunundan 56 px sağda, 40 px'lik avatar 24 px aşağıda başlar:
+   çizgi satırın ortasından sola, oradan avatarın ortasına iner. */
+.reply-spine::before {
+  content: '';
+  position: absolute;
+  top: 9px;
+  left: -37px;
+  width: 33px;
+  height: 12px;
+  border-top: 2px solid #4e5058;
+  border-left: 2px solid #4e5058;
+  border-top-left-radius: 6px;
+  pointer-events: none;
+}

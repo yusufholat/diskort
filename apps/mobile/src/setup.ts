@@ -35,7 +35,8 @@ export const clientReady = configureClient({
     const author = message.authorId ? guild.users[message.authorId]?.displayName : undefined;
     const channel = guild.channels.find((c) => c.id === message.channelId)?.name;
     Vibration.vibrate(60);
-    toast(`${author ?? 'Biri'} senden bahsetti · #${channel ?? ''}`);
+    const replied = message.replyMentionUserId != null && message.replyMentionUserId === useSession.getState().user?.id;
+    toast(`${author ?? 'Biri'} ${replied ? 'sana yanıt verdi' : 'senden bahsetti'} · #${channel ?? ''}`);
   },
   // Açık olmayan konuşmaya gelen direkt mesaj (uygulama kapalıyken telefon bildirimi gelir)
   onDirectMessage: (message, dm) => {

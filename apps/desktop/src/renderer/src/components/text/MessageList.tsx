@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Hash } from 'lucide-react';
 import type { Channel, DmChannel, User } from '@diskort/shared';
-import { dmPartner, loadOlder, useMessages, type LocalMessage, useGuild } from '@diskort/client-core';
+import { clearJump, dmPartner, loadOlder, useMessages, type LocalMessage, useGuild } from '@diskort/client-core';
 import { DmAvatar } from '../dms/DmAvatar';
 import type { MarkdownContext } from '../../features/messages/markdown';
 import { animate, riseIn } from '../../lib/motion';
@@ -34,6 +34,7 @@ export function MessageList({ channel, dm, self, dividerId, onAtBottomChange, sc
   const hasMore = useMessages((s) => s.channels[channel.id]?.hasMore ?? true);
   const loaded = useMessages((s) => s.channels[channel.id]?.loaded ?? false);
   const editingId = useMessages((s) => s.editingId);
+  const jump = useMessages((s) => s.jump);
   const users = useGuild((s) => s.users);
 
   const md: MarkdownContext = useMemo(
@@ -113,6 +114,25 @@ export function MessageList({ channel, dm, self, dividerId, onAtBottomChange, sc
     el.scrollTop = el.scrollHeight;
   }, [scrollToBottomSignal]);
 
+  // Yanıtın alıntısına tıklanınca asıl mesaja kaydır ve kısa süre vurgula
+  useLayoutEffect(() => {
+    if (!jump || jump.channelId !== channel.id) return;
+    const target = contentRef.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(jump.messageId)}"]`);
+    if (!target) return;
+    clearJump(jump.seq);
+    stick.current = false;
+    onAtBottomChange(false);
+    // Anında (Discord gibi): yumuşak kaydırmanın ilk adımları "en altta" sayılıp listeyi geri çekebilir
+    target.scrollIntoView({ block: 'center' });
+    // Sınıf değil Web Animations: satır yeniden çizilince (className) vurgu silinmesin; son kare örtük
+    // olduğundan satırın kendi arka planına (ör. bahsetme rengi) döner
+    const flash = 'rgb(88 101 242 / 0.22)';
+    animate(target, [{ backgroundColor: flash, offset: 0 }, { backgroundColor: flash, offset: 0.4 }], {
+      duration: 2000,
+      easing: 'ease-out',
+    });
+  }, [jump, messages, channel.id, onAtBottomChange]);
+
   const onScroll = (): void => {
     const el = scrollRef.current;
     if (!el) return;
@@ -147,10 +167,12 @@ export function MessageList({ channel, dm, self, dividerId, onAtBottomChange, sc
           const prev = messages[i - 1];
           const newDay = !prev || !sameDay(prev.createdAt, m.createdAt);
           const divider = m.id === dividerId;
+          // Yanıt her zaman başlıklı gösterilir (üstünde alıntısı olur)
           const compact =
             !!prev &&
             !newDay &&
             !divider &&
+            !m.replyToId &&
             prev.authorId === m.authorId &&
             prev.status !== 'failed' &&
             m.createdAt - prev.createdAt < GROUP_WINDOW_MS;

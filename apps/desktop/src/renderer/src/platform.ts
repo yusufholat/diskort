@@ -32,7 +32,9 @@ function showMentionNotification(message: Message): void {
   const guild = useGuild.getState();
   const author = message.authorId ? guild.users[message.authorId]?.displayName : undefined;
   const channel = guild.channels.find((c) => c.id === message.channelId)?.name;
-  showNotification(`${author ?? 'Biri'} senden bahsetti · #${channel ?? ''}`, message, () =>
+  const replied = message.replyMentionUserId != null && message.replyMentionUserId === useSession.getState().user?.id;
+  const action = replied ? 'sana yanıt verdi' : 'senden bahsetti';
+  showNotification(`${author ?? 'Biri'} ${action} · #${channel ?? ''}`, message, () =>
     useUi.getState().setView({ kind: 'text', channelId: message.channelId }),
   );
 }

@@ -20,8 +20,10 @@ import {
   type PermissionContext,
   type PermissionOverwrite,
   type Reaction,
+  type ReferencedMessage,
   type Role,
   type User,
+  referenceOf,
 } from '@diskort/shared';
 import { AVATAR_COLORS } from '@diskort/shared';
 
@@ -238,6 +240,14 @@ export const MIGRATIONS: string[] = [
   ) WITHOUT ROWID;
   CREATE INDEX dm_participants_by_user ON dm_participants(user_id);
   `,
+  // 10: mesaj yanıtları. reply_to_id yanıt verilen mesajdır; bilerek yabancı anahtar değildir: asıl mesaj
+  // silinince yanıt "asıl mesaj silindi" olarak kalır (kimlikler AUTOINCREMENT, yeniden kullanılmaz).
+  // reply_mention_user_id: yanıtta bildirilen asıl yazar ("@ AÇIK"), asıl mesaj silinse de kalır.
+  // Asıl mesajın özeti saklanmaz; her okumada asıl mesajdan üretilir (bkz. withDetails).
+  `
+  ALTER TABLE messages ADD COLUMN reply_to_id INTEGER;
+  ALTER TABLE messages ADD COLUMN reply_mention_user_id TEXT;
+  `,
 ];
 
 type Param = string | number | null;
@@ -360,6 +370,8 @@ interface MessageRow {
   created_at: number;
   edited_at: number | null;
   mention_everyone: number;
+  reply_to_id: number | null;
+  reply_mention_user_id: string | null;
 }
 
 const toMessage = (r: MessageRow): Message => ({
@@ -372,7 +384,16 @@ const toMessage = (r: MessageRow): Message => ({
   attachments: [],
   reactions: [],
   mentionEveryone: r.mention_everyone === 1,
+  replyToId: r.reply_to_id === null ? null : String(r.reply_to_id),
+  referencedMessage: null,
+  replyMentionUserId: r.reply_mention_user_id,
 });
+
+/** Yanıt verilecek mesaj: aynı kanalda ve hâlâ duruyorsa */
+export interface ReplyTarget {
+  id: number;
+  authorId: string | null;
+}
 
 interface AttachmentRow {
   id: string;
@@ -1360,11 +1381,42 @@ export class Store {
       list.push({ emoji: r.emoji, count: r.n, me: r.me === 1 });
       reactions.set(String(r.message_id), list);
     }
+    const references = this.references(messages);
     return messages.map((m) => ({
       ...m,
       attachments: attachments.get(m.id) ?? [],
       reactions: reactions.get(m.id) ?? [],
+      referencedMessage: (m.replyToId && references.get(m.replyToId)) || null,
     }));
+  }
+
+  /**
+   * Yanıtların üstünde gösterilen asıl mesaj özetleri (tek sorguda). Özet saklanmaz, her okumada
+   * asıl mesajdan üretilir: düzenlenen mesajın yanıtları yeni metni gösterir, silinmişse listede yoktur.
+   */
+  private references(messages: Message[]): Map<string, ReferencedMessage> {
+    const ids = [...new Set(messages.map((m) => m.replyToId).filter((id): id is string => Boolean(id)))];
+    const map = new Map<string, ReferencedMessage>();
+    if (ids.length === 0) return map;
+    for (const r of this.all<{ id: number; author_id: string | null; content: string; files: number }>(
+      `SELECT m.id, m.author_id, m.content, EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id) AS files
+       FROM messages m WHERE m.id IN (${ids.map(() => '?').join(',')})`,
+      ...ids.map(Number),
+    )) {
+      const reference = referenceOf({ id: String(r.id), authorId: r.author_id, content: r.content }, r.files === 1);
+      map.set(reference.id, reference);
+    }
+    return map;
+  }
+
+  /** Yanıt verilecek mesaj: bu kanalda duruyorsa kimliği ve yazarı, yoksa null */
+  replyTarget(channelId: string, messageId: number): ReplyTarget | null {
+    const row = this.one<{ id: number; author_id: string | null }>(
+      'SELECT id, author_id FROM messages WHERE id = ? AND channel_id = ?',
+      messageId,
+      channelId,
+    );
+    return row ? { id: row.id, authorId: row.author_id } : null;
   }
 
   /** Kullanıcının tepkisini ekler; mesajda en fazla MESSAGE_MAX_REACTIONS farklı emoji olabilir. */
@@ -1399,7 +1451,7 @@ export class Store {
   /**
    * Mesajı kaydeder ve yüklenmiş dosyaları ona bağlar (dosyalar bu kullanıcının, bu kanala yüklediği ve
    * henüz kullanılmamış dosyalar olmalı; değilse null döner). Bahsedilen kullanıcıların okunmamış
-   * bahsetme sayısını artırır.
+   * bahsetme sayısını artırır. `reply` verilirse mesaj ona yanıttır (aynı kanalda olduğu önceden denetlenir).
    */
   createMessage(
     channelId: string,
@@ -1410,6 +1462,7 @@ export class Store {
       userIds: this.resolveMentions(content, authorId),
       everyone: false,
     },
+    reply: { toId: number; mentionUserId: string | null } | null = null,
   ): Message | null {
     return this.tx((): Message | null => {
       for (const attachmentId of attachmentIds) {
@@ -1419,9 +1472,18 @@ export class Store {
       const id = Number(
         this.db
           .prepare(
-            'INSERT INTO messages (channel_id, author_id, content, created_at, mention_everyone) VALUES (?, ?, ?, ?, ?)',
+            `INSERT INTO messages (channel_id, author_id, content, created_at, mention_everyone, reply_to_id, reply_mention_user_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
           )
-          .run(channelId, authorId, content, Date.now(), mentions.everyone ? 1 : 0).lastInsertRowid,
+          .run(
+            channelId,
+            authorId,
+            content,
+            Date.now(),
+            mentions.everyone ? 1 : 0,
+            reply?.toId ?? null,
+            reply?.mentionUserId ?? null,
+          ).lastInsertRowid,
       );
       attachmentIds.forEach((attachmentId, position) => {
         this.run('UPDATE attachments SET message_id = ?, position = ? WHERE id = ?', id, position, attachmentId);

@@ -3,6 +3,7 @@ import { AuthScreen } from './components/AuthScreen';
 import { ContextMenu } from './components/ContextMenu';
 import { EmojiPicker } from './components/EmojiPicker';
 import { MainLayout } from './components/MainLayout';
+import { ProfilePopover } from './components/members/ProfilePopover';
 import { TitleBar } from './components/TitleBar';
 import { Toasts } from './components/Toasts';
 import { ConfirmDialogHost } from './components/ui/ConfirmDialog';
@@ -57,6 +58,7 @@ export function App() {
       </div>
       <ContextMenu />
       <EmojiPicker />
+      <ProfilePopover />
       <ConfirmDialogHost />
       <Toasts />
       <TooltipHost />

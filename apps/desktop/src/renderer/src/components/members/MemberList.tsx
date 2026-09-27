@@ -3,10 +3,12 @@ import { Crown, MessageCircle } from 'lucide-react';
 import type { User } from '@diskort/shared';
 import { memberGroups, useGuild, useMemberColor, useSession } from '@diskort/client-core';
 import { startDm } from '../../lib/dm';
+import { currentView } from '../../lib/mainView';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
+import { openProfile } from './ProfilePopover';
 
 /** Metin kanalının sağındaki üye listesi: ayrı gösterilen rollere göre gruplar, çevrimiçi, çevrimdışı. */
 export function MemberList() {
@@ -39,12 +41,32 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
   const openContextMenu = useUi((s) => s.openContextMenu);
   const isSelf = user.id === selfId;
 
+  // Tıklayınca profil kartı listenin soluna açılır ("Bahset" ile açık kanalın yazma kutusuna eklenir)
+  const showProfile = (el: HTMLElement): void => {
+    const view = currentView();
+    openProfile({
+      userId: user.id,
+      channelId: view.kind === 'text' || view.kind === 'dm' ? view.channelId : null,
+      anchor: el.getBoundingClientRect(),
+      side: 'left',
+    });
+  };
+
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-label={`${user.displayName} profili`}
       className={cn(
-        'group flex h-[42px] items-center gap-3 rounded px-2 hover:bg-bg-hover',
+        'group flex h-[42px] cursor-pointer items-center gap-3 rounded px-2 hover:bg-bg-hover',
         offline && 'opacity-40 hover:opacity-100',
       )}
+      onClick={(e) => showProfile(e.currentTarget)}
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        showProfile(e.currentTarget);
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         const items = memberMenuItems(user.id);
@@ -69,7 +91,11 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
           className="press-icon invisible shrink-0 rounded p-1 text-text-muted group-hover:visible hover:text-text-head focus-visible:visible"
           data-tooltip="Mesaj gönder"
           aria-label={`${user.displayName} kişisine mesaj gönder`}
-          onClick={() => void startDm(user.id)}
+          onClick={(e) => {
+            e.stopPropagation(); // satırın profil kartı açılmasın
+            void startDm(user.id);
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
         >
           <MessageCircle size={18} />
         </button>

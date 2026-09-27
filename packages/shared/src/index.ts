@@ -123,6 +123,34 @@ export interface Message {
   reactions: Reaction[];
   /** Yazarın yetkisi olan bir @everyone bahsetmesi: kanalı gören herkese bildirim gider */
   mentionEveryone: boolean;
+  /**
+   * Yanıt verilen mesajın kimliği (Discord'daki "message_reference"); yanıt değilse null. Asıl mesaj
+   * silinse de kalır. Yanıtları bilmeyen eski sunucularda hiç gelmez.
+   */
+  replyToId?: string | null;
+  /**
+   * Yanıt verilen mesajın kısa özeti; asıl mesaj silindiyse (ya da yanıt değilse) null. Sunucu bunu
+   * saklamaz, her okumada asıl mesajdan yeniden üretir; bu yüzden asıl mesaj düzenlenince ya da
+   * silinince yeniden yüklenen yanıtlar hep günceldir. Ekrandaki yanıtları istemci, asıl mesajın
+   * MESSAGE_UPDATE / MESSAGE_DELETE olaylarıyla kendisi günceller (ayrı bir olay gönderilmez).
+   */
+  referencedMessage?: ReferencedMessage | null;
+  /**
+   * Yanıtta asıl mesajın yazarı bildirildiyse ("@ AÇIK") onun kimliği: o kişi için bahsetme sayılır
+   * (bildirim gider, mesaj vurgulanır). Asıl mesaj sonradan silinse de kalır.
+   */
+  replyMentionUserId?: string | null;
+}
+
+/** Yanıtın üstünde gösterilen, yanıt verilen mesajın özeti */
+export interface ReferencedMessage {
+  id: string;
+  /** Yazarın hesabı silindiyse null */
+  authorId: string | null;
+  /** Metnin ilk REPLY_EXCERPT_LENGTH karakteri */
+  content: string;
+  /** Dosya eki var mı (metni boş, yalnızca dosyalı mesajlarda "Ek" gösterilir) */
+  hasAttachments: boolean;
 }
 
 /** Gateway'deki mesaj güncellemesi: tepkiler kişiye özel (`me`) olduğundan taşınmaz */
@@ -264,6 +292,10 @@ export interface CreateMessageRequest {
   content: string;
   /** Önce POST /api/channels/:id/attachments ile yüklenen dosyalar */
   attachmentIds?: string[];
+  /** Aynı kanaldaki bir mesaja yanıt (eski sunucular bu alanı yok sayar, mesaj normal gider) */
+  replyToId?: string;
+  /** Yanıtta asıl yazar bildirilsin mi (Discord'daki "@ AÇIK"); verilmezse evet */
+  replyMention?: boolean;
 }
 
 export interface UpdateMessageRequest {
@@ -415,6 +447,8 @@ export const DM_GROUP_MAX_PARTICIPANTS = 10;
 export const DM_NAME_MAX_LENGTH = 48;
 export const MESSAGE_MAX_LENGTH = 2000;
 export const MESSAGE_PAGE_SIZE = 50;
+/** Yanıt özetindeki (referencedMessage.content) en fazla karakter */
+export const REPLY_EXCERPT_LENGTH = 200;
 /** Bir mesajdaki en fazla farklı emoji tepkisi sayısı */
 export const MESSAGE_MAX_REACTIONS = 20;
 /** Bir mesajdaki en fazla dosya sayısı */
@@ -463,6 +497,22 @@ export function extractMentions(content: string): string[] {
   const names = new Set<string>();
   for (const m of content.matchAll(/(?<![a-z0-9_.@])@([a-z0-9_.]*[a-z0-9_])/gi)) names.add(m[1]!.toLowerCase());
   return [...names];
+}
+
+/**
+ * Mesajın yanıtların üstünde gösterilen özeti. Sunucu okurken, istemci de ekrandaki yanıtları asıl
+ * mesajın güncellemesiyle tazelerken aynı kuralı kullanır.
+ */
+export function referenceOf(
+  message: Pick<Message, 'id' | 'authorId' | 'content'>,
+  hasAttachments: boolean,
+): ReferencedMessage {
+  return {
+    id: message.id,
+    authorId: message.authorId,
+    content: [...message.content].slice(0, REPLY_EXCERPT_LENGTH).join(''),
+    hasAttachments,
+  };
 }
 
 /** Metinde @everyone bahsetmesi var mı (yazarın yetkisi ayrıca denetlenir) */

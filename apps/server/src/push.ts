@@ -63,7 +63,8 @@ export class PushService {
     if (tokens.length === 0) return;
 
     const author = message.authorId ? this.store.getUser(message.authorId) : null;
-    const body = this.readable(message.content);
+    // Yalnızca dosyalı bir yanıtın metni boş olabilir
+    const body = this.readable(message.content) || (message.attachments.length ? '📎 Dosya gönderdi' : '');
     await Promise.all(
       tokens.map((t) =>
         this.send(t.token, {

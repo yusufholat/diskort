@@ -56,9 +56,27 @@ export {
   uploadProgress,
   useMessages,
   type ChannelMessages,
+  type JumpRequest,
   type LocalMessage,
   type LocalUpload,
+  type ReplyDraft,
 } from './messages';
+export {
+  cancelReply,
+  clearJump,
+  isOwnReplyTarget,
+  jumpToMessage,
+  setReplyMention,
+  startReply,
+} from './replies';
+export {
+  focusComposer,
+  hasComposer,
+  insertText,
+  mentionInComposer,
+  registerComposer,
+  type ComposerHandle,
+} from './composer';
 export {
   addDmParticipant,
   closeDm,
@@ -77,4 +95,4 @@ export {
 } from './dms';
 export { attachmentUrl, avatarUrl, formatBytes, removeAvatar, uploadAvatar } from './uploads';
 export { EMOJI_CATEGORIES, QUICK_REACTIONS, type EmojiCategory } from './emoji';
-export { parseInline, parseMarkdown, type MdBlock, type MdInline, type MdStyle } from './markdown';
+export { parseInline, parseMarkdown, plainText, type MdBlock, type MdInline, type MdStyle } from './markdown';

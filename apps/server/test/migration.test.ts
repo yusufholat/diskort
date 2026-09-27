@@ -173,3 +173,34 @@ describe('göç 9: direkt mesajlar', () => {
     }
   });
 });
+
+describe('göç 10: yanıtlar', () => {
+  it('şema 8 veritabanı 9 ve 10 ile göçer; eski mesajlar yanıt değildir, yeni yanıtlar özetiyle okunur', () => {
+    const store = new Store(schema8Database());
+    try {
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 10 });
+      expect(MIGRATIONS).toHaveLength(10);
+      const [first, second] = store.listMessages('t1', null, 50, 'u1');
+      expect(first).toMatchObject({ content: 'selam', replyToId: null, referencedMessage: null, replyMentionUserId: null });
+      expect(second).toMatchObject({ content: 'naber', replyToId: null });
+      expect(first!.attachments).toHaveLength(1);
+      expect(first!.reactions).toHaveLength(1);
+      const reply = store.createMessage(
+        't1',
+        'u2',
+        'yanıt',
+        [],
+        { userIds: ['u1'], everyone: false },
+        { toId: Number(first!.id), mentionUserId: 'u1' },
+      )!;
+      expect(reply).toMatchObject({
+        replyToId: first!.id,
+        replyMentionUserId: 'u1',
+        referencedMessage: { id: first!.id, authorId: 'u1', content: 'selam', hasAttachments: true },
+      });
+      expect(store.mentionCounts('u1')).toEqual({ t1: 1 });
+    } finally {
+      store.close();
+    }
+  });
+});

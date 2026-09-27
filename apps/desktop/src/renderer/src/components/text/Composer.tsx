@@ -14,7 +14,9 @@ import { MESSAGE_MAX_LENGTH, Permission, type Channel, type User } from '@diskor
 import {
   addFiles,
   formatBytes,
+  insertText,
   notifyTyping,
+  registerComposer,
   removeFile,
   sendMessage,
   setEditing,
@@ -28,6 +30,7 @@ import { cn } from '../../lib/utils';
 import { toast } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 import { FileIcon } from './Attachments';
+import { ReplyBar } from './ReplyBar';
 
 /** Kanal değiştirince yarım kalan mesaj kaybolmasın */
 const drafts = new Map<string, string>();
@@ -149,6 +152,25 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
     requestAnimationFrame(() => ref.current?.setSelectionRange(before.length, before.length));
   };
 
+  // Dışarıdan erişim (ada tıklayınca bahsetme, "Yanıtla" deyince odaklanma): bkz. client-core/composer
+  const insertAtCaret = useRef((_text: string) => {});
+  insertAtCaret.current = (text: string): void => {
+    const el = ref.current;
+    const next = insertText(value, el?.selectionStart ?? value.length, el?.selectionEnd ?? value.length, text);
+    update(next.value, next.caret);
+    requestAnimationFrame(() => {
+      ref.current?.focus();
+      ref.current?.setSelectionRange(next.caret, next.caret);
+    });
+  };
+  useEffect(() => {
+    if (!canSend) return;
+    return registerComposer(channel.id, {
+      focus: () => ref.current?.focus(),
+      insert: (text) => insertAtCaret.current(text),
+    });
+  }, [channel.id, canSend]);
+
   const send = (): void => {
     const content = value.trim();
     if (!content && files.length === 0) return;
@@ -250,6 +272,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
         </div>
       )}
       <div className="rounded-lg bg-bg-hover">
+        <ReplyBar channelId={channel.id} />
         {files.length > 0 && <FileTray channelId={channel.id} files={files} />}
         <div className="flex items-end">
           {canAttach ? (

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Animated, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { MESSAGE_MAX_LENGTH, Permission, type Channel, type User } from '@diskort/shared';
@@ -6,7 +6,9 @@ import {
   addFiles,
   editMessage,
   formatBytes,
+  insertText,
   notifyTyping,
+  registerComposer,
   removeFile,
   sendMessage,
   useCan,
@@ -23,6 +25,7 @@ import { fileIcon } from './Attachments';
 import { Avatar } from './Avatar';
 import { BottomSheet } from './BottomSheet';
 import { PressableScale } from './PressableScale';
+import { ReplyBar } from './ReplyBar';
 
 /** Kanal değiştirince yarım kalan mesaj kaybolmasın */
 const drafts = new Map<string, string>();
@@ -88,6 +91,25 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
     setSelection({ start: before.length, end: before.length });
     setForcedSelection({ start: before.length, end: before.length });
   };
+
+  // Dışarıdan erişim (yazarın adına dokununca bahsetme, "Yanıtla" deyince odaklanma): bkz. client-core/composer
+  const input = useRef<TextInput>(null);
+  const insertAtCaret = useRef((_text: string) => {});
+  insertAtCaret.current = (inserted: string): void => {
+    const next = insertText(text, selection.start, selection.end, inserted);
+    setText(next.value);
+    setSelection({ start: next.caret, end: next.caret });
+    setForcedSelection({ start: next.caret, end: next.caret });
+    input.current?.focus();
+  };
+  useEffect(() => {
+    if (!canSend && !editing) return;
+    return registerComposer(channel.id, {
+      // Uzun basma menüsü kapanırken odaklanılırsa klavye açılmayabilir; sayfa kapandıktan sonra
+      focus: () => setTimeout(() => input.current?.focus(), 250),
+      insert: (inserted) => insertAtCaret.current(inserted),
+    });
+  }, [channel.id, canSend, editing]);
 
   // Dosyalı mesajın metni boş olabilir
   const canSubmit = Boolean(text.trim()) || (editing ? editing.attachments.length > 0 : files.length > 0);
@@ -159,6 +181,7 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
           </Pressable>
         </View>
       )}
+      {!editing && <ReplyBar channelId={channel.id} />}
       {!editing && files.length > 0 && (
         <ScrollView horizontal style={styles.tray} contentContainerStyle={styles.trayContent} keyboardShouldPersistTaps="handled">
           {files.map((file, i) => (
@@ -199,6 +222,7 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
           </PressableScale>
         )}
         <TextInput
+          ref={input}
           value={text}
           onChangeText={setText}
           onSelectionChange={(e) => {

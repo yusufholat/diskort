@@ -5,10 +5,12 @@ import {
   MESSAGE_MAX_ATTACHMENTS,
   MESSAGE_MAX_REACTIONS,
   MESSAGE_PAGE_SIZE,
+  referenceOf,
   TYPING_TIMEOUT_MS,
   type Attachment,
   type GatewayServerMessage,
   type Message,
+  type MessageUpdate,
   type Reaction,
 } from '@diskort/shared';
 import { api, ApiError, errorMessage } from './api';
@@ -35,6 +37,23 @@ export interface ChannelMessages {
   loaded: boolean;
 }
 
+/** Yazma kutusunun üstündeki "… kişisine yanıt veriliyor": gönderilecek mesaj buna yanıt olur */
+export interface ReplyDraft {
+  messageId: string;
+  /** Asıl mesajın yazarı (hesabı silindiyse null) */
+  authorId: string | null;
+  /** Asıl yazar bildirilsin mi (Discord'daki "@ AÇIK") */
+  mention: boolean;
+}
+
+/** Mesaja atlama isteği: arayüz o mesaja kaydırıp kısa süre vurgular, sonra clearJump() çağırır */
+export interface JumpRequest {
+  channelId: string;
+  messageId: string;
+  /** Aynı mesaja art arda atlamalar da ayrı istek sayılsın */
+  seq: number;
+}
+
 interface MessagesStore {
   channels: Record<string, ChannelMessages>;
   /** Kanal → kullanıcı → "yazıyor" göstergesinin bitiş zamanı */
@@ -45,6 +64,10 @@ interface MessagesStore {
   editingId: string | null;
   /** Kanal → yazma kutusuna eklenmiş, mesajla birlikte gönderilecek dosyalar */
   pendingFiles: Record<string, LocalFile[]>;
+  /** Kanal → yanıt verilecek mesaj */
+  replies: Record<string, ReplyDraft>;
+  /** Son mesaja atlama isteği (bkz. jumpToMessage) */
+  jump: JumpRequest | null;
 }
 
 const initialState = (): MessagesStore => ({
@@ -53,6 +76,8 @@ const initialState = (): MessagesStore => ({
   mentionCounts: {},
   editingId: null,
   pendingFiles: {},
+  replies: {},
+  jump: null,
 });
 
 export const useMessages = create<MessagesStore>()(initialState);
@@ -104,17 +129,17 @@ export async function loadInitial(channelId: string): Promise<void> {
   }
 }
 
-export async function loadOlder(channelId: string): Promise<void> {
+export async function loadOlder(channelId: string, limit: number = MESSAGE_PAGE_SIZE): Promise<void> {
   const current = useMessages.getState().channels[channelId];
   if (!current || current.loading || !current.hasMore) return;
   const oldest = current.messages.find((m) => !m.status);
   if (!oldest) return;
   patch(channelId, () => ({ loading: true }));
   try {
-    const page = await api.listMessages(channelId, oldest.id);
+    const page = await api.listMessages(channelId, oldest.id, limit === MESSAGE_PAGE_SIZE ? undefined : limit);
     patch(channelId, (c) => ({
       messages: merge(c.messages, page),
-      hasMore: page.length >= MESSAGE_PAGE_SIZE,
+      hasMore: page.length >= limit,
       loading: false,
     }));
   } catch (err) {
@@ -179,7 +204,26 @@ let nonceCounter = 0;
 const uploadControllers = new Map<string, AbortController>();
 const PROGRESS_INTERVAL_MS = 100;
 
-/** Metni ve kanalın yazma kutusundaki dosyaları gönderir (dosyalar önce yüklenir). */
+/** Yanıtlanan mesajın yerel özeti ve bildirilecek yazar (gönderilecek mesaja yazılır) */
+function takeReply(channelId: string, authorId: string): Partial<Message> {
+  const draft = useMessages.getState().replies[channelId];
+  if (!draft) return {};
+  useMessages.setState((s) => {
+    const { [channelId]: _taken, ...replies } = s.replies;
+    return { replies };
+  });
+  const original = useMessages.getState().channels[channelId]?.messages.find((m) => m.id === draft.messageId);
+  return {
+    replyToId: draft.messageId,
+    referencedMessage: original ? referenceOf(original, original.attachments.length > 0) : null,
+    replyMentionUserId: draft.mention && draft.authorId && draft.authorId !== authorId ? draft.authorId : null,
+  };
+}
+
+/**
+ * Metni ve kanalın yazma kutusundaki dosyaları gönderir (dosyalar önce yüklenir). Yazma kutusunda bir
+ * yanıt varsa mesaj ona yanıt olur.
+ */
 export function sendMessage(channelId: string, content: string): void {
   const authorId = selfId();
   if (!authorId) return;
@@ -196,6 +240,7 @@ export function sendMessage(channelId: string, content: string): void {
     attachments: [],
     reactions: [],
     mentionEveryone: false,
+    ...takeReply(channelId, authorId),
     status: 'pending',
     nonce,
     ...(files.length ? { uploads: files.map((file) => ({ file, sent: 0 })) } : {}),
@@ -243,7 +288,10 @@ async function deliver(channelId: string, pending: LocalMessage): Promise<void> 
       setUpload(channelId, nonce, index, { sent: upload.file.size, attachment });
       attachmentIds.push(attachment.id);
     }
-    const message = await api.sendMessage(channelId, pending.content, attachmentIds);
+    const reply = pending.replyToId
+      ? { replyToId: pending.replyToId, replyMention: Boolean(pending.replyMentionUserId) }
+      : undefined;
+    const message = await api.sendMessage(channelId, pending.content, attachmentIds, reply);
     patch(channelId, (c) => ({
       messages: merge(
         c.messages.filter((m) => m.nonce !== nonce),
@@ -255,10 +303,13 @@ async function deliver(channelId: string, pending: LocalMessage): Promise<void> 
     if (controller.signal.aborted) return; // kullanıcı vazgeçti
     // Sunucu yüklenen dosyaları artık tanımıyorsa (süresi doldu) yeniden denemede baştan yüklenir
     const expired = err instanceof ApiError && err.code === 'invalid_attachment';
+    // Yanıt verilen mesaj bu arada silindiyse yeniden denemede normal mesaj olarak gider
+    const orphan = err instanceof ApiError && err.code === 'invalid_reply';
     updateLocal(channelId, nonce, (m) => ({
       ...m,
       status: 'failed',
       uploads: expired ? m.uploads?.map((u) => ({ file: u.file, sent: 0 })) : m.uploads,
+      ...(orphan ? { replyToId: null, referencedMessage: null, replyMentionUserId: null } : {}),
     }));
     env().notifyError(errorMessage(err));
   } finally {
@@ -285,10 +336,26 @@ export function discardMessage(channelId: string, nonce: string): void {
 export async function editMessage(message: Message, content: string): Promise<void> {
   try {
     const updated = await api.updateMessage(message.id, content);
-    patch(message.channelId, (c) => ({ messages: c.messages.map((m) => (m.id === updated.id ? updated : m)) }));
+    applyUpdate(updated.channelId, updated);
   } catch (err) {
     env().notifyError(errorMessage(err));
   }
+}
+
+/**
+ * Düzenlenen mesajı listeye yazar. Ona verilmiş, ekranda duran yanıtların özeti de burada tazelenir
+ * (sunucu yanıtlar için ayrı olay göndermez; yeniden yüklenen yanıtlar zaten günceldir).
+ */
+function applyUpdate(channelId: string, updated: MessageUpdate): void {
+  patch(channelId, (c) => ({
+    messages: c.messages.map((m) => {
+      if (m.id === updated.id) return { ...m, ...updated };
+      if (m.referencedMessage?.id === updated.id) {
+        return { ...m, referencedMessage: referenceOf(updated, updated.attachments.length > 0) };
+      }
+      return m;
+    }),
+  }));
 }
 
 export async function deleteMessage(message: Message): Promise<void> {
@@ -301,7 +368,18 @@ export async function deleteMessage(message: Message): Promise<void> {
 }
 
 function removeLocal(channelId: string, id: string): void {
-  patch(channelId, (c) => ({ messages: c.messages.filter((m) => m.id !== id) }));
+  // Silinen mesaja verilmiş yanıtlar "asıl mesaj silindi" olarak kalır; ona yazılmakta olan yanıt iptal olur
+  patch(channelId, (c) => ({
+    messages: c.messages
+      .filter((m) => m.id !== id)
+      .map((m) => (m.referencedMessage?.id === id ? { ...m, referencedMessage: null } : m)),
+  }));
+  if (useMessages.getState().replies[channelId]?.messageId === id) {
+    useMessages.setState((s) => {
+      const { [channelId]: _cancelled, ...replies } = s.replies;
+      return { replies };
+    });
+  }
   // Silinen mesaj kanalın son mesajıysa okunmamış göstergesini yüklü listeye göre düzelt
   const guild = useGuild.getState();
   const channel = useMessages.getState().channels[channelId];
@@ -414,9 +492,18 @@ function setTyping(channelId: string, userId: string, until: number | null): voi
 /** İçerikte bu kullanıcıdan bahsediliyor mu (sunucudaki sayımla aynı kural) */
 export const mentions = (content: string, username: string): boolean => extractMentions(content).includes(username);
 
-/** Mesaj bu kullanıcıyı ilgilendiriyor mu: adıyla ya da (yetkili bir yazarın) @everyone bahsetmesiyle */
-export const isMentioned = (message: Pick<Message, 'content' | 'mentionEveryone' | 'authorId'>, user: { id: string; username: string }): boolean =>
-  message.authorId !== user.id && (message.mentionEveryone === true || mentions(message.content, user.username));
+/**
+ * Mesaj bu kullanıcıyı ilgilendiriyor mu: adıyla, (yetkili bir yazarın) @everyone bahsetmesiyle ya da
+ * bildirimli ("@ AÇIK") bir yanıtla
+ */
+export const isMentioned = (
+  message: Pick<Message, 'content' | 'mentionEveryone' | 'authorId' | 'replyMentionUserId'>,
+  user: { id: string; username: string },
+): boolean =>
+  message.authorId !== user.id &&
+  (message.mentionEveryone === true ||
+    message.replyMentionUserId === user.id ||
+    mentions(message.content, user.username));
 
 function countUnread(channelId: string): void {
   useMessages.setState((s) => ({
@@ -442,6 +529,7 @@ function notifyDirectMessage(message: Message, dm: DmChannel): void {
 /** Gateway'den gelen mesaj, bizim bekleyen (dosyaları yüklenmiş) mesajımızın onayı mı */
 function isPendingOf(local: LocalMessage, m: Message): boolean {
   if (local.status !== 'pending' || local.content !== m.content) return false;
+  if ((local.replyToId ?? null) !== (m.replyToId ?? null)) return false;
   const uploaded = (local.uploads ?? []).map((u) => u.attachment?.id);
   return uploaded.length === m.attachments.length && uploaded.every((id, i) => id === m.attachments[i]!.id);
 }
@@ -468,9 +556,7 @@ gateway.on((msg: GatewayServerMessage) => {
     }
     case 'MESSAGE_UPDATE':
       // Güncelleme tepkileri taşımaz (kişiye özel); ekrandakiler korunur
-      patch(msg.d.channelId, (c) => ({
-        messages: c.messages.map((m) => (m.id === msg.d.id ? { ...m, ...msg.d } : m)),
-      }));
+      applyUpdate(msg.d.channelId, msg.d);
       break;
     case 'MESSAGE_DELETE':
       removeLocal(msg.d.channelId, msg.d.id);
@@ -515,7 +601,8 @@ gateway.on((msg: GatewayServerMessage) => {
         const { [msg.d.id]: _removed, ...channels } = s.channels;
         const { [msg.d.id]: _count, ...mentionCounts } = s.mentionCounts;
         const { [msg.d.id]: _files, ...pendingFiles } = s.pendingFiles;
-        return { channels, mentionCounts, pendingFiles };
+        const { [msg.d.id]: _reply, ...replies } = s.replies;
+        return { channels, mentionCounts, pendingFiles, replies };
       });
       break;
   }

@@ -36,6 +36,8 @@ const createSchema = z
       .max(MESSAGE_MAX_ATTACHMENTS, `Bir mesaja en fazla ${MESSAGE_MAX_ATTACHMENTS} dosya eklenebilir.`)
       .refine((ids) => new Set(ids).size === ids.length, 'Aynı dosya iki kez eklenemez.')
       .optional(),
+    replyToId: z.string().regex(/^\d+$/, 'Geçersiz yanıt.').nullish(),
+    replyMention: z.boolean().optional(),
   })
   .refine((b) => Boolean(b.content) || Boolean(b.attachmentIds?.length), EMPTY_MESSAGE);
 const editSchema = z.object({ content });
@@ -128,23 +130,44 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
       if (body.attachmentIds?.length && !hasPermission(perms, Permission.ATTACH_FILES)) {
         return forbidden(reply, 'Bu kanala dosya gönderme iznin yok.');
       }
+      // Yanıt: asıl mesaj aynı kanalda/konuşmada olmalı (onu görebildiği için asıl mesajı da görebilir).
+      // "@ AÇIK"sa asıl yazar da bahsedilmiş sayılır (kendi mesajına yanıtta bildirim yok).
+      let replyTo: { toId: number; mentionUserId: string | null } | null = null;
+      if (body.replyToId) {
+        const original = store.replyTarget(target.id, Number(body.replyToId));
+        if (!original) {
+          return sendError(reply, 400, 'invalid_reply', 'Yanıt verilen mesaj bulunamadı; silinmiş olabilir.');
+        }
+        const ping = (body.replyMention ?? true) && original.authorId !== null && original.authorId !== req.user.id;
+        replyTo = { toId: original.id, mentionUserId: ping ? original.authorId : null };
+      }
       const content = body.content ?? '';
       // @everyone yalnızca yetkisi olan yazarda herkese bildirim olur; bahsedilenlerden kanalı göremeyenler
       // sayılmaz. Direkt mesajda karşı tarafın (üye olan diğer katılımcıların) her mesajı bahsetme sayılır:
-      // okunmamış sayısı ve bildirim onlara gider.
+      // okunmamış sayısı ve bildirim onlara gider. Bildirimli yanıtta asıl yazar da (kanalı görüyorsa)
+      // bahsedilir; direkt mesajda zaten katılımcıdır, konuşmadan ayrıldıysa bildirilmez.
       const everyone = channel !== null && mentionsEveryone(content) && hasPermission(perms, Permission.MENTION_EVERYONE);
-      const mentioned = channel
-        ? permissions.viewersOf(
-            channel,
-            everyone
-              ? store.listUsers().filter((u) => !u.removed && u.id !== req.user.id).map((u) => u.id)
-              : store.resolveMentions(content, req.user.id),
-          )
-        : permissions.dmParticipants(target.id).filter((id) => id !== req.user.id && permissions.isMember(id));
-      const message = store.createMessage(target.id, req.user.id, content, body.attachmentIds, {
-        userIds: mentioned,
-        everyone,
-      });
+      let mentioned: string[];
+      if (channel) {
+        const candidates = new Set(
+          everyone
+            ? store.listUsers().filter((u) => !u.removed && u.id !== req.user.id).map((u) => u.id)
+            : store.resolveMentions(content, req.user.id),
+        );
+        if (replyTo?.mentionUserId) candidates.add(replyTo.mentionUserId);
+        mentioned = permissions.viewersOf(channel, candidates);
+      } else {
+        mentioned = permissions.dmParticipants(target.id).filter((id) => id !== req.user.id && permissions.isMember(id));
+        if (replyTo?.mentionUserId && !mentioned.includes(replyTo.mentionUserId)) replyTo.mentionUserId = null;
+      }
+      const message = store.createMessage(
+        target.id,
+        req.user.id,
+        content,
+        body.attachmentIds,
+        { userIds: mentioned, everyone },
+        replyTo,
+      );
       if (!message) {
         return sendError(reply, 400, 'invalid_attachment', 'Dosya bulunamadı ya da süresi doldu; yeniden eklemeyi dene.');
       }
