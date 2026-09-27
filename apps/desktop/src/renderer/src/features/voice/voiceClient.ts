@@ -54,6 +54,7 @@ import {
 } from './micProcessor';
 import { prepareHardwareEncoder, releaseHardwareEncoder, type HwEncoderChoice } from './hardwareEncoder';
 import { SCREEN_PRESETS } from './screenPresets';
+import { MicTest } from './micTest';
 import type { ScreenCodec, ScreenContent, ScreenPresetId } from '../../stores/settings';
 
 export interface ScreenShareOptions {
@@ -930,63 +931,20 @@ class VoiceClient {
 
   // ---------- Mikrofon testi (ayarlar ekranı) ----------
 
-  /** Ses kanalında değilken ayarlarda mikrofon seviyesini göstermek için geçici işlem zinciri. */
-  async startMicTest(loopback: boolean): Promise<() => void> {
-    if (this.processor) return () => undefined; // bağlıyken canlı seviye zaten akıyor
-    const s = getSettings();
-    const open = async (denoiser: Denoiser | null): Promise<{ track: MediaStreamTrack; processor: MicProcessor }> => {
-      const opts = this.captureOptions(denoiser);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          deviceId: s.inputDeviceId === 'default' ? undefined : { exact: s.inputDeviceId },
-          echoCancellation: opts.echoCancellation,
-          noiseSuppression: opts.noiseSuppression,
-          autoGainControl: opts.autoGainControl,
-          channelCount: 1,
-        },
-      });
-      const track = stream.getAudioTracks()[0]!;
-      const processor = new MicProcessor(this.gateConfig(), denoiser, getSettings().noiseStrengthDb, (level) =>
-        setVoice({ micLevel: level }),
-      );
-      await processor.init({ kind: Track.Kind.Audio, track, audioContext: sharedAudioContext() });
-      return { track, processor };
-    };
-    let { track, processor } = await open(await this.wantedDenoiser());
-    if (processor.denoiserFailed) {
-      // DPDFNet kurulamadıysa DeepFilterNet, o da olmazsa standart engelleme denenir
-      track.stop();
-      await processor.destroy();
-      ({ track, processor } = await open(await this.wantedDenoiser()));
-      if (processor.denoiserFailed) {
-        track.stop();
-        await processor.destroy();
-        ({ track, processor } = await open(null));
-      }
-    }
-
-    let audioEl: HTMLAudioElement | null = null;
-    if (loopback && processor.processedTrack) {
-      audioEl = new Audio();
-      audioEl.srcObject = new MediaStream([processor.processedTrack]);
-      const sinkable = audioEl as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
-      if (s.outputDeviceId !== 'default') await sinkable.setSinkId?.(s.outputDeviceId).catch(() => undefined);
-      void audioEl.play();
-    }
-    const unsub = useSettings.subscribe((n, p) => {
-      if (n.inputMode !== p.inputMode || n.vadAuto !== p.vadAuto || n.vadThresholdDb !== p.vadThresholdDb) {
-        processor.updateGate({ mode: n.inputMode === 'ptt' ? 'ptt' : 'vad', auto: n.vadAuto, threshold: n.vadThresholdDb });
-      }
-      if (n.noiseStrengthDb !== p.noiseStrengthDb) processor.setAttenLimit(n.noiseStrengthDb);
-    });
-
-    return () => {
-      unsub();
-      audioEl?.pause();
-      track.stop();
-      void processor.destroy();
-      setVoice({ micLevel: { db: -100, threshold: s.vadThresholdDb, open: false } });
-    };
+  /**
+   * Ses kanalında değilken ayarlardaki mikrofon testi: görüşmedeki işlem zincirinin aynısı (bkz. MicTest).
+   * Bağlıyken null döner; mikrofon görüşmede kullanılıyor, gösterge canlı mikrofonu gösterir.
+   */
+  startMicTest(onError: (message: string | null) => void): MicTest | null {
+    if (this.processor || useVoice.getState().status !== 'idle') return null;
+    return new MicTest(
+      {
+        wantedDenoiser: () => this.wantedDenoiser(),
+        captureOptions: (denoiser) => this.captureOptions(denoiser),
+        gateConfig: () => this.gateConfig(),
+      },
+      onError,
+    );
   }
 }
 
