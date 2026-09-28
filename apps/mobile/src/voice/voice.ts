@@ -204,6 +204,9 @@ class MobileVoiceClient {
   /** Bağlantı birkaç saniyede geri gelmezse "koptu" sesi; geri gelince "geri geldi" */
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private lostSoundPlayed = false;
+  /** Ses oturumu ve ön plan servisi açık mı (yeniden katılmada kapatılmadan korunurlar) */
+  private audioSessionActive = false;
+  private serviceRunning = false;
 
   constructor() {
     // DPDFNet yetişemedi ya da hata verdi: mikrofon WebRTC'nin standart gürültü engellemesiyle yeniden açılır
@@ -227,8 +230,9 @@ class MobileVoiceClient {
     gateway.on((msg) => {
       if (msg.t === 'READY') this.syncVoiceState();
       // Yetkili biri seni başka ses kanalına taşıdı: o kanala geç
-      if (msg.t === 'VOICE_MOVE' && useVoice.getState().channelId) {
-        this.join(msg.d.channelId).catch((err: Error) => toast(err.message, 'error'));
+      // (uygulama arka plandayken de olabilir: ses oturumu ve ön plan servisi korunur)
+      if (msg.t === 'VOICE_MOVE' && useVoice.getState().channelId && useVoice.getState().channelId !== msg.d.channelId) {
+        this.join(msg.d.channelId, { rejoin: true }).catch((err: Error) => toast(err.message, 'error'));
       }
     });
     // Sunucuda sağırlaştırılınca kimse duyulmaz (dinleme LiveKit'te kesilmez, uygulama uygular)
@@ -276,12 +280,18 @@ class MobileVoiceClient {
       : 'Bu kanalda konuşma iznin yok.';
   }
 
-  /** @param opts.silent Sessiz geri dönüş ("başka cihaz" uyarısından sonra): katılma sesi çalınmaz */
-  async join(channelId: string, opts: { silent?: boolean } = {}): Promise<void> {
+  /**
+   * @param opts.silent Sessiz geri dönüş ("başka cihaz" uyarısından sonra): katılma sesi çalınmaz
+   * @param opts.rejoin Süren sesten yeniden katılma (taşınma, "başka cihaz" sonrası geri dönüş; uygulama arka
+   * planda olabilir): yalnızca oda değişir, ses oturumu ve ön plan servisi kapatılmaz. Android 12+ arka
+   * planda ön plan servisini yeniden başlatmaya izin vermez.
+   */
+  async join(channelId: string, opts: { silent?: boolean; rejoin?: boolean } = {}): Promise<void> {
     const current = useVoice.getState();
-    if (current.channelId === channelId && current.status !== 'idle') return;
+    if (!opts.rejoin && current.channelId === channelId && current.status !== 'idle') return;
     const seq = ++this.joinSeq;
-    await this.teardown();
+    await this.teardown({ keepSession: opts.rejoin });
+    if (seq !== this.joinSeq) return;
     useVoice.setState({ ...IDLE, channelId, status: 'connecting' });
 
     try {
@@ -290,17 +300,21 @@ class MobileVoiceClient {
       if (seq !== this.joinSeq) return;
       this.serverUrl = url;
 
-      await AudioSession.configureAudio({
-        android: {
-          preferredOutputList: getSettings().speaker
-            ? ['bluetooth', 'headset', 'speaker']
-            : ['bluetooth', 'headset', 'earpiece'],
-          audioTypeOptions: AndroidAudioTypePresets.communication,
-        },
-        // iOS: oturumu LiveKit yönetir (registerGlobals); arka planda sürmesini "audio" arka plan kipi sağlar
-        ios: { defaultOutput: getSettings().speaker ? 'speaker' : 'earpiece' },
-      });
-      await AudioSession.startAudioSession();
+      if (!this.audioSessionActive) {
+        await AudioSession.configureAudio({
+          android: {
+            preferredOutputList: getSettings().speaker
+              ? ['bluetooth', 'headset', 'speaker']
+              : ['bluetooth', 'headset', 'earpiece'],
+            audioTypeOptions: AndroidAudioTypePresets.communication,
+          },
+          // iOS: oturumu LiveKit yönetir (registerGlobals); arka planda sürmesini "audio" arka plan kipi sağlar
+          ios: { defaultOutput: getSettings().speaker ? 'speaker' : 'earpiece' },
+        });
+        await AudioSession.startAudioSession();
+        this.audioSessionActive = true;
+      }
+      if (seq !== this.joinSeq) return;
       // DPDFNet (seçiliyse) mikrofon açılmadan önce yüklenir; captureOptions() sonucuna göre ayarlanır
       await prepareNoiseFilter();
       if (seq !== this.joinSeq) return;
@@ -336,11 +350,18 @@ class MobileVoiceClient {
       if (!opts.silent) soundCue('join');
       // Konuşma izni yoksa (ya da sunucuda susturulduysa) yalnızca dinlenir; izin gelince açılır
       if (micGranted && !this.micMuted()) await room.localParticipant.setMicrophoneEnabled(true, captureOptions());
+      // Mikrofon açılırken ayrılındı ya da başka kanala geçildi: bu oda artık kapatıldı
+      if (seq !== this.joinSeq) return;
       this.gate.attach(room, gateConfig());
 
       const name = useGuild.getState().channels.find((c) => c.id === channelId)?.name ?? 'Ses kanalı';
       try {
-        VoiceService.start(name, this.notificationText(), this.micMuted());
+        // Yeniden katılmada servis zaten çalışıyor: yalnızca bildirim yeni kanala güncellenir
+        if (this.serviceRunning) VoiceService.update(name, this.notificationText(), this.micMuted());
+        else {
+          VoiceService.start(name, this.notificationText(), this.micMuted());
+          this.serviceRunning = true;
+        }
       } catch {
         // Servis başlatılamazsa ses yine çalışır; yalnızca arka planda kesilebilir
       }
@@ -757,10 +778,9 @@ class MobileVoiceClient {
           reportClientError(new Error(`ses bağlantısı kapandı: ${DisconnectReason[reason ?? 0] ?? reason}`), 'ses');
         }
         // Kendi yeniden bağlanmamızın ardından gelen "başka cihaz" uyarısı: sessizce kanala geri dön
+        // (ses oturumu ve ön plan servisi korunur: arka planda servis yeniden başlatılamaz)
         if (channelId && this.duplicates.shouldRejoin(reason === DisconnectReason.DUPLICATE_IDENTITY)) {
-          void this.leave()
-            .then(() => this.join(channelId, { silent: true }))
-            .catch((err: Error) => toast(err.message, 'error'));
+          this.join(channelId, { silent: true, rejoin: true }).catch((err: Error) => toast(err.message, 'error'));
           return;
         }
         toast(disconnectMessage(reason), reason === DisconnectReason.CLIENT_INITIATED ? 'info' : 'error');
@@ -773,18 +793,19 @@ class MobileVoiceClient {
   /** Süren kapatma; yenisi bunu bekler */
   private tearingDown: Promise<void> = Promise.resolve();
 
-  /**
-   * Odayı kapatır, ses oturumunu ve ön plan servisini durdurur. Kapatmalar sırayla yapılır: önceki
-   * kapatma (ör. yavaş kapanan oda) yeni katılmadan sonra bitip yeni bağlantının ses oturumunu ve ön
-   * plan servisini durdurmasın; servissiz kalan ses arka planda Android tarafından kısıtlanır.
-   */
   private clearReconnectTimer(): void {
     if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.lostSoundPlayed = false;
   }
 
-  private teardown(): Promise<void> {
+  /**
+   * Odayı kapatır, ses oturumunu ve ön plan servisini durdurur. Kapatmalar sırayla yapılır: önceki
+   * kapatma (ör. yavaş kapanan oda) yeni katılmadan sonra bitip yeni bağlantının ses oturumunu ve ön
+   * plan servisini durdurmasın; servissiz kalan ses arka planda Android tarafından kısıtlanır.
+   * @param opts.keepSession Yeniden katılma: yalnızca oda kapatılır, ses oturumu ve ön plan servisi sürer
+   */
+  private teardown(opts: { keepSession?: boolean } = {}): Promise<void> {
     const room = this.room;
     this.room = null;
     this.channelSounds.cancel();
@@ -794,13 +815,16 @@ class MobileVoiceClient {
     const next = (async () => {
       await previous;
       if (room) await room.disconnect(true).catch(() => undefined);
-      await AudioSession.stopAudioSession().catch(() => undefined);
       await releaseNoiseFilter();
+      if (opts.keepSession) return;
+      await AudioSession.stopAudioSession().catch(() => undefined);
+      this.audioSessionActive = false;
       try {
         VoiceService.stop();
       } catch {
         // servis zaten kapalı
       }
+      this.serviceRunning = false;
     })();
     this.tearingDown = next;
     return next;
