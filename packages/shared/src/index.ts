@@ -8,6 +8,7 @@ export * from './permissions';
 export * from './feedback';
 export * from './presence';
 export * from './search';
+export * from './telemetry';
 
 // ---------- Modeller ----------
 

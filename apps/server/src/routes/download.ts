@@ -57,10 +57,11 @@ export function iosInstallManifest(ipaUrl: string, bundleId: string, version: st
 }
 
 export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const { releases, config } = ctx;
+  const { releases, config, counters } = ctx;
 
-  // İndirme sayfasının gösterdiği sürüm/boyut bilgisi
+  // İndirme sayfasının gösterdiği sürüm/boyut bilgisi (sayfa her açılışta ister: yönetim panelinde ziyaret)
   app.get('/api/download/latest', async (_req, reply) => {
+    counters.inc('download.page');
     const latest = await releases.latest();
     if (!latest) return sendError(reply, 503, 'unavailable', 'Sürüm bilgisi şu an alınamıyor.');
     const platforms = Object.fromEntries(
@@ -97,6 +98,7 @@ export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): v
     const asset = latest?.assets[platform];
     void reply.header('Cache-Control', 'no-store');
     if (!asset) return reply.redirect('/download', 302);
+    counters.inc(`download.${platform}`);
     if (platform === 'ios') {
       const manifest = `${req.protocol}://${req.host}/download/ios/manifest.plist`;
       return reply.redirect(`itms-services://?action=download-manifest&url=${encodeURIComponent(manifest)}`, 302);

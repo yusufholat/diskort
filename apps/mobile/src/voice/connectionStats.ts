@@ -6,13 +6,17 @@ import {
   pushSample,
   summarizePings,
   useGuild,
+  voiceTelemetry,
   type LinkQuality,
   type PingSample,
   type TransportStats,
+  type TelemetryContext,
   type TransportView,
 } from '@diskort/client-core';
 import { Track, type Room } from 'livekit-client';
 import { create } from 'zustand';
+import { getSettings } from '../stores/settings';
+import { effectiveNoiseMode, noiseFilterStats } from './noiseFilter';
 import { useVoice, voice } from './voice';
 
 /**
@@ -123,6 +127,28 @@ function streamLabels(room: Room): Record<string, StreamLabel> {
   return labels;
 }
 
+/** Ses kalitesi özetinin kanal ve mikrofon bilgisi (yönetim paneli; yalnızca ölçümler) */
+function telemetryContext(): TelemetryContext {
+  const v = useVoice.getState();
+  const s = getSettings();
+  const noise = effectiveNoiseMode();
+  const ns = noise === 'dpdfnet' ? noiseFilterStats() : null;
+  return {
+    channelId: v.status === 'idle' ? null : v.channelId,
+    mic: {
+      noise,
+      model: ns?.active ? 'DPDFNet (telefon)' : null,
+      load: ns?.load ?? null,
+      avgFrameMs: ns?.avgMs ?? null,
+      p99FrameMs: null,
+      maxFrameMs: ns?.maxMs ?? null,
+      underruns: null,
+      droppedSamples: null,
+      muted: s.selfMute || s.selfDeaf || v.listenOnly || !v.micAllowed,
+    },
+  };
+}
+
 class ConnectionStatsSampler {
   private timer: ReturnType<typeof setInterval> | null = null;
   private busy = false;
@@ -134,6 +160,7 @@ class ConnectionStatsSampler {
   private detailWatchers = 0;
 
   constructor() {
+    voiceTelemetry.setContext(telemetryContext);
     // Sese bağlanınca başlar, ayrılınca durur (ölçümler sıfırlanır)
     useVoice.subscribe((next, prev) => {
       if (next.status === prev.status) return;
@@ -155,6 +182,7 @@ class ConnectionStatsSampler {
   }
 
   private stop(): void {
+    voiceTelemetry.reset();
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = null;
     this.room = null;
@@ -173,7 +201,7 @@ class ConnectionStatsSampler {
       const pubReport = await pcs?.publisher.getStats()?.catch(() => undefined);
       const publisher = pubReport ? parseTransportStats(pubReport, at) : null;
       // Yayın bağlantısında ölçüm yoksa (ör. konuşma izni yok, yalnızca dinleniyor) ping abonelik bağlantısından
-      const needSubscriber = detail || publisher?.rttMs == null;
+      const needSubscriber = detail || publisher?.rttMs == null || voiceTelemetry.wantsSubscriber(at);
       const subReport = needSubscriber ? await pcs?.subscriber?.getStats()?.catch(() => undefined) : undefined;
       const subscriber = subReport ? parseTransportStats(subReport, at) : null;
       if (room !== this.room) return;
@@ -184,9 +212,10 @@ class ConnectionStatsSampler {
       const { sent, lost } = outboundDelta(publisher, prev.publisher);
       const samples = pushSample(useConnectionStats.getState().samples, { at, rttMs, sent, lost });
       const recent = summarizePings(samples, at - QUALITY_WINDOW_MS);
+      const quality = linkQuality(recent.lastMs, recent.lossPercent);
       useConnectionStats.setState({
         samples,
-        quality: linkQuality(recent.lastMs, recent.lossPercent),
+        quality,
         // Sunucu bilgisi (bölge, sürüm) bağlandıktan sonra gelebilir
         server: this.serverFor(room),
         detail: detail
@@ -197,6 +226,14 @@ class ConnectionStatsSampler {
               labels: streamLabels(room),
             }
           : null,
+      });
+      voiceTelemetry.sample({
+        at,
+        publisher,
+        prevPublisher: prev.publisher,
+        subscriber,
+        quality,
+        serverQuality: useVoice.getState().quality,
       });
     } catch {
       // Ölçülemeyen an grafikte boşluk olarak kalır

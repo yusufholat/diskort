@@ -44,6 +44,22 @@ export interface Config {
   procRoot: string;
   /** Aylık trafik kotası, bayt (TRAFFIC_QUOTA_GB, varsayılan 5000 GB = 5 TB; gelen + giden) */
   trafficQuotaBytes: number;
+  /**
+   * LiveKit'in Prometheus ölçüm adresi (LIVEKIT_METRICS_URL; üretimde varsayılan http://127.0.0.1:6789/metrics,
+   * livekit.yaml'daki prometheus_port ile). "0" kapatır. Uç kapalıysa panel "metrikler kapalı" gösterir.
+   */
+  livekitMetricsUrl: string | null;
+  /** Caddy yönetim ucunun ölçümleri (CADDY_METRICS_URL; üretimde varsayılan http://127.0.0.1:2019/metrics) */
+  caddyMetricsUrl: string | null;
+  /** Veritabanı yedeklerinin salt okunur bağlandığı klasör (BACKUP_DIR, ör. /backups); yoksa panelde görünmez */
+  backupDir: string | null;
+  /** Sertifika bitiş tarihi denetlenecek alan adları (TLS_CHECK_DOMAINS, virgülle) ve bağlanılacak adres */
+  tlsCheckDomains: string[];
+  tlsCheckHost: string;
+  /** API kapsayıcısının cgroup kökü (CGROUP_ROOT, varsayılan /sys/fs/cgroup; kapsayıcının kendi görünümü) */
+  cgroupRoot: string;
+  /** Günlük sayaçların ve ses kalitesi dosyalarının günü: UTC'ye göre dakika (STATS_UTC_OFFSET_MIN, varsayılan 180) */
+  statsUtcOffsetMin: number;
   isDev: boolean;
 }
 
@@ -73,6 +89,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!Number.isFinite(trafficQuotaGb) || trafficQuotaGb <= 0) {
     throw new Error(`Geçersiz TRAFFIC_QUOTA_GB: ${env.TRAFFIC_QUOTA_GB}`);
   }
+
+  const statsOffset = Number(env.STATS_UTC_OFFSET_MIN ?? 180);
+  if (!Number.isInteger(statsOffset) || Math.abs(statsOffset) > 14 * 60) {
+    throw new Error(`Geçersiz STATS_UTC_OFFSET_MIN: ${env.STATS_UTC_OFFSET_MIN}`);
+  }
+  const production = env.NODE_ENV === 'production';
+  /** Adres ortam değişkeni: verilmemişse üretimde varsayılan, "0" ya da boş: kapalı */
+  const optionalUrl = (value: string | undefined, prodDefault: string): string | null => {
+    if (value === undefined) return production ? prodDefault : null;
+    return value && value !== '0' ? value : null;
+  };
+  const livekitHost = /^wss:\/\/([^/:?#]+)/.exec(livekitPublicUrl)?.[1] ?? null;
 
   const giphyRating = (env.GIPHY_RATING || 'pg-13').toLowerCase();
   if (!(GIF_RATINGS as readonly string[]).includes(giphyRating)) {
@@ -117,6 +145,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     systemStats: env.SYSTEM_STATS ? env.SYSTEM_STATS !== '0' : env.NODE_ENV !== 'test',
     procRoot: env.PROC_ROOT || '/proc',
     trafficQuotaBytes: Math.round(trafficQuotaGb * 1e9),
+    livekitMetricsUrl: optionalUrl(env.LIVEKIT_METRICS_URL, 'http://127.0.0.1:6789/metrics'),
+    caddyMetricsUrl: optionalUrl(env.CADDY_METRICS_URL, 'http://127.0.0.1:2019/metrics'),
+    backupDir: env.BACKUP_DIR || null,
+    tlsCheckDomains: env.TLS_CHECK_DOMAINS
+      ? [...new Set(env.TLS_CHECK_DOMAINS.split(',').map((d) => d.trim().toLowerCase()).filter(Boolean))]
+      : production && livekitHost
+        ? [livekitHost]
+        : [],
+    tlsCheckHost: env.TLS_CHECK_HOST || '127.0.0.1',
+    cgroupRoot: env.CGROUP_ROOT || '/sys/fs/cgroup',
+    statsUtcOffsetMin: statsOffset,
     isDev,
   };
 }

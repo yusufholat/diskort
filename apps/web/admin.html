@@ -59,46 +59,95 @@
         </section>
 
         <div id="adm-dashboard" hidden>
-          <nav class="adm-jump" aria-label="Bölümler">
-            <a href="#genel">Genel</a>
-            <a href="#ses">Ses</a>
-            <a href="#sunucu">Sunucu</a>
-            <a href="#istemciler">İstemciler</a>
-            <a href="#hatalar">Hatalar</a>
-            <a href="#geri-bildirim">Geri bildirim</a>
+          <!-- Sekmeler: yalnızca açık sekmenin ayrıntılı verisi istenir (bkz. admin.js LOADERS) -->
+          <nav class="adm-tabs" id="adm-tabs" role="tablist" aria-label="Bölümler">
+            <button type="button" role="tab" data-tab="genel">Genel</button>
+            <button type="button" role="tab" data-tab="ses">Ses</button>
+            <button type="button" role="tab" data-tab="ses-gecmisi">Ses geçmişi</button>
+            <button type="button" role="tab" data-tab="makine">Makine</button>
+            <button type="button" role="tab" data-tab="api">API</button>
+            <button type="button" role="tab" data-tab="istemciler">İstemciler</button>
+            <button type="button" role="tab" data-tab="guvenlik">Güvenlik</button>
+            <button type="button" role="tab" data-tab="sunucular">Sunucular</button>
+            <button type="button" role="tab" data-tab="geri-bildirim">Geri bildirim <span class="adm-tab-count" id="adm-fb-count" hidden></span></button>
+            <button type="button" role="tab" data-tab="hatalar">Hatalar <span class="adm-tab-count" id="adm-err-count" hidden></span></button>
           </nav>
 
-          <section class="adm-section" id="genel">
+          <section class="adm-section" id="genel" role="tabpanel">
             <h2>Genel bakış</h2>
             <div class="adm-grid" id="adm-overview"></div>
           </section>
 
-          <section class="adm-section" id="ses">
+          <section class="adm-section" id="ses" role="tabpanel">
             <h2>Ses ve yayın <span class="adm-badge adm-badge-live">canlı</span></h2>
             <div class="adm-grid" id="adm-voice"></div>
+            <h2>Bağlantı kalitesi <span class="adm-badge adm-badge-live">canlı</span></h2>
+            <div class="adm-grid" id="adm-quality"></div>
+            <h2>Kalite sorunları</h2>
+            <div class="adm-grid" id="adm-incidents"></div>
           </section>
 
-          <section class="adm-section" id="sunucu">
-            <h2>Sunucu</h2>
+          <section class="adm-section" id="ses-gecmisi" role="tabpanel">
+            <h2>Ses geçmişi</h2>
+            <div class="adm-grid" id="adm-history"></div>
+          </section>
+
+          <section class="adm-section" id="makine" role="tabpanel">
+            <h2>Makine</h2>
             <div class="adm-grid" id="adm-system"></div>
+            <h2>Kapsayıcılar ve hizmetler</h2>
+            <div class="adm-grid" id="adm-infra"></div>
+            <h2>Ses sunucusu (LiveKit)</h2>
+            <div class="adm-grid" id="adm-livekit"></div>
+            <h2>Bildirimler, indirmeler ve güncellemeler</h2>
+            <div class="adm-grid" id="adm-usage"></div>
           </section>
 
-          <section class="adm-section" id="istemciler">
+          <section class="adm-section" id="api" role="tabpanel">
+            <h2>API sağlığı</h2>
+            <div class="adm-grid" id="adm-api"></div>
+          </section>
+
+          <section class="adm-section" id="istemciler" role="tabpanel">
             <h2>Sürümler ve istemciler</h2>
             <div class="adm-grid" id="adm-clients"></div>
           </section>
 
-          <section class="adm-section" id="hatalar">
-            <h2>Hatalar</h2>
-            <div class="adm-grid" id="adm-errors"></div>
+          <section class="adm-section" id="guvenlik" role="tabpanel">
+            <h2>Güvenlik ve oturumlar</h2>
+            <div class="adm-grid" id="adm-security"></div>
           </section>
 
-          <section class="adm-section" id="geri-bildirim">
+          <section class="adm-section" id="sunucular" role="tabpanel">
+            <h2>Sunucular</h2>
+            <div class="adm-grid" id="adm-guilds"></div>
+          </section>
+
+          <section class="adm-section" id="geri-bildirim" role="tabpanel">
             <h2>Geri bildirim</h2>
             <div class="adm-grid" id="adm-feedback"></div>
+            <div class="adm-grid" id="adm-feedback-list"></div>
+          </section>
+
+          <section class="adm-section" id="hatalar" role="tabpanel">
+            <h2>Hatalar</h2>
+            <div class="adm-grid" id="adm-errors"></div>
+            <h2>Sunucu günlüğü</h2>
+            <div class="adm-grid" id="adm-logs"></div>
           </section>
 
           <p class="adm-foot" id="adm-foot"></p>
+        </div>
+
+        <!-- Ayrıntı sayfası (kullanıcının bağlantı kalitesi, geri bildirim): telefonda tam ekran -->
+        <div class="adm-sheet" id="adm-sheet" hidden>
+          <div class="adm-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="adm-sheet-title">
+            <header class="adm-sheet-head">
+              <h2 id="adm-sheet-title"></h2>
+              <button type="button" class="adm-more adm-sheet-close" id="adm-sheet-close" aria-label="Kapat">Kapat</button>
+            </header>
+            <div class="adm-sheet-body" id="adm-sheet-body"></div>
+          </div>
         </div>
       </main>
     </div>

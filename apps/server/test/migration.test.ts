@@ -7,6 +7,8 @@ import { ALL_PERMISSIONS, hasPermission, Permission as P } from '@diskort/shared
 import { MIGRATIONS, Store } from '../src/db.js';
 import { FeedbackStore } from '../src/feedbackStore.js';
 import { PermissionService } from '../src/permissions.js';
+import { ADMIN_HISTORY_MIGRATION, VoiceSessionRecorder } from '../src/voiceHistory.js';
+import { VoiceStateStore } from '../src/voiceState.js';
 
 const dirs: string[] = [];
 
@@ -537,6 +539,80 @@ describe('göç 14: çoklu sunucu', () => {
       expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
       expect(store.db.prepare('SELECT COUNT(*) AS n FROM guild_members').get()).toEqual({ n: 5 });
       expect(store.guildRoles('g1').find((r) => r.id === 'g1')!.permissions & P.CREATE_INVITE).toBe(P.CREATE_INVITE);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+/** Üretimdeki (0.6.13) gibi şema 19 veritabanı: çoklu sunucu, durum, sabitlemeler, arama dizini */
+function schema19Database(): string {
+  const file = schema13Database();
+  const db = new DatabaseSync(file);
+  for (let v = 13; v < 19; v++) db.exec(MIGRATIONS[v]!);
+  db.exec('PRAGMA user_version = 19');
+  db.close();
+  return file;
+}
+
+describe('göç 20: ses geçmişi ve davet kullanımları', () => {
+  it('şema 19 veritabanı 20 ile göçer; önceki veriler korunur, oturumlar ve davet kullanımları yazılır', () => {
+    const file = schema19Database();
+    const before = new DatabaseSync(file);
+    const count = (db: DatabaseSync, table: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+    const tables = ['users', 'guilds', 'guild_members', 'channels', 'messages', 'invites', 'roles', 'messages_fts'];
+    const counts = Object.fromEntries(tables.map((t) => [t, count(before, t)]));
+    before.close();
+
+    const store = new Store(file);
+    try {
+      const db = store.db;
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 20 });
+      expect(MIGRATIONS).toHaveLength(20);
+      expect(Object.fromEntries(tables.map((t) => [t, count(db, t)]))).toEqual(counts);
+      const indexes = (
+        db
+          .prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name IN ('voice_sessions', 'invite_uses') ORDER BY name`)
+          .all() as { name: string }[]
+      ).map((r) => r.name);
+      expect(indexes).toEqual(['invite_uses_by_time', 'voice_sessions_by_end', 'voice_sessions_by_start', 'voice_sessions_by_user']);
+      expect(count(db, 'voice_sessions')).toBe(0);
+      expect(count(db, 'invite_uses')).toBe(0);
+
+      // Davetle geri dönen üye: kim, kimin daveti, hangi sunucu
+      expect(store.joinWithInvite('ESKIDAVT', 'u3')).toMatchObject({ ok: true });
+      expect(db.prepare('SELECT code, guild_id, inviter_id, user_id, kind FROM invite_uses').all()).toEqual([
+        { code: 'ESKIDAVT', guild_id: 'g1', inviter_id: 'u1', user_id: 'u3', kind: 'join' },
+      ]);
+
+      // Ses oturumu: katılma, yayın, ayrılma
+      const voice = new VoiceStateStore();
+      const recorder = new VoiceSessionRecorder(db, (id) => store.getChannel(id)?.guildId ?? null);
+      recorder.attach(voice);
+      voice.join('u1', 'v1');
+      voice.setStreaming('u1', 'v1', true);
+      voice.leave('u1', 'v1');
+      expect(db.prepare('SELECT user_id, guild_id, channel_id, kind, end_reason FROM voice_sessions ORDER BY id').all()).toEqual([
+        { user_id: 'u1', guild_id: 'g1', channel_id: 'v1', kind: 'voice', end_reason: 'leave' },
+        { user_id: 'u1', guild_id: 'g1', channel_id: 'v1', kind: 'stream', end_reason: 'leave' },
+      ]);
+
+      // Göç yeniden çalışsa da zararsızdır; hesap silinse de geçmiş kalır (kişi boş olur)
+      db.exec(ADMIN_HISTORY_MIGRATION);
+      expect(count(db, 'voice_sessions')).toBe(2);
+      db.prepare(`DELETE FROM users WHERE id = 'u1'`).run();
+      expect(db.prepare('SELECT DISTINCT user_id FROM voice_sessions').all()).toEqual([{ user_id: null }]);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('yeniden açılışta göç tekrar çalışmaz', () => {
+    const file = schema19Database();
+    new Store(file).close();
+    const store = new Store(file);
+    try {
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 20 });
     } finally {
       store.close();
     }

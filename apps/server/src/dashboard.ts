@@ -14,7 +14,9 @@ import { latestMobile } from './clientVersion.js';
 import type { AppContext } from './context.js';
 import type { FeedbackStore } from './feedbackStore.js';
 import type { LiveRoom, LiveTrack } from './livekit.js';
+import type { LiveKitMetrics, LiveKitMetricsStatus } from './infraStats.js';
 import type { SystemMonitor, SystemSample, SystemSnapshot } from './systemStats.js';
+import type { TelemetryEntry, VoiceTelemetryStore } from './telemetry.js';
 
 // Yönetim paneli (GET /api/admin/dashboard, yalnızca hesap yöneticilerine): kullanım, ses, sunucu yükü,
 // istemci sürümleri, son hatalar ve geri bildirim özeti tek yanıtta. Pahalı parçalar önbelleklidir;
@@ -124,6 +126,18 @@ export interface AdminDashboard {
       tracks: number;
       error: string | null;
     };
+    /** Seste olanların son ses kalitesi özeti (istemci ölçümleri; son 90 sn) */
+    quality: TelemetryEntry[];
+    /** LiveKit'in Prometheus ölçümleri (son değerler; geçmiş /api/admin/infra'da) */
+    metrics: Omit<LiveKitMetricsStatus, 'raw'> | null;
+  };
+  /** API sağlığının kısa özeti (ayrıntılar /api/admin/api-stats) */
+  health: {
+    requestsLastHour: number;
+    errors5xxLastHour: number;
+    limitedLastHour: number;
+    openSockets: number;
+    serverLogErrors: number;
   };
   system: SystemSnapshot & {
     process: { rss: number; heapUsed: number; heapTotal: number; uptimeSec: number; node: string };
@@ -222,6 +236,10 @@ export interface DashboardOptions {
   /** Veritabanı dosyası (':memory:' olabilir; WAL boyutu için) */
   dbFile: string;
   dirs: { avatars: string; feedback: string; linkPreviews: string };
+  /** Ses kalitesi özetleri (canlı tablo) */
+  telemetry?: VoiceTelemetryStore;
+  /** LiveKit'in Prometheus ölçümleri */
+  livekitMetrics?: LiveKitMetrics;
 }
 
 export class DashboardService {
@@ -251,6 +269,7 @@ export class DashboardService {
     this.timer = null;
     await this.opts.monitor.persist();
     await this.opts.activity.persist(Date.now(), true);
+    await this.ctx.counters.persist(Date.now(), true);
   }
 
   async tick(now = Date.now()): Promise<void> {
@@ -262,6 +281,9 @@ export class DashboardService {
       // Ölçüm alınamadı; panel son bilineni gösterir
     }
     await this.opts.activity.persist(now);
+    // API sağlığı: gateway mesaj hızı ve olay döngüsü gecikmesi; gün sayaçları dakikada bir dosyaya
+    this.ctx.apiStats.sampleGateway(gateway.traffic, gateway.openSockets(), now);
+    await this.ctx.counters.persist(now);
   }
 
   async build(tzOffsetMin = 0, now = Date.now()): Promise<AdminDashboard> {
@@ -269,7 +291,11 @@ export class DashboardService {
     if (!this.opts.monitor.fresh(7_000, now)) await this.tick(now);
     else this.opts.activity.touch(this.ctx.gateway.sessionsInfo(), now);
 
-    const [dirs, live] = await Promise.all([this.dirSizes(now), this.liveKit(now)]);
+    const [dirs, live, metrics] = await Promise.all([
+      this.dirSizes(now),
+      this.liveKit(now),
+      this.opts.livekitMetrics?.status(now) ?? Promise.resolve(null),
+    ]);
     const db = this.dbStats(tzOffsetMin, now);
     const { gateway, voice } = this.ctx;
     const sessions = gateway.sessionsInfo();
@@ -418,7 +444,19 @@ export class DashboardService {
           tracks: live.rooms?.reduce((n, r) => n + r.participants.reduce((m, p) => m + p.tracks.length, 0), 0) ?? 0,
           error: live.error,
         },
+        quality: this.opts.telemetry?.liveEntries(now) ?? [],
+        metrics: metrics ? (({ raw: _raw, ...rest }) => rest)(metrics) : null,
       },
+      health: (() => {
+        const hour = this.ctx.apiStats.lastHour(now);
+        return {
+          requestsLastHour: hour.total,
+          errors5xxLastHour: hour.s5,
+          limitedLastHour: hour.limited,
+          openSockets: gateway.openSockets(),
+          serverLogErrors: this.ctx.apiStats.logs.total,
+        };
+      })(),
       system: {
         ...system,
         process: {

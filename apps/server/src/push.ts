@@ -40,9 +40,14 @@ interface Outgoing {
  * teslimatı yapar; kime, ne zaman, ne gideceğine bu sunucu karar verir. Anahtarı olmayan platform
  * sessizce devre dışıdır.
  */
+/** Teslimat sonucu (yönetim paneli sayaçları) */
+export type PushResult = 'sent' | 'failed' | 'unregistered';
+
 export class PushService {
   private readonly account: ServiceAccount | null;
   private accessToken: { value: string; expiresAt: number } | null = null;
+  /** Yönetim paneli: her teslimatın sonucu (sayaçlar; son hata) */
+  onDelivery: ((platform: 'android' | 'ios', result: PushResult, detail?: string) => void) | null = null;
 
   constructor(
     private readonly store: Store,
@@ -175,6 +180,7 @@ export class PushService {
       });
       // Uygulama silinmiş ya da jeton yenilenmiş: artık geçersiz jetonu unut
       if (result === 'unregistered') this.store.removePushToken(target.token);
+      this.onDelivery?.('ios', result === 'ok' ? 'sent' : result);
       return;
     }
     await this.send(target.token, {
@@ -198,17 +204,23 @@ export class PushService {
           signal: AbortSignal.timeout(10_000),
         },
       );
-      if (res.ok) return;
+      if (res.ok) {
+        this.onDelivery?.('android', 'sent');
+        return;
+      }
       const text = await res.text();
       // Uygulama kaldırılmış ya da jeton yenilenmiş: artık geçersiz jetonu unut
       if (res.status === 404 || /UNREGISTERED|registration-token-not-registered|INVALID_ARGUMENT/.test(text)) {
         this.store.removePushToken(token);
+        this.onDelivery?.('android', 'unregistered');
         return;
       }
       if (res.status === 401) this.accessToken = null;
       this.log.warn({ status: res.status, body: text.slice(0, 300) }, 'FCM bildirimi gönderilemedi');
+      this.onDelivery?.('android', 'failed', `HTTP ${res.status}`);
     } catch (err) {
       this.log.warn({ err: String(err) }, 'FCM bildirimi gönderilemedi');
+      this.onDelivery?.('android', 'failed', String(err).slice(0, 200));
     }
   }
 

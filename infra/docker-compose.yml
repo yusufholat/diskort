@@ -56,9 +56,17 @@ services:
       GIPHY_API_KEY: ${GIPHY_API_KEY:-}
       GIPHY_RATING: ${GIPHY_RATING:-pg-13}
       GIPHY_LANG: ${GIPHY_LANG:-tr}
+      # Yönetim paneli: sertifika bitiş tarihleri denetlenen alan adları (127.0.0.1:443'e TLS el sıkışması,
+      # 6 saatte bir) ve salt okunur bağlanan veritabanı yedekleri (son yedeğin zamanı ve boyutu).
+      # LiveKit (127.0.0.1:6789) ve Caddy (127.0.0.1:2019) ölçüm adresleri üretimde varsayılandır;
+      # LIVEKIT_METRICS_URL=0 / CADDY_METRICS_URL=0 kapatır.
+      TLS_CHECK_DOMAINS: ${DISKORT_DOMAIN},${LIVEKIT_DOMAIN},${TURN_DOMAIN}
+      BACKUP_DIR: /backups
     volumes:
       - diskort-data:/data
       - ./secrets:/run/secrets:ro
+      # infra/backup-db.sh ve backup-attachments.sh'in yazdığı yer (yalnızca okunur)
+      - /var/backups/diskort:/backups:ro
 
   caddy:
     # Katman-4 eklentili Caddy (TURN/TLS'i 443'te HTTPS ile paylaşmak için)

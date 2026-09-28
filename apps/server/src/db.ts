@@ -36,6 +36,7 @@ import {
 } from '@diskort/shared';
 import { AVATAR_COLORS } from '@diskort/shared';
 import { FEEDBACK_MIGRATION } from './feedbackStore.js';
+import { ADMIN_HISTORY_MIGRATION } from './voiceHistory.js';
 
 /**
  * Göç 8'de @everyone'a verilen yetkiler: rollerden önce herkesin yapabildikleri (+ yeni @everyone
@@ -395,6 +396,8 @@ export const MIGRATIONS: string[] = [
   `,
   // 19: mesaj araması (bkz. SEARCH_MIGRATION)
   SEARCH_MIGRATION,
+  // 20: yönetim paneli geçmişi — ses/yayın oturumları ve davet kullanımları (bkz. voiceHistory.ts)
+  ADMIN_HISTORY_MIGRATION,
 ];
 
 type Param = string | number | null;
@@ -977,6 +980,7 @@ export class Store {
       }
       if (guildId) this.insertMember(guildId, id);
       this.run('UPDATE invites SET uses = uses + 1 WHERE code = ?', check.invite.code);
+      this.recordInviteUse(check.invite, id, guildId, 'register');
       return { ok: true, user: this.getUser(id)!, guildId };
     });
   }
@@ -1001,8 +1005,22 @@ export class Store {
       }
       this.insertMember(guildId, userId);
       this.run('UPDATE invites SET uses = uses + 1 WHERE code = ?', check.invite.code);
+      this.recordInviteUse(check.invite, userId, guildId, 'join');
       return { ok: true, guildId, alreadyMember: false };
     });
+  }
+
+  /** Davet kullanımı (yönetim paneli: kim kimi davet etti) */
+  private recordInviteUse(invite: InviteRow, userId: string, guildId: string | null, kind: 'register' | 'join'): void {
+    this.run(
+      'INSERT INTO invite_uses (code, guild_id, inviter_id, user_id, kind, used_at) VALUES (?, ?, ?, ?, ?, ?)',
+      invite.code,
+      guildId,
+      invite.created_by,
+      userId,
+      kind,
+      Date.now(),
+    );
   }
 
   /** Üyeliği ekler ya da eski üyeyi geri getirir (yasaklıysa dokunmaz) */

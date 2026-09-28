@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   AVATAR_COLORS,
@@ -9,6 +9,7 @@ import {
   type AuthResponse,
 } from '@diskort/shared';
 import { removeAccount } from '../accounts.js';
+import type { AuthEventKind } from '../authLog.js';
 import { parseBody, sendError, type AppContext } from '../context.js';
 
 const displayName = z
@@ -81,11 +82,33 @@ function createLimiter(maxAttempts: number, windowMs: number) {
 }
 
 export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const { store, auth, gateway, push } = ctx;
+  const { store, auth, gateway, push, authLog, counters } = ctx;
   const limit = createLimiter(20, 60_000);
 
+  /** Yönetim panelinin giriş kayıtları (şifre ya da hesabı olmayan kullanıcı adı yazılmaz) */
+  const audit = (
+    req: FastifyRequest,
+    kind: AuthEventKind,
+    user: { id: string; username: string } | null,
+    detail?: string,
+  ): void => {
+    authLog.record({
+      kind,
+      userId: user?.id ?? null,
+      username: user?.username ?? null,
+      ip: req.ip,
+      ua: req.headers['user-agent'] ?? null,
+      ...(detail ? { detail } : {}),
+    });
+    counters.inc(`auth.${kind}`);
+  };
+  const limited = (req: FastifyRequest, reply: FastifyReply): FastifyReply => {
+    audit(req, 'rate_limited', null, req.routeOptions.url ?? undefined);
+    return sendError(reply, 429, 'rate_limited', 'Çok fazla deneme. Biraz bekle.');
+  };
+
   app.post('/api/auth/register', async (req, reply) => {
-    if (!limit(req.ip)) return sendError(reply, 429, 'rate_limited', 'Çok fazla deneme. Biraz bekle.');
+    if (!limit(req.ip)) return limited(req, reply);
     const body = parseBody(registerSchema, req.body, reply);
     if (!body) return reply;
 
@@ -102,6 +125,7 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
         return sendError(reply, banned ? 403 : 400, banned ? 'banned' : 'invite', joined.message);
       }
       if (!joined.alreadyMember) gateway.announceJoin(joined.guildId, existing.id);
+      audit(req, 'join', existing);
       const user = store.getUser(existing.id)!;
       const response: AuthResponse = { token: await auth.issueToken(user.id), user };
       return reply.code(201).send(response);
@@ -120,20 +144,23 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     if (!ctx.guild.ownerId) Object.assign(ctx.guild, store.getGuild(ctx.guild.id));
     // Sunucu davetiyle geldiyse o sunucunun üyeleri yeni üyeyi görür
     if (result.guildId) gateway.announceJoin(result.guildId, result.user.id);
+    audit(req, 'register', result.user);
     const response: AuthResponse = { token: await auth.issueToken(result.user.id), user: result.user };
     return reply.code(201).send(response);
   });
 
   app.post('/api/auth/login', async (req, reply) => {
-    if (!limit(req.ip)) return sendError(reply, 429, 'rate_limited', 'Çok fazla deneme. Biraz bekle.');
+    if (!limit(req.ip)) return limited(req, reply);
     const body = parseBody(loginSchema, req.body, reply);
     if (!body) return reply;
 
     const record = store.getUserAuthByUsername(body.username);
     const valid = record ? await auth.verifyPassword(record.passwordHash, body.password) : false;
     if (!record || !valid) {
+      audit(req, 'login_failed', record, record ? 'şifre hatalı' : 'böyle bir hesap yok');
       return sendError(reply, 401, 'invalid_credentials', 'Kullanıcı adı veya şifre hatalı.');
     }
+    audit(req, 'login', record);
     const { passwordHash: _omit, ...user } = record;
     const response: AuthResponse = { token: await auth.issueToken(user.id), user };
     return response;
@@ -141,15 +168,17 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
 
   // Yöneticinin verdiği tek kullanımlık kodla şifre sıfırlama; başarılı olursa giriş yapılmış olur.
   app.post('/api/auth/reset', async (req, reply) => {
-    if (!limit(req.ip)) return sendError(reply, 429, 'rate_limited', 'Çok fazla deneme. Biraz bekle.');
+    if (!limit(req.ip)) return limited(req, reply);
     const body = parseBody(resetPasswordSchema, req.body, reply);
     if (!body) return reply;
     const userId = store.consumeResetCode(body.username, body.code);
     if (!userId) {
+      audit(req, 'login_failed', store.getUserAuthByUsername(body.username), 'sıfırlama kodu hatalı');
       return sendError(reply, 400, 'invalid_code', 'Kullanıcı adı veya sıfırlama kodu hatalı ya da kodun süresi dolmuş.');
     }
     store.setPassword(userId, await auth.hashPassword(body.newPassword));
     const user = store.getUser(userId)!;
+    audit(req, 'reset', user);
     const response: AuthResponse = { token: await auth.issueToken(user.id), user };
     return response;
   });
@@ -158,14 +187,16 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
 
   // Şifre değişince diğer cihazlardaki oturumlar kapanır; bu cihaz yeni jetonla devam eder.
   app.post('/api/me/password', { preHandler: auth.requireUser }, async (req, reply) => {
-    if (!limit(req.ip)) return sendError(reply, 429, 'rate_limited', 'Çok fazla deneme. Biraz bekle.');
+    if (!limit(req.ip)) return limited(req, reply);
     const body = parseBody(changePasswordSchema, req.body, reply);
     if (!body) return reply;
     const record = store.getUserAuthByUsername(req.user.username);
     if (!record || !(await auth.verifyPassword(record.passwordHash, body.currentPassword))) {
+      audit(req, 'login_failed', req.user, 'şifre değiştirirken mevcut şifre hatalı');
       return sendError(reply, 400, 'invalid_password', 'Mevcut şifre hatalı.');
     }
     store.setPassword(req.user.id, await auth.hashPassword(body.newPassword));
+    audit(req, 'password', req.user);
     const response: AuthResponse = { token: await auth.issueToken(req.user.id), user: req.user };
     return response;
   });

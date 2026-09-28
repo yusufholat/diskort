@@ -147,23 +147,53 @@ docker compose exec api node dist/admin-cli.js revoke <kullanıcı>   # son yön
 ### Yönetim paneli (site: `/admin`)
 
 Hesap yöneticileri için telefona uygun web sayfası (`apps/web/admin.html`; ana sayfadan bağlantı yok, `noindex`).
-Diskort hesabıyla giriş yapılır (`POST /api/auth/login`); yönetici olmayana "yalnızca yöneticiler" yazar. Sekme
-açıkken 5 sn'de bir `GET /api/admin/dashboard` (yalnızca hesap yöneticileri; ?tz= istemcinin saat dilimi) okunur:
+Diskort hesabıyla giriş yapılır (`POST /api/auth/login`); yönetici olmayana "yalnızca yöneticiler" yazar. Sayfa
+sekmelidir (telefonda sekmeler alt alta sarılır). Sayfa açıkken 5 sn'de bir `GET /api/admin/dashboard` (özet;
+yalnızca hesap yöneticileri; ?tz= istemcinin saat dilimi) okunur; ağır veriler yalnızca ilgili sekme açıkken kendi
+uçlarından gelir (hepsi yalnızca hesap yöneticilerine, `Cache-Control: no-store`):
 
-- **Genel bakış:** hesaplar, bağlı kişiler, son 24 saat / 7 günde etkin hesaplar (bağlananlar + mesaj yazanlar),
-  son 14 günün günlük mesaj sayıları, depolama (veritabanı, dosya ekleri, resim klasörleri).
-- **Ses ve yayın:** sesteki kişiler (kanal, süre, susturma, yayın ve LiveKit'teki izleri: çözünürlük/kodek).
-- **Sunucu:** CPU, bellek, disk, ağ hızı (grafikler son 15 dk, 5 sn aralıklı) ve bu ayın trafiği / kota.
-  Makine bilgileri `/proc`'tan okunur (API host ağında çalıştığından `/proc/net/dev` makinenin arayüzleridir).
-- **Sürümler ve istemciler:** platform ve sürüme göre bağlantılar, hesapların son görülme anı ve cihazı.
-- **Hatalar:** son istemci hataları (`/api/client-errors`) ve 5xx ile biten istekler (son 200'er, yalnızca bellekte).
-- **Geri bildirim:** durumlara göre sayılar.
+- **Genel:** hesaplar, bağlı kişiler, son 24 saat / 7 günde etkin hesaplar (bağlananlar + mesaj yazanlar), API
+  özeti, son 14 günün günlük mesaj sayıları, depolama (veritabanı, dosya ekleri, resim klasörleri).
+- **Ses:** sesteki kişiler (kanal, süre, susturma, yayın ve LiveKit'teki izleri), **bağlantı kalitesi** (istemci
+  ölçümleri, aşağıda) ve **kalite sorunları** (`GET /api/admin/telemetry/incidents?days=`). Kişiye dokununca son bir
+  saatin grafikleri ya da geçmiş bir gün (`GET /api/admin/telemetry?user=&minutes=` / `&date=YYYY-AA-GG`).
+- **Ses geçmişi** (`GET /api/admin/voice-history?days=&tz=`): kim ne kadar seste/yayında, günlük süreler, aynı anda
+  en çok kişi, haftanın günü × saat ısı haritası, en çok kullanılan kanallar, son oturumlar (şema 20).
+- **Makine** (`GET /api/admin/infra`): CPU, bellek, disk, ağ, aylık trafik; kapsayıcılar (API: kendi cgroup'u,
+  LiveKit: kendi Prometheus ölçümleri, Caddy: `127.0.0.1:2019/metrics`; Docker soketi kullanılmaz), TURN/TLS
+  bağlantıları, son veritabanı yedeği, TLS sertifikalarının bitişi; **LiveKit ölçümleri** (bit hızı, paket, kayıp,
+  NACK/PLI, RTT/titreşim, oda/katılımcı/iz; `livekit.yaml`'da `prometheus.port: 6789` açıkken, yoksa "metrikler
+  kapalı"); telefon bildirimi gönderim/başarısızlık, indirme sayfası ve indirmeler, güncelleme/OTA denetimleri.
+- **API** (`GET /api/admin/api-stats`): dakikadaki istekler, durum kodları, yol başına p50/p95 gecikme (son 15 dk),
+  olay döngüsü gecikmesi, gateway (açık WebSocket, mesaj hızı, yeniden bağlanma, kapanış kodları), 429'lar.
+- **İstemciler:** platform ve sürüme göre bağlantılar, hesapların son görülme anı ve cihazı.
+- **Güvenlik** (`GET /api/admin/security`): girişler ve başarısız denemeler (kişi, zaman, IP, istemci; adrese göre),
+  sınır aşımları, oturumlar, davetler (kodlar maskeli) ve davet kullanımları (kim kimi davet etti), son hesaplar.
+- **Sunucular** (`GET /api/admin/guilds`): sunucu başına üyeler, kanallar, mesajlar (toplam/7 gün), ses/yayın
+  dakikaları, en çok yazanlar (yalnızca sayılar), dosya ekleri; direkt mesajlar ayrı.
+- **Geri bildirim:** süzme (durum/tür), ayrıntı (metin yalnızca metin olarak, ekran görüntüleri, teknik bilgiler),
+  durum ve yönetici notu (mevcut `/api/feedback` uçları).
+- **Hatalar:** son istemci hataları, 5xx ile biten istekler ve sunucu günlüğündeki hata/ölümcül kayıtlar (pino ≥ 50;
+  son 200'er, yalnızca bellekte).
+
+**Ses kalitesi ölçümleri:** istemciler (masaüstü ve telefon, 0.7.0+) sesliyken zaten 2 sn'de bir aldıkları bağlantı
+istatistiklerinden 30 sn'lik özet çıkarır (kalite "kötü"ye düşünce hemen, en fazla 10 sn'de bir) ve
+`POST /api/telemetry/voice`'a gönderir (oturum gerekir, kullanıcı başına dakikada 8): ping, titreşim, giden/gelen
+kayıp, gizlenen ses oranı, bit hızları, bağlantı yolu (host/NAT/TURN; adres yok), yeniden bağlanmalar, gürültü
+engelleyici yükü, yayındaysa çözünürlük/fps/kodlayıcı/kısıtlama nedeni. Sunucu son bir saati bellekte tutar, her
+özeti `<DATA_DIR>/telemetry/YYYY-AA-GG.jsonl`'a yazar (14 gün, gün başına 30 MB) ve kötü dönemleri olası nedeniyle
+`telemetry/incidents.jsonl`'a kaydeder.
 
 Kalıcı küçük dosyalar `<DATA_DIR>`'da: `traffic.json` (aylık trafik sayacı, dış arayüzlerin gelen + giden baytı;
 ilk çalışmada makine bu ay açıldıysa açılıştan beri olan trafik de sayılır; makine yeniden açılınca sayaç sıfırlansa
-da toplam sürer, en çok dakikada bir yazılır) ve `activity.json` (hesapların son görülme anı). Ayarlar (isteğe bağlı,
-compose'da `api` ortamına eklenir): `TRAFFIC_QUOTA_GB` (aylık kota, varsayılan 5000 = 5 TB, gelen + giden),
-`SYSTEM_STATS=0` (düzenli ölçümü kapatır), `PROC_ROOT` (varsayılan `/proc`).
+da toplam sürer, en çok dakikada bir yazılır), `activity.json` (hesapların son görülme anı), `counters.json` (gün
+başına sayaçlar, 30 gün), `auth-log.jsonl` (giriş kayıtları, 30 gün; şifre ve hesabı olmayan kullanıcı adı yazılmaz).
+Ayarlar (isteğe bağlı, compose'da `api` ortamına eklenir): `TRAFFIC_QUOTA_GB` (aylık kota, varsayılan 5000 = 5 TB,
+gelen + giden), `SYSTEM_STATS=0` (düzenli ölçümü kapatır), `PROC_ROOT` (varsayılan `/proc`), `LIVEKIT_METRICS_URL` /
+`CADDY_METRICS_URL` (üretimde varsayılan `http://127.0.0.1:6789/metrics` / `http://127.0.0.1:2019/metrics`; `0`
+kapatır), `BACKUP_DIR` (salt okunur bağlanan yedek klasörü), `TLS_CHECK_DOMAINS` (virgülle), `TLS_CHECK_HOST`
+(varsayılan `127.0.0.1`), `CGROUP_ROOT` (varsayılan `/sys/fs/cgroup`), `STATS_UTC_OFFSET_MIN` (gün sayaçlarının
+saat dilimi, varsayılan 180 = Türkiye).
 
 ## Direkt mesajlar
 
