@@ -14,7 +14,7 @@ import {
   SHADER_MODE,
   type ShaderViewKind,
 } from '@diskort/client-core';
-import { drawFallback, LAYERS, type CardGeo, type LayerView } from './layers';
+import { drawFallback, drawPlateScrim, LAYERS, type CardGeo, type LayerView } from './layers';
 
 /** Tuval çözünürlüğü en fazla 2× (4K ekranda gereksiz yük olmasın) */
 const DPR_CAP = 2;
@@ -325,6 +325,10 @@ function renderAll(list: View[], t: number): void {
     ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
     if (!s.P) drawFallback(ctx, v, v.set);
     LAYERS[v.set](ctx, v, t);
+    if (v.kind === 'plate') {
+      ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
+      drawPlateScrim(ctx, v, v.set);
+    }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';

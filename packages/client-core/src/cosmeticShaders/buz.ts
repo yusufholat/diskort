@@ -48,12 +48,21 @@ vec4 effect(vec2 p){
   }
   vec2 uv=p/u_res;
   float e=m<.5?min(min(uv.x,1.-uv.x),min(uv.y,1.-uv.y))*2.:(u_res.x-p.x)/(u_res.x*.75)-(1.-min(p.y,u_res.y-p.y)/(u_res.y*.5))*.08;
-  vec4 f=frost(p,e,G,t,m<.5?.62:.8);
+  // plakada kırağı yalnızca sağdaki ~%45'i kaplar (yazıların altına uzanmaz)
+  vec4 f=frost(p,e,G,t,m<.5?.62:.6);
   vec3 v=voro(p/20.);
   vec2 q=uv+(h22(vec2(v.z*91.,3.))-.5)*f.a*.12;   // yüzey kırılması: arka plan hücre başına kayar
-  vec3 bg=mix(vec3(.02,.06,.13),vec3(.09,.27,.42),smoothstep(0.,1.2,q.y+q.x*.3));
-  bg+=vec3(.25,.5,.7)*exp(-length(q-vec2(.3,.2))*3.)*.35;
+  vec3 bg;
+  if(m>1.5){
+    // plaka: açık mavi değil koyu lacivert zemin; soğuk parlama sağ kenarda, buz daha sönük
+    bg=mix(vec3(.008,.02,.05),vec3(.025,.08,.15),smoothstep(.25,1.,q.x));
+    bg+=vec3(.15,.38,.6)*exp(-length((q-vec2(1.,.45))*vec2(2.2,1.))*2.6)*.3;
+    f.rgb*=.7;
+  } else {
+    bg=mix(vec3(.02,.06,.13),vec3(.09,.27,.42),smoothstep(0.,1.2,q.y+q.x*.3));
+    bg+=vec3(.25,.5,.7)*exp(-length(q-vec2(.3,.2))*3.)*.35;
+  }
   vec3 c=bg*(1.-f.a*.55)+f.rgb;
-  if(m>1.5)c*=plateFade(p);
+  if(m>1.5)c=plateGrade(c,p);
   return vec4(c,1.);
 }`;

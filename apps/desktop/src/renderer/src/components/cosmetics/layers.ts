@@ -184,7 +184,7 @@ function drawKaradelik(ctx: Ctx, v: LayerView, t: number): void {
     return;
   }
   const n = v.kind === 'card' ? 30 : v.kind === 'plate' ? 9 : 16;
-  const rMax = v.kind === 'card' ? Math.max(v.w, v.h) * 0.95 : v.kind === 'plate' ? v.w * 0.55 : Math.max(v.w, v.h) * 0.65;
+  const rMax = v.kind === 'card' ? Math.max(v.w, v.h) * 0.95 : v.kind === 'plate' ? v.w * 0.4 : Math.max(v.w, v.h) * 0.65;
   const list = cached<Infall[]>(v, 'bhi', () => {
     const r = rng(17);
     return Array.from({ length: n }, () => ({
@@ -448,6 +448,9 @@ function drawPetals(ctx: Ctx, v: LayerView, t: number, list: Petal[], dimBody: b
     const size = (5 + 6 * o.z) * o.sc;
     let al = 0.4 + 0.55 * o.z;
     if (dimBody && Y > v.geo.bh) al *= 0.75;
+    // plakada yapraklar yazıların altına süzülmez: sola doğru kaybolur
+    if (v.kind === 'plate') al *= smooth(W * 0.38, W * 0.75, X);
+    if (al < 0.01) continue;
     petal3D(
       ctx,
       v.dpr,
@@ -770,7 +773,8 @@ function drawForest(ctx: Ctx, v: LayerView, t: number): void {
       const b = blinkOf(o, t);
       let dim = 1;
       if (v.kind === 'card' && y > v.geo.bh) dim = 0.7;
-      if (v.kind === 'plate') dim = mix(0.35, 1, smooth(W * 0.1, W * 0.6, x));
+      // plakada yalnızca sağda: yazıların altında parlayan nokta olmasın
+      if (v.kind === 'plate') dim = smooth(W * 0.4, W * 0.8, x);
       const sz = (v.kind === 'plate' ? 0.6 : 1) * (8 + 22 * o.z * o.z) * (0.6 + 0.4 * b);
       if (o.z > 0.85 && v.kind !== 'plate') sprite(ctx, soft, x, y, sz * 2.2, b * 0.5 * dim);
       sprite(ctx, core, x, y, sz, b * (0.35 + 0.65 * o.z) * dim);
@@ -892,7 +896,7 @@ function drawIce(ctx: Ctx, v: LayerView, t: number): void {
     paths[sg.d]!.lineTo(x2, y2);
     if (f < 1 && sg.d === 0) tips.push([x2, y2]);
   }
-  const dim = v.kind === 'card' ? 0.75 : 1;
+  const dim = v.kind === 'card' ? 0.75 : v.kind === 'plate' ? 0.8 : 1;
   const W1 = [3.4, 2.2, 1.4];
   const W2 = [1.1, 0.8, 0.6];
   const A1 = [0.1, 0.08, 0.06];
@@ -1080,7 +1084,23 @@ export function drawFallback(ctx: Ctx, v: LayerView, set: CosmeticSet): void {
     ctx.stroke();
     return;
   }
-  if (v.kind === 'thumb' || v.kind === 'plate') {
+  if (v.kind === 'plate') {
+    // plaka: koyu zemin, setin rengi ve parıltısı yalnızca sağda (solu drawPlateScrim de koyulaştırır)
+    ctx.fillStyle = P[0];
+    ctx.fillRect(0, 0, W, H);
+    const g = ctx.createLinearGradient(W * 0.3, 0, W, 0);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, P[1]);
+    ctx.globalAlpha = 0.75;
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+    const rg = ctx.createRadialGradient(W * 0.9, H * 0.35, 0, W * 0.9, H * 0.35, W * 0.35);
+    rg.addColorStop(0, P[2]);
+    rg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = rg;
+    ctx.fillRect(0, 0, W, H);
+  } else if (v.kind === 'thumb') {
     const g = ctx.createLinearGradient(0, 0, W * 0.3, H);
     g.addColorStop(0, P[0]);
     g.addColorStop(1, P[1]);
@@ -1091,13 +1111,6 @@ export function drawFallback(ctx: Ctx, v: LayerView, set: CosmeticSet): void {
     rg.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = rg;
     ctx.fillRect(0, 0, W, H);
-    if (v.kind === 'plate') {
-      const d = ctx.createLinearGradient(0, 0, W, 0);
-      d.addColorStop(0, 'rgba(0,0,0,.6)');
-      d.addColorStop(0.6, 'rgba(0,0,0,0)');
-      ctx.fillStyle = d;
-      ctx.fillRect(0, 0, W, H);
-    }
   } else if (v.kind === 'card') {
     const bh = v.geo.bh;
     const rg = ctx.createRadialGradient(W * 0.75, bh * 0.3, 0, W * 0.75, bh * 0.3, bh * 1.6);
@@ -1117,6 +1130,33 @@ export function drawFallback(ctx: Ctx, v: LayerView, set: CosmeticSet): void {
     ctx.fill();
   }
 }
+
+/**
+ * İsim plakasının son adımı (gölgelendirici ya da yedek zemin ve 2B katman çizildikten sonra): soldan sağa
+ * açılan, setin koyu renginde bir perde. Avatar, ad ve durumun altı her karede sakin ve koyu kalır (parçacık,
+ * pırıltı, yağmur çizgisi yazıların altında seçilmez); sahne sağda tam görünür. Setlerin ayrıca kendi
+ * gölgelendiricisinde plateGrade (parlaklık sınırı ve solma) var.
+ */
+export function drawPlateScrim(ctx: Ctx, v: LayerView, set: CosmeticSet): void {
+  const tint = COSMETIC_SET_INFO[set].fallback[0];
+  const n = parseInt(tint.slice(1), 16);
+  const rgb = `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+  const g = ctx.createLinearGradient(0, 0, v.w, 0);
+  for (const [at, a] of PLATE_SCRIM) g.addColorStop(at, `rgba(${rgb},${a})`);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, v.w, v.h);
+}
+/** Perdenin durakları: (satır genişliğine oran, örtücülük); yumuşak iniş, keskin kenar yok */
+const PLATE_SCRIM: [number, number][] = [
+  [0, 0.86],
+  [0.3, 0.78],
+  [0.45, 0.52],
+  [0.6, 0.24],
+  [0.72, 0.07],
+  [0.8, 0],
+];
 
 /** Setlerin 2B katmanları (gölgelendiricinin üstüne; WebGL yokken yedek zeminin üstüne) */
 export const LAYERS: Record<CosmeticSet, (ctx: Ctx, v: LayerView, t: number) => void> = {

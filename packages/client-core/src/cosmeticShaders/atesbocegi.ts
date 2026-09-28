@@ -51,7 +51,7 @@ vec4 effect(vec2 p){
     return vec4(c,0.);
   }
   if(m<.5){ vec4 f=forest(p/u_res.y,t,u_res.x/u_res.y,true); return vec4(f.rgb,1.); }
-  if(m>1.5){ vec4 f=forest(vec2(p.x/u_res.y*.5,p.y/u_res.y*.9+.08),t,u_res.x/u_res.y*.5,true); return vec4(f.rgb*plateFade(p),1.); }
+  if(m>1.5){ vec4 f=forest(vec2(p.x/u_res.y*.5,p.y/u_res.y*.9+.08),t,u_res.x/u_res.y*.5,true); return vec4(plateGrade(f.rgb,p),1.); }
   float bh=u_a.x; float hole=avatarHole(p);
   vec2 q=vec2(p.x,p.y+bh*.06)/(bh*1.12);
   vec4 f=forest(q,t,u_res.x/bh,false);

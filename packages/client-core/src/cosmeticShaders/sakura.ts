@@ -42,6 +42,6 @@ vec4 effect(vec2 p){
   bg=mix(bg,vec3(.95,.66,.72),pow(fall,3.)*.7);
   bg+=vec3(.3,.1,.2)*fbm(p/60.+vec2(t*.05,0.))*.35*(1.-uv.y*.3);
   vec3 c=bg+light*.8+bk;
-  if(m>1.5)c*=plateFade(p);
+  if(m>1.5)c=plateGrade(c,p);
   return vec4(c,1.);
 }`;
