@@ -6,9 +6,17 @@
 # Tüm servisler host ağında çalışır: UDP medya portları NAT'sız ve en düşük gecikmeyle açılır.
 # API (3000) ve LiveKit HTTP (7880) yalnızca yerelde dinler; dışarıya Caddy (80/443) açılır.
 
+# Konteyner günlükleri diski doldurmasın: servis başına en fazla 5 × 20 MB
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   livekit:
     image: livekit/livekit-server:v1.13.7
+    logging: *logging
     # livekit.yaml içindeki __TURN_DOMAIN__ yer tutucusunu doldurup sunucuyu başlatır
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -26,6 +34,7 @@ services:
     build:
       context: ..
       dockerfile: apps/server/Dockerfile
+    logging: *logging
     network_mode: host
     restart: unless-stopped
     depends_on: [livekit]
@@ -77,6 +86,7 @@ services:
     # Katman-4 eklentili Caddy (TURN/TLS'i 443'te HTTPS ile paylaşmak için)
     build: ./caddy
     image: diskort-caddy
+    logging: *logging
     network_mode: host
     restart: unless-stopped
     environment:

@@ -66,20 +66,48 @@ const reactionUsersQuery = z.object({
 /** Gateway'e giden güncelleme: tepkilerin `me` alanı kişiye özel olduğundan çıkarılır. */
 const toUpdate = ({ reactions: _reactions, ...message }: Message): MessageUpdate => message;
 
-/** Kullanıcı başına istek sınırı (varsayılan: 10 saniyede en fazla 10). */
+/** Sınırlayıcıda bu kadar anahtar birikince süresi dolanlar temizlenir... */
+const LIMITER_SWEEP_AT = 10_000;
+/** ...temizlikten sonra da bundan fazlası kalırsa en uzun süredir istek atmayanlar unutulur */
+const LIMITER_MAX_KEYS = 50_000;
+
+/**
+ * Kullanıcı (ya da IP) başına istek sınırı (varsayılan: 10 saniyede en fazla 10). Anahtarlar son isteğe
+ * göre sıralı tutulur; çok birikince süresi dolanlar silinir, bellek sınırsız büyümez.
+ */
 export function createRateLimiter(max = 10, windowMs = 10_000) {
   const hits = new Map<string, number[]>();
-  return (userId: string): boolean => {
+  let nextSweep = 0;
+  const allow = (key: string): boolean => {
     const now = Date.now();
-    const recent = (hits.get(userId) ?? []).filter((t) => now - t < windowMs);
+    if (hits.size > LIMITER_SWEEP_AT && (now >= nextSweep || hits.size > LIMITER_MAX_KEYS)) {
+      nextSweep = now + Math.min(windowMs, 60_000);
+      for (const [k, times] of hits) {
+        if (now - (times[times.length - 1] ?? 0) >= windowMs) hits.delete(k);
+      }
+      // Hâlâ çoksa (ör. çok sayıda adresten sel) en eskiler: Map ekleme sırasında, en eski baştadır
+      if (hits.size > LIMITER_MAX_KEYS) {
+        for (const k of hits.keys()) {
+          if (hits.size <= LIMITER_SWEEP_AT) break;
+          hits.delete(k);
+        }
+      }
+    }
+    const recent = (hits.get(key) ?? []).filter((t) => now - t < windowMs);
+    // Silip yeniden eklemek anahtarı sona taşır (en son istek atanlar sonda)
+    hits.delete(key);
     if (recent.length >= max) {
-      hits.set(userId, recent);
+      hits.set(key, recent);
       return false;
     }
     recent.push(now);
-    hits.set(userId, recent);
+    hits.set(key, recent);
     return true;
   };
+  return Object.assign(allow, {
+    /** Tutulan anahtar sayısı (testler için) */
+    size: () => hits.size,
+  });
 }
 
 export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): void {

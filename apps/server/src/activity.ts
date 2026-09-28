@@ -100,14 +100,17 @@ const ERROR_RETENTION_MS = 14 * 86_400_000;
 /**
  * Son N kaydı tutan halka tampon. Dosya verilirse her kayıt ona da eklenir (JSON satırları) ve açılışta
  * son N kayıt geri yüklenir: sunucu yeniden başlayınca (her dağıtımda) liste boşalmaz. 14 günden eskiler
- * açılışta atılır.
+ * açılışta atılır. Dosya sınırsız büyümesin diye en fazla 2N satır tutulur: aşınca (çalışırken de) son N
+ * kayıtla yeniden yazılır.
  */
 export class RingLog<T extends { at: number }> {
   private readonly items: T[] = [];
-  /** Kayıtlı toplam (dosyadan yüklenenler dahil) */
+  /** Kayıtlı toplam (dosyadan yüklenenler dahil; dosyada en fazla 2N kayıt kalır) */
   total = 0;
   private warned = false;
   private writing: Promise<void> = Promise.resolve();
+  /** Dosyadaki (yazılmış ya da yazılmak üzere sıraya girmiş) satır sayısı */
+  private fileLines = 0;
 
   constructor(
     private readonly max: number,
@@ -134,7 +137,9 @@ export class RingLog<T extends { at: number }> {
         // bozuk satır atlanır
       }
     }
-    this.total = this.items.length;
+    kept.splice(0, Math.max(0, kept.length - this.fileMax));
+    this.fileLines = kept.length;
+    this.total = kept.length;
     this.items.splice(0, Math.max(0, this.items.length - max));
     try {
       fs.writeFileSync(file, kept.length ? kept.join('\n') + '\n' : '');
@@ -149,9 +154,34 @@ export class RingLog<T extends { at: number }> {
     this.total++;
     if (!this.file) return;
     // Eklemeler sırayla (aynı anda gelen kayıtlar dosyada karışmasın)
-    const line = JSON.stringify(item) + '\n';
     const file = this.file;
+    if (this.fileLines + 1 > this.fileMax) {
+      // Dosya sınırı aştı: son N kayıtla geçici dosyaya yazılıp yerine taşınır (olay döngüsünü bekletmez;
+      // sonraki eklemeler aynı sırada bunu bekler)
+      const text = this.items.map((e) => JSON.stringify(e)).join('\n') + '\n';
+      this.fileLines = this.items.length;
+      const tmp = `${file}.tmp`;
+      this.writing = this.writing
+        .then(async () => {
+          await fs.promises.writeFile(tmp, text);
+          await fs.promises.rename(tmp, file);
+        })
+        .catch((err: unknown) => this.warn(err));
+      return;
+    }
+    this.fileLines++;
+    const line = JSON.stringify(item) + '\n';
     this.writing = this.writing.then(() => fs.promises.appendFile(file, line)).catch((err: unknown) => this.warn(err));
+  }
+
+  /** Dosyada tutulan en fazla satır */
+  private get fileMax(): number {
+    return 2 * this.max;
+  }
+
+  /** Bekleyen dosya yazımları bitince çözülür (testler için) */
+  flushed(): Promise<void> {
+    return this.writing;
   }
 
   private warn(err: unknown): void {
