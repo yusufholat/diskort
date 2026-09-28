@@ -71,6 +71,8 @@ export interface ScreenShareOptions {
   /** Seçilen pencerenin/ekranın adı ("Şimdi Yayın Yapıyor" kartında görünür) */
   sourceName?: string;
   sourceKind?: 'screen' | 'window';
+  /** Pencerenin uygulama simgesi (data: URL; ses bağlantısı kartındaki yayın satırında) */
+  sourceIcon?: string | null;
 }
 
 const STATS_INTERVAL_MS = 2000;
@@ -95,6 +97,7 @@ const RESET_ROOM_STATE = {
   selfPreview: false,
   shareHasAudio: false,
   shareQuality: null,
+  shareIcon: null,
   pttActive: false,
 };
 
@@ -953,7 +956,7 @@ class VoiceClient {
     } catch (err) {
       await abandon();
       if (room !== this.room) return null;
-      setVoice({ sharing: false, shareHasAudio: false, shareQuality: null });
+      setVoice({ sharing: false, shareHasAudio: false, shareQuality: null, shareIcon: null });
       this.bumpTracks();
       throw err;
     }
@@ -972,6 +975,7 @@ class VoiceClient {
       selfPreview: false,
       shareHasAudio: audio !== null,
       shareQuality: `${preset.height}p ${preset.fps} FPS`,
+      shareIcon: opts.sourceIcon ?? null,
     });
     this.bumpTracks();
     playSound('streamStart');
@@ -994,7 +998,7 @@ class VoiceClient {
       if (room) await room.localParticipant.unpublishTrack(track, true).catch(() => undefined);
       track.stop();
     }
-    setVoice({ sharing: false, shareHasAudio: false, shareQuality: null });
+    setVoice({ sharing: false, shareHasAudio: false, shareQuality: null, shareIcon: null });
     this.bumpTracks();
     if (withSound) playSound('streamStop');
   }

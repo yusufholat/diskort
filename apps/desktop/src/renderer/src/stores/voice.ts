@@ -37,6 +37,8 @@ interface VoiceStore {
   shareHasAudio: boolean;
   /** Yayının başlarken seçilen kalitesi, ör. "1080p 60 FPS" */
   shareQuality: string | null;
+  /** Paylaşılan pencerenin uygulama simgesi (data: URL), yoksa null */
+  shareIcon: string | null;
   pttActive: boolean;
   /** Kanalda konuşma izni var mı (yetki ya da sunucuda susturma; LiveKit izninden gelir) */
   micAllowed: boolean;
@@ -60,6 +62,7 @@ export const useVoice = create<VoiceStore>()(() => ({
   selfPreview: false,
   shareHasAudio: false,
   shareQuality: null,
+  shareIcon: null,
   pttActive: false,
   micAllowed: true,
   micLevel: { db: -100, threshold: -50, open: false },

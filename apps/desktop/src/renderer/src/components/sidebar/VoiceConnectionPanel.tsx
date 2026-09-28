@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import {
-  AppWindow,
   AudioWaveform,
   LayoutGrid,
   MicOff,
-  Monitor,
   MonitorCog,
   PhoneOff,
+  Radio,
   ScreenShare,
   ScreenShareOff,
   Signal,
@@ -194,8 +193,8 @@ function OwnStreamRow({ userId }: { userId: string }) {
   const sourceName = useGuild((s) => s.voiceStates[userId]?.streamSourceName);
   const sourceKind = useGuild((s) => s.voiceStates[userId]?.streamSourceKind);
   const quality = useVoice((s) => s.shareQuality);
+  const icon = useVoice((s) => s.shareIcon);
   const setView = useUi((s) => s.setView);
-  const SourceIcon = sourceKind === 'window' ? AppWindow : Monitor;
   const title = sourceName ?? (sourceKind === 'window' ? 'Pencere' : 'Ekran');
 
   return (
@@ -209,15 +208,29 @@ function OwnStreamRow({ userId }: { userId: string }) {
           setView({ kind: 'voice' });
         }}
       >
-        <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-brand/15 text-brand">
-          <SourceIcon size={18} aria-hidden />
+        {/* Pencerenin uygulama simgesi; yoksa (ekran ya da simgesiz pencere) addan renkli baş harf */}
+        <span
+          className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sm font-bold text-white"
+          style={icon ? undefined : { background: sourceColor(title) }}
+          aria-hidden
+        >
+          {icon ? (
+            <img src={icon} alt="" draggable={false} className="h-7 w-7 object-contain" />
+          ) : (
+            title.trim().charAt(0).toLocaleUpperCase('tr-TR')
+          )}
           <span className="absolute -right-1 -bottom-1 flex h-4 w-4 items-center justify-center rounded-full bg-bg-card text-text-head">
-            <Video size={10} strokeWidth={2.5} aria-hidden />
+            <Video size={10} strokeWidth={2.5} />
           </span>
         </span>
         <span className="min-w-0 flex-1 leading-tight">
           <span className="block truncate text-sm font-semibold text-text-head group-hover:underline">{title}</span>
-          {quality && <span className="block truncate text-xs font-medium text-brand">{quality}</span>}
+          {quality && (
+            <span className="flex items-center gap-1 truncate text-xs font-medium text-brand">
+              <Radio size={12} strokeWidth={2.5} className="shrink-0" aria-hidden />
+              {quality}
+            </span>
+          )}
         </span>
       </button>
       <IconButton label="Yayını durdur" danger onClick={() => void voice.stopScreenShare()}>
@@ -225,6 +238,13 @@ function OwnStreamRow({ userId }: { userId: string }) {
       </IconButton>
     </div>
   );
+}
+
+/** Kaynağın adından sabit bir renk (aynı ad hep aynı renk; beyaz harf okunaklı kalsın diye koyu doygun tonlar) */
+function sourceColor(name: string): string {
+  let hash = 0;
+  for (const ch of name) hash = (hash * 31 + ch.codePointAt(0)!) | 0;
+  return `hsl(${Math.abs(hash) % 360} 45% 42%)`;
 }
 
 function IconButton({

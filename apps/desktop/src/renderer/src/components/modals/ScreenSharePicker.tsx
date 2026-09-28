@@ -204,10 +204,10 @@ function TabButton({
 function sourceLabel(
   sources: ScreenSource[],
   id: string | null,
-): { sourceName?: string; sourceKind?: 'screen' | 'window' } {
+): { sourceName?: string; sourceKind?: 'screen' | 'window'; sourceIcon?: string | null } {
   const source = sources.find((s) => s.id === id);
   if (!source) return {};
-  if (source.kind === 'window') return { sourceName: source.name, sourceKind: 'window' };
+  if (source.kind === 'window') return { sourceName: source.name, sourceKind: 'window', sourceIcon: source.appIcon };
   const index = sources.filter((s) => s.kind === 'screen').indexOf(source);
   return { sourceName: `Ekran ${index + 1}`, sourceKind: 'screen' };
 }
