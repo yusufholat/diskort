@@ -9,6 +9,7 @@ import {
   Monitor,
   MonitorOff,
   PhoneOff,
+  UserPlus,
   Users,
   Volume2,
 } from 'lucide-react';
@@ -58,9 +59,20 @@ export function VoiceStage() {
   // Katılan kutucuk büyüyerek belirir, ayrılan küçülerek kaybolur
   const entries = usePresenceList(tiles, tileKey, 180);
 
+  // Görüntü (yayın) varken üst başlık, alt kontroller ve ad etiketleri fare durunca kaybolur
+  const rootRef = useRef<HTMLDivElement>(null);
+  const videoShown = sharing || Object.keys(watching).length > 0;
+  const chromeIdle = useStageChrome(rootRef, videoShown && status === 'connected');
+  // Kanalda yalnızken davet kutucuğu
+  const alone = members.length === 1 && members[0]?.userId === selfId && tiles.length === 1;
+
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col bg-bg-deep">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-edge px-4">
+    <div
+      ref={rootRef}
+      data-idle={chromeIdle ? '' : undefined}
+      className="group/stage flex h-full min-w-0 flex-1 flex-col bg-bg-deep"
+    >
+      <header data-stage-chrome className={cn('flex h-12 shrink-0 items-center gap-2 border-b border-edge px-4', CHROME)}>
         <Volume2 size={22} className="text-text-muted" />
         <span className="font-semibold text-text-head">{channel?.name}</span>
         <span className="text-sm text-text-muted">· {members.length} kişi</span>
@@ -75,11 +87,109 @@ export function VoiceStage() {
         {focusedVisible ? (
           <FocusedStage focused={focusedVisible} entries={entries} />
         ) : (
-          <TileGrid entries={entries} />
+          <TileGrid entries={entries} extra={alone ? <InviteTile channelId={channelId} /> : null} />
         )}
       </div>
 
-      <CallControls />
+      <div data-stage-chrome className={CHROME}>
+        <CallControls />
+      </div>
+    </div>
+  );
+}
+
+/** Fare durunca gizlenen sahne öğeleri (başlık, kontroller, ad etiketleri); animasyon azaltılmışsa anında */
+const CHROME =
+  'transition-opacity duration-300 ease-out motion-reduce:transition-none group-data-[idle]/stage:pointer-events-none group-data-[idle]/stage:opacity-0';
+/** Fare hareketsiz kalınca sahne öğeleri bu kadar sonra gizlenir */
+const CHROME_IDLE_MS = 2500;
+/** Fare sahneden çıkınca */
+const CHROME_LEAVE_MS = 400;
+
+/**
+ * Sahnenin "boşta" durumu (Discord gibi): fare sahnede hareket edince ya da klavye kullanılınca öğeler
+ * belirir, hareketsiz kalınca veya fare sahneden çıkınca kaybolur. Kontrollerde klavye odağı varken ya da
+ * bir menü/pencere açıkken gizlenmez.
+ */
+function useStageChrome(rootRef: RefObject<HTMLDivElement | null>, enabled: boolean): boolean {
+  const [idle, setIdle] = useState(false);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!enabled || !root) return;
+    let timer = 0;
+    const held = (): boolean => {
+      const ui = useUi.getState();
+      return (
+        ui.contextMenu !== null ||
+        ui.modal !== null ||
+        root.querySelector('[data-stage-chrome] :focus-visible') !== null ||
+        root.querySelector('[data-stage-chrome] [aria-expanded="true"]') !== null
+      );
+    };
+    const hideAfter = (ms: number): void => {
+      window.clearTimeout(timer);
+      const check = (): void => {
+        if (held()) timer = window.setTimeout(check, 500);
+        else setIdle(true);
+      };
+      timer = window.setTimeout(check, ms);
+    };
+    const wake = (): void => {
+      setIdle(false);
+      hideAfter(CHROME_IDLE_MS);
+    };
+    const leave = (): void => hideAfter(CHROME_LEAVE_MS);
+    root.addEventListener('pointermove', wake);
+    root.addEventListener('pointerdown', wake);
+    root.addEventListener('keydown', wake);
+    root.addEventListener('focusin', wake);
+    root.addEventListener('pointerleave', leave);
+    hideAfter(CHROME_IDLE_MS);
+    return () => {
+      window.clearTimeout(timer);
+      root.removeEventListener('pointermove', wake);
+      root.removeEventListener('pointerdown', wake);
+      root.removeEventListener('keydown', wake);
+      root.removeEventListener('focusin', wake);
+      root.removeEventListener('pointerleave', leave);
+      setIdle(false);
+    };
+  }, [enabled, rootRef]);
+  return enabled && idle;
+}
+
+/** Kanalda yalnızken: arkadaş davet etme çağrısı (yetki varsa) */
+function InviteTile({ channelId }: { channelId: string }) {
+  const sameGuild = useGuild((s) => s.channelGuild[channelId] === s.activeGuildId);
+  const canCreate = useCan(Permission.CREATE_INVITE);
+  const canManage = useCan(Permission.MANAGE_INVITES);
+  const openModal = useUi((s) => s.openModal);
+  const canInvite = sameGuild && (canCreate || canManage);
+  return (
+    <div className="relative flex h-full w-full flex-col items-center justify-center gap-4 overflow-hidden rounded-lg border border-dashed border-edge bg-bg-rail/40 p-4 text-center">
+      {/* Kendi çizimimiz: ortadaki simgeden yayılan halkalar */}
+      <div className="relative flex h-20 w-20 items-center justify-center">
+        <span className="absolute inset-0 rounded-full border border-brand/25" />
+        <span className="absolute inset-3 rounded-full border border-brand/40" />
+        <span className="relative flex h-11 w-11 items-center justify-center rounded-full bg-brand/15 text-brand">
+          <UserPlus size={22} aria-hidden />
+        </span>
+      </div>
+      <div className="space-y-1">
+        <div className="font-semibold text-text-head">Burada şimdilik yalnızsın</div>
+        <div className="text-sm text-text-muted">
+          {canInvite ? 'Arkadaşlarını sohbete çağır.' : 'Biri katılınca burada görünecek.'}
+        </div>
+      </div>
+      {canInvite && (
+        <button
+          type="button"
+          onClick={() => openModal({ type: 'invite' })}
+          className="press flex items-center gap-2 rounded bg-bg-raised px-4 py-2 text-sm font-medium text-text-head transition-colors hover:bg-bg-raised-hover"
+        >
+          <UserPlus size={16} aria-hidden /> Sesli Sohbete Davet Et
+        </button>
+      )}
     </div>
   );
 }
@@ -138,7 +248,7 @@ function FocusedStage({ focused, entries }: { focused: string; entries: Presence
       <div className="min-h-0 flex-1">
         <StreamView userId={focused} large />
       </div>
-      <div className="flex h-7 shrink-0 items-center justify-center">
+      <div data-stage-chrome className={cn('flex h-7 shrink-0 items-center justify-center', CHROME)}>
         <button
           type="button"
           data-tooltip={label}
@@ -283,9 +393,9 @@ function tileAnimation(phase: PresencePhase): string | undefined {
   return phase === 'enter' ? 'anim-tile-in' : phase === 'exit' ? 'anim-tile-out' : undefined;
 }
 
-function TileGrid({ entries }: { entries: PresenceEntry<Tile>[] }) {
+function TileGrid({ entries, extra }: { entries: PresenceEntry<Tile>[]; extra?: ReactNode }) {
   // Kapanmakta olanlar sütun sayısını etkilemesin
-  const count = entries.filter((e) => e.phase !== 'exit').length;
+  const count = entries.filter((e) => e.phase !== 'exit').length + (extra ? 1 : 0);
   const cols = count <= 1 ? 1 : count <= 4 ? 2 : count <= 9 ? 3 : 4;
   return (
     <div
@@ -297,6 +407,7 @@ function TileGrid({ entries }: { entries: PresenceEntry<Tile>[] }) {
           <TileView tile={t} />
         </div>
       ))}
+      {extra && <div className="anim-tile-in mx-auto aspect-video w-full max-w-[720px]">{extra}</div>}
     </div>
   );
 }
@@ -358,7 +469,12 @@ function ParticipantTile({ state, compact }: { state: VoiceState; compact?: bool
         decoration={user?.avatarDecoration}
         liteDecoration
       />
-      <div className="absolute bottom-2 left-2 flex max-w-[85%] items-center gap-1.5 rounded bg-black/50 px-2 py-0.5 text-sm text-white">
+      <div
+        className={cn(
+          'absolute bottom-2 left-2 flex max-w-[85%] items-center gap-1.5 rounded bg-black/50 px-2 py-0.5 text-sm text-white',
+          CHROME,
+        )}
+      >
         <VoiceStateIcons state={state} localMuted={localMuted} size={14} />
         <span className="truncate" style={color ? { color } : undefined}>
           {user?.displayName}
