@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SpuriousDuplicateGuard } from '../src/voiceDiagnostics';
+
+const reported = vi.hoisted(() => [] as { message: string; where: string }[]);
+vi.mock('../src/errors', () => ({
+  reportClientError: (err: Error, where: string) => reported.push({ message: err.message, where }),
+}));
+
+import { reportVoiceLog, SpuriousDuplicateGuard } from '../src/voiceDiagnostics';
 
 afterEach(() => vi.useRealTimers());
 
@@ -22,5 +28,20 @@ describe('yeniden bağlanma sonrası "başka cihaz" uyarısı', () => {
     expect(guard.shouldRejoin(true)).toBe(false);
     guard.noteReconnect();
     expect(guard.shouldRejoin(true)).toBe(true);
+  });
+});
+
+describe('LiveKit uyarılarının bildirimi', () => {
+  it('sesten çıktıktan sonra eski bağlantının uyarıları bildirilmez; seste bildirilir', () => {
+    reported.length = 0;
+    reportVoiceLog(3, 3, 'ping timeout triggered. last pong received at: …', { room: 'ch_x' }, false);
+    expect(reported).toEqual([]);
+    reportVoiceLog(3, 3, 'ping timeout triggered', undefined, true);
+    expect(reported).toHaveLength(1);
+    // Başka türden hatalar seste olmasa da bildirilir; uyarı seviyesinin altı hiç bildirilmez
+    reportVoiceLog(4, 3, 'could not publish track', undefined, false);
+    reportVoiceLog(2, 3, 'ping timeout', undefined, true);
+    expect(reported.map((r) => r.message)).toEqual(['ping timeout triggered', 'could not publish track']);
+    expect(reported.every((r) => r.where === 'livekit')).toBe(true);
   });
 });

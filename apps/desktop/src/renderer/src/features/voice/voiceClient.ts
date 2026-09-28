@@ -1160,6 +1160,8 @@ class VoiceClient {
 }
 
 // LiveKit'in uyarıları sunucu kayıtlarına: kullanıcılardaki bağlantı sorunlarının nedenini görmek için
-setLogExtension((level, message, context) => reportVoiceLog(level, LogLevel.warn, message, context));
+setLogExtension((level, message, context) =>
+  reportVoiceLog(level, LogLevel.warn, message, context, useVoice.getState().status !== 'idle'),
+);
 
 export const voice = new VoiceClient();

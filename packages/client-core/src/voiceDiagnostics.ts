@@ -14,12 +14,23 @@ function describe(context: unknown): string {
 
 /**
  * LiveKit istemcisinin uyarı ve hatalarını sunucu kayıtlarına gönderir (bağlantı sorunlarının nedenini
- * görmek için). Platform, livekit-client'ın setLogExtension'ına bunu verir.
+ * görmek için). Platform, livekit-client'ın setLogExtension'ına bunu verir. `inVoice`: şu an seste mi;
+ * sesten çıkıldıktan sonra kapatılmış bağlantının geç gelen uyarıları (ör. "ping timeout") hata sayılmaz.
  */
-export function reportVoiceLog(level: number, warnLevel: number, message: string, context?: unknown): void {
+export function reportVoiceLog(
+  level: number,
+  warnLevel: number,
+  message: string,
+  context?: unknown,
+  inVoice = true,
+): void {
   if (level < warnLevel) return;
+  if (!inVoice && AFTER_LEAVE.test(message)) return;
   reportClientError(new Error(`${message}${describe(context)}`), 'livekit');
 }
+
+/** Sesten çıkınca eski bağlantıdan gelebilen, sorun olmayan uyarılar */
+const AFTER_LEAVE = /ping timeout|websocket closed|could not (send|receive)|signal.*(closed|disconnect)/i;
 
 /**
  * "Bu hesapla başka bir cihazdan bağlanıldı" (DUPLICATE_IDENTITY) çoğu zaman gerçekten başka bir cihaz
