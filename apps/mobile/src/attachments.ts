@@ -138,6 +138,14 @@ function downloadError(err: unknown): string {
     : message;
 }
 
+/** Uygulama yükleyicisini tetikleyen MIME türü (gizlenmiş tür için dosya adına da bakılır aşağıda) */
+const APK_MIME = 'application/vnd.android.package-archive';
+
+/** Bu ek bir Android APK'sı mı (bildirilen tür ya da dosya adının uzantısı) */
+function isApk(attachment: Attachment): boolean {
+  return attachment.contentType === APK_MIME || /\.apk$/i.test(attachment.name);
+}
+
 /** Dosyayı önbelleğe indirir ve Android'in "Birlikte aç" seçimiyle uygun uygulamada açar. */
 export async function openAttachment(attachment: Attachment): Promise<void> {
   if (busy.has(attachment.id)) return;
@@ -149,9 +157,15 @@ export async function openAttachment(attachment: Attachment): Promise<void> {
       await Share.share({ url: target });
       return;
     }
+    // Başka bir üyenin gönderdiği APK: uygulama kendi güncellemeleri için "bilinmeyen kaynaktan
+    // yükleme" iznine sahip, VIEW niyeti bildirilen türle (application/vnd.android.package-archive)
+    // açılırsa doğrudan yükleme ekranına düşer. Tür gizlenmiş olsa da (.apk uzantılı farklı bir
+    // MIME) burada asıl tür yok sayılıp genel bir dosya türüyle açılır: yükleyici hiç tetiklenmez,
+    // Android "bununla aç" seçtiricisini (dosya yöneticisi vb.) gösterir.
+    const type = isApk(attachment) ? 'application/octet-stream' : attachment.contentType || '*/*';
     await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
       data: await FileSystem.getContentUriAsync(target),
-      type: attachment.contentType || '*/*',
+      type,
       // FLAG_GRANT_READ_URI_PERMISSION: açan uygulama dosyayı okuyabilsin
       flags: 1,
     });
