@@ -35,7 +35,14 @@ import {
   SEARCH_TOTAL_CAP,
   type SearchHas,
 } from '@diskort/shared';
-import { AVATAR_COLORS, PROFILE_EFFECTS, type ProfileEffect, type ProfileTheme } from '@diskort/shared';
+import {
+  AVATAR_COLORS,
+  isCosmeticSet,
+  isLegacyProfileEffect,
+  type Nameplate,
+  type ProfileEffect,
+  type ProfileTheme,
+} from '@diskort/shared';
 import { FEEDBACK_MIGRATION } from './feedbackStore.js';
 import { ADMIN_HISTORY_MIGRATION } from './voiceHistory.js';
 
@@ -411,6 +418,11 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE users ADD COLUMN avatar_decoration TEXT;
   ALTER TABLE users ADD COLUMN profile_frame TEXT;
   `,
+  // 22: hareketli kozmetik setleri. nameplate: üye listesindeki isim plakası (bkz. NAMEPLATES), boş başlar.
+  // Set efektleri profile_effect'e, hareketli dekorasyonlar (anim:<set>) avatar_decoration'a yazılır.
+  `
+  ALTER TABLE users ADD COLUMN nameplate TEXT;
+  `,
 ];
 
 type Param = string | number | null;
@@ -441,6 +453,7 @@ interface UserRow {
   profile_effect: string | null;
   avatar_decoration: string | null;
   profile_frame: string | null;
+  nameplate: string | null;
 }
 
 interface RoleRow {
@@ -756,11 +769,12 @@ export class Store {
       avatarUrl: r.avatar_hash ? `/api/avatars/${r.id}/${r.avatar_hash}.webp` : null,
       bannerUrl: r.banner_hash ? `/api/banners/${r.id}/${r.banner_hash}.webp` : null,
       profileTheme: r.theme_primary && r.theme_accent ? { primary: r.theme_primary, accent: r.theme_accent } : null,
-      profileEffect: (PROFILE_EFFECTS as readonly string[]).includes(r.profile_effect ?? '')
-        ? (r.profile_effect as ProfileEffect)
-        : null,
+      // Tek efekt saklanır; eski istemciler yeni kimlikte çöktüğünden set efekti ayrı alanda gider
+      profileEffect: isLegacyProfileEffect(r.profile_effect) ? r.profile_effect : null,
+      animatedEffect: isCosmeticSet(r.profile_effect) ? r.profile_effect : null,
       avatarDecoration: r.avatar_decoration,
       profileFrame: r.profile_frame,
+      nameplate: isCosmeticSet(r.nameplate) ? r.nameplate : null,
       isAdmin: r.is_admin === 1,
     };
   }
@@ -935,6 +949,7 @@ export class Store {
       profileEffect?: ProfileEffect | null;
       avatarDecoration?: string | null;
       profileFrame?: string | null;
+      nameplate?: Nameplate | null;
     },
   ): User | null {
     if (patch.displayName !== undefined) this.run('UPDATE users SET display_name = ? WHERE id = ?', patch.displayName, id);
@@ -952,6 +967,7 @@ export class Store {
       this.run('UPDATE users SET avatar_decoration = ? WHERE id = ?', patch.avatarDecoration, id);
     }
     if (patch.profileFrame !== undefined) this.run('UPDATE users SET profile_frame = ? WHERE id = ?', patch.profileFrame, id);
+    if (patch.nameplate !== undefined) this.run('UPDATE users SET nameplate = ? WHERE id = ?', patch.nameplate, id);
     return this.getUser(id);
   }
 

@@ -1,4 +1,4 @@
-import { AVATAR_MAX_BYTES, type ApiErrorBody, type Attachment, type ProfileEffect, type ProfileTheme, type User } from '@diskort/shared';
+import { AVATAR_MAX_BYTES, type ApiErrorBody, type Attachment, type Nameplate, type ProfileEffect, type ProfileTheme, type User } from '@diskort/shared';
 import { api, ApiError, normalizeServerUrl } from './api';
 import { env, type LocalFile, type UploadRequest, type UploadResponse } from './env';
 import { useGuild } from './guild';
@@ -141,6 +141,7 @@ export async function updateProfileLook(patch: {
   profileEffect?: ProfileEffect | null;
   avatarDecoration?: string | null;
   profileFrame?: string | null;
+  nameplate?: Nameplate | null;
 }): Promise<User> {
   const user = await api.updateMe(patch);
   applyOwnUser(user);

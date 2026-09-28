@@ -3,8 +3,11 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   AVATAR_COLORS,
+  COSMETIC_SET_LABELS,
+  isCosmeticSet,
+  isLegacyProfileEffect,
+  LEGACY_PROFILE_EFFECTS,
   PROFILE_EFFECT_LABELS,
-  PROFILE_EFFECTS,
   type ProfileEffect,
   type ProfileTheme,
 } from '@diskort/shared';
@@ -65,7 +68,8 @@ export function ProfileSettings() {
         user={{
           ...user,
           profileTheme: look.theme,
-          profileEffect: look.effect,
+          // Telefon şimdilik yalnızca eski efektleri çizer (hareketli setler masaüstünde)
+          profileEffect: isLegacyProfileEffect(look.effect) ? look.effect : null,
           avatarDecoration: look.decoration,
           profileFrame: look.frame,
         }}
@@ -183,11 +187,18 @@ export function ProfileSettings() {
       <SectionTitle>Profil efekti</SectionTitle>
       <Card style={styles.pad}>
         <Text style={styles.hint}>Profil kartında oynayan hafif bir süs.</Text>
+        {look.effectSet && (
+          <Text style={styles.hint}>
+            Masaüstünde seçilen hareketli efekt açık: {COSMETIC_SET_LABELS[look.effectSet]}. Telefonda henüz
+            görünmez; Yok ile kaldırabilir ya da başka bir efekt seçebilirsin.
+          </Text>
+        )}
         <Choices
           label="Profil efekti"
           options={EFFECT_OPTIONS}
-          value={look.effect ?? 'none'}
-          onChange={(value) => look.setEffect(value === 'none' ? null : value)}
+          // Hareketli set efekti açıkken hiçbir seçenek seçili görünmez: Yok ona dokununca kaldırır
+          value={look.effectSet ? 'set' : (look.effect ?? 'none')}
+          onChange={(value) => look.setEffect(value === 'none' || value === 'set' ? null : value)}
         />
       </Card>
 
@@ -215,9 +226,10 @@ export function ProfileSettings() {
   );
 }
 
-const EFFECT_OPTIONS: readonly { value: ProfileEffect | 'none'; label: string }[] = [
+const EFFECT_OPTIONS: readonly { value: ProfileEffect | 'none' | 'set'; label: string }[] = [
   { value: 'none', label: 'Yok' },
-  ...PROFILE_EFFECTS.map((value) => ({ value, label: PROFILE_EFFECT_LABELS[value] })),
+  // Hareketli set efektleri telefonda henüz çizilmiyor: yalnızca eski efektler sunulur
+  ...LEGACY_PROFILE_EFFECTS.map((value) => ({ value, label: PROFILE_EFFECT_LABELS[value] })),
 ];
 
 const sameTheme = (a: ProfileTheme | null, b: ProfileTheme | null): boolean =>
@@ -292,6 +304,8 @@ function useProfileLook() {
   return {
     theme: pick('profileTheme'),
     effect: pick('profileEffect'),
+    // Masaüstünde seçilmiş hareketli set efekti (telefon henüz çizmez); efekt seçilince taslak onun yerine geçer
+    effectSet: !('profileEffect' in draft) && isCosmeticSet(user?.animatedEffect) ? user.animatedEffect : null,
     decoration: pick('avatarDecoration'),
     frame: pick('profileFrame'),
     setTheme: (profileTheme: ProfileTheme | null) => save({ profileTheme }),

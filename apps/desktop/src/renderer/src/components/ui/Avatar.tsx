@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { AVATAR_DECORATION_SCALE, STATUS_LABELS, type User } from '@diskort/shared';
+import { animatedDecorationSet, AVATAR_DECORATION_SCALE, STATUS_LABELS, type User } from '@diskort/shared';
 import { avatarUrl, useCosmeticUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
 import { cn, initials } from '../../lib/utils';
+import { AnimatedDecoration } from '../cosmetics/Cosmetics';
 import { StatusIcon } from './StatusIcon';
 
 interface Props {
@@ -16,8 +17,18 @@ interface Props {
   ringClassName?: string;
   /** Halkanın rengi sınıfla verilemiyorsa (ör. temalı profil kartı); ringClassName'in önüne geçer */
   ringColor?: string;
-  /** Avatar dekorasyonunun kimliği (user.avatarDecoration): avatarın üstüne, yerleşimi değiştirmeden çizilir */
+  /**
+   * Avatar dekorasyonunun kimliği (user.avatarDecoration): avatarın üstüne, yerleşimi değiştirmeden çizilir.
+   * Hareketli dekorasyon (anim:<set>) profil boyunda oynar, küçük avatarda sabit bir halkadır.
+   */
   decoration?: string | null;
+  /** Hareketli dekorasyon küçük avatarda da oynasın (ayarlardaki seçici) */
+  animateDecoration?: boolean;
+  /**
+   * Hareketli dekorasyonu hafif çiz (sesli sahne: düşük kare hızı; yalnızca konuşurken oynar, değilse sabit
+   * kare)
+   */
+  liteDecoration?: boolean;
   className?: string;
 }
 
@@ -30,6 +41,8 @@ export function Avatar({
   ringClassName = 'bg-bg-panel',
   ringColor,
   decoration,
+  animateDecoration,
+  liteDecoration,
   className,
 }: Props) {
   // 32 piksellik avatarda 10 piksellik nokta, 3 piksellik halka; büyük avatarda (profil) orantılı daha küçük
@@ -40,7 +53,8 @@ export function Avatar({
   const src = avatarUrl(user);
   // Yüklenemeyen fotoğrafın yerine baş harfler (adres değişince yeniden denenir)
   const [failed, setFailed] = useState<string | null>(null);
-  const decorationSrc = useCosmeticUrl('decorations', decoration);
+  const animatedSet = animatedDecorationSet(decoration);
+  const decorationSrc = useCosmeticUrl('decorations', animatedSet ? null : decoration);
   const over = (size * (AVATAR_DECORATION_SCALE - 1)) / 2;
   return (
     <div className={cn('relative shrink-0', className)} style={{ width: size, height: size }}>
@@ -72,6 +86,14 @@ export function Avatar({
           decoding="async"
           className="pointer-events-none absolute max-w-none select-none"
           style={{ left: -over, top: -over, width: size + 2 * over, height: size + 2 * over }}
+        />
+      )}
+      {animatedSet && (
+        <AnimatedDecoration
+          set={animatedSet}
+          size={size}
+          animate={animateDecoration}
+          lite={liteDecoration ? (speaking ? 'on' : 'paused') : undefined}
         />
       )}
       {shown !== undefined && (

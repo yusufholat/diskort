@@ -75,3 +75,16 @@
     display: none;
   }
 }
+
+/* İsim plakalı satırın yazıları (components/cosmetics): plaka koyu ve hareketli, yazı her temada okunur
+   kalsın. Rol rengi satırın kendi stilinden gelir (önce gelir), yoksa beyaz. */
+.nameplate-text {
+  color: #fff;
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.9),
+    0 0 10px rgb(0 0 0 / 0.55);
+}
+.nameplate-sub {
+  color: #e3e5e8;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.9);
+}

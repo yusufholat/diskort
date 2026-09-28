@@ -1,7 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight, Pencil, Plus, Smile, X } from 'lucide-react';
 import { create } from 'zustand';
-import { STATUS_DESCRIPTIONS, STATUS_DURATIONS, STATUS_LABELS, type UserStatus } from '@diskort/shared';
+import {
+  STATUS_DESCRIPTIONS,
+  STATUS_DURATIONS,
+  STATUS_LABELS,
+  userProfileEffect,
+  type UserStatus,
+} from '@diskort/shared';
 import {
   formatRemaining,
   setCustomStatus,
@@ -190,7 +196,7 @@ export function SelfProfilePopout() {
           />
         </div>
       </div>
-      <ProfileEffectLayer effect={user.profileEffect} className="rounded-lg" />
+      <ProfileEffectLayer effect={userProfileEffect(user)} className="rounded-lg" />
       <ProfileFrameLayer frame={user.profileFrame} />
     </div>
   );

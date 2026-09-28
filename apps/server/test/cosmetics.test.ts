@@ -115,4 +115,31 @@ describe('kozmetik kataloğu', () => {
     expect(cleared.avatarDecoration).toBeNull();
     expect(cleared.profileFrame).toBeNull();
   });
+
+  it('hareketli set parçaları: efekt ayrı alanda döner, anim: dekorasyonu ve isim plakası kaydedilir', async () => {
+    const { token } = await member();
+    const patch = (payload: object) => app.inject({ method: 'PATCH', url: '/api/me', headers: auth(token), payload });
+
+    const ok = await patch({ profileEffect: 'karadelik', avatarDecoration: 'anim:sakura', nameplate: 'neon' });
+    expect(ok.statusCode).toBe(200);
+    // Eski istemciler tanımadıkları efekt kimliğinde çöker: set efekti profileEffect'te hiç gönderilmez
+    expect(ok.json()).toMatchObject({
+      profileEffect: null,
+      animatedEffect: 'karadelik',
+      avatarDecoration: 'anim:sakura',
+      nameplate: 'neon',
+    });
+    // Eski efekt seçilince set efektinin yerine geçer (tek efekt)
+    expect((await patch({ profileEffect: 'snow' })).json()).toMatchObject({ profileEffect: 'snow', animatedEffect: null });
+
+    expect((await patch({ avatarDecoration: 'anim:olmayan' })).statusCode).toBe(400);
+    expect((await patch({ avatarDecoration: 'anim:' })).statusCode).toBe(400);
+    expect((await patch({ nameplate: 'olmayan' })).statusCode).toBe(400);
+    expect((await patch({ nameplate: 'anim:neon' })).statusCode).toBe(400);
+
+    // Yalnızca verilen alan değişir; null kaldırır
+    expect((await patch({ displayName: 'Üye' })).json()).toMatchObject({ nameplate: 'neon', avatarDecoration: 'anim:sakura' });
+    const cleared = (await patch({ nameplate: null, avatarDecoration: null, profileEffect: null })).json() as User;
+    expect(cleared).toMatchObject({ nameplate: null, avatarDecoration: null, profileEffect: null, animatedEffect: null });
+  });
 });
