@@ -7,7 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { flushAcks, gateway, reportClientError, useMessages, useSession } from '@diskort/client-core';
-import { hasDraftText } from '../components/Composer';
+import { hasDraftText, hasOpenEdit } from '../components/Composer';
 import { DialogHost } from '../components/Dialog';
 import { GuildMenuHost } from '../components/GuildMenu';
 import { StatusPickerHost } from '../components/StatusPicker';
@@ -27,18 +27,47 @@ void SplashScreen.preventAutoHideAsync();
 /** İşlenmiş bildirim dokunuşları (bileşenden uzun yaşar: Android ekranı yeniden kurunca da hatırlanır) */
 const handledNotificationResponses = new Set<string>();
 
-/** Yarım kalan taslak ya da gönderilmeyi bekleyen dosya var mı: varsa arka plandaki OTA yeniden başlatması ertelenir */
+/**
+ * Yarım kalan taslak, açık bir düzenleme, gönderilmeyi bekleyen dosya ya da henüz sunucuya ulaşmamış
+ * (durumu 'pending') bir mesaj var mı: varsa arka plandaki OTA yeniden başlatması ertelenir. Gönderilen
+ * bir mesaj sunucudan onay bekleyebilir; bu sırada geçmişte yalnızca bellekte durur, yeniden başlatma
+ * onu kaybettirirdi.
+ */
 function hasPendingComposerState(): boolean {
-  if (hasDraftText()) return true;
-  return Object.values(useMessages.getState().pendingFiles).some((files) => files.length > 0);
+  if (hasDraftText() || hasOpenEdit()) return true;
+  if (Object.values(useMessages.getState().pendingFiles).some((files) => files.length > 0)) return true;
+  return Object.values(useMessages.getState().channels).some((c) => c.messages.some((m) => m.status === 'pending'));
 }
 
-/** İndirilmiş arayüz güncellemesini uygular; sesli sohbet sürüyorsa ya da yarım kalan taslak/dosya varsa bekler. */
-function tryApplyOta(): void {
+/** Aynı anda iki reloadAsync çağrısı başlamasın (öne gelme ve 4 saniyelik deneme çakışabilir) */
+let applyingOta = false;
+/** Öne gelişte ertelenen bir güncelleme var mı: yalnızca bu true iken aralık yeniden dener (bkz. retryDeferredOta) */
+let deferredOta = false;
+
+/**
+ * İndirilmiş arayüz güncellemesini koşullar uygunsa uygular; değilse yalnızca ertelendiğini işaretler
+ * (asıl deneme öne gelme geçişinde ya da retryDeferredOta ile olur).
+ */
+function attemptApplyOta(): void {
+  if (applyingOta) return;
   if (useAppUpdate.getState().ota.kind !== 'downloaded') return;
-  if (useVoice.getState().status !== 'idle') return;
-  if (hasPendingComposerState()) return;
+  if (useVoice.getState().status !== 'idle' || hasPendingComposerState()) {
+    deferredOta = true;
+    return;
+  }
+  deferredOta = false;
+  applyingOta = true;
   void applyOta();
+}
+
+/**
+ * Yalnızca öne gelişte ertelenmiş bir güncelleme varsa dener. Uygulama sürekli önde kalırken (arka
+ * plana hiç geçmeden) inen bir güncelleme bu yüzden kullanıcıyı hemen bölmez; bir sonraki öne gelişe
+ * ya da taslak/düzenleme/gönderim bitene kadar bekler.
+ */
+function retryDeferredOta(): void {
+  if (!deferredOta) return;
+  attemptApplyOta();
 }
 
 /**
@@ -100,19 +129,22 @@ export default function RootLayout() {
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
       // Arka planda inen arayüz güncellemesi uygulamaya dönünce uygulanır (sesli sohbet bölünmez,
-      // yarım kalan taslak/dosya da bölünmez: bkz. tryApplyOta aşağıda)
-      if (useAppUpdate.getState().ota.kind === 'downloaded' && useVoice.getState().status === 'idle') tryApplyOta();
+      // yarım kalan taslak/düzenleme/dosya/gönderim de bölünmez: bkz. attemptApplyOta yukarısı).
+      // Uygun değilse yalnızca "ertelendi" olarak işaretlenir; asıl deneme retryDeferredOta'da.
+      if (useAppUpdate.getState().ota.kind === 'downloaded') attemptApplyOta();
       else void checkForUpdate();
     });
     return () => sub.remove();
   }, []);
 
-  // İndirilmiş güncelleme taslak/dosya yüzünden ertelendiyse (yukarıdaki AppState dinleyicisi yalnızca
-  // öne gelince tetiklenir; taslak uygulama önde kalırken de boşalabilir) birkaç saniyede bir denenir.
-  // Güncelleme asla düşürülmez, yalnızca boşalana kadar geciktirilir.
+  // Öne gelişte ertelenen bir güncelleme varsa (taslak/düzenleme/gönderim o sırada sürüyordu) birkaç
+  // saniyede bir yeniden denenir; sürekli önde kalan bir uygulamada boşalır boşalmaz uygulanır. Hiç
+  // ertelenmediyse (deferredOta false) bu döngü hiçbir şey yapmaz: uygulama sürekli öndeyken inen bir
+  // güncelleme kullanıcıyı hemen bölmez, yalnızca bir sonraki öne gelişte denenir. Güncelleme asla
+  // düşürülmez, yalnızca boşalana/öne gelinene kadar geciktirilir.
   useEffect(() => {
     if (!ready) return;
-    const timer = setInterval(() => tryApplyOta(), 4000);
+    const timer = setInterval(() => retryDeferredOta(), 4000);
     return () => clearInterval(timer);
   }, [ready]);
 
