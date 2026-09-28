@@ -141,19 +141,98 @@ export function decodeHtml(data: Buffer, headerCharset: string | null): string {
   }
 }
 
+// Tarama sınırı: 1 MB'lık gövdenin tamamı taranmaz; <head> bölgesi (ilk <body'ye kadar) en fazla bu
+// kadar karakterdir. Büyük satır içi CSS/JS barındıran sayfalarda etiketler geride kalabildiği için
+// sınır 64 KB'den geniş tutuldu; tarayıcı doğrusal olduğundan maliyeti küçüktür.
+export const HEAD_SCAN_MAX = 256 * 1024;
+// Tek bir <meta> etiketinin öznitelik metni bundan uzunsa yok sayılır (öznitelik ifadesi uzun ve
+// kapanmamış tırnaklarda karesel çalışabilir; gerçek etiketler birkaç KB'yi geçmez)
+const META_ATTRS_MAX = 8 * 1024;
+
+/**
+ * `pattern`in (g bayraklı) `from` konumundan sonraki ilk eşleşmesini bulur ve sonucu saklar: sonraki
+ * aramalar önceki sonuca kadar yeniden taramaz. Eşleşme hiç yoksa bu bir kez öğrenilir; böylece art arda
+ * gelen kapanmamış açılışlar (ör. binlerce "<!--") karesel değil doğrusal maliyetle geçilir.
+ */
+function forwardFinder(text: string, pattern: RegExp): (from: number) => { at: number; end: number } | null {
+  let cachedFrom = -1;
+  let cached: { at: number; end: number } | null = null;
+  return (from) => {
+    if (cachedFrom >= 0 && from >= cachedFrom && (cached === null || cached.at >= from)) return cached;
+    pattern.lastIndex = from;
+    const m = pattern.exec(text);
+    cachedFrom = from;
+    cached = m ? { at: m.index, end: m.index + m[0].length } : null;
+    return cached;
+  };
+}
+
+const OPEN_TAG = /<(!--|script\b|style\b|noscript\b|meta\b|title\b|body[\s>])/iy;
+
 /** Sayfanın önizleme bilgileri; `base` göreli adreslerin çözüleceği (son) adres */
 export function parseHtmlMeta(html: string, base: string): PageMeta {
-  let head = html
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, ' ')
-    .replace(/<style\b[\s\S]*?<\/style\s*>/gi, ' ')
-    .replace(/<noscript\b[\s\S]*?<\/noscript\s*>/gi, ' ');
-  const bodyAt = head.search(/<body[\s>]/i);
-  if (bodyAt > 0) head = head.slice(0, bodyAt);
+  // Doğrusal tarayıcı (tembel [\s\S]*? ifadeleri kapanmamış açılışlarda olay döngüsünü kilitliyordu):
+  // yorumlar ve betik/stil/noscript blokları atlanır, ilk <body'de durulur. Kapanmamış yorum/blok
+  // eskisi gibi olduğu yerde bırakılır (arkasındaki etiketler okunmaya devam eder).
+  const text = html.length > HEAD_SCAN_MAX ? html.slice(0, HEAD_SCAN_MAX) : html;
+  const closers = {
+    comment: forwardFinder(text, /-->/g),
+    script: forwardFinder(text, /<\/script\s*>/gi),
+    style: forwardFinder(text, /<\/style\s*>/gi),
+    noscript: forwardFinder(text, /<\/noscript\s*>/gi),
+    title: forwardFinder(text, /<\/title\s*>/gi),
+  };
+  const nextGt = forwardFinder(text, />/g);
+
+  const metaAttrs: string[] = [];
+  let titleOpenEnd = -1;
+  let stopAt = text.length;
+  let i = 0;
+  while (i < text.length) {
+    const lt = text.indexOf('<', i);
+    if (lt < 0) break;
+    OPEN_TAG.lastIndex = lt;
+    const m = OPEN_TAG.exec(text);
+    if (!m) {
+      i = lt + 1;
+      continue;
+    }
+    const kind = m[1]!.toLowerCase();
+    const after = lt + m[0].length;
+    if (kind === '!--') {
+      const close = closers.comment(after);
+      i = close ? close.end : lt + 1;
+    } else if (kind === 'script' || kind === 'style' || kind === 'noscript') {
+      const close = closers[kind](after);
+      i = close ? close.end : lt + 1;
+    } else if (kind === 'meta' || kind === 'title') {
+      const gt = nextGt(after);
+      if (!gt) break; // ileride hiç ">" yok: okunacak etiket kalmadı
+      if (kind === 'meta') {
+        const attrs = text.slice(after, gt.at);
+        if (attrs.length <= META_ATTRS_MAX) metaAttrs.push(attrs);
+      } else if (titleOpenEnd < 0) {
+        titleOpenEnd = gt.end;
+      }
+      i = gt.end;
+    } else {
+      // <body: en baştaki gövde etiketi eskisi gibi kesmez
+      if (lt > 0) {
+        stopAt = lt;
+        break;
+      }
+      i = lt + 1;
+    }
+  }
+  let titleTag: string | undefined;
+  if (titleOpenEnd >= 0) {
+    const close = closers.title(titleOpenEnd);
+    if (close && close.end <= stopAt) titleTag = text.slice(titleOpenEnd, close.at);
+  }
 
   const meta = new Map<string, string>();
-  for (const m of head.matchAll(/<meta\b([^>]*)>/gi)) {
-    const attrs = attributes(m[1]!);
+  for (const source of metaAttrs) {
+    const attrs = attributes(source);
     const key = (attrs.property ?? attrs.name ?? attrs.itemprop ?? '').trim().toLowerCase();
     const value = attrs.content;
     if (!key || value === undefined || meta.has(key)) continue;
@@ -166,7 +245,6 @@ export function parseHtmlMeta(html: string, base: string): PageMeta {
     }
     return null;
   };
-  const titleTag = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(head)?.[1];
 
   const image = absoluteUrl(
     get('og:image:secure_url', 'og:image', 'og:image:url', 'twitter:image', 'twitter:image:src', 'image'),

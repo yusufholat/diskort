@@ -253,6 +253,37 @@ describe('parseHtmlMeta', () => {
     ]);
     expect(parseHtmlMeta(decodeHtml(latin5, null), 'https://x.com/').title).toBe('Şşğ');
   });
+
+  it('kapanmamış açılışlarla dolu 1 MB sayfada olay döngüsünü kilitlemez (ReDoS)', () => {
+    const MB = 1024 * 1024;
+    const payloads = [
+      '<!--'.repeat(MB / 4),
+      '<script>'.repeat(MB / 8),
+      '<style>'.repeat(MB / 7),
+      '<noscript>'.repeat(MB / 10),
+      '<title>'.repeat(MB / 7),
+      '<meta'.repeat(MB / 5),
+      `<meta ${'a="'.repeat(MB / 3)}`,
+      `<title>x${'</title'.repeat(MB / 7)}`,
+    ];
+    for (const payload of payloads) {
+      const started = performance.now();
+      const meta = parseHtmlMeta(`<head><title>Başlık</title>${payload}`, 'https://x.com/');
+      expect(performance.now() - started).toBeLessThan(200);
+      expect(meta.title).toBe('Başlık');
+    }
+  });
+
+  it('yorum, betik ve gövdedeki etiketleri eskisi gibi yok sayar; kapanmamış yorumun ardı okunur', () => {
+    const html = `<head><!-- <meta property="og:title" content="Yorum"> -->
+      <style>a{}</style ><noscript><meta name="description" content="Gizli"></noscript>
+      <meta name="description" content="Gerçek"><!-- kapanmadı
+      <meta property="og:site_name" content="Site"></head><body><title>Gövde</title>`;
+    const meta = parseHtmlMeta(html, 'https://x.com/');
+    expect(meta.title).toBeNull();
+    expect(meta.description).toBe('Gerçek');
+    expect(meta.siteName).toBe('Site');
+  });
 });
 
 describe('YouTube ve X bağlantıları', () => {
