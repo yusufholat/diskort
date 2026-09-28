@@ -36,7 +36,6 @@ import { startDm } from '../../lib/dm';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { useMountedRef } from '../../lib/motion';
 import { cn } from '../../lib/utils';
-import { useSettings } from '../../stores/settings';
 import { toast, useUi, type EmojiPickerAnchor } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 import { downloadAttachment } from '../../features/messages/files';
@@ -98,8 +97,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
   const jumbo = isJumboEmoji(message.content);
   // Metni yalnızca GIPHY bağlantısı olan mesaj: bağlantı yerine GIF gösterilir
   const gif = gifOf(message);
-  // Bağlantı önizlemeleri (ayarlardan kapatılabilir; kaldırılmışsa hiç gelmez)
-  const showPreviews = useSettings((s) => s.linkPreviews);
+  // Bağlantı önizlemeleri (yazar ya da yönetici kaldırmışsa hiç gelmez)
   const linkEmbeds = visibleLinkEmbeds(message);
   // Yazma kutusunun üstünde bu mesaja yanıt veriliyor
   const replying = useMessages((s) => s.replies[message.channelId]?.messageId === message.id);
@@ -302,7 +300,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
           message.attachments.length > 0 && <AttachmentList attachments={message.attachments} />
         )}
 
-        {showPreviews && linkEmbeds.length > 0 && !editing && (
+        {linkEmbeds.length > 0 && !editing && (
           <LinkEmbeds embeds={linkEmbeds} dim={message.status === 'pending'} />
         )}
 

@@ -65,8 +65,6 @@ export interface Settings {
   theme: ThemeId;
   /** Kanal/konuşma listesinin genişliği (px); sohbetle arasındaki çizgi sürüklenerek değişir */
   sidebarWidth: number;
-  /** Mesajlardaki bağlantıların önizlemeleri (kart, YouTube, resim) gösterilsin mi */
-  linkPreviews: boolean;
 
   selfMute: boolean;
   selfDeaf: boolean;
@@ -108,7 +106,6 @@ const defaults: Settings = {
   pttSounds: false,
   theme: DEFAULT_THEME,
   sidebarWidth: SIDEBAR_WIDTH.default,
-  linkPreviews: true,
   selfMute: false,
   selfDeaf: false,
 };
@@ -156,7 +153,7 @@ export const useSettings = create<SettingsStore>()(
     }),
     {
       name: 'diskort-settings',
-      version: 11,
+      version: 12,
       storage: createJSONStorage(() => localStorage),
       partialize: ({ set: _set, ...rest }) => rest,
       // Sürüm 1 → 2: gürültü engelleme RNNoise → DeepFilterNet 3 (sanitize içinde)
@@ -187,6 +184,8 @@ export const useSettings = create<SettingsStore>()(
         }
         // 1440p60 kaldırıldı (sunucuya fazla ağır geldi); seçmiş olanlar en yüksek seçenek olan 1080p60'a geçer
         if (version < 11 && (s.screenPreset as string | undefined) === '1440p60') s.screenPreset = '1080p60';
+        // Bağlantı önizlemeleri artık hep gösterilir (ayar kaldırıldı)
+        if (version < 12) delete (s as Record<string, unknown>).linkPreviews;
         return s as Settings;
       },
       merge: (saved, current) => ({ ...current, ...sanitize((saved ?? {}) as Partial<Settings>) }),
