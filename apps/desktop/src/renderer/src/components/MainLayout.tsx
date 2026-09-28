@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { AudioLines } from 'lucide-react';
-import { dmTitle, gateway, useGuild, useSession } from '@diskort/client-core';
+import { dmTitle, gateway, takePendingInvite, useGuild, usePendingInvite, useSession } from '@diskort/client-core';
 import { voice } from '../features/voice/voiceClient';
 import { toast, useUi } from '../stores/ui';
 import { useVoice } from '../stores/voice';
@@ -59,6 +59,15 @@ export function MainLayout() {
     };
   }, [token]);
 
+  // Davet bağlantısıyla açıldıysa (diskort://davet/<kod>) katılma penceresi kodla hazır açılır; katılmak
+  // için yine Katıl'a basılır
+  const pendingInvite = usePendingInvite((s) => s.code);
+  useEffect(() => {
+    if (!ready || !pendingInvite) return;
+    const code = takePendingInvite();
+    if (code) useUi.getState().openModal({ type: 'addGuild', tab: 'join', code });
+  }, [ready, pendingInvite]);
+
   useEffect(() => {
     if (!voiceError) return;
     toast(voiceError, 'error');
@@ -94,7 +103,7 @@ export function MainLayout() {
         {modal?.type === 'newDm' && <NewDmModal addTo={modal.addTo} />}
         {modal?.type === 'renameDm' && <RenameDmModal channelId={modal.channelId} />}
         {modal?.type === 'feedback' && <FeedbackModal />}
-        {modal?.type === 'addGuild' && <AddGuildModal tab={modal.tab} code={modal.code} />}
+        {modal?.type === 'addGuild' && <AddGuildModal key={modal.code} tab={modal.tab} code={modal.code} />}
         {modal?.type === 'invite' && hasGuild && <InviteModal />}
         {modal?.type === 'customStatus' && <CustomStatusModal />}
         {modal?.type === 'reactions' && (

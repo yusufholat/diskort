@@ -118,6 +118,15 @@ export interface DiskortBridge {
     onChange(cb: (idle: boolean) => void): () => void;
   };
 
+  /**
+   * Uygulamayı açan davet bağlantıları (diskort://davet/<kod>). take() bekleyen kodu verir ve ana sürece
+   * arayüzün hazır olduğunu bildirir; sonraki bağlantılar onOpen ile gelir. Eski ana süreçte yoktur.
+   */
+  invites?: {
+    take(): Promise<string | null>;
+    onOpen(cb: (code: string) => void): () => void;
+  };
+
   screen: {
     /** Sistem sesi paylaşımı destekleniyor mu (şu an yalnızca Windows) */
     supportsAudio: boolean;

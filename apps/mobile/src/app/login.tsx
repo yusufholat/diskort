@@ -1,9 +1,19 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { parseInviteCode } from '@diskort/shared';
-import { api, errorMessage, normalizeServerUrl, useSession } from '@diskort/client-core';
+import {
+  api,
+  ApiError,
+  clearPendingInvite,
+  errorMessage,
+  keepIfGuildInvite,
+  normalizeServerUrl,
+  pendingInviteNotice,
+  refreshPendingInvitePreview,
+  usePendingInvite,
+  useSession,
+} from '@diskort/client-core';
 import { Button, FadeIn, Field, ui } from '../components/ui';
 import { animateNextLayout } from '../motion';
 import { DEFAULT_SERVER_URL, useSettings } from '../stores/settings';
@@ -18,13 +28,18 @@ const TITLES: Record<Mode, [string, string]> = {
 };
 
 export default function LoginScreen() {
-  // Davet bağlantısından (diskort://davet/<kod>) gelindiyse kayıt ekranı kodla hazır açılır
-  const params = useLocalSearchParams<{ code?: string }>();
-  const [mode, setMode] = useState<Mode>(params.code ? 'register' : 'login');
+  const [mode, setMode] = useState<Mode>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [code, setCode] = useState(params.code ?? '');
+  const [code, setCode] = useState('');
+  // Davet bağlantısıyla (diskort://davet/<kod>) açıldıysa: giriş yapınca "Sunucu ekle" bu kodla açılır.
+  // Kayda geçilmez: sunucu daveti hesap açtırmaz (hesap yalnızca hesap davetiyle açılır).
+  const inviteNotice = usePendingInvite(pendingInviteNotice);
+  useEffect(() => {
+    // Bağlantı istemci kurulmadan geldiyse sunucunun adı şimdi alınır
+    refreshPendingInvitePreview();
+  }, [inviteNotice]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -64,6 +79,8 @@ export default function LoginScreen() {
     } catch (err) {
       setError(errorMessage(err));
       setAttempt((n) => n + 1);
+      // Kayda sunucu daveti yazıldıysa kod saklanır: hesabı olan giriş yapınca o sunucuya katılabilir
+      if (mode === 'register' && err instanceof ApiError && err.code === 'invite') void keepIfGuildInvite(code);
     } finally {
       setBusy(false);
     }
@@ -89,6 +106,13 @@ export default function LoginScreen() {
           <View style={styles.card}>
             <Text style={styles.title}>{title}</Text>
             <Text style={styles.subtitle}>{subtitle}</Text>
+
+            {inviteNotice && (
+              <FadeIn style={styles.invite}>
+                <Text style={styles.inviteText}>{inviteNotice}</Text>
+                <Link text="Vazgeç" onPress={clearPendingInvite} muted />
+              </FadeIn>
+            )}
 
             {mode !== 'login' && (
               <Field
@@ -199,4 +223,6 @@ const styles = createStyles(() => ({
   title: { color: colors.head, fontSize: 24, fontWeight: '700', textAlign: 'center' },
   subtitle: { color: colors.muted, fontSize: 15, textAlign: 'center', marginTop: 6, marginBottom: 22 },
   links: { marginTop: 4 },
+  invite: { backgroundColor: colors.rail, borderRadius: 10, padding: 12, marginTop: -8, marginBottom: 18 },
+  inviteText: { color: colors.text, fontSize: 14.5, lineHeight: 20 },
 }));

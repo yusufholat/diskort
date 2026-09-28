@@ -1,4 +1,4 @@
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import {
   app,
   BrowserWindow,
@@ -22,6 +22,7 @@ import type {
   TrayAction,
   TrayState,
 } from '../shared/bridge';
+import { inviteCodeFromArgv, inviteCodeFromUrl } from './deepLink';
 import { registerFeedbackIpc } from './feedback';
 import { HotkeyManager } from './hotkeys';
 import { IdleMonitor } from './idle';
@@ -44,6 +45,46 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
 }
+
+// ---------- Davet bağlantıları (diskort://davet/<kod>) ----------
+
+const APP_PROTOCOL = 'diskort';
+/** Arayüze iletilmeyi bekleyen davet kodu (arayüz hazır olunca alır) */
+let pendingInviteCode: string | null = isMac ? null : inviteCodeFromArgv(process.argv);
+/** Arayüz davetleri dinliyor mu (sayfa yeniden yüklenince sıfırlanır) */
+let inviteListenerReady = false;
+
+/**
+ * Bağlantıyı yalnızca kurulu uygulama sahiplenir. Geliştirme sürümü kurulu uygulamanın bağlantısını
+ * çalmasın diye kaydolmaz; denemek için DISKORT_PROTOCOL_DEV=1 (sonra kurulu uygulama açılınca geri alır).
+ */
+function registerProtocol(): void {
+  if (app.isPackaged) {
+    app.setAsDefaultProtocolClient(APP_PROTOCOL);
+  } else if (process.env.DISKORT_PROTOCOL_DEV === '1' && process.defaultApp && process.argv[1]) {
+    app.setAsDefaultProtocolClient(APP_PROTOCOL, process.execPath, [resolve(process.argv[1])]);
+  }
+}
+
+/** Davet kodunu arayüze iletir (hazır değilse bekletir) ve pencereyi öne getirir. */
+function openInvite(code: string): void {
+  pendingInviteCode = code;
+  deliverInvite();
+  showWindow();
+}
+
+function deliverInvite(): void {
+  if (!pendingInviteCode || !mainWindow || !inviteListenerReady) return;
+  mainWindow.webContents.send('invite:open', pendingInviteCode);
+  pendingInviteCode = null;
+}
+
+// macOS bağlantıyı olayla verir (uygulama kapalıyken açılışta da); hazır olmadan önce dinlenmeli
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  const code = inviteCodeFromUrl(url);
+  if (code) openInvite(code);
+});
 
 // Pencere arka planda/küçültülmüşken ses işleme ve zamanlayıcılar yavaşlamasın.
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -211,6 +252,11 @@ function createWindow(launch: LaunchMode = 'normal'): void {
   });
   mainWindow.on('closed', () => {
     mainWindow = null;
+    inviteListenerReady = false;
+  });
+  // Sayfa (yeniden) yüklenirken arayüz davetleri henüz dinlemiyor; hazır olunca kendisi ister
+  mainWindow.webContents.on('did-start-loading', () => {
+    inviteListenerReady = false;
   });
   mainWindow.on('focus', () => {
     mainWindow?.flashFrame(false);
@@ -313,6 +359,13 @@ function registerIpc(): void {
     updateTrayMenu();
   });
   ipcMain.on('app:show-window', showWindow);
+  // Arayüz hazır: bekleyen davet kodunu alır, sonrakiler 'invite:open' ile gelir
+  ipcMain.handle('invite:take', () => {
+    inviteListenerReady = true;
+    const code = pendingInviteCode;
+    pendingInviteCode = null;
+    return code;
+  });
   // Dosya ekleri: Chromium'un indirme yöneticisi "Farklı kaydet" penceresini açar
   ipcMain.handle('app:download', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) mainWindow?.webContents.downloadURL(url);
@@ -383,7 +436,12 @@ function startIdleInstaller(): void {
 
 // ---------- Uygulama yaşam döngüsü ----------
 
-app.on('second-instance', showWindow);
+// İkinci açılış (ör. tarayıcıda "Uygulamada aç"): Windows/Linux bağlantıyı argüman olarak iletir
+app.on('second-instance', (_event, argv) => {
+  const code = inviteCodeFromArgv(argv);
+  if (code) openInvite(code);
+  else showWindow();
+});
 
 app.on('before-quit', () => {
   quitting = true;
@@ -400,6 +458,7 @@ app.on('activate', showWindow);
 void app.whenReady().then(async () => {
   if (isWindows) app.setAppUserModelId('com.diskort.app');
   Menu.setApplicationMenu(null);
+  registerProtocol();
 
   // YouTube çerçevesi yalnızca tam ekran isteyebilir; diğer izinler yalnızca uygulamanın kendisine
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => {

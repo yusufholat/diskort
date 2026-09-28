@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { gateway } from '@diskort/client-core';
+import { gateway, setPendingInvite } from '@diskort/client-core';
 import { bridge } from '../../lib/bridge';
 import { useSettings } from '../../stores/settings';
 import { toast } from '../../stores/ui';
@@ -16,6 +16,16 @@ export function useDesktopIntegration(): void {
     if (!idle) return;
     void idle.get().then((value) => gateway.setIdle(value), () => undefined);
     return idle.onChange((value) => gateway.setIdle(value));
+  }, []);
+
+  // Davet bağlantısı (diskort://davet/<kod>): kod bekletilir; oturum açıksa katılma penceresi açılır,
+  // değilse giriş ekranı "giriş yapınca katılacaksın" notunu gösterir (MainLayout, AuthScreen)
+  useEffect(() => {
+    const invites = bridge?.invites;
+    if (!invites) return;
+    const off = invites.onOpen((code) => setPendingInvite(code));
+    void invites.take().then((code) => code && setPendingInvite(code), () => undefined);
+    return off;
   }, []);
 
   // Global kısayol olayları → ses motoru

@@ -31,6 +31,10 @@ const bridge: DiskortBridge = {
     get: () => ipcRenderer.invoke('presence:get-idle'),
     onChange: (cb) => listen<boolean>('presence:idle', cb),
   },
+  invites: {
+    take: () => ipcRenderer.invoke('invite:take'),
+    onOpen: (cb) => listen<string>('invite:open', cb),
+  },
 
   screen: {
     supportsAudio: process.platform === 'win32',

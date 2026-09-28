@@ -88,12 +88,42 @@
         e.target.textContent = 'Kopyalandı';
       });
     });
-    // Android'de kurulu uygulama bağlantıyla açılır (katılma ekranı kodla hazır gelir)
+    // Kurulu uygulama bağlantıyla açılır ("Sunucuya katıl" kodla hazır gelir; oturum yoksa girişten sonra).
+    // Android'de Chrome intent:// ile açar; uygulama yoksa bu sayfaya ?uygulama=yok ile geri döner.
+    const open = document.getElementById('invite-open');
+    const fallback = document.getElementById('invite-fallback');
+    const appLink = `diskort://davet/${code}`;
     if (os === 'android') {
-      const open = document.getElementById('invite-open');
-      open.href = `diskort://davet/${code}`;
-      open.hidden = false;
+      const back = `${location.origin}/davet/${code}?uygulama=yok`;
+      open.href = `intent://davet/${code}#Intent;scheme=diskort;package=com.diskort.app;S.browser_fallback_url=${encodeURIComponent(back)};end`;
+    } else {
+      open.href = appLink;
     }
+    open.hidden = false;
+    // Açılmadıysa gösterilecek "İndir": bu cihaza uygun kurulum
+    const showFallback = () => {
+      // Mac işlemci türü sonradan öğrenilebildiği için adres gösterilirken belirlenir
+      const info = PLATFORM_INFO[os];
+      if (info) document.getElementById('invite-download').href = `/download/${info.asset}`;
+      fallback.hidden = false;
+    };
+    if (new URLSearchParams(location.search).get('uygulama') === 'yok') showFallback();
+    // Uygulama açılınca tarayıcı arka plana geçer (sayfa gizlenir ya da odağı kaybeder). ~2 sn sonra
+    // sayfa hâlâ öndeyse uygulama büyük olasılıkla kurulu değildir: yardım notu gösterilir.
+    let openTimer = 0;
+    const cancelOpenTimer = () => {
+      clearTimeout(openTimer);
+      openTimer = 0;
+    };
+    document.addEventListener('visibilitychange', () => document.hidden && cancelOpenTimer());
+    window.addEventListener('pagehide', cancelOpenTimer);
+    window.addEventListener('blur', cancelOpenTimer);
+    open.addEventListener('click', () => {
+      cancelOpenTimer();
+      openTimer = setTimeout(() => {
+        if (!document.hidden && document.hasFocus()) showFallback();
+      }, 1800);
+    });
     card.hidden = false;
     fetch(`/api/invites/${encodeURIComponent(code)}`, { headers: { Accept: 'application/json' } })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))

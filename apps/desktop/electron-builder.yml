@@ -19,6 +19,13 @@ files:
   - resources/**
   - package.json
 
+# Davet bağlantıları (diskort://davet/<kod>, indirme sayfasındaki "Uygulamada aç") uygulamayı açar.
+# macOS: CFBundleURLTypes; Linux: .desktop dosyasında x-scheme-handler/diskort. Windows'ta NSIS bunu
+# yazmaz: build/installer.nsh kaydeder, uygulama da açılışta setAsDefaultProtocolClient ile yeniler.
+protocols:
+  - name: Diskort
+    schemes: [diskort]
+
 # Chromium'un yalnızca Türkçe ve İngilizce dil dosyaları (~45 MB daha küçük kurulum ve güncelleme)
 electronLanguages: [tr, en-US]
 

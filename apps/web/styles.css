@@ -791,7 +791,8 @@ h3 {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.14);
 }
-.invite-card.invalid .invite-code {
+.invite-card.invalid .invite-code,
+.invite-card.invalid .invite-fallback {
   display: none;
 }
 .invite-head {
@@ -847,6 +848,17 @@ h3 {
   background: rgba(0, 0, 0, 0.35);
   font-size: 18px;
   letter-spacing: 2px;
+}
+.invite-fallback {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+.invite-fallback a {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
 }
 
 /* ---------- iPhone kaydı (/udid) ---------- */

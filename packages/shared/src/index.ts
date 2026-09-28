@@ -429,6 +429,18 @@ export function parseInviteCode(input: string): string | null {
   return /^[A-Z0-9]{4,32}$/.test(code) ? code : null;
 }
 
+/** Uygulamayı açan davet bağlantısının şeması: diskort://davet/<kod> */
+export const APP_LINK_SCHEME = 'diskort';
+
+/**
+ * Uygulamayı açan bağlantıdan davet kodu: diskort://davet/<kod> (masaüstü ve telefon). Telefonda yönlendirici
+ * yalnızca yolu da verebilir ("/davet/<kod>"). Başka her şey (başka şema, başka yol, geçersiz kod) null.
+ */
+export function parseInviteDeepLink(url: string): string | null {
+  const m = /^(?:diskort:\/{0,3}|\/)?davet\/([a-z0-9]+)\/?(?:[?#].*)?$/i.exec(url.trim());
+  return m?.[1] ? parseInviteCode(m[1]) : null;
+}
+
 // ---------- REST ----------
 
 export interface RegisterRequest {

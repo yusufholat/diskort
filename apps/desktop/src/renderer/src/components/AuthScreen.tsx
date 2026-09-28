@@ -1,7 +1,17 @@
 import { useRef, useState, type FormEvent } from 'react';
-import { AudioLines } from 'lucide-react';
+import { AudioLines, Link2 } from 'lucide-react';
 import { parseInviteCode, PASSWORD_MIN_LENGTH, USERNAME_PATTERN } from '@diskort/shared';
-import { api, errorMessage, normalizeServerUrl, useSession } from '@diskort/client-core';
+import {
+  api,
+  ApiError,
+  clearPendingInvite,
+  errorMessage,
+  keepIfGuildInvite,
+  normalizeServerUrl,
+  pendingInviteNotice,
+  usePendingInvite,
+  useSession,
+} from '@diskort/client-core';
 import { DEFAULT_SERVER_URL, useSettings } from '../stores/settings';
 import { Button, TextInput } from './ui/controls';
 import { FormAlert, FormField, REQUIRED, focusFirstInvalid, useFormErrors } from './ui/FormField';
@@ -41,6 +51,9 @@ export function AuthScreen() {
     }
   };
   const setSession = useSession((s) => s.setSession);
+  // Davet bağlantısıyla açıldıysa: giriş yapınca katılma penceresi bu kodla açılır (kayda geçilmez;
+  // sunucu daveti hesap açtırmaz)
+  const inviteNotice = usePendingInvite(pendingInviteNotice);
   const form = useFormErrors<'code' | 'username' | 'password'>();
   const [attempt, setAttempt] = useState(0);
   const formRef = useRef<HTMLFormElement>(null);
@@ -90,6 +103,8 @@ export function AuthScreen() {
     } catch (err) {
       setError(errorMessage(err));
       setAttempt((n) => n + 1);
+      // Kayda sunucu daveti yazıldıysa kod saklanır: hesabı olan giriş yapınca o sunucuya katılabilir
+      if (mode === 'register' && err instanceof ApiError && err.code === 'invite') void keepIfGuildInvite(code);
     } finally {
       setBusy(false);
     }
@@ -115,6 +130,14 @@ export function AuthScreen() {
           <h1 className="text-2xl font-bold text-text-head">{text.title}</h1>
           <p className="mt-1 text-text-muted">{text.subtitle}</p>
         </div>
+
+        {inviteNotice && (
+          <div className="anim-rise-in mb-4 flex items-start gap-2.5 rounded-md bg-bg-side px-3 py-2.5 text-sm text-text-normal">
+            <Link2 size={18} className="mt-0.5 shrink-0 text-brand" />
+            <span className="min-w-0 flex-1">{inviteNotice}</span>
+            <LinkButton onClick={clearPendingInvite}>Vazgeç</LinkButton>
+          </div>
+        )}
 
         {/* Mod değişince alanlar hafifçe yeniden belirir */}
         <div key={mode} className="anim-fade-in">
