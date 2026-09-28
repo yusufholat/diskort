@@ -6,7 +6,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { gateway, reportClientError, useSession } from '@diskort/client-core';
+import { flushAcks, gateway, reportClientError, useSession } from '@diskort/client-core';
 import { DialogHost } from '../components/Dialog';
 import { GuildMenuHost } from '../components/GuildMenu';
 import { StatusPickerHost } from '../components/StatusPicker';
@@ -125,6 +125,8 @@ export default function RootLayout() {
     gateway.connect(); // zaten bağlıysa bir şey yapmaz
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') gateway.resume();
+      // Okunanlar arka plana geçmeden sunucuya gitsin (diğer cihazlarda okunmamış kalmasın)
+      else flushAcks();
       // Uygulama arka plandayken (seste değilsen) otomatik "Boşta"; elle seçilen durum değişmez
       gateway.setIdle(state === 'background' && useVoice.getState().status === 'idle');
     });

@@ -27,6 +27,7 @@ import {
   type PinnedMessage,
   type Reaction,
   type ReactionUsersPage,
+  type ReadStateUpdate,
   type ReferencedMessage,
   type Role,
   type User,
@@ -2522,19 +2523,32 @@ export class Store {
     );
   }
 
-  /** Okunma durumunu yalnızca ileri taşır; kanalın sonuna kadar okunduysa bahsetme sayısı sıfırlanır. */
-  ack(userId: string, channelId: string, messageId: number): void {
-    this.run(
-      `INSERT INTO read_states (user_id, channel_id, last_read_id) VALUES (?, ?, ?)
-       ON CONFLICT (user_id, channel_id) DO UPDATE SET
-         last_read_id = MAX(last_read_id, excluded.last_read_id),
-         mention_count = CASE
-           WHEN excluded.last_read_id >= (SELECT COALESCE(MAX(id), 0) FROM messages WHERE channel_id = excluded.channel_id)
-           THEN 0 ELSE mention_count END`,
-      userId,
-      channelId,
-      messageId,
-    );
+  /**
+   * Okunma durumunu yalnızca ileri taşır; kanalın sonuna kadar okunduysa bahsetme sayısı sıfırlanır.
+   * Durum değiştiyse yenisini döndürür (kullanıcının diğer cihazlarına READ_STATE_UPDATE), değişmediyse null.
+   */
+  ack(userId: string, channelId: string, messageId: number): ReadStateUpdate | null {
+    type Row = { last_read_id: number; mention_count: number };
+    const select = 'SELECT last_read_id, mention_count FROM read_states WHERE user_id = ? AND channel_id = ?';
+    return this.tx(() => {
+      const before = this.one<Row>(select, userId, channelId);
+      this.run(
+        `INSERT INTO read_states (user_id, channel_id, last_read_id) VALUES (?, ?, ?)
+         ON CONFLICT (user_id, channel_id) DO UPDATE SET
+           last_read_id = MAX(last_read_id, excluded.last_read_id),
+           mention_count = CASE
+             WHEN excluded.last_read_id >= (SELECT COALESCE(MAX(id), 0) FROM messages WHERE channel_id = excluded.channel_id)
+             THEN 0 ELSE mention_count END`,
+        userId,
+        channelId,
+        messageId,
+      );
+      const after = this.one<Row>(select, userId, channelId)!;
+      if (before && before.last_read_id === after.last_read_id && before.mention_count === after.mention_count) {
+        return null;
+      }
+      return { channelId, lastReadId: String(after.last_read_id), mentionCount: after.mention_count };
+    });
   }
 }
 

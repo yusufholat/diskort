@@ -13,8 +13,10 @@ import {
   type User,
 } from '@diskort/shared';
 import {
+  ackChannel,
   configureClient,
   dmBlockedReason,
+  isUnread,
   dmTitle,
   gateway,
   permissionsOf,
@@ -85,10 +87,12 @@ const readyBase = (): ReadyPayload =>
 const directs: { message: Message; dm: DmChannel }[] = [];
 const mentions: Message[] = [];
 let viewing: string | null = null;
+const reads: [string, string][] = [];
 
 beforeEach(async () => {
   directs.length = 0;
   mentions.length = 0;
+  reads.length = 0;
   viewing = null;
   await configureClient({
     platform: 'desktop',
@@ -99,6 +103,7 @@ beforeEach(async () => {
     isViewingChannel: (id) => id === viewing,
     onMention: (m) => mentions.push(m),
     onDirectMessage: (m, d) => directs.push({ message: m, dm: d }),
+    onChannelRead: (channelId, lastReadId) => void reads.push([channelId, lastReadId]),
   });
   useSession.getState().setSession('jeton', user('ben'));
   useMessages.setState({ channels: {}, mentionCounts: {}, pendingFiles: {} });
@@ -193,5 +198,55 @@ describe('direkt mesajlar', () => {
     expect(dmTitle(dm('x', ['ben', 'ali', 'veli'], { name: 'Ekip' }), users, 'ben')).toBe('Ekip');
     expect(dmTitle(dm('x', ['ben']), users, 'ben')).toBe('Silinmiş Kullanıcı');
     expect(dmTitle(dm('x', ['ben'], { group: true }), users, 'ben')).toBe('Boş grup');
+  });
+});
+
+describe('okunma durumu cihazlar arasında (READ_STATE_UPDATE)', () => {
+  it('başka cihazda okununca okunmamış işareti ve DM sayacı temizlenir', () => {
+    expect(isUnread(useGuild.getState(), 'd1')).toBe(true);
+    expect(reads).toEqual([['d1', '3']]); // READY'deki okunma durumu da bildirilir
+    reads.length = 0;
+
+    receive({ t: 'READ_STATE_UPDATE', d: { channelId: 'd1', lastReadId: '5', mentionCount: 0 } });
+    expect(useGuild.getState().readStates.d1).toBe('5');
+    expect(isUnread(useGuild.getState(), 'd1')).toBe(false);
+    expect(useMessages.getState().mentionCounts.d1).toBeUndefined();
+    expect(reads).toEqual([['d1', '5']]);
+
+    // Geride kalan (sırası karışmış) olay okunma durumunu geri almaz
+    receive({ t: 'READ_STATE_UPDATE', d: { channelId: 'd1', lastReadId: '4', mentionCount: 0 } });
+    expect(useGuild.getState().readStates.d1).toBe('5');
+  });
+
+  it('kısmi okumada sunucunun sayısı korunur; yerel sayı hiç artırılmaz', () => {
+    receive({ t: 'READ_STATE_UPDATE', d: { channelId: 'd1', lastReadId: '4', mentionCount: 2 } });
+    expect(useGuild.getState().readStates.d1).toBe('4');
+    expect(isUnread(useGuild.getState(), 'd1')).toBe(true);
+    expect(useMessages.getState().mentionCounts.d1).toBe(2);
+
+    // Bakılan kanalda yerel sayım yoktur: başka cihazın kısmi okuması rozet getirmez
+    useMessages.setState({ mentionCounts: {} });
+    receive({ t: 'READ_STATE_UPDATE', d: { channelId: 'd1', lastReadId: '4', mentionCount: 1 } });
+    expect(useMessages.getState().mentionCounts.d1).toBeUndefined();
+  });
+
+  it('okunduktan sonra gelen mesaj yeniden okunmamış sayılır; kendi mesajının onayı işareti kaldırır', () => {
+    receive({ t: 'READ_STATE_UPDATE', d: { channelId: 'd1', lastReadId: '5', mentionCount: 0 } });
+    receive({ t: 'MESSAGE_CREATE', d: message('6', 'd1', 'ali') });
+    expect(isUnread(useGuild.getState(), 'd1')).toBe(true);
+    expect(useMessages.getState().mentionCounts.d1).toBe(1);
+    // Başka cihazdan yazılan kendi mesajımız: mesajın ardından gelen onay
+    receive({ t: 'MESSAGE_CREATE', d: message('7', 'd1', 'ben') });
+    receive({ t: 'READ_STATE_UPDATE', d: { channelId: 'd1', lastReadId: '7', mentionCount: 0 } });
+    expect(isUnread(useGuild.getState(), 'd1')).toBe(false);
+    expect(useMessages.getState().mentionCounts.d1).toBeUndefined();
+  });
+
+  it('bu cihazda okumak da bildirilir (telefon bildirimleri kalksın)', () => {
+    reads.length = 0;
+    ackChannel('d1');
+    expect(reads).toEqual([['d1', '5']]);
+    expect(useMessages.getState().mentionCounts.d1).toBeUndefined();
+    expect(useGuild.getState().readStates.d1).toBe('5');
   });
 });

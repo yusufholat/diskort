@@ -246,13 +246,15 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
       }
       const message = embeds.length ? withEmbeds(created, embeds) : created;
       // Yazar kendi mesajını okumuş sayılır.
-      store.ack(req.user.id, target.id, Number(message.id));
+      const readState = store.ack(req.user.id, target.id, Number(message.id));
       if (!channel) {
         // Konuşmayı listesinden kaldırmış katılımcılarda yeniden görünür (mesajdan önce)
         const reopened = store.reopenDm(target.id);
         if (reopened.length > 0) gateway.sendDm(reopened, { t: 'DM_CHANNEL_CREATE', d: store.getDm(target.id)! });
       }
       gateway.dispatchChannel(target.id, { t: 'MESSAGE_CREATE', d: message });
+      // Diğer cihazlarda da okunmuş sayılır (mesajdan sonra: orada okunmamış görünmesin)
+      gateway.sendReadState(req.user.id, readState);
       scheduleLinkEmbeds(message);
       // Telefonlara bildirim yanıtı bekletmez. Rahatsız Etmeyin'dekilere ve o an masaüstünde etkin olanlara
       // (mesajı zaten canlı görüyorlar) gitmez; okunmamış/bahsetme sayıları yine de artar.
@@ -484,7 +486,8 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
       if (!textChannel(req.params.id, req.user.id, reply)) return reply;
       const body = parseBody(ackSchema, req.body, reply);
       if (!body) return reply;
-      store.ack(req.user.id, req.params.id, Number(body.messageId));
+      // Okunma ilerlediyse kullanıcının diğer cihazlarındaki okunmamış işaretleri de temizlenir
+      gateway.sendReadState(req.user.id, store.ack(req.user.id, req.params.id, Number(body.messageId)));
       return reply.code(204).send();
     },
   );

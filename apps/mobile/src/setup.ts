@@ -6,6 +6,7 @@ import * as SecureStore from 'expo-secure-store';
 import { AppState, Platform, Vibration } from 'react-native';
 import { uploadFromDevice } from './attachments';
 import { soundCue } from './haptics';
+import { dismissChannelNotifications } from './notifications';
 import { setupSounds } from './sounds';
 import { getSettings } from './stores/settings';
 import { toast, useUi } from './stores/ui';
@@ -66,6 +67,8 @@ export const clientReady = configureClient({
     if (AppState.currentState === 'active') soundCue('mention');
     toast(`${from}: ${text.length > 80 ? `${text.slice(0, 80)}…` : text}`);
   },
+  // Kanal okundu (bu telefonda ya da başka cihazda): bildirim çubuğundaki bildirimleri de kalksın
+  onChannelRead: (channelId, lastReadId) => dismissChannelNotifications(channelId, lastReadId),
   onUpdateRequired: (version) => useUi.setState({ updateRequired: version }),
   // Yeni sürüm yayınlandı: hemen denetle. Arayüz güncellemesi arka planda iner, uygulamaya dönünce
   // uygulanır; yeni APK gerekiyorsa güncelleme ekranı çıkar (sesteyse sesten çıkınca)
