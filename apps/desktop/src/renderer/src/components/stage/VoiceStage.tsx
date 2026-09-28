@@ -1,9 +1,21 @@
-import { useMemo, type ReactNode } from 'react';
-import { Eye, HeadphoneOff, Headphones, Mic, MicOff, Monitor, MonitorOff, PhoneOff, Volume2 } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import {
+  ChevronDown,
+  Eye,
+  HeadphoneOff,
+  Headphones,
+  Mic,
+  MicOff,
+  Monitor,
+  MonitorOff,
+  PhoneOff,
+  Users,
+  Volume2,
+} from 'lucide-react';
 import { Permission, type VoiceState } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
 import { memberMenuItems } from '../../lib/memberMenu';
-import { usePresenceList, type PresenceEntry, type PresencePhase } from '../../lib/motion';
+import { animate, usePresence, usePresenceList, type PresenceEntry, type PresencePhase } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { channelById, membersOf, useCan, useGuild, useMemberColor, useSession } from '@diskort/client-core';
 import { useSettings } from '../../stores/settings';
@@ -14,6 +26,7 @@ import { SwapIcon } from '../ui/SwapIcon';
 import { LiveBadge, openVoiceProfile, VoiceStateIcons, WatchLiveBadge } from '../sidebar/VoiceMemberRow';
 import { StreamView } from './StreamView';
 import { StreamViewers } from './StreamViewers';
+import { orderStrip } from './stripOrder';
 
 type Tile = { kind: 'user'; state: VoiceState } | { kind: 'stream'; userId: string };
 
@@ -60,20 +73,7 @@ export function VoiceStage() {
 
       <div className="min-h-0 flex-1 p-4">
         {focusedVisible ? (
-          <div className="flex h-full flex-col gap-3">
-            <div className="min-h-0 flex-1">
-              <StreamView userId={focusedVisible} large />
-            </div>
-            <div className="flex h-28 shrink-0 gap-3 overflow-x-auto">
-              {entries
-                .filter(({ item: t }) => !(t.kind === 'stream' && t.userId === focusedVisible))
-                .map(({ key, item: t, phase }) => (
-                  <div key={key} className={cn('aspect-video h-full shrink-0', tileAnimation(phase))}>
-                    <TileView tile={t} compact />
-                  </div>
-                ))}
-            </div>
-          </div>
+          <FocusedStage focused={focusedVisible} entries={entries} />
         ) : (
           <TileGrid entries={entries} />
         )}
@@ -82,6 +82,197 @@ export function VoiceStage() {
       <CallControls />
     </div>
   );
+}
+
+/** Şeridin yüksekliği (px, h-28) */
+const STRIP_HEIGHT = 112;
+/** Şerit en çok bu sıklıkta yeniden sıralanır (kutucuklar sıçramasın) */
+const STRIP_SORT_MS = 1500;
+
+function tileUser(t: Tile): string {
+  return t.kind === 'user' ? t.state.userId : t.userId;
+}
+
+/**
+ * Bir yayın büyük gösterilirken: üstte yayın, altta katılımcı şeridi. Aradaki küçük düğme şeridi gizler;
+ * gizliyken yayın tüm yüksekliği kaplar (tercih saklanır).
+ */
+function FocusedStage({ focused, entries }: { focused: string; entries: PresenceEntry<Tile>[] }) {
+  const collapsed = useUi((s) => s.stageStripCollapsed);
+  const toggleStrip = useUi((s) => s.toggleStageStrip);
+  const selfId = useSession((s) => s.user?.id);
+  const stripRef = useRef<HTMLDivElement>(null);
+  // Kapanırken kutucuklar animasyon bitene kadar kalır, sonra çizilmez (şeritteki yayınlar da durur)
+  const { value: stripShown } = usePresence(collapsed ? null : true, 220);
+
+  const stripEntries = useMemo(
+    () => entries.filter(({ item: t }) => !(t.kind === 'stream' && t.userId === focused)),
+    [entries, focused],
+  );
+  const userIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const e of stripEntries) {
+      const id = tileUser(e.item);
+      if (e.phase !== 'exit' && !ids.includes(id)) ids.push(id);
+    }
+    return ids;
+  }, [stripEntries]);
+  const order = useStripOrder(userIds, focused, selfId, stripRef, !collapsed);
+  const sorted = useMemo(() => {
+    const rank = new Map(order.map((id, i) => [id, i]));
+    // Aynı kişinin yayını ve kutucuğu yan yana kalır (sıralama kararlı). Ayrılanın kutucuğu kapanırken
+    // listede önündeki kutucuğun hemen arkasında kalır.
+    let prevRank = -1;
+    const ranked = stripEntries.map((e) => {
+      const r = rank.get(tileUser(e.item)) ?? prevRank + 0.5;
+      prevRank = r;
+      return { e, r };
+    });
+    return ranked.sort((a, b) => a.r - b.r).map(({ e }) => e);
+  }, [stripEntries, order]);
+  useStripFlip(stripRef);
+
+  const label = collapsed ? 'Katılımcıları göster' : 'Katılımcıları gizle';
+  return (
+    <div className="flex h-full flex-col">
+      <div className="min-h-0 flex-1">
+        <StreamView userId={focused} large />
+      </div>
+      <div className="flex h-7 shrink-0 items-center justify-center">
+        <button
+          type="button"
+          data-tooltip={label}
+          aria-label={label}
+          aria-expanded={!collapsed}
+          onClick={toggleStrip}
+          className="press flex h-6 items-center gap-1 rounded-full px-2.5 text-text-muted transition-colors hover:bg-bg-raised hover:text-text-head"
+        >
+          <ChevronDown
+            size={16}
+            aria-hidden
+            className={cn('transition-transform duration-200', collapsed && 'rotate-180')}
+          />
+          <Users size={16} aria-hidden />
+          {collapsed && <span className="anim-pill-in text-xs font-semibold tabular-nums">{userIds.length}</span>}
+        </button>
+      </div>
+      <div
+        className="shrink-0 overflow-hidden transition-[height,opacity] duration-200 ease-out motion-reduce:transition-none"
+        style={{ height: collapsed ? 0 : STRIP_HEIGHT, opacity: collapsed ? 0 : 1 }}
+        inert={collapsed}
+      >
+        <div
+          ref={stripRef}
+          className="relative flex gap-3 overflow-x-auto overflow-y-hidden"
+          style={{ height: STRIP_HEIGHT }}
+          // Dikey tekerlek yatay kaydırır
+          onWheel={(e) => {
+            if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY;
+          }}
+        >
+          {stripShown &&
+            sorted.map(({ key, item: t, phase }) => (
+              <div
+                key={key}
+                data-strip-key={key}
+                data-strip-user={tileUser(t)}
+                className={cn('aspect-video h-full shrink-0', tileAnimation(phase))}
+              >
+                <TileView tile={t} compact />
+              </div>
+            ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Şeridin kişi sırası (bkz. stripOrder). Kim ne zaman konuştu kaydedilir; en çok STRIP_SORT_MS'de bir,
+ * şeridin görünmeyen yerinde konuşmuş olan görünen ilk yere alınır.
+ */
+function useStripOrder(
+  users: string[],
+  pinned: string,
+  selfId: string | undefined,
+  stripRef: RefObject<HTMLDivElement | null>,
+  active: boolean,
+): string[] {
+  const [base, setBase] = useState<string[]>([]);
+  const order = useMemo(() => orderStrip(base, users, { pinned, selfId }), [base, users, pinned, selfId]);
+  const orderRef = useRef(order);
+  useLayoutEffect(() => {
+    orderRef.current = order;
+  }, [order]);
+
+  // Konuşmaya başlama anları (yeniden çizim gerektirmez)
+  const spokeAt = useRef(new Map<string, number>());
+  useEffect(() => {
+    const mark = (speaking: Record<string, true>): void => {
+      const now = Date.now();
+      for (const id of Object.keys(speaking)) spokeAt.current.set(id, now);
+    };
+    mark(useVoice.getState().speaking);
+    return useVoice.subscribe((s, prev) => {
+      if (s.speaking !== prev.speaking) mark(s.speaking);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!active) return;
+    let last = Date.now();
+    const timer = window.setInterval(() => {
+      const since = last;
+      last = Date.now();
+      const speakingNow = useVoice.getState().speaking;
+      const recent = [...spokeAt.current]
+        .filter(([id, at]) => at >= since || speakingNow[id])
+        .sort((a, b) => b[1] - a[1])
+        .map(([id]) => id);
+      const strip = stripRef.current;
+      if (recent.length === 0 || !strip) return;
+      // Kutucuğunun çoğu görünen kişiler (şerit kaydırılmış olabilir)
+      const box = strip.getBoundingClientRect();
+      const visible = new Set<string>();
+      for (const el of strip.querySelectorAll<HTMLElement>('[data-strip-user]')) {
+        const r = el.getBoundingClientRect();
+        const shown = Math.min(r.right, box.right) - Math.max(r.left, box.left);
+        if (el.dataset.stripUser && shown >= r.width * 0.6) visible.add(el.dataset.stripUser);
+      }
+      const current = orderRef.current;
+      const promote = recent.filter((id) => current.includes(id) && !visible.has(id));
+      if (promote.length === 0) return;
+      const firstVisible = Math.max(0, current.findIndex((id) => visible.has(id)));
+      setBase(orderStrip(current, current, { pinned, selfId, promote, firstVisible }));
+    }, STRIP_SORT_MS);
+    return () => window.clearInterval(timer);
+  }, [active, pinned, selfId, stripRef]);
+
+  return order;
+}
+
+/** Şeritte yeri değişen kutucuk eski yerinden yenisine kayar (FLIP) */
+function useStripFlip(stripRef: RefObject<HTMLDivElement | null>): void {
+  const positions = useRef(new Map<string, number>());
+  useLayoutEffect(() => {
+    const strip = stripRef.current;
+    const next = new Map<string, number>();
+    if (strip) {
+      for (const el of strip.querySelectorAll<HTMLElement>(':scope > [data-strip-key]')) {
+        const key = el.dataset.stripKey!;
+        const left = el.offsetLeft;
+        next.set(key, left);
+        const old = positions.current.get(key);
+        if (old !== undefined && old !== left) {
+          animate(el, [{ transform: `translateX(${old - left}px)` }, { transform: 'translateX(0)' }], {
+            duration: 260,
+            easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+          });
+        }
+      }
+    }
+    positions.current = next;
+  });
 }
 
 function tileKey(t: Tile): string {

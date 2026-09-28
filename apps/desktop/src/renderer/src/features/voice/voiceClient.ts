@@ -92,6 +92,7 @@ const RESET_ROOM_STATE = {
   pingMs: null,
   quality: 'unknown' as const,
   sharing: false,
+  selfPreview: false,
   shareHasAudio: false,
   pttActive: false,
 };
@@ -965,7 +966,7 @@ class VoiceClient {
     this.screenHardwareEncoder = hardware;
     // Paylaşılan pencere kapanırsa veya sistemden durdurulursa yayını bitir.
     videoTrack.addEventListener('ended', () => void this.stopScreenShare());
-    setVoice({ sharing: true, shareHasAudio: audio !== null });
+    setVoice({ sharing: true, selfPreview: false, shareHasAudio: audio !== null });
     this.bumpTracks();
     playSound('streamStart');
     return warning;

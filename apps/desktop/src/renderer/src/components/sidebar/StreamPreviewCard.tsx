@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AppWindow, Monitor, MonitorPlay } from 'lucide-react';
+import { AppWindow, Monitor } from 'lucide-react';
 import { create } from 'zustand';
 import type { VoiceState } from '@diskort/shared';
 import { fetchStreamPreview, formatStreamElapsed, useGuild, useSession } from '@diskort/client-core';
@@ -9,11 +9,14 @@ import { useSidebarDrag } from '../../lib/sidebarDrag';
 import { cn } from '../../lib/utils';
 import { watchUserStream } from '../../lib/watchStream';
 import { useVoice } from '../../stores/voice';
+import { StreamViewers } from '../stage/StreamViewers';
+import { Avatar } from '../ui/Avatar';
 
 /**
  * "Şimdi Yayın Yapıyor" kartı (Discord gibi): kanal listesinde yayın yapan üyenin üstünde biraz
  * bekleyince sağında açılır; yayının küçük önizlemesi, paylaşılan pencerenin adı, süresi ve "Yayını izle"
- * düğmesi. İmleç satırdan karta geçerken kapanmaz; kaydırma, sürükleme ya da tıklama kapatır.
+ * düğmesi (kendi yayınında "Yayındasın!"). Önizleme resmi henüz yoksa yayıncının avatarıyla çizilen bir yer
+ * tutucu görünür. İmleç satırdan karta geçerken kapanmaz; kaydırma, sürükleme ya da tıklama kapatır.
  */
 
 const OPEN_DELAY_MS = 300;
@@ -148,6 +151,7 @@ export function StreamPreviewCard() {
   const target = useStreamCard((s) => s.target);
   const { value: shown, closing } = usePresence(target, 100);
   const state = useGuild((s) => (shown ? s.voiceStates[shown.userId] : undefined));
+  const user = useGuild((s) => (shown ? s.users[shown.userId] : undefined));
   const selfId = useSession((s) => s.user?.id);
   const watching = useVoice(
     (s) => Boolean(shown && s.watching[shown.userId] && s.channelId === shown.channelId && s.status !== 'idle'),
@@ -163,7 +167,8 @@ export function StreamPreviewCard() {
     const { offsetWidth: width, offsetHeight: height } = ref.current;
     const { anchor } = target;
     const right = anchor.right + GAP;
-    const x = right + width <= window.innerWidth - MARGIN ? right : Math.max(MARGIN, anchor.left - width - GAP);
+    const maxX = window.innerWidth - width - MARGIN;
+    const x = right <= maxX ? right : Math.max(MARGIN, Math.min(maxX, anchor.left - width - GAP));
     const y = Math.max(MARGIN, Math.min(anchor.top - 8, window.innerHeight - height - MARGIN));
     setPos({ x, y });
   }, [target]);
@@ -195,7 +200,7 @@ export function StreamPreviewCard() {
   if (!shown || !state) return null;
 
   const isSelf = state.userId === selfId;
-  const label = isSelf ? 'Yayınına git' : watching ? 'İzlemeye dön' : 'Yayını izle';
+  const label = isSelf ? 'Yayındasın!' : watching ? 'İzlemeye dön' : 'Yayını izle';
   const SourceIcon = state.streamSourceKind === 'screen' ? Monitor : AppWindow;
   const watch = (): void => {
     closeStreamCard();
@@ -224,11 +229,22 @@ export function StreamPreviewCard() {
         {image ? (
           <img src={image} alt="Yayın önizlemesi" draggable={false} className="h-full w-full object-contain" />
         ) : (
-          <div className="flex flex-col items-center gap-1.5 text-text-faint">
-            <MonitorPlay size={28} />
-            <span className="text-xs">{state.streamPreviewAt ? 'Yükleniyor…' : 'Önizleme hazırlanıyor…'}</span>
+          // Yer tutucu: yayıncının renginde hafif bir ışıma, ortada avatarı
+          <div
+            className="flex h-full w-full flex-col items-center justify-center gap-2"
+            style={{
+              background: `radial-gradient(ellipse at center, color-mix(in srgb, ${user?.avatarColor ?? '#5865f2'} 45%, transparent), transparent 75%)`,
+            }}
+          >
+            <span className="animate-pulse rounded-full shadow-[0_0_0_4px_rgb(255_255_255/0.12)]">
+              <Avatar user={user} size={48} />
+            </span>
+            <span className="text-xs text-white/70">
+              {state.streamPreviewAt ? 'Yükleniyor…' : 'Önizleme hazırlanıyor…'}
+            </span>
           </div>
         )}
+        <StreamViewers userId={state.userId} className="absolute top-2 right-2" />
       </div>
       <div className="mt-2 flex items-center gap-1.5 text-sm text-text-normal">
         <SourceIcon size={14} className="shrink-0 text-text-muted" aria-hidden />
@@ -242,7 +258,8 @@ export function StreamPreviewCard() {
       <button
         type="button"
         onClick={watch}
-        className="press mt-3 flex w-full items-center justify-center rounded bg-ok px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-ok-hover"
+        disabled={isSelf}
+        className="press mt-3 flex w-full items-center justify-center rounded bg-ok px-3 py-2 text-sm font-medium text-white transition-colors enabled:hover:bg-ok-hover disabled:opacity-60"
       >
         {label}
       </button>

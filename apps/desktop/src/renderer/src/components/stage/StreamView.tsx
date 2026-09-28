@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Maximize, Minimize, Volume2, VolumeX, X } from 'lucide-react';
+import { EyeOff, Maximize, Minimize, MonitorPause, Volume2, VolumeX, X } from 'lucide-react';
 import { voice } from '../../features/voice/voiceClient';
 import { cn } from '../../lib/utils';
 import { useGuild, useSession } from '@diskort/client-core';
 import { useSettings } from '../../stores/settings';
-import { useVoice } from '../../stores/voice';
+import { setVoice, useVoice } from '../../stores/voice';
 import { LiveBadge } from '../sidebar/VoiceMemberRow';
 import { Slider } from '../ui/Slider';
 import { StreamViewers } from './StreamViewers';
@@ -28,10 +28,12 @@ export function StreamView({ userId, large, onClick }: Props) {
   const volume = useSettings((s) => s.streamVolumes[userId] ?? 1);
   const [fullscreen, setFullscreen] = useState(false);
   const [hasVideo, setHasVideo] = useState(false);
+  // Kendi yayının varsayılan olarak duraklatılır: track video öğesine hiç bağlanmaz (çözme/çizim yok)
+  const paused = useVoice((s) => isSelf && !s.selfPreview);
 
   useEffect(() => {
     const el = videoRef.current;
-    const track = voice.getScreenTrack(userId);
+    const track = paused ? undefined : voice.getScreenTrack(userId);
     if (!el || !track) {
       setHasVideo(false);
       return;
@@ -41,7 +43,7 @@ export function StreamView({ userId, large, onClick }: Props) {
     return () => {
       track.detach(el);
     };
-  }, [userId, tracksVersion]);
+  }, [userId, tracksVersion, paused]);
 
   useEffect(() => {
     const onChange = (): void => setFullscreen(document.fullscreenElement === containerRef.current);
@@ -76,9 +78,13 @@ export function StreamView({ userId, large, onClick }: Props) {
         muted
         className={cn('h-full w-full object-contain transition-opacity duration-300', hasVideo ? 'opacity-100' : 'opacity-0')}
       />
-      {!hasVideo && <div className="absolute animate-pulse text-sm text-text-muted">Yayın yükleniyor…</div>}
+      {paused ? (
+        <SelfPreviewPaused compact={!large} />
+      ) : (
+        !hasVideo && <div className="absolute animate-pulse text-sm text-text-muted">Yayın yükleniyor…</div>
+      )}
 
-      <div className="pointer-events-none absolute top-0 right-0 left-0 flex items-center gap-2 bg-gradient-to-b from-black/60 to-transparent p-3 pr-32 opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="pointer-events-none absolute top-0 right-0 left-0 flex items-center gap-2 bg-gradient-to-b from-black/60 to-transparent p-3 pr-32 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
         <LiveBadge />
         <span className="truncate text-sm font-semibold text-white">
           {isSelf ? 'Senin yayının' : user?.displayName}
@@ -90,7 +96,7 @@ export function StreamView({ userId, large, onClick }: Props) {
 
       <div
         className={cn(
-          'absolute right-0 bottom-0 left-0 flex items-center justify-end gap-1 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100',
+          'absolute right-0 bottom-0 left-0 flex items-center justify-end gap-1 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100',
           !large && 'hidden',
         )}
         onClick={(e) => e.stopPropagation()}
@@ -117,6 +123,11 @@ export function StreamView({ userId, large, onClick }: Props) {
             />
           </div>
         )}
+        {isSelf && !paused && (
+          <IconButton title="Önizlemeyi duraklat" onClick={() => setVoice({ selfPreview: false })}>
+            <EyeOff size={18} className="ico-blink" />
+          </IconButton>
+        )}
         <IconButton title={fullscreen ? 'Tam ekrandan çık' : 'Tam ekran'} onClick={toggleFullscreen}>
           <SwapIcon swapKey={fullscreen ? 'on' : 'off'} motion={fullscreen ? 'ico-shrink' : 'ico-grow'}>
             {fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
@@ -128,6 +139,53 @@ export function StreamView({ userId, large, onClick }: Props) {
           </IconButton>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Kendi yayınına bakarken gösterilen duraklatılmış önizleme (Discord gibi): yayın sürer, yalnızca yerel
+ * önizleme çizilmez. Tüm ekran paylaşılırken sonsuz ayna görüntüsünü de önler.
+ */
+function SelfPreviewPaused({ compact }: { compact: boolean }) {
+  const show = (e: React.MouseEvent): void => {
+    e.stopPropagation();
+    setVoice({ selfPreview: true });
+  };
+  return (
+    <div
+      className={cn(
+        'absolute inset-0 flex flex-col items-center justify-center text-center',
+        'bg-[radial-gradient(ellipse_at_center,color-mix(in_srgb,var(--color-brand)_18%,transparent),transparent_70%)]',
+        compact ? 'gap-1.5 p-2' : 'gap-3 p-6',
+      )}
+    >
+      <span
+        className={cn(
+          'flex items-center justify-center rounded-full bg-white/10 text-white',
+          compact ? 'h-9 w-9' : 'h-14 w-14',
+        )}
+      >
+        <MonitorPause size={compact ? 18 : 28} aria-hidden />
+      </span>
+      {compact ? (
+        <span className="text-xs font-medium text-white/80">Önizleme duraklatıldı</span>
+      ) : (
+        <>
+          <p className="max-w-sm text-sm leading-relaxed text-white/85">
+            <span className="font-semibold text-white">Yayının halen devam ediyor!</span> Kaynaklarından tasarruf
+            etmek için bu önizlemeyi duraklattık.
+          </p>
+          <button
+            type="button"
+            onClick={show}
+            onDoubleClick={(e) => e.stopPropagation()}
+            className="press rounded bg-control px-4 py-2 text-sm font-medium text-on-control transition-colors hover:bg-control-hover"
+          >
+            Önizlemeyi göster
+          </button>
+        </>
+      )}
     </div>
   );
 }

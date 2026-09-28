@@ -29,6 +29,11 @@ interface VoiceStore {
   /** Abone olunan track'ler değiştikçe artar (video öğelerini yeniden bağlamak için) */
   tracksVersion: number;
   sharing: boolean;
+  /**
+   * Kendi yayınının önizlemesi yine de gösterilsin mi. Varsayılan kapalı: kaynak tasarrufu ve tüm ekran
+   * paylaşılırken sonsuz ayna görüntüsü olmasın diye önizleme duraklatılır. Her yeni yayında sıfırlanır.
+   */
+  selfPreview: boolean;
   shareHasAudio: boolean;
   pttActive: boolean;
   /** Kanalda konuşma izni var mı (yetki ya da sunucuda susturma; LiveKit izninden gelir) */
@@ -50,6 +55,7 @@ export const useVoice = create<VoiceStore>()(() => ({
   focusedStream: null,
   tracksVersion: 0,
   sharing: false,
+  selfPreview: false,
   shareHasAudio: false,
   pttActive: false,
   micAllowed: true,
