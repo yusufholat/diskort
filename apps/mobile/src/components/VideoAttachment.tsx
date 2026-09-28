@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import type { VideoView as VideoViewType } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import type { Attachment } from '@diskort/shared';
 import { attachmentUrl, fitBox, formatBytes } from '@diskort/client-core';
@@ -20,8 +21,9 @@ function formatDuration(seconds: number): string {
 
 /**
  * Mesajdaki video: önce yer tutucu (oynat düğmesi, süre, boyut; video indirilmez). Dokununca bu
- * APK'da expo-video varsa mesajın içinde oynar (oynatıcının düğmeleriyle ileri sarma, tam ekran);
- * yoksa telefonun video oynatıcısında açılır. Sağ üstteki düğme indirip "Birlikte aç" ile açar.
+ * APK'da expo-video varsa mesajın içinde oynar (oynatıcının düğmeleriyle ileri sarma; sağ üstte tam
+ * ekran); yoksa telefonun video oynatıcısında açılır. Oynatmadan önce sağ üstteki düğme indirip
+ * "Birlikte aç" ile açar.
  */
 export function VideoAttachment({ attachment, maxWidth }: { attachment: Attachment; maxWidth: number }) {
   const [playing, setPlaying] = useState(false);
@@ -63,7 +65,7 @@ export function VideoAttachment({ attachment, maxWidth }: { attachment: Attachme
       {!playing && (
         <Pressable
           hitSlop={8}
-          style={styles.download}
+          style={styles.corner}
           onPress={() => void openAttachment(attachment)}
           accessibilityLabel="İndir"
         >
@@ -74,19 +76,37 @@ export function VideoAttachment({ attachment, maxWidth }: { attachment: Attachme
   );
 }
 
-/** Mesajın içindeki oynatıcı: yalnızca expo-video yüklüyken çizilir (bkz. video.ts) */
+/**
+ * Mesajın içindeki oynatıcı: yalnızca expo-video yüklüyken çizilir (bkz. video.ts). Android'in oynatıcısı
+ * genişlik yetmeyince (dikey videolarda hep) tam ekran ve ayarlar düğmelerini sağ alttaki katlanan
+ * menüye saklıyordu: ayarlar kapalı, tam ekran oynatıcının dışında, sağ üstte her zaman görünür.
+ */
 function InlinePlayer({ uri, style }: { uri: string; style: ViewStyle }) {
   const { useVideoPlayer, VideoView } = expoVideo()!;
   const player = useVideoPlayer(uri, (p) => p.play());
+  const view = useRef<VideoViewType>(null);
   return (
-    <VideoView
-      player={player}
-      style={style}
-      nativeControls
-      contentFit="contain"
-      fullscreenOptions={{ enable: true }}
-      allowsPictureInPicture={false}
-    />
+    <>
+      <VideoView
+        ref={view}
+        player={player}
+        style={style}
+        nativeControls
+        contentFit="contain"
+        fullscreenOptions={{ enable: false }}
+        buttonOptions={{ showSettings: false, showSubtitles: false }}
+        allowsPictureInPicture={false}
+      />
+      <Pressable
+        hitSlop={8}
+        style={styles.corner}
+        onPress={() => void view.current?.enterFullscreen().catch(() => undefined)}
+        accessibilityRole="button"
+        accessibilityLabel="Tam ekran"
+      >
+        <Ionicons name="expand" size={20} color="#fff" />
+      </Pressable>
+    </>
   );
 }
 
@@ -115,7 +135,8 @@ const styles = createStyles(() => ({
   },
   name: { flex: 1, color: 'rgba(255,255,255,0.9)', fontSize: 12 },
   meta: { color: 'rgba(255,255,255,0.9)', fontSize: 12 },
-  download: {
+  /** Sağ üst köşedeki düğme: oynatmadan önce indir, oynarken tam ekran */
+  corner: {
     position: 'absolute',
     top: 6,
     right: 6,
