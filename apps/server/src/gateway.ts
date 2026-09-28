@@ -32,11 +32,85 @@ const IDENTIFY_TIMEOUT_MS = 10_000;
 const PING_INTERVAL_MS = 20_000;
 /** Aynı kanal için "yazıyor" bildirimleri arasındaki en kısa süre (sel koruması) */
 const TYPING_MIN_INTERVAL_MS = 1_000;
+/** Boşta ve ses (susturma/sağırlaştırma) durumu: art arda en fazla bu kadar anında uygulanır... */
+const STATE_BURST = 5;
+/** ...sonra en fazla bu aralıkla bir tane (fazlası birleştirilir; en son istenen durum mutlaka uygulanır) */
+const STATE_MIN_INTERVAL_MS = 500;
+/** Kapatılan (ör. oturumu iptal edilen) bağlantı bu sürede kapanma el sıkışmasını bitirmezse koparılır */
+const CLOSE_GRACE_MS = 2_000;
+
+/**
+ * Sel koruması, son durumu kaybetmeden: kova doluyken değer hemen uygulanır; boşken yalnızca en son değer
+ * saklanır ve kovada yer açılınca uygulanır (ara değerler atlanır). Böylece sık değişiklikler yayını
+ * sınırlar ama kullanıcının son hâli (ör. susturmayı açması) asla kaybolmaz.
+ */
+export class Coalescer<T> {
+  private tokens: number;
+  private at: number;
+  private pending: { value: T } | null = null;
+  private timer: NodeJS.Timeout | null = null;
+
+  constructor(
+    private readonly apply: (value: T) => void,
+    private readonly burst = STATE_BURST,
+    private readonly intervalMs = STATE_MIN_INTERVAL_MS,
+  ) {
+    this.tokens = burst;
+    this.at = Date.now();
+  }
+
+  push(value: T): void {
+    this.refill();
+    if (!this.timer && this.tokens >= 1) {
+      this.tokens--;
+      this.apply(value);
+      return;
+    }
+    this.pending = { value };
+    if (!this.timer) {
+      this.timer = setTimeout(() => this.flush(), Math.ceil((1 - this.tokens) * this.intervalMs));
+      this.timer.unref?.();
+    }
+  }
+
+  /** Bekleyen değer atılır (oturum kapandı) */
+  cancel(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.pending = null;
+  }
+
+  private refill(): void {
+    const now = Date.now();
+    this.tokens = Math.min(this.burst, this.tokens + (now - this.at) / this.intervalMs);
+    this.at = now;
+  }
+
+  private flush(): void {
+    this.timer = null;
+    const pending = this.pending;
+    this.pending = null;
+    if (!pending) return;
+    this.refill();
+    this.tokens--; // zamanlayıcı biraz erken çalışmışsa hafif eksiye düşebilir; sonraki bekleme uzar
+    this.apply(pending.value);
+  }
+}
 
 interface Session {
   socket: WebSocket;
   userId: string | null;
+  /** IDENTIFY'da kullanılan oturum jetonu (şifre değişince bu cihazın bağlantısı açık kalır) */
+  token: string | null;
+  /** IDENTIFY sürüyor (ikinci bir IDENTIFY yok sayılır) */
+  identifying: boolean;
+  /** Oturum kapandı ya da iptal edildi: artık hiçbir mesajı işlenmez, hiçbir listede yer almaz */
+  closed: boolean;
   alive: boolean;
+  /** Boşta bildirimi sel koruması */
+  idleUpdates: Coalescer<boolean>;
+  /** Ses durumu (susturma/sağırlaştırma) sel koruması */
+  voiceUpdates: Coalescer<{ selfMute: boolean; selfDeaf: boolean }>;
   /** Kanal başına son "yazıyor" bildirimi (sel koruması) */
   lastTyping: Map<string, number>;
   /** İstemci direkt mesajları tanıyor (IDENTIFY'da bildirdi); tanımayana DM verisi ve olayı gitmez */
@@ -52,6 +126,8 @@ interface Session {
   /** Oturum boşta (masaüstünde girdi yok / ekran kilitli, telefonda uygulama arka planda) */
   idle: boolean;
 }
+
+type IdentifyData = Extract<GatewayClientMessage, { t: 'IDENTIFY' }>['d'];
 
 const OFFLINE_KEY = JSON.stringify(OFFLINE_PRESENCE);
 /** Son bağlantısı kapanan hesap bu süre içinde yeniden bağlanırsa "yeniden bağlanma" sayılır */
@@ -188,11 +264,21 @@ export class Gateway {
     return this.statuses.withoutDnd(userIds).filter((id) => !this.activeOnDesktop(id));
   }
 
-  /** Kullanıcının tüm açık bağlantılarını kapatır (4004: istemci oturumu kapatır). */
-  disconnectUser(userId: string, reason: string): void {
-    for (const s of this.byUser.get(userId) ?? []) {
+  /**
+   * Kullanıcının açık bağlantılarını kapatır (4004: istemci oturumu kapatır). `exceptToken` verilirse o
+   * jetonla bağlanmış oturumlar (şifreyi değiştiren cihaz) açık kalır. Oturumlar hemen listelerden düşer
+   * (çevrimdışı duyurulur, olay almaz); karşı taraf kapanmayı onaylamazsa bağlantı kısa süre sonra koparılır.
+   */
+  disconnectUser(userId: string, reason: string, opts: { exceptToken?: string } = {}): void {
+    for (const s of [...(this.byUser.get(userId) ?? [])]) {
+      if (opts.exceptToken !== undefined && s.token === opts.exceptToken) continue;
       this.send(s, { t: 'INVALID_SESSION', d: { reason } });
+      this.drop(s);
       s.socket.close(4004, 'session revoked');
+      const socket = s.socket;
+      setTimeout(() => {
+        if (socket.readyState !== socket.CLOSED) socket.terminate();
+      }, CLOSE_GRACE_MS).unref?.();
     }
   }
 
@@ -425,7 +511,18 @@ export class Gateway {
     const session: Session = {
       socket,
       userId: null,
+      token: null,
+      identifying: false,
+      closed: false,
       alive: true,
+      idleUpdates: new Coalescer((idle) => {
+        if (session.closed || !session.userId || session.idle === idle) return;
+        session.idle = idle;
+        this.announcePresence(session.userId);
+      }),
+      voiceUpdates: new Coalescer((flags) => {
+        if (!session.closed && session.userId) this.voice.setSelf(session.userId, flags);
+      }),
       lastTyping: new Map(),
       dm: false,
       platform: 'desktop',
@@ -448,6 +545,7 @@ export class Gateway {
 
     socket.on('message', (raw) => {
       this.traffic.messagesIn++;
+      if (session.closed) return;
       let msg: GatewayClientMessage;
       try {
         msg = JSON.parse(raw.toString()) as GatewayClientMessage;
@@ -460,20 +558,34 @@ export class Gateway {
 
     socket.on('close', (code) => {
       clearTimeout(identifyTimer);
-      this.sessions.delete(session);
       const key = String(code);
       this.traffic.closes[key] = (this.traffic.closes[key] ?? 0) + 1;
-      if (!session.userId) return;
-      const set = this.byUser.get(session.userId);
-      set?.delete(session);
-      if (set && set.size === 0) {
-        this.byUser.delete(session.userId);
-        if (this.lastClosed.size > 5_000) this.lastClosed.clear();
-        this.lastClosed.set(session.userId, Date.now());
-      }
-      // Son oturum kapandıysa çevrimdışı; kalan oturumların hepsi boştaysa "Boşta"
-      this.announcePresence(session.userId);
+      this.drop(session);
     });
+    // Hata sonrası da 'close' gelir; yine de oturum hemen düşsün
+    socket.on('error', () => this.drop(session));
+  }
+
+  /**
+   * Oturumu tüm listelerden çıkarır (tekrar çağrılması zararsızdır). Kullanıcının son oturumuysa çevrimdışı,
+   * kalan oturumların hepsi boştaysa "Boşta" duyurulur.
+   */
+  private drop(session: Session): void {
+    if (session.closed) return;
+    session.closed = true;
+    session.idleUpdates.cancel();
+    session.voiceUpdates.cancel();
+    this.sessions.delete(session);
+    const userId = session.userId;
+    if (!userId) return;
+    const set = this.byUser.get(userId);
+    if (!set?.delete(session)) return;
+    if (set.size === 0) {
+      this.byUser.delete(userId);
+      if (this.lastClosed.size > 5_000) this.lastClosed.clear();
+      this.lastClosed.set(userId, Date.now());
+    }
+    this.announcePresence(userId);
   }
 
   /**
@@ -500,30 +612,13 @@ export class Gateway {
 
   private async handle(s: Session, msg: GatewayClientMessage): Promise<void> {
     if (msg.t === 'IDENTIFY') {
-      if (s.userId) return;
-      // Zorunlu güncelleme: eski istemci önce güncellemeli (0.1.3 öncesi sürümler bu mesajı yok sayar
-      // ve yeniden bağlanmayı dener; kendi güncelleyicileri yeni sürümü indirip kurar).
-      const required = await this.clientVersions?.outdated(msg.d?.version, msg.d?.platform);
-      if (required) {
-        this.traffic.updateRequired++;
-        this.send(s, { t: 'UPDATE_REQUIRED', d: { version: required } });
-        s.socket.close(GATEWAY_CLOSE_UPDATE_REQUIRED, 'update required');
-        return;
+      if (s.userId || s.identifying) return;
+      s.identifying = true;
+      try {
+        await this.identifyMessage(s, msg.d);
+      } finally {
+        s.identifying = false;
       }
-      const user = await this.auth.userFromToken(msg.d.token);
-      if (!user) {
-        this.traffic.authFailures++;
-        this.send(s, { t: 'INVALID_SESSION', d: { reason: 'Oturum geçersiz.' } });
-        s.socket.close(4004, 'authentication failed');
-        return;
-      }
-      const features = Array.isArray(msg.d.features) ? msg.d.features : [];
-      s.dm = features.includes(CLIENT_FEATURE_DM);
-      s.reportsIdle = features.includes(CLIENT_FEATURE_PRESENCE);
-      const platform = msg.d.platform;
-      s.platform = platform === 'android' || platform === 'ios' ? platform : 'desktop';
-      s.version = typeof msg.d.version === 'string' && msg.d.version ? msg.d.version.slice(0, 32) : null;
-      this.identify(s, user);
       return;
     }
     if (!s.userId) {
@@ -535,18 +630,11 @@ export class Gateway {
         this.send(s, { t: 'HEARTBEAT_ACK' });
         break;
       case 'VOICE_STATE_SET':
-        this.voice.setSelf(s.userId, {
-          selfMute: Boolean(msg.d.selfMute),
-          selfDeaf: Boolean(msg.d.selfDeaf),
-        });
+        s.voiceUpdates.push({ selfMute: Boolean(msg.d?.selfMute), selfDeaf: Boolean(msg.d?.selfDeaf) });
         break;
-      case 'IDLE_SET': {
-        const idle = Boolean(msg.d?.idle);
-        if (s.idle === idle) break;
-        s.idle = idle;
-        this.announcePresence(s.userId);
+      case 'IDLE_SET':
+        s.idleUpdates.push(Boolean(msg.d?.idle));
         break;
-      }
       case 'TYPING_START': {
         const channelId = String(msg.d?.channelId ?? '');
         const now = Date.now();
@@ -559,6 +647,45 @@ export class Gateway {
         break;
       }
     }
+  }
+
+  /** Bağlantı hâlâ açık ve listede mi (beklemelerden sonra: bu arada kapanmış olabilir) */
+  private live(s: Session): boolean {
+    return !s.closed && this.sessions.has(s) && s.socket.readyState === s.socket.OPEN;
+  }
+
+  /**
+   * IDENTIFY: sürüm ve jeton denetimi beklenirken bağlantı kapanabilir; kapandıysa oturum hiç açılmaz
+   * (yoksa kapanmış bağlantı byUser'da kalır, kişi sonsuza dek çevrimiçi görünürdü).
+   */
+  private async identifyMessage(s: Session, d: IdentifyData): Promise<void> {
+    // Zorunlu güncelleme: eski istemci önce güncellemeli (0.1.3 öncesi sürümler bu mesajı yok sayar
+    // ve yeniden bağlanmayı dener; kendi güncelleyicileri yeni sürümü indirip kurar).
+    const required = await this.clientVersions?.outdated(d?.version, d?.platform);
+    if (!this.live(s)) return;
+    if (required) {
+      this.traffic.updateRequired++;
+      this.send(s, { t: 'UPDATE_REQUIRED', d: { version: required } });
+      s.socket.close(GATEWAY_CLOSE_UPDATE_REQUIRED, 'update required');
+      return;
+    }
+    const token = typeof d?.token === 'string' ? d.token : '';
+    const user = token ? await this.auth.userFromToken(token) : null;
+    if (!this.live(s)) return;
+    if (!user) {
+      this.traffic.authFailures++;
+      this.send(s, { t: 'INVALID_SESSION', d: { reason: 'Oturum geçersiz.' } });
+      s.socket.close(4004, 'authentication failed');
+      return;
+    }
+    const features = Array.isArray(d.features) ? d.features : [];
+    s.dm = features.includes(CLIENT_FEATURE_DM);
+    s.reportsIdle = features.includes(CLIENT_FEATURE_PRESENCE);
+    const platform = d.platform;
+    s.platform = platform === 'android' || platform === 'ios' ? platform : 'desktop';
+    s.version = typeof d.version === 'string' && d.version ? d.version.slice(0, 32) : null;
+    s.token = token;
+    this.identify(s, user);
   }
 
   private identify(s: Session, user: User): void {
