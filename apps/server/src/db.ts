@@ -2016,6 +2016,13 @@ export class Store {
     this.run('DELETE FROM push_tokens WHERE token = ?', token);
   }
 
+  /** Kullanıcının bütün bildirim jetonlarını siler (`keep` verilirse o jeton kalır); silinen sayısı */
+  removeUserPushTokens(userId: string, keep?: string): number {
+    return keep === undefined
+      ? this.run('DELETE FROM push_tokens WHERE user_id = ?', userId)
+      : this.run('DELETE FROM push_tokens WHERE user_id = ? AND token <> ?', userId, keep);
+  }
+
   pushTokens(userIds: string[]): { token: string; userId: string; platform: string }[] {
     if (userIds.length === 0) return [];
     return this.all<{ token: string; user_id: string; platform: string }>(

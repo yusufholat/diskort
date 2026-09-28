@@ -46,6 +46,8 @@ const newPassword = z
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Mevcut şifre gerekli.'),
   newPassword,
+  /** İsteğe bağlı: bu cihazın bildirim jetonu (verilirse silinmez; verilmezse cihaz açılışta yeniden kaydeder) */
+  pushToken: z.string().min(10).max(4096).optional(),
 });
 
 const resetPasswordSchema = z.object({
@@ -190,6 +192,10 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
       return sendError(reply, 400, 'invalid_code', 'Kullanıcı adı veya sıfırlama kodu hatalı ya da kodun süresi dolmuş.');
     }
     store.setPassword(userId, await auth.hashPassword(body.newPassword));
+    // Hesap başkasının elinde olabilir: açık bağlantıların hepsi kapanır, hiçbir cihaza bildirim gitmez
+    // (kişinin kendi telefonu giriş yapınca ya da uygulama açılınca jetonunu yeniden kaydeder)
+    gateway.disconnectUser(userId, 'Şifren sıfırlandı. Yeniden giriş yap.');
+    store.removeUserPushTokens(userId);
     const user = store.getUser(userId)!;
     audit(req, 'reset', user);
     const response: AuthResponse = { token: await auth.issueToken(user.id), user };
@@ -198,7 +204,11 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
 
   app.get('/api/me', { preHandler: auth.requireUser }, async (req) => req.user);
 
-  // Şifre değişince diğer cihazlardaki oturumlar kapanır; bu cihaz yeni jetonla devam eder.
+  // Şifre değişince eski jetonlar geçersizleşir (setPassword) ve diğer cihazların açık gateway bağlantıları
+  // hemen kapanır (INVALID_SESSION + 4004). Bu cihaz yanıttaki yeni jetonla devam eder; açık bağlantısı
+  // (aynı jetonla bağlanmış olan) kapanmaz, yeniden bağlanırken yeni jetonu kullanır. Bildirim jetonları
+  // hangi cihaza ait olduğu bilinmediğinden silinir; istek bu cihazın jetonunu (pushToken) taşıyorsa o kalır,
+  // taşımıyorsa uygulama bir sonraki açılışta ya da girişte jetonunu yeniden kaydeder.
   app.post('/api/me/password', { preHandler: auth.requireUser }, async (req, reply) => {
     if (!limit(req.ip)) return limited(req, reply);
     const body = parseBody(changePasswordSchema, req.body, reply);
@@ -209,6 +219,11 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
       return sendError(reply, 400, 'invalid_password', 'Mevcut şifre hatalı.');
     }
     store.setPassword(req.user.id, await auth.hashPassword(body.newPassword));
+    const header = req.headers.authorization;
+    gateway.disconnectUser(req.user.id, 'Şifren değiştirildi. Yeniden giriş yap.', {
+      exceptToken: header?.startsWith('Bearer ') ? header.slice(7) : '',
+    });
+    store.removeUserPushTokens(req.user.id, body.pushToken);
     audit(req, 'password', req.user);
     const response: AuthResponse = { token: await auth.issueToken(req.user.id), user: req.user };
     return response;
