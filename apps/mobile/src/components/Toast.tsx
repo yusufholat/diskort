@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EASE_IN, timing } from '../motion';
 import { useUi } from '../stores/ui';
 import { colors, createStyles, tint } from '../theme';
+import { useUpdateBannerVisible } from '../update/banner';
 
 type ToastState = NonNullable<ReturnType<typeof useUi.getState>['toast']>;
 
@@ -14,6 +15,8 @@ type ToastState = NonNullable<ReturnType<typeof useUi.getState>['toast']>;
 export function Toast() {
   const toast = useUi((s) => s.toast);
   const insets = useSafeAreaInsets();
+  // Güncelleme şeridi açıksa onun altında belirir
+  const bannerVisible = useUpdateBannerVisible();
   // Kapanış animasyonu sürerken son metin görünmeye devam eder
   const [shown, setShown] = useState<ToastState | null>(toast);
   const progress = useRef(new Animated.Value(0)).current;
@@ -39,7 +42,7 @@ export function Toast() {
         styles.toast,
         shown.kind === 'error' && styles.error,
         {
-          top: insets.top + 8,
+          top: insets.top + 8 + (bannerVisible ? 60 : 0),
           opacity: progress,
           transform: [
             { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [-24, 0] }) },

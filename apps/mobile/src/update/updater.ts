@@ -117,8 +117,8 @@ export async function updateOnLaunch(): Promise<void> {
 // ——— Denetim ———
 
 /**
- * Yeni sürüm var mı? Önce kablosuz güncelleme (arka planda indirilir, uygulama öne gelince
- * uygulanır), yoksa yeni APK. Bir şey bulunursa true döner.
+ * Yeni sürüm var mı? Önce kablosuz güncelleme (arka planda indirilir, üstteki şeritten ya da
+ * bir sonraki açılışta uygulanır), yoksa yeni APK. Bir şey bulunursa true döner.
  */
 export function checkForUpdate(force = false): Promise<boolean> {
   if (!force && Date.now() - lastCheck < CHECK_THROTTLE_MS) return Promise.resolve(false);

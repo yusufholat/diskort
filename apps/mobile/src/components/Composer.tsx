@@ -39,11 +39,10 @@ import { ReplyBar } from './ReplyBar';
 const drafts = new Map<string, string>();
 
 /**
- * Herhangi bir kanalda gönderilmeyi bekleyen (boşluktan ibaret olmayan) taslak metin var mı. Arka
- * planda inen arayüz güncellemesi (bkz. app/_layout.tsx) bunlar boşalana kadar ertelenir; aksi hâlde
- * yeniden başlatma taslağı siler. Artık görülemeyen (sunucudan çıkıldı, DM kapandı) kanalların
- * taslakları burada süzülür ve haritadan silinir: yoksa yalnızca o kanal yeniden açılıp temizlenene
- * kadar (belki hiç) güncelleme sonsuza dek ertelenmiş kalırdı.
+ * Herhangi bir kanalda gönderilmeyi bekleyen (boşluktan ibaret olmayan) taslak metin var mı. Güncelleme
+ * şeridinden yeniden başlatmadan önce (bkz. UpdateBanner) varsa kullanıcıya sorulur; yeniden başlatma
+ * taslağı siler. Artık görülemeyen (sunucudan çıkıldı, DM kapandı) kanalların taslakları burada süzülür
+ * ve haritadan silinir: yoksa hiç açılamayacak bir kanalın taslağı için boşuna sorulurdu.
  */
 export function hasDraftText(): boolean {
   if (drafts.size === 0) return false;
@@ -59,7 +58,7 @@ export function hasDraftText(): boolean {
 /** Şu an düzenleme kipinde açık kutusu olan kanallar (bkz. Composer bileşeni: editing prop'u izler) */
 const openEdits = new Set<string>();
 
-/** Herhangi bir kanalda açık bir mesaj düzenlemesi var mı: OTA güncellemesi bunu da bölmesin. */
+/** Herhangi bir kanalda açık bir mesaj düzenlemesi var mı: güncelleme için yeniden başlatmadan önce sorulur. */
 export function hasOpenEdit(): boolean {
   return openEdits.size > 0;
 }
@@ -113,8 +112,7 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
       return;
     }
     setValue(next);
-    // Yalnızca boşluktan ibaret metin taslak sayılmaz: yoksa OTA güncellemesi bomboş bir kutu yüzünden
-    // sonsuza dek ertelenirdi (bkz. hasDraftText, app/_layout.tsx)
+    // Yalnızca boşluktan ibaret metin taslak sayılmaz (bkz. hasDraftText, UpdateBanner)
     if (next.trim()) drafts.set(channel.id, next);
     else drafts.delete(channel.id);
     if (next.trim()) notifyTyping(channel.id);
@@ -139,8 +137,8 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
   const replying = useMessages((s) => Boolean(s.replies[channel.id]));
   useLayoutAnimationOn(`${files.length}:${replying}:${Boolean(editing)}:${suggestions.length > 0}`, 180, false);
 
-  // Düzenleme kipindeyken kanal açık düzenleme olarak işaretlenir (bkz. hasOpenEdit, app/_layout.tsx):
-  // OTA güncellemesi yarım kalan bir düzenlemeyi bölmesin. ChannelChat, editing değişince Composer'ı
+  // Düzenleme kipindeyken kanal açık düzenleme olarak işaretlenir (bkz. hasOpenEdit, UpdateBanner):
+  // güncelleme için yeniden başlatmadan önce sorulur. ChannelChat, editing değişince Composer'ı
   // `key` ile yeniden kurduğundan (bkz. ChannelChat.tsx) bu efekt her düzenleme oturumu için bir kez çalışır.
   useEffect(() => {
     if (!editing) return;
