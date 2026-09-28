@@ -7,7 +7,10 @@ import { colors, createStyles, tint } from '../theme';
 
 type ToastState = NonNullable<ReturnType<typeof useUi.getState>['toast']>;
 
-/** Kısa bilgi/hata: alttan kayarak belirir, kaybolurken aşağı kayar. */
+/**
+ * Kısa bilgi/hata: üstten, durum çubuğunun altından inerek belirir, kaybolurken yukarı kayar.
+ * Altta dururken butonların ve klavyenin üstüne biniyordu.
+ */
 export function Toast() {
   const toast = useUi((s) => s.toast);
   const insets = useSafeAreaInsets();
@@ -36,10 +39,10 @@ export function Toast() {
         styles.toast,
         shown.kind === 'error' && styles.error,
         {
-          bottom: insets.bottom + 90,
+          top: insets.top + 8,
           opacity: progress,
           transform: [
-            { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) },
+            { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [-24, 0] }) },
             { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) },
           ],
         },
