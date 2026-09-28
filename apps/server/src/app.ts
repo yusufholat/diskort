@@ -179,7 +179,7 @@ export async function buildApp(
     permissions,
     moderation,
     streamPreviews: new StreamPreviewStore(voice),
-    errors: createErrorLog(),
+    errors: createErrorLog({ client: statsFile('client-errors.jsonl'), server: statsFile('server-errors.jsonl') }, app.log),
     counters,
     authLog,
     apiStats,
