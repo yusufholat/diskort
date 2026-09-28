@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Camera, Check } from 'lucide-react';
 import {
-  AVATAR_MAX_BYTES,
   HEX_COLOR,
   PROFILE_EFFECT_LABELS,
   PROFILE_EFFECTS,
@@ -21,12 +20,16 @@ import {
   useStatus,
 } from '@diskort/client-core';
 import { confirmDialog } from '../../lib/dialog';
+import { PresenceProvider, usePresence } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { toast } from '../../stores/ui';
 import { Button, SectionTitle } from '../ui/controls';
+import { AvatarCropper } from './AvatarCropper';
 import { ProfileBanner, ProfileCardTop, ProfileEffectLayer, StatusBubble, themedCardStyle } from '../profile/ProfileLook';
 
 const ACCEPT = 'image/png,image/jpeg,image/webp,image/gif';
+/** Tarayıcıda açılıp kırpılacak resmin en büyük boyutu (sunucuya kırpılmış küçük kopya gider) */
+const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
 /** Renk seçici sürüklenirken her adımda kaydedilmesin: bırakıldıktan bu kadar sonra kaydedilir */
 const SAVE_DELAY = 400;
 
@@ -226,21 +229,21 @@ function ColorInput({ label, value, onChange }: { label: string; value: string; 
   );
 }
 
-/** Afiş: seçilen resim olduğu gibi yüklenir, sunucu ortasından 17:6 kırpar */
+/** Afiş: seçilen resim 17:6 kırpılıp (1020×360) yüklenir */
 function BannerPicker({ user }: { user: User }) {
   const input = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState<'upload' | 'remove' | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState<'remove' | null>(null);
+  const cropper = usePresence(file);
   const pick = (): void => input.current?.click();
 
-  const upload = async (file: File): Promise<void> => {
-    setBusy('upload');
+  const save = async (image: Blob): Promise<void> => {
     try {
-      await uploadBanner({ name: file.name, size: file.size, type: file.type, blob: file });
+      await uploadBanner({ name: 'afis.webp', size: image.size, type: image.type, blob: image });
+      setFile(null);
       toast('Afiş güncellendi.', 'success');
     } catch (err) {
       toast(errorMessage(err), 'error');
-    } finally {
-      setBusy(null);
     }
   };
 
@@ -276,24 +279,13 @@ function BannerPicker({ user }: { user: User }) {
           aria-label={user.bannerUrl ? 'Afişi değiştir' : 'Afiş yükle'}
         >
           <ProfileBanner user={user} className="aspect-[17/6] w-full" />
-          <span
-            className={cn(
-              'absolute inset-0 flex items-center justify-center bg-black/55 text-white transition-opacity',
-              busy === 'upload' ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-            )}
-          >
-            <Camera
-              size={20}
-              className={cn(
-                'transition-transform duration-200 ease-(--ease-hov)',
-                busy === 'upload' ? 'animate-pulse' : 'scale-75 group-hover:scale-100',
-              )}
-            />
+          <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100">
+            <Camera size={20} className="scale-75 transition-transform duration-200 ease-(--ease-hov) group-hover:scale-100" />
           </span>
         </button>
         <div className="flex gap-2">
           <Button type="button" onClick={pick} disabled={busy !== null}>
-            {busy === 'upload' ? 'Yükleniyor…' : user.bannerUrl ? 'Afişi Değiştir' : 'Afiş Yükle'}
+            {user.bannerUrl ? 'Afişi Değiştir' : 'Afiş Yükle'}
           </Button>
           {user.bannerUrl && (
             <Button type="button" variant="secondary" disabled={busy !== null} onClick={() => void remove()}>
@@ -303,8 +295,7 @@ function BannerPicker({ user }: { user: User }) {
         </div>
       </div>
       <p className="mt-2 text-xs text-text-muted">
-        PNG, JPEG, WebP ya da GIF, en fazla {formatBytes(AVATAR_MAX_BYTES)}. Geniş bir resim seç: ortasından{' '}
-        17:6 kırpılır.
+        PNG, JPEG, WebP ya da GIF. Seçtikten sonra 17:6 kırparsın.
       </p>
       <input
         ref={input}
@@ -315,13 +306,25 @@ function BannerPicker({ user }: { user: User }) {
           const picked = e.target.files?.[0];
           e.target.value = ''; // aynı dosya yeniden seçilebilsin
           if (!picked) return;
-          if (picked.size > AVATAR_MAX_BYTES) {
-            toast(`Resim çok büyük (en fazla ${formatBytes(AVATAR_MAX_BYTES)}).`, 'error');
+          if (picked.size > MAX_SOURCE_BYTES) {
+            toast(`Resim çok büyük (en fazla ${formatBytes(MAX_SOURCE_BYTES)}).`, 'error');
             return;
           }
-          void upload(picked);
+          setFile(picked);
         }}
       />
+      {/* Kırpma penceresi kapanırken de animasyonla kaybolur */}
+      <PresenceProvider value={cropper.closing}>
+        {cropper.value && (
+          <AvatarCropper
+            file={cropper.value}
+            shape="banner"
+            title="Afişi düzenle"
+            onCancel={() => setFile(null)}
+            onSave={save}
+          />
+        )}
+      </PresenceProvider>
     </div>
   );
 }
