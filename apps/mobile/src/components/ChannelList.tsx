@@ -2,7 +2,7 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import { Animated, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { hasPermission, Permission, type Channel, type VoiceState } from '@diskort/shared';
+import { hasPermission, Permission, type Channel, type ChannelType, type VoiceState } from '@diskort/shared';
 import {
   isUnread,
   membersOf,
@@ -12,6 +12,7 @@ import {
   useMessages,
   useSession,
 } from '@diskort/client-core';
+import { feedback } from '../haptics';
 import { animateNextLayout, useLayoutAnimationOn, useTimingTo } from '../motion';
 import { toast } from '../stores/ui';
 import { colors, createStyles, font, radius, ripple, space } from '../theme';
@@ -22,7 +23,9 @@ import { HeaderButton } from './HeaderButton';
 import { ChannelListSkeleton } from './Skeleton';
 import { SpeakingRing } from './SpeakingRing';
 import { EmptyState } from './States';
-import { openGuildMenu } from './ServerRail';
+import { ChannelMenu } from './ChannelMenu';
+import { openGuildMenu } from './GuildMenu';
+import { openServerSettings } from './serverSettings/common';
 import { TypingDots } from './TypingDots';
 import { VoiceStateIcon } from './VoiceStateIcon';
 
@@ -54,8 +57,8 @@ function useSomeoneTyping(channelId: string): boolean {
 }
 
 /**
- * Sol paneldeki sunucu başlığı (Discord mobil gibi): sunucunun adı; dokununca sunucu menüsü (davet,
- * ayrıl). Sağda üyeler düğmesi.
+ * Sol paneldeki sunucu başlığı (Discord mobil gibi): sunucunun adı; dokununca sunucu menüsü (davet, kanal
+ * oluştur, sunucu ayarları, ayrıl). Sağda üyeler düğmesi.
  */
 export function GuildHeader({ onMembers }: { onMembers: () => void }) {
   const guild = useGuild((s) => s.guild);
@@ -64,7 +67,7 @@ export function GuildHeader({ onMembers }: { onMembers: () => void }) {
     <View style={styles.header}>
       <Pressable
         style={styles.headerName}
-        onPress={() => openGuildMenu(guild)}
+        onPress={() => openGuildMenu(guild.id)}
         android_ripple={ripple.row}
         accessibilityRole="button"
         accessibilityLabel={`${guild.name}, sunucu menüsü`}
@@ -121,6 +124,9 @@ export function ChannelList({
       .join(','),
   );
   const voiceChannelId = useVoice((s) => s.channelId);
+  const canManageChannels = useCan(Permission.MANAGE_CHANNELS);
+  // Uzun basılan kanal (kanal menüsü)
+  const [menuChannel, setMenuChannel] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<ReadonlySet<SectionKey>>(() => new Set(collapsedSections));
 
   const sections = useMemo(() => {
@@ -132,8 +138,18 @@ export function ChannelList({
         : all;
       return { key, title, total: all.length, data: shown };
     };
-    return [build('text', 'Metin Kanalları', 'text'), build('voice', 'Ses Kanalları', 'voice')].filter((s) => s.total > 0);
-  }, [channels, collapsed, unreadKey, voiceChannelId, selectedId]);
+    // Kanal oluşturabilen boş bölümü de görür (başlıktaki + ile o türde kanal açar)
+    return [build('text', 'Metin Kanalları', 'text'), build('voice', 'Ses Kanalları', 'voice')].filter(
+      (s) => s.total > 0 || (canManageChannels && channels.length > 0),
+    );
+  }, [channels, collapsed, unreadKey, voiceChannelId, selectedId, canManageChannels]);
+
+  const createChannel = useCallback(
+    (type: ChannelType) => {
+      if (guild) openServerSettings(guild.id, '/sunucu-ayarlari/kanal-olustur', { type });
+    },
+    [guild],
+  );
 
   const toggleSection = useCallback((key: SectionKey) => {
     animateNextLayout(200);
@@ -169,13 +185,14 @@ export function ChannelList({
               sectionKey={section.key}
               collapsed={collapsed.has(section.key)}
               onToggle={toggleSection}
+              onCreate={canManageChannels ? createChannel : undefined}
             />
           )}
           renderItem={({ item }) =>
             item.type === 'text' ? (
-              <TextChannelRow channel={item} onOpen={onOpenText} selected={item.id === selectedId} />
+              <TextChannelRow channel={item} onOpen={onOpenText} onMenu={setMenuChannel} selected={item.id === selectedId} />
             ) : (
-              <VoiceChannelRow channel={item} onOpen={onOpenVoice} onMemberPress={onMemberPress} />
+              <VoiceChannelRow channel={item} onOpen={onOpenVoice} onMenu={setMenuChannel} onMemberPress={onMemberPress} />
             )
           }
           ListEmptyComponent={
@@ -183,11 +200,17 @@ export function ChannelList({
               icon="chatbubbles-outline"
               tone="muted"
               title="Henüz kanal yok"
-              text="Kanallar masaüstü uygulamasındaki sunucu ayarlarından oluşturulur. Oluşturulunca burada belirir."
+              text={
+                canManageChannels
+                  ? 'Sunucuda henüz kanal yok. İlk kanalı sen oluştur.'
+                  : 'Kanalları sunucunun yöneticileri oluşturur. Oluşturulunca burada belirir.'
+              }
+              action={canManageChannels ? { title: 'Kanal oluştur', onPress: () => createChannel('text') } : undefined}
             />
           }
         />
       )}
+      <ChannelMenu channelId={menuChannel} onClose={() => setMenuChannel(null)} />
     </View>
   );
 }
@@ -198,14 +221,18 @@ function SectionHeader({
   sectionKey,
   collapsed,
   onToggle,
+  onCreate,
 }: {
   title: string;
   sectionKey: SectionKey;
   collapsed: boolean;
   onToggle: (key: SectionKey) => void;
+  /** Kanal oluşturabilene başlığın sağında + (masaüstündeki gibi) */
+  onCreate?: (type: ChannelType) => void;
 }) {
   const turn = useTimingTo(collapsed ? 1 : 0, 180);
   return (
+    <View style={styles.sectionRow}>
     <Pressable
       onPress={() => onToggle(sectionKey)}
       style={styles.section}
@@ -225,16 +252,28 @@ function SectionHeader({
         </>
       )}
     </Pressable>
+      {onCreate && (
+        <HeaderButton
+          icon="add"
+          size={20}
+          label={sectionKey === 'text' ? 'Metin kanalı oluştur' : 'Ses kanalı oluştur'}
+          onPress={() => onCreate(sectionKey)}
+        />
+      )}
+    </View>
   );
 }
 
 const TextChannelRow = memo(function TextChannelRow({
   channel,
   onOpen,
+  onMenu,
   selected = false,
 }: {
   channel: Channel;
   onOpen: (id: string) => void;
+  /** Uzun basınca kanal menüsü */
+  onMenu: (id: string) => void;
   selected?: boolean;
 }) {
   const unread = useGuild((s) => isUnread(s, channel.id));
@@ -247,6 +286,11 @@ const TextChannelRow = memo(function TextChannelRow({
       {unread && <UnreadMarker />}
       <Pressable
         onPress={() => onOpen(channel.id)}
+        onLongPress={() => {
+          feedback('tick');
+          onMenu(channel.id);
+        }}
+        delayLongPress={300}
         android_ripple={ripple.row}
         style={[styles.row, selected && styles.rowActive]}
         accessibilityRole="button"
@@ -274,10 +318,13 @@ const TextChannelRow = memo(function TextChannelRow({
 const VoiceChannelRow = memo(function VoiceChannelRow({
   channel,
   onOpen,
+  onMenu,
   onMemberPress,
 }: {
   channel: Channel;
   onOpen: (id: string) => void;
+  /** Uzun basınca kanal menüsü */
+  onMenu: (id: string) => void;
   onMemberPress: (userId: string) => void;
 }) {
   const voiceStates = useGuild((s) => s.voiceStates);
@@ -293,6 +340,11 @@ const VoiceChannelRow = memo(function VoiceChannelRow({
       <View style={styles.rowWrap}>
         <Pressable
           onPress={() => (disabled ? toast('Bu ses kanalına bağlanma iznin yok.', 'error') : onOpen(channel.id))}
+          onLongPress={() => {
+            feedback('tick');
+            onMenu(channel.id);
+          }}
+          delayLongPress={300}
           android_ripple={ripple.row}
           style={[styles.row, active && styles.rowActive, disabled && { opacity: 0.5 }]}
           accessibilityRole="button"
@@ -379,7 +431,9 @@ const styles = createStyles(() => ({
   createLink: { color: colors.link, fontSize: font.body, fontWeight: '600', textAlign: 'center', marginTop: space.md },
   guild: { color: colors.head, fontSize: font.title + 1, fontWeight: '800', flexShrink: 1 },
   listContent: { paddingBottom: space.lg },
+  sectionRow: { flexDirection: 'row', alignItems: 'flex-end', paddingRight: space.xs },
   section: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,

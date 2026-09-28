@@ -1,7 +1,39 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { Check, X } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  Bell,
+  Check,
+  Globe,
+  Inbox,
+  Keyboard,
+  LogOut,
+  MessageSquareHeart,
+  Mic,
+  MonitorUp,
+  Palette,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  SunMoon,
+  UserRound,
+  UsersRound,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import { AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH } from '@diskort/shared';
-import { gateway, api, errorMessage, useFeedback, useGuild, useSession } from '@diskort/client-core';
+import {
+  gateway,
+  api,
+  errorMessage,
+  normalizeServerUrl,
+  searchSettings,
+  settingsGroupsFor,
+  useFeedback,
+  useGuild,
+  useSession,
+  type SettingsSectionId,
+  type SettingsSectionInfo,
+} from '@diskort/client-core';
 import { SCREEN_CODECS, SCREEN_PRESETS } from '../../features/voice/screenPresets';
 import { voice } from '../../features/voice/voiceClient';
 import { bridge, isWindows } from '../../lib/bridge';
@@ -10,7 +42,7 @@ import { useEscapeLayer } from '../../lib/escape';
 import { usePresenceClosing } from '../../lib/motion';
 import { THEMES, themeVars } from '../../lib/theme';
 import { cn } from '../../lib/utils';
-import { useSettings, type ScreenCodec, type ScreenPresetId, type ThemeId } from '../../stores/settings';
+import { DEFAULT_SERVER_URL, useSettings, type ScreenCodec, type ScreenPresetId, type ThemeId } from '../../stores/settings';
 import { toast, useUi, type SettingsSection } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 import { Button, Divider, Field, SectionTitle, Select, TextInput, Toggle } from '../ui/controls';
@@ -18,47 +50,77 @@ import { ChangePassword } from './ChangePassword';
 import { DeleteAccount } from './DeleteAccount';
 import { KeybindInput } from './KeybindInput';
 import { ProfilePhoto } from './ProfilePhoto';
-import { VoiceSettings } from './VoiceSettings';
+import { SoundSettings, VoiceSettings } from './VoiceSettings';
 import { MyFeedback } from '../feedback/MyFeedback';
 import { FeedbackAdminSection } from '../feedback/FeedbackAdminSection';
 import { CountBadge } from '../ui/CountBadge';
 import { AdminSection } from './AdminSection';
 import { WhatsNewSection } from './WhatsNewSection';
 
-// Üyeler ve sunucu davetleri Sunucu Ayarları'nda (sunucu adının yanındaki menü). Hesap yöneticiliği
-// sunucuya bağlı olmadığından geri bildirim yönetimi ve hesap işleri buradadır (yalnızca yöneticilere).
-const SECTIONS: { id: SettingsSection; label: string }[] = [
-  { id: 'account', label: 'Hesabım' },
-  { id: 'appearance', label: 'Görünüm' },
-  { id: 'voice', label: 'Ses' },
-  { id: 'stream', label: 'Yayın' },
-  { id: 'keybinds', label: 'Kısayollar' },
-  { id: 'app', label: 'Uygulama' },
-  { id: 'feedback', label: 'Geri Bildirimlerim' },
-  { id: 'whatsNew', label: 'Yenilikler' },
-];
+// Kullanıcı Ayarları (Discord'daki gibi): solda başlıklı gruplar ve arama, sağda seçili bölüm. Grupların ve
+// bölümlerin adı, sırası ve simgesi telefonla ortaktır (client-core/settingsSections). Üyeler ve sunucu
+// davetleri Sunucu Ayarları'nda (sunucu adının yanındaki menü). Hesap yöneticiliği sunucuya bağlı olmadığından
+// geri bildirim yönetimi ve hesap işleri buradadır (yalnızca yöneticilere).
 
-const ADMIN_SECTIONS: { id: SettingsSection; label: string }[] = [
-  { id: 'feedbackAdmin', label: 'Geri bildirimler (yönetim)' },
-  { id: 'admin', label: 'Yönetim' },
-];
+/** Ortak yapıdaki simge adlarının lucide karşılıkları */
+const ICONS: Record<string, LucideIcon> = {
+  UserRound,
+  Palette,
+  Mic,
+  MonitorUp,
+  SunMoon,
+  Bell,
+  Keyboard,
+  SlidersHorizontal,
+  Inbox,
+  UsersRound,
+  Globe,
+  MessageSquareHeart,
+  Sparkles,
+  ShieldCheck,
+};
+
+/** Dışarıda (tarayıcıda) açılan bağlantılar */
+function openLink(section: SettingsSectionInfo, serverUrl: string): void {
+  // Gizlilik sayfası resmî sitede; yönetim paneli bağlı olunan sunucuda
+  const base = section.id === 'privacy' ? DEFAULT_SERVER_URL : normalizeServerUrl(serverUrl);
+  const url = base + (section.path ?? '');
+  if (bridge) void bridge.openExternal(url);
+  else window.open(url, '_blank');
+}
 
 export function SettingsModal({ initial }: { initial?: SettingsSection }) {
   const close = useUi((s) => s.closeModal);
-  const openModal = useUi((s) => s.openModal);
   const [chosen, setSection] = useState<SettingsSection>(initial ?? 'account');
+  const [query, setQuery] = useState('');
   const isAdmin = useSession((s) => s.user?.isAdmin === true);
+  const serverUrl = useSettings((s) => s.serverUrl);
   const newFeedback = useFeedback((s) => (isAdmin ? s.newCount : 0));
+  const groups = useMemo(() => settingsGroupsFor('desktop', { isAdmin }), [isAdmin]);
+  const shown = useMemo(() => searchSettings(groups, query), [groups, query]);
   // Yöneticilik alınırsa yönetim bölümünden Hesabım'a dönülür
-  const section = !isAdmin && ADMIN_SECTIONS.some((s) => s.id === chosen) ? 'account' : chosen;
+  const available = groups.some((g) => g.sections.some((s) => s.id === chosen));
+  const section: SettingsSection = available ? chosen : 'account';
   const closing = usePresenceClosing();
   useEscapeLayer(close, !closing);
 
   const logout = async (): Promise<void> => {
+    const ok = await confirmDialog({
+      title: 'Çıkış yapılsın mı?',
+      message: 'Bu bilgisayarda yeniden giriş yapana kadar oturumun kapalı kalır.',
+      confirmLabel: 'Çıkış Yap',
+      danger: true,
+    });
+    if (!ok) return;
     close();
     await voice.leave();
     gateway.disconnect();
     useSession.getState().logout();
+  };
+
+  const choose = (item: SettingsSectionInfo): void => {
+    if (item.kind === 'link') openLink(item, serverUrl);
+    else setSection(item.id as SettingsSection);
   };
 
   return (
@@ -68,47 +130,60 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
         closing ? 'anim-settings-out pointer-events-none' : 'anim-settings-in',
       )}
     >
-      <nav className="flex w-[35%] min-w-[220px] justify-end overflow-y-auto border-r border-divider bg-bg-side py-14 pr-2">
-        <div className="w-[190px]">
-          <div className="px-2.5 pb-1.5 text-xs font-bold text-text-muted uppercase">Kullanıcı Ayarları</div>
-          {SECTIONS.map((s) => (
-            <NavItem key={s.id} active={section === s.id} onClick={() => setSection(s.id)}>
-              {s.label}
-            </NavItem>
+      <nav className="flex w-[35%] min-w-[240px] justify-end overflow-y-auto border-r border-divider bg-bg-side py-14 pr-2">
+        <div className="w-[210px]">
+          <label className="mb-3 flex h-8 items-center gap-2 rounded bg-bg-rail px-2 text-sm text-text-muted focus-within:ring-2 focus-within:ring-brand/60">
+            <Search size={14} className="shrink-0" aria-hidden />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                // Esc önce aramayı temizler, boşsa ayarları kapatır
+                if (e.key === 'Escape' && query) {
+                  e.stopPropagation();
+                  setQuery('');
+                }
+              }}
+              placeholder="Ara"
+              aria-label="Ayarlarda ara"
+              className="min-w-0 flex-1 bg-transparent text-text-normal outline-none placeholder:text-text-faint"
+            />
+            {query && (
+              <button onClick={() => setQuery('')} aria-label="Aramayı temizle" className="text-text-muted hover:text-text-head">
+                <X size={14} />
+              </button>
+            )}
+          </label>
+          {shown.length === 0 && <div className="px-2.5 py-2 text-sm text-text-muted">Eşleşen ayar yok.</div>}
+          {shown.map((group, i) => (
+            <div key={group.id}>
+              {i > 0 && <div className="mx-2.5 my-2 h-px bg-line" />}
+              <div className="px-2.5 pb-1.5 text-xs font-bold text-text-muted uppercase">{group.title}</div>
+              {group.sections.map((item) => {
+                const Icon = ICONS[item.icon.desktop];
+                return (
+                  <NavItem key={item.id} active={item.kind === 'page' && section === item.id} onClick={() => choose(item)}>
+                    {Icon && <Icon size={16} className="shrink-0 opacity-80" aria-hidden />}
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    {item.id === 'feedbackAdmin' && newFeedback > 0 && <CountBadge count={newFeedback} />}
+                    {item.kind === 'link' && <span className="text-xs text-text-faint">↗</span>}
+                  </NavItem>
+                );
+              })}
+            </div>
           ))}
-          {isAdmin && (
-            <>
-              <div className="mx-2.5 my-2 h-px bg-line" />
-              <div className="px-2.5 pb-1.5 text-xs font-bold text-text-muted uppercase">Hesap Yönetimi</div>
-              {ADMIN_SECTIONS.map((s) => (
-                <NavItem key={s.id} active={section === s.id} onClick={() => setSection(s.id)}>
-                  {s.label}
-                  {s.id === 'feedbackAdmin' && newFeedback > 0 && <CountBadge count={newFeedback} />}
-                </NavItem>
-              ))}
-            </>
-          )}
-          <div className="mx-2.5 my-2 h-px bg-line" />
-          <NavItem onClick={() => openModal({ type: 'feedback' })}>Geri bildirim gönder</NavItem>
           <div className="mx-2.5 my-2 h-px bg-line" />
           <NavItem onClick={() => void logout()} danger>
-            Çıkış Yap
+            <LogOut size={16} className="shrink-0" aria-hidden />
+            <span className="flex-1">Çıkış Yap</span>
           </NavItem>
+          <AppInfo />
         </div>
       </nav>
       <main className="relative flex-1 overflow-y-auto py-14 pr-10 pl-10">
         {/* Bölüm değişince içerik hafifçe yükselerek belirir */}
         <div key={section} className="anim-rise-in max-w-[660px]">
-          {section === 'account' && <AccountSection />}
-          {section === 'appearance' && <AppearanceSection />}
-          {section === 'voice' && <VoiceSettings />}
-          {section === 'stream' && <StreamSection />}
-          {section === 'keybinds' && <KeybindsSection />}
-          {section === 'app' && <AppSection />}
-          {section === 'feedback' && <MyFeedback />}
-          {section === 'whatsNew' && <WhatsNewSection />}
-          {section === 'feedbackAdmin' && <FeedbackAdminSection />}
-          {section === 'admin' && <AdminSection />}
+          <SectionContent id={section} />
         </div>
         <button
           onClick={close}
@@ -121,6 +196,50 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
           <span className="text-xs font-semibold">ESC</span>
         </button>
       </main>
+    </div>
+  );
+}
+
+function SectionContent({ id }: { id: SettingsSection }) {
+  switch (id) {
+    case 'account':
+      return <AccountSection />;
+    case 'profile':
+      return <ProfileSection />;
+    case 'voice':
+      return <VoiceSettings />;
+    case 'stream':
+      return <StreamSection />;
+    case 'appearance':
+      return <AppearanceSection />;
+    case 'notifications':
+      return <NotificationsSection />;
+    case 'keybinds':
+      return <KeybindsSection />;
+    case 'advanced':
+      return <AdvancedSection />;
+    case 'feedbackAdmin':
+      return <FeedbackAdminSection />;
+    case 'accountAdmin':
+      return <AdminSection />;
+    case 'feedback':
+      return <MyFeedback />;
+    case 'whatsNew':
+      return <WhatsNewSection />;
+  }
+}
+
+/** Gezinmenin altındaki sürüm ve sistem bilgisi */
+function AppInfo() {
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => {
+    void bridge?.getVersion().then(setVersion);
+  }, []);
+  const platform = bridge?.platform === 'win32' ? 'Windows' : bridge?.platform === 'darwin' ? 'macOS' : bridge?.platform === 'linux' ? 'Linux' : 'Web';
+  return (
+    <div className="mt-3 px-2.5 text-xs leading-5 text-text-faint">
+      <div>Diskort {version ?? 'web'}</div>
+      <div>{platform}</div>
     </div>
   );
 }
@@ -140,17 +259,18 @@ function NavItem({
     <button
       onClick={onClick}
       className={cn(
-        'mb-0.5 block w-full rounded px-2.5 py-1.5 text-left font-medium transition-colors',
+        'mb-0.5 flex w-full items-center rounded px-2.5 py-1.5 text-left font-medium transition-colors',
         active ? 'bg-bg-active text-text-head' : 'text-text-muted hover:bg-bg-hover hover:text-text-normal',
         danger && 'text-danger hover:text-danger',
       )}
     >
       {/* Seçili olmayan bölümün adı üstüne gelince hafifçe sağa kayar */}
-      <span className={cn('inline-block', !active && 'ico-nudge-r')}>{children}</span>
+      <span className={cn('flex min-w-0 flex-1 items-center gap-2', !active && 'ico-nudge-r')}>{children}</span>
     </button>
   );
 }
 
+/** Hesabım: görünen ad, kullanıcı adı, şifre değiştirme ve hesabı silme */
 function AccountSection() {
   const user = useSession((s) => s.user);
   // Rolleri, en üstteki önce
@@ -165,10 +285,10 @@ function AccountSection() {
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [busy, setBusy] = useState(false);
 
-  const save = async (patch: { displayName?: string; avatarColor?: string }): Promise<void> => {
+  const save = async (): Promise<void> => {
     setBusy(true);
     try {
-      const updated = await api.updateMe(patch);
+      const updated = await api.updateMe({ displayName });
       useSession.getState().setUser(updated);
       toast('Kaydedildi.', 'success');
     } catch (err) {
@@ -201,20 +321,53 @@ function AccountSection() {
           />
           <Button
             disabled={busy || !displayName.trim() || displayName === user.displayName}
-            onClick={() => void save({ displayName })}
+            onClick={() => void save()}
           >
             Kaydet
           </Button>
         </div>
       </Field>
+      <Field label="Kullanıcı adı">
+        <TextInput value={user.username} disabled readOnly />
+      </Field>
+      <Divider />
+      <ChangePassword />
+      <Divider />
+      <DeleteAccount />
+    </div>
+  );
+}
+
+/** Profil: profil fotoğrafı ve profil rengi (fotoğraf yokken avatarın zemini) */
+function ProfileSection() {
+  const user = useSession((s) => s.user);
+  const [busy, setBusy] = useState(false);
+
+  const saveColor = async (avatarColor: string): Promise<void> => {
+    setBusy(true);
+    try {
+      const updated = await api.updateMe({ avatarColor });
+      useSession.getState().setUser(updated);
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!user) return null;
+  return (
+    <div>
+      <h2 className="mb-5 text-xl font-bold text-text-head">Profil</h2>
       <ProfilePhoto user={user} />
       <SectionTitle>Profil Rengi</SectionTitle>
+      <p className="mb-3 text-sm text-text-muted">Profil fotoğrafın yokken avatarının zemin rengi.</p>
       <div className="flex flex-wrap gap-2">
         {AVATAR_COLORS.map((color) => (
           <button
             key={color}
             disabled={busy}
-            onClick={() => void save({ avatarColor: color })}
+            onClick={() => void saveColor(color)}
             className={cn(
               'h-10 w-10 rounded-full transition-transform hover:scale-110',
               user.avatarColor === color && 'ring-2 ring-text-head ring-offset-2 ring-offset-bg-main',
@@ -224,10 +377,16 @@ function AccountSection() {
           />
         ))}
       </div>
-      <Divider />
-      <ChangePassword />
-      <Divider />
-      <DeleteAccount />
+    </div>
+  );
+}
+
+/** Bildirimler ve Sesler: arayüz sesleri, bildirim sesi, bas-konuş sesleri, sesleri dinle */
+function NotificationsSection() {
+  return (
+    <div>
+      <h2 className="mb-5 text-xl font-bold text-text-head">Bildirimler ve Sesler</h2>
+      <SoundSettings />
     </div>
   );
 }
@@ -409,7 +568,8 @@ function KeybindsSection() {
   );
 }
 
-function AppSection() {
+/** Gelişmiş: sistem tepsisi, açılışta başlatma, sunucu adresi ve sürüm */
+function AdvancedSection() {
   const s = useSettings();
   const [version, setVersion] = useState<string | null>(null);
 
@@ -419,7 +579,7 @@ function AppSection() {
 
   return (
     <div>
-      <h2 className="mb-5 text-xl font-bold text-text-head">Uygulama</h2>
+      <h2 className="mb-5 text-xl font-bold text-text-head">Gelişmiş</h2>
       <Toggle
         label="Kapatınca sistem tepsisine küçült"
         description="Pencereyi kapatınca Diskort arka planda çalışmaya ve sesi iletmeye devam eder."

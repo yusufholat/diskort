@@ -27,6 +27,7 @@ import {
   dmTitle,
   loadInitial,
   loadOlder,
+  openDirectMessage,
   pinMessage,
   QUICK_REACTIONS,
   startReply,
@@ -46,6 +47,7 @@ import {
 } from '@diskort/client-core';
 import { CountBadge } from './Badge';
 import { BottomSheet, SheetGroup, SheetItem } from './BottomSheet';
+import { confirmDialog } from './Dialog';
 import { openReactionsSheet, ReactionsSheet } from './ReactionsSheet';
 import { openPinsSheet, PinsSheet } from './PinsSheet';
 import { Composer } from './Composer';
@@ -63,7 +65,7 @@ import { TypingDots } from './TypingDots';
 import { VoiceBar } from './VoiceBar';
 import { useKeyboardInset } from '../keyboard';
 import { animateNextLayout, useSpringTo, useTimingTo } from '../motion';
-import { useNav } from '../stores/nav';
+import { showChat, useNav } from '../stores/nav';
 import { toast, useUi } from '../stores/ui';
 import { colors, createStyles, font, radius, space, tint } from '../theme';
 import { useVoice } from '../voice/voice';
@@ -726,7 +728,6 @@ function MessageMenu({
   onClose: () => void;
   onEdit: (m: LocalMessage) => void;
 }) {
-  const [confirm, setConfirm] = useState(false);
   const [allEmojis, setAllEmojis] = useState(false);
   // Kapanış animasyonu sürerken menünün içeriği değişmesin: son mesaj tutulur
   const last = useRef(message);
@@ -734,11 +735,14 @@ function MessageMenu({
   const shown = message ?? last.current;
   const canEdit = shown?.authorId === self.id;
   const canDelete = shown?.authorId === self.id || canManageMessages;
+  // Yazara mesaj (masaüstündeki "Yazara Mesaj Gönder"): başkasının mesajı ve ortak sunucusu var
+  const canMessageAuthor = useGuild((s) =>
+    Boolean(shown?.authorId && shown.authorId !== self.id && s.reachable[shown.authorId] && s.dms[shown.channelId] === undefined),
+  );
 
   // Her açılışta menü baştan başlar
   useEffect(() => {
     if (!message) return;
-    setConfirm(false);
     setAllEmojis(false);
   }, [message]);
 
@@ -809,7 +813,7 @@ function MessageMenu({
               <SheetItem
                 key="pin"
                 icon={pinned ? 'pin' : 'pin-outline'}
-                label={pinned ? 'Sabitlemeyi kaldır' : 'Sabitle'}
+                label={pinned ? 'Sabitlemeyi kaldır' : 'Mesajı sabitle'}
                 onPress={() => {
                   const target = shown;
                   close();
@@ -823,13 +827,25 @@ function MessageMenu({
               <SheetItem
                 key="edit"
                 icon="create-outline"
-                label="Düzenle"
+                label="Mesajı düzenle"
                 onPress={() => {
                   if (shown) onEdit(shown);
                   close();
                 }}
               />
             )}
+            {canMessageAuthor && shown?.authorId ? (
+              <SheetItem
+                key="dm"
+                icon="chatbubble-outline"
+                label="Yazara mesaj gönder"
+                onPress={() => {
+                  const authorId = shown.authorId!;
+                  close();
+                  void openDirectMessage(authorId).then((dm) => dm && showChat(dm.id));
+                }}
+              />
+            ) : null}
             {reactions.length > 0 ? (
               <SheetItem
                 key="reactions"
@@ -870,17 +886,22 @@ function MessageMenu({
             <SheetGroup>
               <SheetItem
                 icon="trash-outline"
-                label={confirm ? 'Emin misin? Kalıcı olarak sil' : 'Mesajı sil'}
-                hint={confirm ? 'Geri alınamaz. Silmek için yeniden dokun.' : undefined}
+                label="Mesajı sil"
                 danger
                 onPress={() => {
-                  if (!confirm) {
-                    animateNextLayout(160);
-                    setConfirm(true);
-                    return;
-                  }
-                  if (shown) void deleteMessage(shown);
+                  const target = shown;
                   close();
+                  if (!target) return;
+                  // Temalı onay penceresi (masaüstündeki gibi)
+                  void confirmDialog({
+                    title: 'Mesaj silinsin mi?',
+                    message: 'Bu mesaj herkesten kalıcı olarak silinir. Bu işlem geri alınamaz.',
+                    icon: 'trash-outline',
+                    confirmLabel: 'Sil',
+                    danger: true,
+                  }).then((ok) => {
+                    if (ok) void deleteMessage(target);
+                  });
                 }}
               />
             </SheetGroup>

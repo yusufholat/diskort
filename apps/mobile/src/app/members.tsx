@@ -113,14 +113,19 @@ const MemberRow = memo(function MemberRow({
               </View>
             )}
           </View>
-          {inVoice ? (
+          {/* Masaüstündeki gibi önce özel durum, yoksa sesli sohbet, yoksa kullanıcı adı */}
+          {custom ? (
+            <Text style={styles.sub} numberOfLines={1}>
+              {`${custom.emoji ? `${custom.emoji} ` : ''}${custom.text ?? ''}`}
+            </Text>
+          ) : inVoice ? (
             <View style={styles.subRow}>
               <Ionicons name="volume-medium" size={13} color={colors.ok} />
               <Text style={[styles.sub, { color: colors.ok }]}>Sesli sohbette</Text>
             </View>
           ) : (
             <Text style={styles.sub} numberOfLines={1}>
-              {custom ? `${custom.emoji ? `${custom.emoji} ` : ''}${custom.text ?? ''}` : `@${user.username}`}
+              @{user.username}
             </Text>
           )}
         </View>

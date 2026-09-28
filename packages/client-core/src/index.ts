@@ -149,6 +149,25 @@ export {
 } from './permissionInfo';
 export { memberActions, moderation, moveTargets, voiceDropTargets, type MemberActions } from './moderation';
 export { canReorderChannels, reorderChannels, reorderedIds } from './channelOrder';
+export {
+  channelNameFor,
+  GUILD_SETTINGS_SECTIONS,
+  guildSettingsSections,
+  typedChannelName,
+  type GuildSettingsSection,
+} from './guildSettings';
+export {
+  normalizeSearch,
+  searchSettings,
+  SETTINGS_GROUPS,
+  settingsGroupsFor,
+  settingsSection,
+  type SettingsGroupId,
+  type SettingsGroupInfo,
+  type SettingsPlatform,
+  type SettingsSectionId,
+  type SettingsSectionInfo,
+} from './settingsSections';
 export { embedColor, embedHost, embedMediaUrl, embedVideoUrl, visibleLinkEmbeds, youtubePlayerUrl } from './linkEmbeds';
 export {
   ackChannel,

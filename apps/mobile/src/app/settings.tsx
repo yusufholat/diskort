@@ -1,362 +1,222 @@
-import { useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Linking, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { api, errorMessage, gateway, removeAvatar, uploadAvatar, useFeedback, useSession } from '@diskort/client-core';
-import { pickAvatar } from '../attachments';
+import * as Device from 'expo-device';
+import * as Updates from 'expo-updates';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { STATUS_LABELS } from '@diskort/shared';
+import {
+  normalizeServerUrl,
+  searchSettings,
+  settingsGroupsFor,
+  useCustomStatus,
+  useFeedback,
+  useSession,
+  useStatus,
+  type SettingsSectionInfo,
+} from '@diskort/client-core';
 import { PresenceAvatar } from '../components/Avatar';
-import { StatusChip } from '../components/StatusPicker';
+import { confirmLogout } from '../components/settings/AccountSettings';
 import { PressableScale } from '../components/PressableScale';
-import { Button, Card, FadeIn, Field, NavRow, SectionTitle, ui } from '../components/ui';
-import { ThemePicker } from '../components/ThemePicker';
-import { ToggleRow, VoiceSettings } from '../components/VoiceSettings';
-import { animateNextLayout } from '../motion';
-import { registerForPush, unregisterPush, usePushState } from '../notifications';
+import { Card, NavRow, SectionTitle } from '../components/ui';
 import { APP_VERSION, NATIVE_VERSION } from '../version';
 import { DEFAULT_SERVER_URL, useSettings } from '../stores/settings';
-import { toast } from '../stores/ui';
-import { colors, createStyles, font, radius, space } from '../theme';
-import { voice } from '../voice/voice';
+import { colors, createStyles, font, radius, space, THEME_LABELS, useTheme } from '../theme';
 
+type IconName = keyof typeof Ionicons.glyphMap;
+
+/**
+ * Kullanıcı Ayarları (Discord mobildeki gibi): üstte profil ve arama, altında başlıklı gruplar (Hesap
+ * Ayarları, Uygulama Ayarları, Yönetim, Destek); satırlar alt sayfaları açar. Gruplar ve sıraları
+ * masaüstüyle ortaktır (client-core/settingsSections). En altta Çıkış Yap ve sürüm bilgisi.
+ */
 export default function SettingsScreen() {
   const user = useSession((s) => s.user);
-  const serverUrl = useSettings((s) => s.serverUrl);
-  const linkPreviews = useSettings((s) => s.linkPreviews);
-  const setSettings = useSettings((s) => s.set);
-  const [displayName, setDisplayName] = useState(user?.displayName ?? '');
-  const [savingName, setSavingName] = useState(false);
-  const photo = useProfilePhoto();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const [query, setQuery] = useState('');
   // Hesap yöneticiliği hiçbir sunucuya bağlı değildir: yönetim buradan
   const isAdmin = user?.isAdmin === true;
-  const newFeedback = useFeedback((s) => (isAdmin ? s.newCount : 0));
+  const groups = useMemo(() => settingsGroupsFor('mobile', { isAdmin }), [isAdmin]);
+  const shown = useMemo(() => searchSettings(groups, query), [groups, query]);
+  const values = useRowValues();
+  const serverUrl = useSettings((s) => s.serverUrl);
 
-  const saveName = async (): Promise<void> => {
-    setSavingName(true);
-    try {
-      const updated = await api.updateMe({ displayName: displayName.trim() });
-      useSession.getState().setUser(updated);
-      toast('Görünen ad kaydedildi.');
-    } catch (err) {
-      toast(errorMessage(err), 'error');
-    } finally {
-      setSavingName(false);
+  const open = (section: SettingsSectionInfo): void => {
+    switch (section.id) {
+      case 'feedback':
+        router.push('/feedback');
+        return;
+      case 'feedbackAdmin':
+        router.push('/feedback-admin');
+        return;
+      case 'whatsNew':
+        router.push('/whats-new');
+        return;
+      case 'privacy':
+        // Gizlilik sayfası resmî sitede
+        void Linking.openURL(`${DEFAULT_SERVER_URL}${section.path ?? ''}`);
+        return;
+      case 'webAdmin':
+        void Linking.openURL(`${normalizeServerUrl(serverUrl)}${section.path ?? ''}`);
+        return;
+      default:
+        router.push({ pathname: '/ayarlar/[bolum]', params: { bolum: section.id } });
     }
-  };
-
-  const logout = async (): Promise<void> => {
-    await unregisterPush();
-    void voice.leave();
-    gateway.disconnect();
-    useSession.getState().logout();
   };
 
   if (!user) return null;
 
   return (
-    <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <View style={styles.profile}>
-        <View style={styles.banner} />
-        <View style={styles.profileBody}>
-          <PressableScale
-            scaleTo={0.94}
-            onPress={() => void photo.change()}
-            disabled={photo.busy !== null}
-            accessibilityLabel="Profil fotoğrafını değiştir"
-            style={styles.avatarWrap}
-          >
-            <PresenceAvatar userId={user.id} user={user} size={80} surface={colors.side} />
-            <View style={styles.cameraBadge}>
-              {photo.busy ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Ionicons name="camera" size={15} color="#fff" />
-              )}
-            </View>
-          </PressableScale>
-          <Text style={styles.name}>{user.displayName}</Text>
-          <Text style={styles.username}>@{user.username}</Text>
-          <StatusChip />
-          {user.avatarUrl ? (
-            <Pressable
-              onPress={() => void photo.remove()}
-              disabled={photo.busy !== null}
-              hitSlop={8}
-              style={styles.removePhoto}
-              accessibilityRole="button"
-            >
-              <Text style={[styles.removePhotoText, photo.confirmRemove && { color: colors.dangerText }]}>
-                {photo.confirmRemove ? 'Emin misin? Fotoğrafı kaldır' : 'Fotoğrafı kaldır'}
-              </Text>
-            </Pressable>
-          ) : (
-            <Text style={styles.photoHint}>Fotoğraf eklemek için avatara dokun</Text>
-          )}
+    <ScrollView
+      style={styles.page}
+      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
+      keyboardShouldPersistTaps="handled"
+    >
+      <PressableScale
+        scaleTo={0.98}
+        onPress={() => router.push({ pathname: '/ayarlar/[bolum]', params: { bolum: 'profile' } })}
+        style={styles.profile}
+        accessibilityRole="button"
+        accessibilityLabel={`${user.displayName}, profili düzenle`}
+      >
+        <PresenceAvatar userId={user.id} user={user} size={56} surface={colors.side} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.name} numberOfLines={1}>
+            {user.displayName}
+          </Text>
+          <Text style={styles.username} numberOfLines={1}>
+            @{user.username}
+          </Text>
         </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.faint} />
+      </PressableScale>
+
+      <View style={styles.search}>
+        <Ionicons name="search" size={18} color={colors.muted} />
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Ayarlarda ara"
+          placeholderTextColor={colors.faint}
+          selectionColor={colors.brand}
+          autoCorrect={false}
+          returnKeyType="search"
+          style={styles.searchInput}
+          accessibilityLabel="Ayarlarda ara"
+        />
+        {query ? (
+          <Pressable onPress={() => setQuery('')} hitSlop={8} accessibilityLabel="Aramayı temizle">
+            <Ionicons name="close-circle" size={18} color={colors.muted} />
+          </Pressable>
+        ) : null}
       </View>
 
-      <SectionTitle>Hesap</SectionTitle>
-      <Card style={styles.cardPad}>
-        <Field label="Görünen ad" value={displayName} onChangeText={setDisplayName} maxLength={32} />
-        <Button
-          title="Kaydet"
-          busy={savingName}
-          disabled={!displayName.trim() || displayName.trim() === user.displayName}
-          onPress={() => void saveName()}
-        />
-      </Card>
-
-      <SectionTitle>Görünüm</SectionTitle>
-      <ThemePicker />
-      <Card style={styles.toggleCard}>
-        <ToggleRow
-          label="Bağlantı önizlemelerini göster"
-          description="Mesajlardaki bağlantıların altında sitenin başlığı, açıklaması ve resmi gösterilir."
-          value={linkPreviews}
-          onChange={(value) => setSettings({ linkPreviews: value })}
-        />
-      </Card>
-
-      <NotificationSettings />
-
-      <VoiceSettings />
-
-      <SectionTitle>Destek</SectionTitle>
-      <Card>
-        <NavRow
-          first
-          icon="chatbubble-ellipses"
-          iconColor={colors.ok}
-          label="Geri bildirim gönder"
-          detail="Hata mı buldun, bir fikrin mi var? Durumunu da orada görürsün."
-          onPress={() => router.push('/feedback')}
-        />
-        <NavRow
-          icon="sparkles"
-          label="Yenilikler"
-          detail="Sürüm notları: her sürümde neler değişti"
-          onPress={() => router.push('/whats-new')}
-        />
-      </Card>
-
-      {isAdmin && (
-        <>
-          <SectionTitle>Hesap yönetimi</SectionTitle>
+      {shown.length === 0 && <Text style={styles.noResult}>“{query.trim()}” için bir ayar bulunamadı.</Text>}
+      {shown.map((group) => (
+        <View key={group.id}>
+          <SectionTitle>{group.title}</SectionTitle>
           <Card>
-            <NavRow
-              first
-              icon="file-tray-full"
-              iconColor={colors.warn}
-              label="Geri bildirimler (yönetim)"
-              detail={newFeedback > 0 ? `${newFeedback} yeni geri bildirim` : 'Gelen hata ve öneriler; durum ve yanıt'}
-              badge={newFeedback}
-              onPress={() => router.push('/feedback-admin')}
-            />
+            {group.sections.map((section, i) => (
+              <NavRow
+                key={section.id}
+                first={i === 0}
+                icon={section.icon.mobile as IconName}
+                iconColor={section.color}
+                label={section.label}
+                value={values[section.id]?.value}
+                badge={values[section.id]?.badge}
+                onPress={() => open(section)}
+              />
+            ))}
           </Card>
+        </View>
+      ))}
+
+      {!query.trim() && (
+        <>
+          <Card style={{ marginTop: space.xxl }}>
+            <NavRow first icon="log-out-outline" danger label="Çıkış Yap" onPress={() => void confirmLogout()} />
+          </Card>
+          <AppInfo />
         </>
       )}
-
-      <SectionTitle>Uygulama</SectionTitle>
-      <Card>
-        <NavRow
-          first
-          icon="information-circle"
-          iconColor={colors.control}
-          label="Sürüm"
-          value={APP_VERSION === NATIVE_VERSION ? APP_VERSION : `${APP_VERSION} (APK ${NATIVE_VERSION})`}
-        />
-        {serverUrl !== DEFAULT_SERVER_URL && (
-          <NavRow icon="server" iconColor={colors.control} label="Sunucu" value={serverUrl} />
-        )}
-        <NavRow
-          icon="shield-checkmark"
-          iconColor={colors.control}
-          label="Gizlilik"
-          onPress={() => void Linking.openURL(`${DEFAULT_SERVER_URL}/privacy`)}
-        />
-      </Card>
-
-      <View style={{ marginTop: 24 }}>
-        <Button title="Çıkış Yap" variant="secondary" onPress={() => void logout()} />
-      </View>
-
-      <DeleteAccount onDeleted={() => void logout()} />
     </ScrollView>
   );
 }
 
-/** Profil fotoğrafı: galeriden seçilip kare kırpılır, sunucu küçültür. Kaldırmak iki dokunuş ister. */
-function useProfilePhoto() {
-  const [busy, setBusy] = useState<'upload' | 'remove' | null>(null);
-  const [confirmRemove, setConfirmRemove] = useState(false);
-
-  const change = async (): Promise<void> => {
-    setConfirmRemove(false);
-    const file = await pickAvatar().catch((err: unknown) => {
-      toast(errorMessage(err), 'error');
-      return null;
-    });
-    if (!file) return;
-    setBusy('upload');
-    try {
-      await uploadAvatar(file);
-      toast('Profil fotoğrafı güncellendi.');
-    } catch (err) {
-      toast(errorMessage(err), 'error');
-    } finally {
-      setBusy(null);
-    }
+/** Satırların sağındaki değerler (Discord'daki gibi: Görünüm — Siyah (OLED)) ve rozetler */
+function useRowValues(): Partial<Record<SettingsSectionInfo['id'], { value?: string; badge?: number }>> {
+  const user = useSession((s) => s.user);
+  const theme = useTheme((s) => s.name);
+  const voiceActivity = useSettings((s) => s.voiceActivity);
+  const sounds = useSettings((s) => s.sounds);
+  const notificationSound = useSettings((s) => s.notificationSound);
+  const status = useStatus(user?.id);
+  const custom = useCustomStatus(user?.id);
+  const newFeedback = useFeedback((s) => (user?.isAdmin ? s.newCount : 0));
+  return {
+    profile: { value: custom?.text ? custom.text : STATUS_LABELS[status] },
+    appearance: { value: THEME_LABELS[theme] },
+    voice: { value: voiceActivity ? 'Ses algılama' : 'Mikrofon hep açık' },
+    notifications: { value: sounds || notificationSound ? 'Açık' : 'Kapalı' },
+    feedbackAdmin: { badge: newFeedback },
   };
-
-  const remove = async (): Promise<void> => {
-    if (!confirmRemove) {
-      setConfirmRemove(true);
-      return;
-    }
-    setConfirmRemove(false);
-    setBusy('remove');
-    try {
-      await removeAvatar();
-      toast('Profil fotoğrafı kaldırıldı.');
-    } catch (err) {
-      toast(errorMessage(err), 'error');
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return { busy, confirmRemove, change, remove };
 }
 
-function NotificationSettings() {
-  const state = usePushState((s) => s.state);
-  const text =
-    state.kind === 'registered'
-      ? 'Açık: biri senden bahsedince uygulama kapalıyken de bildirim gelir.'
-      : state.kind === 'denied'
-        ? 'Kapalı: bildirim izni verilmedi. Telefonun Ayarlar → Uygulamalar → Diskort → Bildirimler kısmından açabilirsin.'
-        : state.kind === 'error'
-          ? `Çalışmıyor: ${state.message}`
-          : 'Denetleniyor…';
-
+/** En alttaki sürüm bilgisi: uygulama ve APK sürümü, arayüz paketi, telefon, sunucu */
+function AppInfo() {
+  const serverUrl = useSettings((s) => s.serverUrl);
+  const release = (Platform.constants as { Release?: string }).Release;
+  const device = [Device.manufacturer, Device.modelName].filter(Boolean).join(' ');
+  // Kablosuz (OTA) gelen arayüz paketi: APK'nın içindekinden farklıysa kimliğinin başı ve tarihi
+  const ota =
+    Updates.isEnabled && !Updates.isEmbeddedLaunch && Updates.updateId
+      ? `${Updates.updateId.slice(0, 8)}${Updates.createdAt ? ` · ${Updates.createdAt.toLocaleDateString('tr-TR')}` : ''}`
+      : null;
   return (
-    <View>
-      <SectionTitle>Bildirimler</SectionTitle>
-      <Card style={styles.cardPad}>
-        <View style={styles.pushRow}>
-          <View
-            style={[
-              styles.pushDot,
-              {
-                backgroundColor:
-                  state.kind === 'registered' ? colors.ok : state.kind === 'denied' || state.kind === 'error' ? colors.danger : colors.warn,
-              },
-            ]}
-          />
-          <Text style={[styles.warning, { flex: 1, marginBottom: 0 }, state.kind === 'error' && { color: colors.dangerText }]} selectable>
-            {text}
-          </Text>
-        </View>
-        {state.kind !== 'registered' && (
-          <Button title="Yeniden dene" variant="secondary" onPress={() => void registerForPush()} />
-        )}
-      </Card>
-    </View>
-  );
-}
-
-function DeleteAccount({ onDeleted }: { onDeleted: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
-  const [busy, setBusy] = useState(false);
-
-  const submit = async (): Promise<void> => {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.deleteAccount({ password });
-      onDeleted();
-    } catch (err) {
-      setError(errorMessage(err));
-      setAttempt((n) => n + 1);
-      setBusy(false);
-    }
-  };
-
-  return (
-    <View>
-      <SectionTitle>Tehlikeli bölge</SectionTitle>
-      <Card style={[styles.cardPad, styles.dangerCard]}>
-        <Text style={styles.warning}>
-          Hesabın kalıcı olarak silinir ve geri alınamaz. Mesajların kalır, yazarı “Silinmiş Kullanıcı” görünür.
-        </Text>
-        {open ? (
-          <>
-            <Field label="Onaylamak için şifren" value={password} onChangeText={setPassword} secureTextEntry autoFocus />
-            {error && (
-              <FadeIn style={ui.errorBox} shakeKey={attempt}>
-                <Text style={ui.errorText}>{error}</Text>
-              </FadeIn>
-            )}
-            <Button title="Hesabımı Kalıcı Olarak Sil" variant="danger" busy={busy} disabled={!password} onPress={() => void submit()} />
-            <View style={{ marginTop: 8 }}>
-              <Button
-                title="Vazgeç"
-                variant="ghost"
-                onPress={() => {
-                  animateNextLayout(180);
-                  setOpen(false);
-                }}
-              />
-            </View>
-          </>
-        ) : (
-          <Button
-            title="Hesabımı Sil"
-            variant="danger"
-            onPress={() => {
-              // Şifre alanı yumuşakça açılır
-              animateNextLayout(200);
-              setOpen(true);
-            }}
-          />
-        )}
-      </Card>
+    <View style={styles.info}>
+      <Text style={styles.infoText}>
+        Diskort {APP_VERSION}
+        {APP_VERSION !== NATIVE_VERSION ? ` (APK ${NATIVE_VERSION})` : ''}
+      </Text>
+      {ota ? <Text style={styles.infoText}>Arayüz paketi {ota}</Text> : null}
+      <Text style={styles.infoText}>
+        {Platform.OS === 'ios' ? 'iOS' : 'Android'} {release ?? Platform.Version}
+        {device ? ` · ${device}` : ''}
+      </Text>
+      {serverUrl !== DEFAULT_SERVER_URL ? <Text style={styles.infoText}>Sunucu: {serverUrl}</Text> : null}
     </View>
   );
 }
 
 const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.main },
-  content: { padding: space.lg, paddingBottom: 48 },
-  toggleCard: { paddingHorizontal: 16, paddingVertical: 4, marginTop: space.md },
-  profile: { backgroundColor: colors.side, borderRadius: radius.lg, overflow: 'hidden' },
-  banner: { height: 64, backgroundColor: colors.brand },
-  profileBody: { alignItems: 'center', paddingHorizontal: space.lg, paddingBottom: space.lg, marginTop: -44 },
-  avatarWrap: { padding: 4, borderRadius: 48, backgroundColor: colors.side },
-  cameraBadge: {
-    position: 'absolute',
-    right: 2,
-    bottom: 2,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.brand,
-    borderWidth: 3,
-    borderColor: colors.side,
+  content: { padding: space.lg },
+  profile: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: space.md + 2,
+    backgroundColor: colors.side,
+    borderRadius: radius.lg - 4,
+    padding: space.md + 2,
+    overflow: 'hidden',
   },
-  name: { color: colors.head, fontSize: font.heading + 2, fontWeight: '800', marginTop: space.sm },
-  username: { color: colors.muted, fontSize: font.body - 1, marginTop: 2 },
-  removePhoto: { marginTop: space.md },
-  removePhotoText: { color: colors.muted, fontSize: font.small, fontWeight: '600' },
-  photoHint: { color: colors.faint, fontSize: font.caption, marginTop: space.md },
-  cardPad: { padding: space.lg },
-  dangerCard: { borderWidth: 1, borderColor: 'rgba(242,63,67,0.35)' },
-  pushRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm + 2, marginBottom: space.md },
-  pushDot: { width: 10, height: 10, borderRadius: 5, marginTop: 5 },
-  warning: { color: colors.muted, fontSize: font.small, lineHeight: 20, marginBottom: space.md },
+  name: { color: colors.head, fontSize: font.title + 1, fontWeight: '800' },
+  username: { color: colors.muted, fontSize: font.small, marginTop: 1 },
+  search: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    height: 44,
+    paddingHorizontal: space.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.input,
+    marginTop: space.lg,
+  },
+  searchInput: { flex: 1, color: colors.text, fontSize: font.body, paddingVertical: 0 },
+  noResult: { color: colors.muted, fontSize: font.body, textAlign: 'center', marginTop: space.xxxl },
+  info: { alignItems: 'center', gap: 3, marginTop: space.xl },
+  infoText: { color: colors.faint, fontSize: font.caption, textAlign: 'center' },
 }));

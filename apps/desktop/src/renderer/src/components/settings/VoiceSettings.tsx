@@ -219,7 +219,7 @@ export function VoiceSettings() {
 
   return (
     <div>
-      <h2 className="mb-5 text-xl font-bold text-text-head">Ses Ayarları</h2>
+      <h2 className="mb-5 text-xl font-bold text-text-head">Ses ve Görüntü</h2>
       <div className="grid grid-cols-2 gap-4">
         <div>
           <div className="mb-2 text-xs font-bold text-text-muted uppercase">Giriş Aygıtı</div>
@@ -360,15 +360,12 @@ export function VoiceSettings() {
           { value: 128, label: '128 kbps — müzik' },
         ]}
       />
-
-      <Divider />
-      <SoundSettings />
     </div>
   );
 }
 
 /** Ses efektleri: açık/kapalı ve her sesi dinleme listesi */
-function SoundSettings() {
+export function SoundSettings() {
   const s = useSettings();
   return (
     <>
