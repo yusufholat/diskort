@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -7,7 +7,7 @@ import { api, errorMessage, normalizeServerUrl, useSession } from '@diskort/clie
 import { Button, FadeIn, Field, ui } from '../components/ui';
 import { animateNextLayout } from '../motion';
 import { DEFAULT_SERVER_URL, useSettings } from '../stores/settings';
-import { colors, createStyles } from '../theme';
+import { colors, createStyles, font } from '../theme';
 
 type Mode = 'login' | 'register' | 'reset';
 
@@ -30,7 +30,18 @@ export default function LoginScreen() {
   const [attempt, setAttempt] = useState(0);
   const serverUrl = useSettings((s) => s.serverUrl);
   const setSettings = useSettings((s) => s.set);
-  const [showServer, setShowServer] = useState(serverUrl !== DEFAULT_SERVER_URL);
+  // Sunucu adresi gizli: yalnızca test için (logoya art arda 5 dokunuş). Varsayılan dışındaysa uyarı görünür.
+  const custom = normalizeServerUrl(serverUrl) !== normalizeServerUrl(DEFAULT_SERVER_URL);
+  const [showServer, setShowServer] = useState(false);
+  const taps = useRef<number[]>([]);
+  const tapLogo = (): void => {
+    const now = Date.now();
+    taps.current = [...taps.current.filter((t) => now - t < 3000), now];
+    if (taps.current.length >= 5) {
+      taps.current = [];
+      setShowServer(true);
+    }
+  };
 
   const submit = async (): Promise<void> => {
     setBusy(true);
@@ -72,9 +83,9 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.page}>
       <KeyboardAvoidingView behavior="height" style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <View style={styles.logo} accessibilityElementsHidden>
+          <Pressable style={styles.logo} onPress={tapLogo} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
             <Text style={styles.logoText}>D</Text>
-          </View>
+          </Pressable>
           <View style={styles.card}>
             <Text style={styles.title}>{title}</Text>
             <Text style={styles.subtitle}>{subtitle}</Text>
@@ -146,9 +157,13 @@ export default function LoginScreen() {
                   keyboardType="url"
                 />
               </View>
-            ) : (
-              <Link text="Sunucu adresini değiştir" onPress={() => setShowServer(true)} muted />
-            )}
+            ) : custom ? (
+              <View style={styles.custom}>
+                <Text style={styles.customText}>Test sunucusu: {serverUrl}</Text>
+                <Link text="Değiştir" onPress={() => setShowServer(true)} muted />
+                <Link text="Varsayılana dön" onPress={() => setSettings({ serverUrl: DEFAULT_SERVER_URL })} muted />
+              </View>
+            ) : null}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -177,6 +192,8 @@ const styles = createStyles(() => ({
     justifyContent: 'center',
     marginBottom: 18,
   },
+  custom: { marginTop: 20, alignItems: 'center' },
+  customText: { color: colors.warn, fontSize: font.small, textAlign: 'center' },
   logoText: { color: '#fff', fontSize: 32, fontWeight: '800' },
   card: { backgroundColor: colors.main, borderRadius: 16, padding: 22 },
   title: { color: colors.head, fontSize: 24, fontWeight: '700', textAlign: 'center' },
