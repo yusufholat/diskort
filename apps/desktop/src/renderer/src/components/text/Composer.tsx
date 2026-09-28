@@ -67,7 +67,7 @@ function FileTray({ channelId, files }: { channelId: string; files: LocalFile[] 
             aria-label="Kaldır"
             onClick={() => removeFile(channelId, i)}
           >
-            <X size={14} />
+            <X size={14} className="ico-rotate" />
           </button>
         </div>
       ))}
@@ -322,7 +322,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
               aria-label="Dosya ekle"
               onClick={() => fileInput.current?.click()}
             >
-              <CirclePlus size={22} />
+              <CirclePlus size={22} className="ico-rotate" />
             </button>
           ) : (
             <span className="w-2 shrink-0" />

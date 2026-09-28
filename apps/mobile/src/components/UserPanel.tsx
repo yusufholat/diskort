@@ -1,9 +1,8 @@
-import { Animated, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { STATUS_LABELS } from '@diskort/shared';
 import { useCustomStatus, useFeedback, useSession, useStatus } from '@diskort/client-core';
-import { useBump } from '../motion';
 import { useSettings } from '../stores/settings';
 import { colors, createStyles, font, space, tint } from '../theme';
 import { toggleDeafen, toggleMute } from '../voice/actions';
@@ -12,6 +11,7 @@ import { Avatar } from './Avatar';
 import { CountBadge } from './Badge';
 import { PressableScale } from './PressableScale';
 import { openStatusPicker } from './StatusPicker';
+import { SwapIcon, type SwapMotion } from './SwapIcon';
 import { VoiceBar } from './VoiceBar';
 
 /**
@@ -74,6 +74,7 @@ export function UserPanel({ onSettings }: { onSettings: () => void }) {
         off={selfDeaf}
         label={selfDeaf ? 'Sağırlaştırmayı kaldır' : 'Sağırlaştır'}
         onPress={toggleDeafen}
+        motion="tilt"
       />
       <PanelButton
         icon="settings-sharp"
@@ -91,6 +92,7 @@ function PanelButton({
   off,
   onPress,
   badge = 0,
+  motion = 'pop',
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -98,9 +100,9 @@ function PanelButton({
   onPress: () => void;
   /** Sağ üst köşede kırmızı sayı */
   badge?: number;
+  /** Simge değişince (sustur ↔ aç) yenisine geçerken oynayan hareket */
+  motion?: SwapMotion;
 }) {
-  // Simge değişince (sustur ↔ aç) kısa bir zıplamayla yenisine geçer
-  const bump = useBump(icon);
   return (
     <PressableScale
       scaleTo={0.84}
@@ -111,9 +113,7 @@ function PanelButton({
       accessibilityState={{ selected: Boolean(off) }}
       style={[styles.button, off && { backgroundColor: colors.dangerSoft }]}
     >
-      <Animated.View style={{ transform: [{ scale: bump }] }}>
-        <Ionicons name={icon} size={21} color={off ? colors.danger : colors.text} />
-      </Animated.View>
+      <SwapIcon name={icon} size={21} color={off ? colors.danger : colors.text} motion={motion} />
       {badge > 0 && (
         <View pointerEvents="none" style={styles.badge}>
           <CountBadge count={badge} ring={colors.panel} />

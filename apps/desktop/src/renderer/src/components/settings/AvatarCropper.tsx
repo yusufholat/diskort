@@ -185,7 +185,7 @@ export function AvatarCropper({ file, onCancel, onSave, title = 'Profil fotoğra
               disabled={!loaded}
               onClick={() => zoomTo(zoom / 1.25)}
             >
-              <ZoomOut size={18} />
+              <ZoomOut size={18} className="ico-shrink" />
             </button>
             <Slider
               className="flex-1"
@@ -205,7 +205,7 @@ export function AvatarCropper({ file, onCancel, onSave, title = 'Profil fotoğra
               disabled={!loaded}
               onClick={() => zoomTo(zoom * 1.25)}
             >
-              <ZoomIn size={18} />
+              <ZoomIn size={18} className="ico-grow" />
             </button>
           </div>
         )}

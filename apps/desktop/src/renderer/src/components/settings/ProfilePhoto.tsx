@@ -63,7 +63,7 @@ export function ProfilePhoto({ user }: { user: User }) {
         >
           <Avatar user={user} size={56} />
           <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100">
-            <Camera size={20} className="scale-75 transition-transform duration-200 group-hover:scale-100" />
+            <Camera size={20} className="scale-75 transition-transform duration-200 ease-(--ease-hov) group-hover:scale-100" />
           </span>
         </button>
         <div className="flex gap-2">

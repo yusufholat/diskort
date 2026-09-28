@@ -126,7 +126,7 @@ function VoiceSettingsItem() {
   return (
     <MenuItem
       label="Ses Ayarları"
-      icon={<Settings size={16} />}
+      icon={<Settings size={16} className="ico-rotate" />}
       onSelect={() => openModal({ type: 'settings', section: 'voice' })}
     />
   );

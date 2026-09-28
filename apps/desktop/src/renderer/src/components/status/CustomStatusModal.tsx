@@ -55,7 +55,7 @@ export function CustomStatusModal() {
               data-tooltip="Emoji seç"
               onClick={pickEmoji}
             >
-              {emoji ?? <Smile size={20} />}
+              {emoji ?? <Smile size={20} className="ico-bounce" />}
             </button>
             <TextInput
               value={text}
@@ -75,7 +75,7 @@ export function CustomStatusModal() {
                   setEmoji(null);
                 }}
               >
-                <X size={16} />
+                <X size={16} className="ico-rotate" />
               </button>
             )}
           </div>

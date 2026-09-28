@@ -1,5 +1,5 @@
 /*
- * Hareket tasarımı: kısa (120–250 ms), yumuşak (ease-out) animasyonlar.
+ * Hareket tasarımı: kısa (120–300 ms), yumuşak (ease-out) animasyonlar.
  * Kapanış animasyonları `forwards` ile son karede kalır; öğe, süre bitince JS tarafından kaldırılır
  * (bkz. lib/motion.ts: usePresence / usePresenceList). Sistemde "animasyonları azalt" açıksa
  * en alttaki kural her şeyi anında bitirir.
@@ -9,10 +9,47 @@
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Renk ve zemin geçişleri: hızlı başlar, yumuşak oturur (üstüne gelince gecikme hissi vermez) */
+  --ease-soft: cubic-bezier(0.25, 1, 0.5, 1);
   --dur-fast: 120ms;
   --dur-base: 180ms;
   --dur-slow: 240ms;
   --dur-exit: 140ms;
+  --dur-hover: 170ms;
+}
+
+/*
+ * Tailwind'in transition-* sınıflarının varsayılan süre ve eğrisi (süre ya da eğri ayrıca verilmemişse):
+ * 150 ms ve standart eğri yerine yukarıdaki yumuşak eğri.
+ */
+@theme {
+  --default-transition-duration: 170ms;
+  --default-transition-timing-function: cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/*
+ * Kendi geçişi tanımlanmamış tıklanabilir öğeler de (menü satırları, bağlantılar, liste öğeleri) renk ve
+ * zemin değişimini birden değil yumuşakça yapsın. En düşük öncelikte: transition-* sınıfı olan öğe
+ * kendi geçişini kullanır.
+ */
+@layer base {
+  :where(
+      button,
+      a,
+      label,
+      summary,
+      [role='button'],
+      [role='menuitem'],
+      [role='menuitemcheckbox'],
+      [role='option'],
+      [role='tab'],
+      [role='radio'],
+      [role='switch']
+    ) {
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow;
+    transition-duration: var(--dur-hover);
+    transition-timing-function: var(--ease-soft);
+  }
 }
 
 @keyframes dk-fade-in {
@@ -131,10 +168,19 @@
     transform: scale(1.1);
   }
 }
+/* Durumla değişen simge (sustur ↔ aç): dönerek büyür, biraz taşıp oturur */
 @keyframes dk-icon-swap {
-  from {
+  0% {
     opacity: 0;
-    transform: scale(0.55) rotate(-15deg);
+    transform: scale(0.5) rotate(-25deg);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.1) rotate(4deg);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
   }
 }
 @keyframes dk-shimmer {
@@ -200,7 +246,7 @@
 }
 .anim-icon-swap {
   display: inline-flex;
-  animation: dk-icon-swap var(--dur-base) var(--ease-out);
+  animation: dk-icon-swap 280ms var(--ease-out);
 }
 .anim-bump {
   animation: dk-bump 260ms var(--ease-out);
@@ -243,12 +289,27 @@
   overflow-y: clip;
 }
 
-/* Basınca hafifçe içe göçen düğmeler: .press geniş düğmeler, .press-icon simge düğmeleri için */
+/*
+ * Basınca hafifçe içe göçen düğmeler: .press geniş düğmeler, .press-icon simge düğmeleri için.
+ * Basış hızlı, bırakınca küçük bir yaylanmayla geri gelir; renk ve zemin yumuşak geçer.
+ */
 .press,
 .press-icon {
-  transition-property: color, background-color, border-color, opacity, box-shadow, transform;
-  transition-duration: var(--dur-fast);
-  transition-timing-function: var(--ease-out);
+  --press-dur: 260ms;
+  --press-ease: var(--ease-spring);
+  transition:
+    transform var(--press-dur) var(--press-ease),
+    color var(--dur-hover) var(--ease-soft),
+    background-color var(--dur-hover) var(--ease-soft),
+    border-color var(--dur-hover) var(--ease-soft),
+    opacity var(--dur-hover) var(--ease-soft),
+    box-shadow var(--dur-hover) var(--ease-soft),
+    filter var(--dur-hover) var(--ease-soft);
+}
+.press:active:not(:disabled),
+.press-icon:active:not(:disabled) {
+  --press-dur: 90ms;
+  --press-ease: var(--ease-out);
 }
 .press:active:not(:disabled) {
   transform: translateY(1px) scale(0.985);
@@ -263,6 +324,11 @@
   animation: dk-shimmer 1.4s ease-in-out infinite;
 }
 
+/*
+ * Sistemde "animasyonları azalt" açıksa: hareketler anında biter, üstüne gelince oynayan simge
+ * hareketleri (styles/hover.css) hiç oynamaz. Hareket içermeyen renk, zemin ve saydamlık geçişleri
+ * kalır (yumuşak solma); durumla değişen simge dönmeden yalnızca belirir.
+ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -270,7 +336,17 @@
     animation-duration: 1ms !important;
     animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 1ms !important;
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity,
+      box-shadow !important;
     scroll-behavior: auto !important;
+  }
+  [class*='ico-'],
+  [class*='ico-'] > * {
+    transform: none !important;
+    animation: none !important;
+  }
+  .anim-icon-swap {
+    animation-name: dk-fade-in !important;
+    animation-duration: 150ms !important;
   }
 }

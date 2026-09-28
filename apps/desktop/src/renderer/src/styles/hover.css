@@ -1,0 +1,355 @@
+/*
+ * Üstüne gelince simge hareketleri. Simgeye (svg ya da inline-flex bir kap) `ico-*` sınıfı verilir;
+ * hareket, simgenin içinde durduğu düğme (button, a, role=button/menuitem/tab ya da .motion-host)
+ * üzerine gelinince ya da klavyeyle odaklanınca oynar. Düğme simgeyi en fazla bir ara kapla sarabilir
+ * (ör. anahtarlı <span>); daha dıştaki büyük tıklanabilir alanlar (üye satırı, kutucuk) tetiklemez.
+ * Devre dışı düğmelerde oynamaz.
+ *
+ * İki tür var:
+ *  - Tutulan: üstündeyken yeni konumda kalır, ayrılınca yumuşakça döner (döndür, kaldır, dürt…).
+ *    Girişte hafif yaylı (biraz taşıp oturur), dönüşte düz yavaşlayan eğri.
+ *  - Tek seferlik: üstüne gelindiği anda bir kez oynar (salla, zıpla, göz kırp…); ayrılınca biter.
+ *
+ * Yalnızca transform kullanılır (GPU'da, yerleşimi etkilemez). Aynı öğede başka bir `anim-*`
+ * animasyonu olmamalı (tek seferlikler animation özelliğini kullanır); durumla değişen simgelerde
+ * hareket, değişince yeniden oynamasın diye sabit dış kaba verilir (bkz. components/ui/SwapIcon.tsx).
+ * "Animasyonları azalt" açıksa hiçbiri oynamaz (motion.css'in sonundaki kural).
+ */
+
+/* Üstüne gelinip gelinmediği: 0 → 1 (miras alınmaz; yalnızca doğrudan hedeflenen simgede 1 olur) */
+@property --hov {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+:root {
+  /* Tutulan hareketlerin girişi: yumuşak yay (≈%8 taşar) */
+  --ease-hov: cubic-bezier(0.34, 1.45, 0.64, 1);
+  --dur-hov-in: 300ms;
+  --dur-hov-out: 220ms;
+  /* Tek seferlik hareketlerin süresi */
+  --dur-hov-once: 440ms;
+}
+
+[class*='ico-'] {
+  transform-origin: center;
+  /* Tailwind'in ayrı rotate/scale/translate özellikleri de (ör. açılınca dönen ok) geçişli kalsın */
+  transition-property: transform, rotate, scale, translate;
+  transition-duration: var(--dur-hov-out);
+  transition-timing-function: var(--ease-out);
+}
+
+:is(button, a, [role='button'], [role='menuitem'], [role='tab'], .motion-host):not(
+    :disabled,
+    [aria-disabled='true']
+  ):is(:hover, :focus-visible)
+  > [class*='ico-'],
+:is(button, a, [role='button'], [role='menuitem'], [role='tab'], .motion-host):not(
+    :disabled,
+    [aria-disabled='true']
+  ):is(:hover, :focus-visible)
+  > :not(button, a, [role='button'], [role='menuitem'])
+  > [class*='ico-'],
+.motion-host:focus-within > [class*='ico-'] {
+  --hov: 1;
+  /* Yalnızca üstüne gelme hareketi (transform) yaylı; açılınca dönen ok gibi durum geçişleri düz kalır */
+  transition-duration: var(--dur-hov-in), var(--dur-hov-out), var(--dur-hov-out), var(--dur-hov-out);
+  transition-timing-function: var(--ease-hov), var(--ease-out), var(--ease-out), var(--ease-out);
+}
+
+/* ---------- Tutulan hareketler ---------- */
+
+/* Artı, çarpı, dişli: çeyrek tur */
+.ico-rotate {
+  transform: rotate(calc(var(--hov) * 90deg));
+}
+/* Yenile: yarım tur (simge 180°'de kendisiyle aynı görünür) */
+.ico-spin {
+  transform: rotate(calc(var(--hov) * 180deg));
+}
+/* Sola / sağa hafif eğilme (kalem, anahtar, GIF) */
+.ico-tilt {
+  transform: rotate(calc(var(--hov) * -12deg));
+}
+.ico-tilt-r {
+  transform: rotate(calc(var(--hov) * 12deg));
+}
+/* Yukarı kalkma (ekran paylaşımı, yükle) / aşağı inme */
+.ico-lift {
+  transform: translateY(calc(var(--hov) * -2px));
+}
+.ico-sink {
+  transform: translateY(calc(var(--hov) * 2px));
+}
+/* Oklar ve yön gösteren simgeler kendi yönlerine dürtülür */
+.ico-nudge-l {
+  transform: translateX(calc(var(--hov) * -2px));
+}
+.ico-nudge-r {
+  transform: translateX(calc(var(--hov) * 2px));
+}
+.ico-nudge-u {
+  transform: translateY(calc(var(--hov) * -2px));
+}
+.ico-nudge-d {
+  transform: translateY(calc(var(--hov) * 1.5px));
+}
+/* Dışarı bağlantı: sağ üste */
+.ico-nudge-out {
+  transform: translate(calc(var(--hov) * 1.5px), calc(var(--hov) * -1.5px));
+}
+/* Büyüme / küçülme (tam ekran, ızgara, yakınlaştır) */
+.ico-grow {
+  transform: scale(calc(1 + var(--hov) * 0.14));
+}
+.ico-shrink {
+  transform: scale(calc(1 - var(--hov) * 0.12));
+}
+/* Büyüteç: büyüyüp hafifçe eğilir */
+.ico-zoom {
+  transform: scale(calc(1 + var(--hov) * 0.12)) rotate(calc(var(--hov) * -12deg));
+}
+/* Telefonu kapatma: ahize aşağı doğru yatar */
+.ico-hangup {
+  transform: translateY(calc(var(--hov) * 1px)) rotate(calc(var(--hov) * -20deg));
+}
+/* Üyeler: arkadaki kişi biraz sağa, öndeki biraz sola açılır (lucide "users" çizimi: 1 ve 4 öndeki,
+   2 ve 3 arkadaki kişi). Çizim değişirse yalnızca bu hareket bozulur, simge değil. */
+.ico-spread > * {
+  --hov: inherit;
+  transform-box: fill-box;
+  transition: transform var(--dur-hov-out) var(--ease-out);
+}
+.ico-spread > :nth-child(2),
+.ico-spread > :nth-child(3) {
+  transform: translateX(calc(var(--hov) * 2px));
+}
+.ico-spread > :nth-child(1),
+.ico-spread > :nth-child(4) {
+  transform: translateX(calc(var(--hov) * -0.75px));
+}
+
+/* ---------- Tek seferlik hareketler ---------- */
+
+@keyframes dk-ico-wiggle {
+  20% {
+    transform: rotate(-12deg);
+  }
+  45% {
+    transform: rotate(9deg);
+  }
+  70% {
+    transform: rotate(-5deg);
+  }
+  88% {
+    transform: rotate(2deg);
+  }
+}
+/* Mikrofon: alttan eğilip kalkar (başını sallar gibi) */
+@keyframes dk-ico-nod {
+  30% {
+    transform: translateY(-2px) rotate(-14deg);
+  }
+  60% {
+    transform: translateY(0) rotate(7deg);
+  }
+  82% {
+    transform: rotate(-3deg);
+  }
+}
+@keyframes dk-ico-shake {
+  15% {
+    transform: translateX(-2px) rotate(-4deg);
+  }
+  35% {
+    transform: translateX(2px) rotate(4deg);
+  }
+  55% {
+    transform: translateX(-1.5px) rotate(-2deg);
+  }
+  75% {
+    transform: translateX(1px) rotate(1deg);
+  }
+}
+/* Zıplayıp yere basma (gülen yüz, emoji): yükselirken uzar, inince basıklaşır */
+@keyframes dk-ico-bounce {
+  30% {
+    transform: translateY(-3px) scale(0.94, 1.08);
+  }
+  55% {
+    transform: translateY(0) scale(1.1, 0.9);
+  }
+  75% {
+    transform: translateY(-1px) scale(0.98, 1.02);
+  }
+}
+@keyframes dk-ico-pop {
+  40% {
+    transform: scale(1.22);
+  }
+  70% {
+    transform: scale(0.94);
+  }
+}
+/* Kalp atışı (geri bildirim) */
+@keyframes dk-ico-beat {
+  15% {
+    transform: scale(1.2);
+  }
+  30% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.14);
+  }
+  62% {
+    transform: scale(1);
+  }
+}
+/* Göz kırpma */
+@keyframes dk-ico-blink {
+  30% {
+    transform: scaleY(0.12);
+  }
+  55% {
+    transform: scaleY(1);
+  }
+}
+/* Ses dalgası inip kalkar */
+@keyframes dk-ico-wave {
+  25% {
+    transform: scaleY(1.25);
+  }
+  50% {
+    transform: scaleY(0.8);
+  }
+  75% {
+    transform: scaleY(1.1);
+  }
+}
+/* Kalem karalar */
+@keyframes dk-ico-scribble {
+  25% {
+    transform: translate(-1px, 1px) rotate(-10deg);
+  }
+  50% {
+    transform: translate(1px, 0) rotate(-3deg);
+  }
+  75% {
+    transform: translate(-1px, 1px) rotate(-10deg);
+  }
+}
+/* Raptiye: kalkıp eğilir, sonra batırılır */
+@keyframes dk-ico-pin {
+  35% {
+    transform: translateY(-2px) rotate(-16deg);
+  }
+  65% {
+    transform: translateY(1px) scale(1, 0.9);
+  }
+}
+/* Pırıltı */
+@keyframes dk-ico-twinkle {
+  40% {
+    transform: rotate(18deg) scale(1.18);
+  }
+  70% {
+    transform: rotate(-4deg) scale(0.96);
+  }
+}
+/* İndirme: aşağı düşüp seker */
+@keyframes dk-ico-drop {
+  35% {
+    transform: translateY(3px);
+  }
+  60% {
+    transform: translateY(-1px);
+  }
+  80% {
+    transform: translateY(1px);
+  }
+}
+
+.ico-wiggle {
+  --hov-anim: dk-ico-wiggle;
+}
+.ico-nod {
+  --hov-anim: dk-ico-nod;
+  transform-origin: 50% 85%;
+}
+.ico-shake {
+  --hov-anim: dk-ico-shake;
+}
+.ico-bounce {
+  --hov-anim: dk-ico-bounce;
+  transform-origin: 50% 100%;
+}
+.ico-pop {
+  --hov-anim: dk-ico-pop;
+}
+.ico-beat {
+  --hov-anim: dk-ico-beat;
+  --hov-once: 620ms;
+}
+.ico-blink {
+  --hov-anim: dk-ico-blink;
+  --hov-once: 360ms;
+}
+.ico-wave {
+  --hov-anim: dk-ico-wave;
+}
+.ico-scribble {
+  --hov-anim: dk-ico-scribble;
+  transform-origin: 20% 80%;
+}
+.ico-pin {
+  --hov-anim: dk-ico-pin;
+  transform-origin: 50% 100%;
+}
+.ico-twinkle {
+  --hov-anim: dk-ico-twinkle;
+}
+.ico-drop {
+  --hov-anim: dk-ico-drop;
+}
+
+:is(button, a, [role='button'], [role='menuitem'], [role='tab'], .motion-host):not(
+    :disabled,
+    [aria-disabled='true']
+  ):is(:hover, :focus-visible)
+  > :is(
+    .ico-wiggle,
+    .ico-nod,
+    .ico-shake,
+    .ico-bounce,
+    .ico-pop,
+    .ico-beat,
+    .ico-blink,
+    .ico-wave,
+    .ico-scribble,
+    .ico-pin,
+    .ico-twinkle,
+    .ico-drop
+  ),
+:is(button, a, [role='button'], [role='menuitem'], [role='tab'], .motion-host):not(
+    :disabled,
+    [aria-disabled='true']
+  ):is(:hover, :focus-visible)
+  > :not(button, a, [role='button'], [role='menuitem'])
+  > :is(
+    .ico-wiggle,
+    .ico-nod,
+    .ico-shake,
+    .ico-bounce,
+    .ico-pop,
+    .ico-beat,
+    .ico-blink,
+    .ico-wave,
+    .ico-scribble,
+    .ico-pin,
+    .ico-twinkle,
+    .ico-drop
+  ) {
+  animation: var(--hov-anim) var(--hov-once, var(--dur-hov-once)) var(--ease-out);
+}

@@ -402,7 +402,7 @@ function SoundSettings() {
             onClick={() => playSound(name, { preview: true })}
             className="press flex items-center gap-2 rounded-[3px] px-2 py-1.5 text-left text-sm text-text-muted hover:bg-bg-hover hover:text-text-normal"
           >
-            <Play size={14} className="shrink-0 text-text-faint" aria-hidden />
+            <Play size={14} className="ico-nudge-r shrink-0 text-text-faint" aria-hidden />
             <span className="truncate">{SOUND_LABELS[name]}</span>
           </button>
         ))}

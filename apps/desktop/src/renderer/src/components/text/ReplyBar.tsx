@@ -55,7 +55,7 @@ export function ReplyBar({ channelId }: { channelId: string }) {
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => setReplyMention(channelId, !shown.mention)}
         >
-          <AtSign size={15} strokeWidth={2.5} />
+          <AtSign size={15} strokeWidth={2.5} className="ico-tilt-r" />
           {shown.mention ? 'AÇIK' : 'KAPALI'}
         </button>
       )}
@@ -68,7 +68,7 @@ export function ReplyBar({ channelId }: { channelId: string }) {
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => cancelReply(channelId)}
       >
-        <CircleX size={18} />
+        <CircleX size={18} className="ico-rotate" />
       </button>
     </div>
   );

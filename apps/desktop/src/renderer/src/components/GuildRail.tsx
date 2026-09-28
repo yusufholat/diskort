@@ -42,13 +42,13 @@ export function GuildRail() {
       >
         <div
           className={cn(
-            'flex h-12 w-12 items-center justify-center transition-[border-radius,background-color,color] duration-150',
+            'flex h-12 w-12 items-center justify-center transition-[border-radius,background-color,color] duration-200 ease-out',
             inDms
               ? 'rounded-2xl bg-brand text-white'
               : 'rounded-3xl bg-bg-raised text-text-normal group-hover/rail:rounded-2xl group-hover/rail:bg-brand group-hover/rail:text-white',
           )}
         >
-          <MessagesSquare size={24} />
+          <MessagesSquare size={24} className="ico-bounce" />
         </div>
       </RailItem>
 
@@ -62,27 +62,45 @@ export function GuildRail() {
         <GuildItem key={guild.id} guild={guild} inDms={inDms} />
       ))}
 
-      <button
-        className="press flex h-12 w-12 shrink-0 items-center justify-center rounded-3xl bg-bg-raised text-ok transition-[border-radius,background-color,color] duration-200 hover:rounded-2xl hover:bg-ok hover:text-white"
-        data-tooltip="Sunucu ekle"
-        data-tooltip-side="right"
-        aria-label="Sunucu ekle"
-        onClick={() => openModal({ type: 'addGuild' })}
-      >
-        <Plus size={24} />
-      </button>
+      <RailAction label="Sunucu ekle" onClick={() => openModal({ type: 'addGuild' })}>
+        <Plus size={24} className="ico-rotate" />
+      </RailAction>
 
       {/* Geri bildirim: en altta */}
-      <button
-        className="press mt-auto flex h-12 w-12 shrink-0 items-center justify-center rounded-3xl bg-bg-raised text-ok transition-[border-radius,background-color,color] duration-200 hover:rounded-2xl hover:bg-ok hover:text-white"
-        data-tooltip="Geri bildirim gönder"
-        data-tooltip-side="right"
-        aria-label="Geri bildirim gönder"
-        onClick={() => openModal({ type: 'feedback' })}
-      >
-        <MessageSquareHeart size={22} />
-      </button>
+      <RailAction label="Geri bildirim gönder" className="mt-auto" onClick={() => openModal({ type: 'feedback' })}>
+        <MessageSquareHeart size={22} className="ico-beat" />
+      </RailAction>
     </nav>
+  );
+}
+
+/**
+ * Çubuğun altındaki yeşil simgeli düğme (sunucu ekle, geri bildirim). Basınca küçülme düğmede, köşe
+ * yuvarlaklığı ve renk geçişi içteki kutuda (.press düğmenin kendi geçişini ezdiğinden ayrı öğelerde).
+ */
+function RailAction({
+  label,
+  className,
+  onClick,
+  children,
+}: {
+  label: string;
+  className?: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      className={cn('press group/act shrink-0 rounded-2xl', className)}
+      data-tooltip={label}
+      data-tooltip-side="right"
+      aria-label={label}
+      onClick={onClick}
+    >
+      <span className="flex h-12 w-12 items-center justify-center rounded-3xl bg-bg-raised text-ok transition-[border-radius,background-color,color] duration-200 ease-out group-hover/act:rounded-2xl group-hover/act:bg-ok group-hover/act:text-white">
+        {children}
+      </span>
+    </button>
   );
 }
 
@@ -99,7 +117,7 @@ function GuildItem({ guild, inDms }: { guild: Guild; inDms: boolean }) {
         guild={guild}
         size={48}
         className={cn(
-          'transition-[border-radius] duration-150',
+          'transition-[border-radius] duration-200 ease-out',
           selected ? 'rounded-2xl' : 'rounded-3xl group-hover/rail:rounded-2xl',
         )}
       />
@@ -147,7 +165,7 @@ function RailItem({
     <div className="group/rail relative flex shrink-0 items-center">
       <span
         className={cn(
-          'absolute -left-3 w-1 origin-left rounded-r bg-text-head transition-[height,opacity] duration-150',
+          'absolute -left-3 w-1 origin-left rounded-r bg-text-head transition-[height,opacity] duration-200 ease-out',
           selected ? 'h-10 opacity-100' : unread ? 'h-2 opacity-100 group-hover/rail:h-5' : 'h-5 opacity-0 group-hover/rail:opacity-100',
         )}
       />

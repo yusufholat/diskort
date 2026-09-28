@@ -75,7 +75,7 @@ export function ChannelSidebar() {
         }}
       >
         <span className="truncate">{guild?.name}</span>
-        {menu.length > 0 && <ChevronDown size={18} className="shrink-0" />}
+        {menu.length > 0 && <ChevronDown size={18} className="ico-nudge-d shrink-0" />}
       </button>
 
       <div className="flex-1 overflow-y-auto px-2 pt-4 pb-[calc(var(--footer-h,0px)+8px)]" data-drag-scroll>
@@ -114,7 +114,7 @@ function SectionHeader({ title, type, canCreate }: { title: string; type: Channe
           aria-label="Kanal Oluştur"
           onClick={() => openModal({ type: 'channel', channelType: type })}
         >
-          <Plus size={16} />
+          <Plus size={16} className="ico-rotate" />
         </button>
       )}
     </div>

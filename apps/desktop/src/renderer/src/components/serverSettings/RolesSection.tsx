@@ -105,7 +105,7 @@ export function RolesSection() {
         <div>
           {canCreate && (
             <Button className="mb-3 flex w-full items-center justify-center gap-1.5" onClick={() => void create()}>
-              <Plus size={16} /> Rol Oluştur
+              <Plus size={16} className="ico-rotate" /> Rol Oluştur
             </Button>
           )}
           <div className="flex flex-col gap-0.5">
@@ -134,7 +134,7 @@ export function RolesSection() {
                         className="rounded p-0.5 text-text-muted hover:text-text-head disabled:invisible"
                         onClick={() => void move(role, -1)}
                       >
-                        <ChevronUp size={16} />
+                        <ChevronUp size={16} className="ico-nudge-u" />
                       </button>
                       <button
                         data-tooltip="Aşağı taşı"
@@ -143,7 +143,7 @@ export function RolesSection() {
                         className="rounded p-0.5 text-text-muted hover:text-text-head disabled:invisible"
                         onClick={() => void move(role, 1)}
                       >
-                        <ChevronDown size={16} />
+                        <ChevronDown size={16} className="ico-nudge-d" />
                       </button>
                     </span>
                   )}
@@ -507,7 +507,7 @@ function RoleMembers({ role }: { role: Role }) {
             });
           }}
         >
-          <Plus size={16} /> Üye Ekle
+          <Plus size={16} className="ico-rotate" /> Üye Ekle
         </Button>
       )}
       {holders.length === 0 && <div className="text-sm text-text-muted">Bu rolde kimse yok.</div>}
@@ -523,7 +523,7 @@ function RoleMembers({ role }: { role: Role }) {
                 className="rounded p-1 text-text-muted hover:bg-bg-hover hover:text-danger"
                 onClick={() => void moderation.setRole(u.id, role.id, false)}
               >
-                <X size={16} />
+                <X size={16} className="ico-rotate" />
               </button>
             )}
           </div>

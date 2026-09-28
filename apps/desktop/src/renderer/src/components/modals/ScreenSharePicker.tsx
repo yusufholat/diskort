@@ -85,10 +85,10 @@ export function ScreenSharePicker() {
       {useCustomPicker && (
         <>
           <div className="mb-3 flex items-center gap-2">
-            <TabButton active={tab === 'window'} onClick={() => setTab('window')} icon={<AppWindow size={16} />}>
+            <TabButton active={tab === 'window'} onClick={() => setTab('window')} icon={<AppWindow size={16} className="ico-lift" />}>
               Uygulamalar
             </TabButton>
-            <TabButton active={tab === 'screen'} onClick={() => setTab('screen')} icon={<Monitor size={16} />}>
+            <TabButton active={tab === 'screen'} onClick={() => setTab('screen')} icon={<Monitor size={16} className="ico-lift" />}>
               Ekranlar
             </TabButton>
             <button
@@ -97,7 +97,7 @@ export function ScreenSharePicker() {
               aria-label="Yenile"
               onClick={() => void load()}
             >
-              <RefreshCw size={16} className={cn(loading && 'animate-spin')} />
+              <RefreshCw size={16} className={cn('ico-spin', loading && 'animate-spin')} />
             </button>
           </div>
           <div className="grid max-h-[330px] grid-cols-3 gap-3 overflow-y-auto pr-1">

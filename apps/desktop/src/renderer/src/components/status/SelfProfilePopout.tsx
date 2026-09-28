@@ -123,7 +123,7 @@ export function SelfProfilePopout() {
 
         <div className="mt-3 rounded-lg bg-bg-side p-1.5">
           <Row
-            icon={<Pencil size={16} />}
+            icon={<Pencil size={16} className="ico-scribble" />}
             label="Profili Düzenle"
             onClick={() => {
               closeSelfProfile();
@@ -155,7 +155,7 @@ export function SelfProfilePopout() {
             )}
           </div>
           <Row
-            icon={custom ? <span className="text-base leading-none">{custom.emoji ?? '💬'}</span> : <Smile size={16} />}
+            icon={custom ? <span className="text-base leading-none">{custom.emoji ?? '💬'}</span> : <Smile size={16} className="ico-bounce" />}
             label={custom ? 'Özel durumu düzenle' : 'Özel durum ayarla'}
             sub={
               custom && self?.customStatusExpiresAt
@@ -175,7 +175,7 @@ export function SelfProfilePopout() {
                     void setCustomStatus(null);
                   }}
                 >
-                  <X size={14} />
+                  <X size={14} className="ico-rotate" />
                 </button>
               ) : undefined
             }
@@ -242,7 +242,7 @@ function Row({
         {sub && <span className="block truncate text-xs text-text-muted">{sub}</span>}
       </span>
       {trailing}
-      {chevron && <ChevronRight size={16} className="shrink-0 text-text-muted" />}
+      {chevron && <ChevronRight size={16} className="ico-nudge-r shrink-0 text-text-muted" />}
     </div>
   );
 }
@@ -310,7 +310,7 @@ function StatusOption({
             <span className="block text-xs opacity-80">{STATUS_DESCRIPTIONS[status]}</span>
           )}
         </span>
-        {timed && <ChevronRight size={16} className="mt-[1px] shrink-0 opacity-80" />}
+        {timed && <ChevronRight size={16} className="ico-nudge-r mt-[1px] shrink-0 opacity-80" />}
       </button>
       {timed && open && (
         <Submenu>

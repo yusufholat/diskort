@@ -246,7 +246,7 @@ export function Select<T extends string | number>({
         <span className="min-w-0 flex-1 truncate">{selected?.label ?? placeholder}</span>
         <ChevronDown
           size={18}
-          className={cn('shrink-0 text-text-muted transition-transform duration-200', open && 'rotate-180 text-text-head')}
+          className={cn('ico-nudge-d shrink-0 text-text-muted', open && 'rotate-180 text-text-head')}
         />
       </button>
       {presence.value &&

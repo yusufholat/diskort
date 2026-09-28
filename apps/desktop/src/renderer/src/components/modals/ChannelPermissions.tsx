@@ -116,7 +116,7 @@ export function ChannelPermissions({ channel, onDone }: { channel: Channel; onDo
                   });
                 }}
               >
-                <Plus size={16} />
+                <Plus size={16} className="ico-rotate" />
               </button>
             )}
           </div>

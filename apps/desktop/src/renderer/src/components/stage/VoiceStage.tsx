@@ -3,13 +3,14 @@ import { Eye, HeadphoneOff, Headphones, Mic, MicOff, Monitor, MonitorOff, PhoneO
 import { Permission, type VoiceState } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
 import { memberMenuItems } from '../../lib/memberMenu';
-import { useMountedRef, usePresenceList, type PresenceEntry, type PresencePhase } from '../../lib/motion';
+import { usePresenceList, type PresenceEntry, type PresencePhase } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { channelById, membersOf, useCan, useGuild, useMemberColor, useSession } from '@diskort/client-core';
 import { useSettings } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
 import { Avatar } from '../ui/Avatar';
+import { SwapIcon } from '../ui/SwapIcon';
 import { LiveBadge, openVoiceProfile, VoiceStateIcons, WatchLiveBadge } from '../sidebar/VoiceMemberRow';
 import { StreamView } from './StreamView';
 
@@ -189,7 +190,7 @@ function StreamTile({ userId, compact }: { userId: string; compact?: boolean }) 
         className="press flex items-center gap-2 rounded bg-control px-4 py-2 text-sm font-medium text-on-control hover:bg-control-hover"
         onClick={() => voice.watchStream(userId)}
       >
-        <Eye size={16} /> Yayını İzle
+        <Eye size={16} className="ico-blink" /> Yayını İzle
       </button>
     </div>
   );
@@ -211,6 +212,7 @@ function CallControls() {
       <RoundButton
         title={!micAllowed ? 'Konuşma iznin yok' : muted ? 'Sesi Aç' : 'Sustur'}
         danger={muted}
+        motion="ico-nod"
         onClick={() => voice.toggleMute()}
       >
         {muted ? <MicOff size={22} /> : <Mic size={22} />}
@@ -218,6 +220,7 @@ function CallControls() {
       <RoundButton
         title={selfDeaf ? 'Sağırlaştırmayı Kaldır' : 'Sağırlaştır'}
         danger={selfDeaf}
+        motion="ico-wiggle"
         onClick={() => voice.toggleDeafen()}
       >
         {selfDeaf ? <HeadphoneOff size={22} /> : <Headphones size={22} />}
@@ -226,11 +229,12 @@ function CallControls() {
         title={sharing ? 'Yayını Durdur' : canStream ? 'Ekranını Paylaş' : 'Bu kanalda ekran paylaşma iznin yok'}
         active={sharing}
         disabled={!connected || (!sharing && !canStream)}
+        motion="ico-lift"
         onClick={() => (sharing ? void voice.stopScreenShare() : openModal({ type: 'screenPicker' }))}
       >
         {sharing ? <MonitorOff size={22} /> : <Monitor size={22} />}
       </RoundButton>
-      <RoundButton title="Bağlantıyı Kes" hangup onClick={() => void voice.leave()}>
+      <RoundButton title="Bağlantıyı Kes" hangup motion="ico-hangup" onClick={() => void voice.leave()}>
         <PhoneOff size={22} />
       </RoundButton>
     </div>
@@ -245,6 +249,7 @@ function RoundButton({
   active,
   hangup,
   disabled,
+  motion,
 }: {
   title: string;
   onClick: () => void;
@@ -253,8 +258,9 @@ function RoundButton({
   active?: boolean;
   hangup?: boolean;
   disabled?: boolean;
+  /** Üstüne gelince simgenin hareketi (styles/hover.css) */
+  motion: string;
 }) {
-  const mounted = useMountedRef();
   return (
     <button
       data-tooltip={title}
@@ -274,9 +280,9 @@ function RoundButton({
       )}
     >
       {/* Simge değişince kısa bir dönüşle yenisine geçer */}
-      <span key={title} className={mounted.current ? 'anim-icon-swap' : 'inline-flex'}>
+      <SwapIcon swapKey={title} motion={motion}>
         {children}
-      </span>
+      </SwapIcon>
     </button>
   );
 }

@@ -160,7 +160,7 @@ export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' |
             className="press-icon rounded p-1 text-text-muted hover:text-text-normal"
             onClick={() => useUi.getState().openModal({ type: 'newDm', addTo: dm.id })}
           >
-            <UserPlus size={22} />
+            <UserPlus size={22} className="ico-pop" />
           </button>
         )}
         <PinsButton key={channel.id} channelId={channel.id} />
@@ -174,7 +174,7 @@ export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' |
           )}
           onClick={() => useUi.getState().toggleMemberList()}
         >
-          <Users size={22} />
+          <Users size={22} className="ico-spread" />
         </button>
         <SearchBox scope={searchScope} placeholder={dm ? 'Ara' : guildName ? `${guildName} sunucusunu ara` : 'Sunucuda ara'} />
       </header>

@@ -31,7 +31,7 @@ export function ImageViewer({ attachment, source }: { attachment: Attachment; so
         onClick={close}
         aria-label="Kapat"
       >
-        <X size={28} />
+        <X size={28} className="ico-rotate" />
       </button>
       {/* Resim yakınlaşarak açılır, uzaklaşarak kapanır */}
       <img
@@ -53,13 +53,13 @@ export function ImageViewer({ attachment, source }: { attachment: Attachment; so
           {attachment.size > 0 ? `${attachment.width && attachment.height ? ' · ' : ''}${formatBytes(attachment.size)}` : ''}
         </span>
         <button className="flex items-center gap-1 hover:text-white hover:underline" onClick={() => downloadAttachment(attachment)}>
-          <Download size={16} /> İndir
+          <Download size={16} className="ico-drop" /> İndir
         </button>
         <button
           className="flex items-center gap-1 hover:text-white hover:underline"
           onClick={() => (bridge ? void bridge.openExternal(external) : window.open(external, '_blank'))}
         >
-          <ExternalLink size={16} /> Tarayıcıda aç
+          <ExternalLink size={16} className="ico-nudge-out" /> Tarayıcıda aç
         </button>
       </div>
     </div>

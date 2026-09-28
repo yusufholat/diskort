@@ -1,7 +1,6 @@
 import { useCallback, useRef, useState, type ReactNode, type Ref } from 'react';
 import { ChevronDown, Headphones, HeadphoneOff, Mic, MicOff, Settings, Volume2 } from 'lucide-react';
 import { voice } from '../../features/voice/voiceClient';
-import { useMountedRef } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { STATUS_LABELS } from '@diskort/shared';
 import { useCustomStatus, useFeedback, useGuild, useSession, useStatus } from '@diskort/client-core';
@@ -11,6 +10,7 @@ import { useVoice } from '../../stores/voice';
 import { CustomStatusLine } from '../status/CustomStatusLine';
 import { toggleSelfProfile } from '../status/SelfProfilePopout';
 import { Avatar } from '../ui/Avatar';
+import { SwapIcon } from '../ui/SwapIcon';
 import { MicMenu, OutputMenu } from './AudioMenus';
 
 /**
@@ -98,6 +98,7 @@ export function UserPanel() {
         title={!micAllowed ? voice.micBlockedReason() : muted ? 'Sesi Aç' : 'Sustur'}
         onClick={() => voice.toggleMute()}
         icon={muted ? <MicOff size={20} /> : <Mic size={20} />}
+        motion="ico-nod"
         menuLabel="Mikrofon seçenekleri"
         menuOpen={menu === 'mic'}
         chevronRef={micChevron}
@@ -108,6 +109,7 @@ export function UserPanel() {
         title={serverDeaf ? 'Sunucuda sağırlaştırıldın' : selfDeaf ? 'Sağırlaştırmayı Kaldır' : 'Sağırlaştır'}
         onClick={() => voice.toggleDeafen()}
         icon={deaf ? <HeadphoneOff size={20} /> : <Headphones size={20} />}
+        motion="ico-wiggle"
         menuLabel="Ses çıkışı seçenekleri"
         menuOpen={menu === 'output'}
         chevronRef={outputChevron}
@@ -121,7 +123,8 @@ export function UserPanel() {
             section: newFeedback > 0 ? 'feedbackAdmin' : undefined,
           })
         }
-        icon={<Settings size={20} className="transition-transform duration-300 group-hover:rotate-90" />}
+        icon={<Settings size={20} />}
+        motion="ico-rotate"
         badge={newFeedback}
       />
       <MicMenu open={menu === 'mic'} anchorRef={micChevron} onClose={closeMenu} />
@@ -130,9 +133,13 @@ export function UserPanel() {
   );
 }
 
-/** Simge (sustur / sağırlaştır) + yanında menüyü açan küçük ok; kapalıyken ikisi birlikte kırmızı */
+/**
+ * Simge (sustur / sağırlaştır) + yanında menüyü açan küçük ok; kapalıyken ikisi birlikte kırmızı.
+ * `motion`: üstüne gelince simgenin hareketi (styles/hover.css).
+ */
 function SplitButton({
   icon,
+  motion,
   title,
   onClick,
   active,
@@ -142,6 +149,7 @@ function SplitButton({
   chevronRef,
 }: {
   icon: ReactNode;
+  motion: string;
   title: string;
   onClick: () => void;
   active: boolean;
@@ -150,7 +158,6 @@ function SplitButton({
   onMenu: () => void;
   chevronRef: Ref<HTMLButtonElement>;
 }) {
-  const mounted = useMountedRef();
   const part = cn(
     'press-icon flex h-8 items-center justify-center transition-colors',
     active ? 'text-danger hover:bg-danger/25' : 'text-text-normal hover:bg-bg-active hover:text-text-head',
@@ -165,9 +172,9 @@ function SplitButton({
         onClick={onClick}
         className={cn(part, 'w-8 rounded-l-md')}
       >
-        <span key={title} className={mounted.current ? 'anim-icon-swap' : 'inline-flex'}>
+        <SwapIcon swapKey={title} motion={motion}>
           {icon}
-        </span>
+        </SwapIcon>
       </button>
       <button
         ref={chevronRef}
@@ -182,7 +189,7 @@ function SplitButton({
         <ChevronDown
           size={14}
           strokeWidth={2.5}
-          className={cn('transition-transform duration-150', menuOpen && 'rotate-180')}
+          className={cn('ico-nudge-d', menuOpen && 'rotate-180')}
         />
       </button>
     </div>
@@ -191,20 +198,21 @@ function SplitButton({
 
 function PanelButton({
   icon,
+  motion,
   title,
   onClick,
   active,
   badge = 0,
 }: {
   icon: ReactNode;
+  /** Üstüne gelince simgenin hareketi (styles/hover.css) */
+  motion?: string;
   title: string;
   onClick: () => void;
   active?: boolean;
   /** Sağ üst köşede kırmızı sayı (ör. yeni geri bildirimler) */
   badge?: number;
 }) {
-  // Simge değişince (sustur ↔ sesi aç) kısa bir dönüşle yenisine geçer; ilk açılışta oynamaz
-  const mounted = useMountedRef();
   return (
     <button
       data-tooltip={title}
@@ -212,13 +220,14 @@ function PanelButton({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        'press-icon group relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-bg-active',
+        'press-icon relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-bg-active',
         active ? 'text-danger' : 'text-text-normal hover:text-text-head',
       )}
     >
-      <span key={title} className={mounted.current ? 'anim-icon-swap' : 'inline-flex'}>
+      {/* Simge değişince (ör. yeni geri bildirim sayısı) kısa bir dönüşle yenisine geçer */}
+      <SwapIcon swapKey={title} motion={motion}>
         {icon}
-      </span>
+      </SwapIcon>
       {badge > 0 && (
         <span
           key={badge}

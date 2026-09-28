@@ -129,7 +129,7 @@ function MemberRow({ user }: { user: MemberUser }) {
                       className="text-text-muted hover:text-danger"
                       onClick={() => void moderation.setRole(user.id, role.id, false)}
                     >
-                      <X size={12} />
+                      <X size={12} className="ico-rotate" />
                     </button>
                   )}
                 </span>
@@ -142,7 +142,7 @@ function MemberRow({ user }: { user: MemberUser }) {
               onClick={() => setShowPermissions((v) => !v)}
             >
               <ShieldCheck size={12} /> Etkin izinler
-              <ChevronDown size={12} className={cn('transition-transform', showPermissions && 'rotate-180')} />
+              <ChevronDown size={12} className={cn('ico-nudge-d', showPermissions && 'rotate-180')} />
             </button>
           </div>
         </div>
@@ -158,7 +158,7 @@ function MemberRow({ user }: { user: MemberUser }) {
             openMenu(e, rect.left, rect.bottom + 4);
           }}
         >
-          <MoreHorizontal size={18} />
+          <MoreHorizontal size={18} className="ico-pop" />
         </button>
       </div>
       {showPermissions && <EffectivePermissionsPanel userId={user.id} />}
@@ -236,7 +236,7 @@ function AddRoleButton({ items }: { items: () => ContextMenuItem[] }) {
         openContextMenu({ x: rect.left, y: rect.bottom + 4, items: [{ label: 'Rol ver', heading: true }, ...items()] });
       }}
     >
-      <Plus size={12} /> Rol
+      <Plus size={12} className="ico-rotate" /> Rol
     </button>
   );
 }

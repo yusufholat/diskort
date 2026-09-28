@@ -159,7 +159,7 @@ export function Lightbox({ url, caption, onClose }: { url: string; caption?: str
         onClick={onClose}
         aria-label="Kapat"
       >
-        <X size={28} />
+        <X size={28} className="ico-rotate" />
       </button>
       <img
         src={url}

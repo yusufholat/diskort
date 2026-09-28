@@ -228,7 +228,7 @@ function ConnectionTab({ onDebug }: { onDebug: () => void }) {
           className="press flex flex-1 items-center justify-center gap-1.5 rounded bg-bg-active px-3 py-2 text-sm font-medium text-text-head hover:bg-bg-hover"
           onClick={onDebug}
         >
-          <Bug size={16} />
+          <Bug size={16} className="ico-wiggle" />
           Hata ayıklama
         </button>
         <button
@@ -237,7 +237,7 @@ function ConnectionTab({ onDebug }: { onDebug: () => void }) {
           data-tooltip="Tanılama bilgilerini panoya kopyala (hiçbir yere gönderilmez)"
           onClick={() => void copy()}
         >
-          <Copy size={16} />
+          <Copy size={16} className="ico-pop" />
           Kopyala
         </button>
       </div>
@@ -329,7 +329,7 @@ function DebugView({ onBack }: { onBack: () => void }) {
           data-tooltip="Geri"
           onClick={onBack}
         >
-          <ArrowLeft size={18} />
+          <ArrowLeft size={18} className="ico-nudge-l" />
         </button>
         <span className="text-sm font-semibold text-text-head">Hata ayıklama</span>
       </div>

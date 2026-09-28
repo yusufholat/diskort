@@ -61,7 +61,7 @@ export function ReactionPill({
       aria-label={`${tooltip}. ${me ? 'Tepkini geri almak' : 'Sen de tepki vermek'} için tıkla.`}
       aria-pressed={me}
       className={cn(
-        'flex h-7 items-center gap-1.5 rounded-lg border px-2 transition-colors duration-150 active:scale-95',
+        'group/pill flex h-7 items-center gap-1.5 rounded-lg border px-2 transition-[color,background-color,border-color,scale] duration-150 active:scale-95',
         popIn && 'anim-pill-in',
         me
           ? 'border-brand bg-brand/20 text-text-head'
@@ -74,7 +74,10 @@ export function ReactionPill({
       onClick={onToggle}
       onContextMenu={showAll}
     >
-      <span className="emoji text-[19px] leading-none">{emoji}</span>
+      {/* Üstüne gelince emoji hafifçe büyür (yaylı) */}
+      <span className="emoji text-[19px] leading-none transition-transform duration-200 ease-(--ease-hov) group-hover/pill:scale-[1.18]">
+        {emoji}
+      </span>
       <span className="min-w-2 text-[13px] font-semibold tabular-nums">{count}</span>
     </button>
   );

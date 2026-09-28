@@ -340,7 +340,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
                 className="press-icon flex h-6 items-center rounded-lg bg-bg-side px-1.5 text-text-muted opacity-0 group-hover:opacity-100 hover:text-text-head focus-visible:opacity-100"
                 onClick={(e) => pickReaction(e.currentTarget.getBoundingClientRect())}
               >
-                <SmilePlus size={16} />
+                <SmilePlus size={16} className="ico-bounce" />
               </button>
             )}
           </div>
@@ -349,17 +349,17 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
 
       {confirmed && !editing && (canReact || canReply || own || canDelete) && (
         // Üstüne gelince hafifçe belirip yükselen düğme şeridi
-        <div className="pointer-events-none absolute -top-4 right-4 flex translate-y-1 overflow-hidden rounded-md border border-edge bg-bg-main opacity-0 shadow transition-[opacity,translate] duration-100 ease-out group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
+        <div className="pointer-events-none absolute -top-4 right-4 flex translate-y-1 overflow-hidden rounded-md border border-edge bg-bg-main opacity-0 shadow transition-[opacity,translate] duration-150 ease-out group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
           {canReact &&
             HOVER_REACTIONS.map((emoji) => (
               <button
                 key={emoji}
-                className="emoji flex w-8 items-center justify-center text-lg hover:bg-bg-hover"
+                className="group/emo emoji flex w-8 items-center justify-center text-lg hover:bg-bg-hover"
                 data-tooltip={`${emoji} tepkisi ver`}
                 aria-label={`${emoji} tepkisi ver`}
                 onClick={() => react(emoji)}
               >
-                <span className="transition-transform duration-150 ease-out hover:scale-125">{emoji}</span>
+                <span className="transition-transform duration-200 ease-(--ease-hov) group-hover/emo:scale-125">{emoji}</span>
               </button>
             ))}
           {canReact && (
@@ -369,7 +369,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
               aria-label="Tepki ekle"
               onClick={(e) => pickReaction(e.currentTarget.getBoundingClientRect())}
             >
-              <SmilePlus size={18} />
+              <SmilePlus size={18} className="ico-bounce" />
             </button>
           )}
           {canReply && (
@@ -379,7 +379,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
               aria-label="Yanıtla"
               onClick={reply}
             >
-              <Reply size={18} />
+              <Reply size={18} className="ico-nudge-l" />
             </button>
           )}
           {own && (
@@ -389,7 +389,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
               aria-label="Düzenle"
               onClick={() => setEditing(message.id)}
             >
-              <Pencil size={18} />
+              <Pencil size={18} className="ico-scribble" />
             </button>
           )}
           {canDelete && (
@@ -399,7 +399,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
               aria-label="Sil"
               onClick={(e) => void confirmDelete(message, e.shiftKey)}
             >
-              <Trash2 size={18} />
+              <Trash2 size={18} className="ico-shake" />
             </button>
           )}
         </div>
