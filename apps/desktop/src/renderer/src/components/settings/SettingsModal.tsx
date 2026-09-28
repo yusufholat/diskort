@@ -49,6 +49,7 @@ import { Button, Divider, Field, SectionTitle, Select, TextInput, Toggle } from 
 import { ChangePassword } from './ChangePassword';
 import { DeleteAccount } from './DeleteAccount';
 import { KeybindInput } from './KeybindInput';
+import { ProfileLookSettings } from './ProfileLookSettings';
 import { ProfilePhoto } from './ProfilePhoto';
 import { SoundSettings, VoiceSettings } from './VoiceSettings';
 import { MyFeedback } from '../feedback/MyFeedback';
@@ -338,7 +339,7 @@ function AccountSection() {
   );
 }
 
-/** Profil: profil fotoğrafı ve profil rengi (fotoğraf yokken avatarın zemini) */
+/** Profil: profil fotoğrafı, profil rengi (fotoğraf yokken avatarın zemini) ve süsler (afiş, tema, efekt) */
 function ProfileSection() {
   const user = useSession((s) => s.user);
   const [busy, setBusy] = useState(false);
@@ -377,6 +378,8 @@ function ProfileSection() {
           />
         ))}
       </div>
+      <Divider />
+      <ProfileLookSettings user={user} />
     </div>
   );
 }

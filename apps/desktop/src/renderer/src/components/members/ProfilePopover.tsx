@@ -13,8 +13,7 @@ import { useEscapeLayer } from '../../lib/escape';
 import { usePresence } from '../../lib/motion';
 import { watchUserStream } from '../../lib/watchStream';
 import { cn } from '../../lib/utils';
-import { Avatar } from '../ui/Avatar';
-import { ProfileBanner, ProfileEffectLayer, themedCardStyle, themedRingColor } from '../profile/ProfileLook';
+import { ProfileCardTop, ProfileEffectLayer, StatusBubble, themedCardStyle } from '../profile/ProfileLook';
 
 const MARGIN = 8;
 const GAP = 8;
@@ -54,7 +53,7 @@ export function closeProfile(): void {
   useProfilePopover.setState({ target: null });
 }
 
-/** Profil kartı: renkli şerit, büyük avatar, ad, roller ve "Mesaj gönder". App'te bir kez çizilir. */
+/** Profil kartı: afiş, büyük avatar, ad, roller ve "Mesaj gönder". App'te bir kez çizilir. */
 export function ProfilePopover() {
   const target = useProfilePopover((s) => s.target);
   const { value: shown, closing } = usePresence(target, 100);
@@ -141,33 +140,13 @@ export function ProfilePopover() {
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <ProfileBanner user={user} className={user.bannerUrl ? 'h-[106px]' : 'h-[60px]'} />
+      <ProfileCardTop
+        user={user}
+        status={status}
+        aside={custom && <StatusBubble custom={custom} />}
+        badge={owner && <Crown size={16} aria-label="Sunucunun sahibi" className="shrink-0 text-warn" />}
+      />
       <div className="px-4 pb-4">
-        <div className="-mt-10 mb-2 flex items-start gap-2">
-          <div
-            className="relative w-fit shrink-0 rounded-full border-[6px] border-bg-float"
-            style={{ borderColor: themedRingColor(user.profileTheme) }}
-          >
-            <Avatar user={user} size={80} status={status} ringClassName="bg-bg-float" ringColor={themedRingColor(user.profileTheme)} />
-          </div>
-          {custom && (
-            // Özel durum: avatarın yanında konuşma balonu
-            <div className="relative mt-12 min-w-0 flex-1" title={[custom.emoji, custom.text].filter(Boolean).join(' ')}>
-              <span className="absolute top-1 -left-1 h-3 w-3 rounded-full bg-bg-side" />
-              <span className="absolute top-3.5 -left-2.5 h-1.5 w-1.5 rounded-full bg-bg-side" />
-              <span className="relative line-clamp-3 rounded-2xl bg-bg-side px-3 py-2 text-sm break-words text-text-normal">
-                {custom.emoji && <span className="mr-1">{custom.emoji}</span>}
-                {custom.text}
-              </span>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="truncate text-xl leading-tight font-bold text-text-head">{user.displayName}</span>
-          {owner && <Crown size={16} aria-label="Sunucunun sahibi" className="shrink-0 text-warn" />}
-        </div>
-        <div className="text-sm text-text-normal">{user.username}</div>
-
         {roles.length > 0 && (
           <div className="mt-3">
             <div className="mb-1.5 text-xs font-bold text-text-muted uppercase">Roller</div>

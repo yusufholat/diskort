@@ -22,7 +22,7 @@ import { toast } from '../stores/ui';
 import { useVoice, voice as voiceClient } from '../voice/voice';
 import { BAN_REASON_MAX_LENGTH } from '@diskort/shared';
 import { colors, createStyles, font, radius, space } from '../theme';
-import { Avatar } from './Avatar';
+import { ProfileHeader } from './ProfileHeader';
 import { BottomSheet, SheetGroup, SheetItem, SheetNote } from './BottomSheet';
 import { confirmDialog, promptDialog } from './Dialog';
 
@@ -173,29 +173,21 @@ export function MemberSheet({
 
   return (
     <BottomSheet visible={Boolean(requested && user)} onClose={close}>
-      <View style={styles.header}>
-        <Avatar user={user} size={56} status={user?.removed ? undefined : status} />
-        <View style={{ flex: 1 }}>
-          <View style={styles.nameRow}>
-            <Text style={[styles.name, color ? { color } : null]} numberOfLines={1}>
-              {name}
-            </Text>
-            {owner && (
+      {user && (
+        <ProfileHeader
+          user={user}
+          status={user.removed ? undefined : status}
+          nameColor={color}
+          badge={
+            owner && (
               <MaterialCommunityIcons name="crown-outline" size={17} color={colors.warn} accessibilityLabel="Sunucunun sahibi" />
-            )}
-          </View>
-          <Text style={styles.sub} numberOfLines={1}>
-            @{user?.username}
-            {voice ? ' · Sesli sohbette' : ''}
-          </Text>
-          {custom ? (
-            <Text style={styles.sub} numberOfLines={2}>
-              {custom.emoji ? `${custom.emoji} ` : ''}
-              {custom.text}
-            </Text>
-          ) : null}
-        </View>
-      </View>
+            )
+          }
+          lines={voice ? 'Sesli sohbette' : undefined}
+          custom={custom}
+          style={styles.header}
+        />
+      )}
       {roles.length > 0 && page === 'main' && (
         <View style={styles.roles}>
           {roles.map((r) => (
@@ -355,15 +347,7 @@ export function MemberSheet({
 }
 
 const styles = createStyles(() => ({
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md + 2,
-    paddingHorizontal: space.lg + 2,
-    paddingBottom: space.md,
-  },
-  name: { color: colors.head, fontSize: font.heading, fontWeight: '800', flexShrink: 1 },
-  sub: { color: colors.muted, fontSize: font.small, marginTop: 2 },
+  header: { marginHorizontal: space.md, marginBottom: space.md },
   roles: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: space.lg + 2, paddingBottom: space.md },
   role: {
     flexDirection: 'row',
@@ -380,7 +364,6 @@ const styles = createStyles(() => ({
   previewName: { color: colors.muted, fontSize: font.small },
   roleDot: { width: 12, height: 12, borderRadius: 6 },
   roleDotSmall: { width: 9, height: 9, borderRadius: 4.5 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   // Uzun menü (çok kanal) sayfanın sınırlı yüksekliğine sığsın diye daralabilir
   scroll: { flexShrink: 1, flexGrow: 0 },
 }));
