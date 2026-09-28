@@ -93,6 +93,11 @@ export function forgetPushRegistration(): void {
   void SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => undefined);
 }
 
+/** Bu cihazın sunucuya kaydedilmiş bildirim jetonu (yoksa null) */
+export async function currentPushToken(): Promise<string | null> {
+  return SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
+}
+
 /** Çıkış yapmadan önce: bu cihaza artık bu hesabın bildirimleri gitmesin. */
 export async function unregisterPush(): Promise<void> {
   tokenSubscription?.remove();
