@@ -1,19 +1,11 @@
-import { memo, useState, type ReactNode } from 'react';
-import { Alert, Image, Pressable, ScrollView, Share, Text, View } from 'react-native';
+import { memo, type ReactNode } from 'react';
+import { Pressable, ScrollView, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useShallow } from 'zustand/react/shallow';
-import { Permission, type DmChannel, type Guild } from '@diskort/shared';
+import type { DmChannel, Guild } from '@diskort/shared';
 import {
   dmTitle,
-  errorMessage,
-  guildIconUrl,
-  guildInitials,
-  guildInvites,
-  inviteLink,
-  isGuildOwner,
-  leaveGuild,
-  permissionsInGuild,
   useGuild,
   useGuildList,
   useGuildUnread,
@@ -25,27 +17,14 @@ import {
 } from '@diskort/client-core';
 import { feedback } from '../haptics';
 import { openChat, selectGuildInPanel, selectHome, useNav } from '../stores/nav';
-import { toast } from '../stores/ui';
 import { colors, createStyles, space } from '../theme';
 import { CountBadge } from './Badge';
 import { DmAvatar } from './DmAvatar';
+import { GuildIcon } from './GuildIcon';
+import { openGuildMenu } from './GuildMenu';
 import { PressableScale } from './PressableScale';
 
-/** Sunucu simgesi: yüklenmiş resim ya da adın baş harfleri */
-export function GuildIcon({ guild, size = 44, radius = 14 }: { guild: Pick<Guild, 'name' | 'iconUrl'> | undefined; size?: number; radius?: number }) {
-  const src = guildIconUrl(guild);
-  const [failed, setFailed] = useState<string | null>(null);
-  const text = guildInitials(guild?.name ?? '');
-  return (
-    <View style={[styles.icon, { width: size, height: size, borderRadius: radius }]}>
-      {src && failed !== src ? (
-        <Image source={{ uri: src }} style={{ width: size, height: size }} onError={() => setFailed(src)} />
-      ) : (
-        <Text style={[styles.iconText, { fontSize: size * (text.length > 2 ? 0.28 : 0.36) }]}>{text}</Text>
-      )}
-    </View>
-  );
-}
+export { GuildIcon };
 
 /** Çubuğun genişliği (sol panelde kanal sütununun solunda) */
 export const RAIL_WIDTH = 72;
@@ -54,8 +33,9 @@ const ICON = 48;
 /**
  * Sol paneldeki dikey sunucu çubuğu (Discord mobil gibi): en üstte direkt mesajlar (ana sayfa) düğmesi
  * okunmamış sayısıyla ve okunmamış konuşmalar, altında sunucular okunmamış işareti ve bahsetme
- * sayısıyla, en altta "+" ile sunucu kur / davetle katıl. Seçili öğenin solunda uzun beyaz çizgi,
- * okunmamışın solunda kısa nokta. Sunucuya uzun basınca sunucu menüsü (davet, ayrıl).
+ * sayısıyla, sonra "+" ile sunucu kur / davetle katıl. Seçili öğenin solunda uzun beyaz çizgi,
+ * okunmamışın solunda kısa nokta. Sunucuya uzun basınca sunucu menüsü. Geri bildirim düğmesi
+ * masaüstündeki gibi çubuğun en altında sabittir (liste üstünde kayar).
  */
 export function ServerRail() {
   const guilds = useGuildList();
@@ -63,29 +43,67 @@ export function ServerRail() {
   const unreadDms = useUnreadDms(3);
   const router = useRouter();
   return (
-    <ScrollView
-      style={styles.rail}
-      contentContainerStyle={styles.railContent}
-      showsVerticalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled"
-    >
-      <HomeButton selected={home} />
-      {unreadDms.map((dm) => (
-        <UnreadDm key={dm.id} dm={dm} />
-      ))}
-      <View style={styles.separator} />
-      {guilds.map((g) => (
-        <GuildButton key={g.id} guild={g} home={home} />
-      ))}
-      <Pressable
-        onPress={() => router.push('/sunucu-ekle')}
-        style={({ pressed }) => [styles.add, pressed && { backgroundColor: colors.ok }]}
-        accessibilityRole="button"
-        accessibilityLabel="Sunucu ekle"
+    <View style={styles.rail}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.railContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        {({ pressed }) => <Ionicons name="add" size={26} color={pressed ? colors.white : colors.ok} />}
-      </Pressable>
-    </ScrollView>
+        <HomeButton selected={home} />
+        {unreadDms.map((dm) => (
+          <UnreadDm key={dm.id} dm={dm} />
+        ))}
+        <View style={styles.separator} />
+        {guilds.map((g) => (
+          <GuildButton key={g.id} guild={g} home={home} />
+        ))}
+        <RailAction label="Sunucu ekle" onPress={() => router.push('/sunucu-ekle')}>
+          {(pressed) => <Ionicons name="add" size={26} color={pressed ? colors.white : colors.ok} />}
+        </RailAction>
+      </ScrollView>
+      <View style={styles.footer}>
+        <RailAction label="Geri bildirim gönder" onPress={() => router.push('/feedback')}>
+          {(pressed) => <FeedbackIcon color={pressed ? colors.white : colors.ok} />}
+        </RailAction>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Masaüstündeki kalpli konuşma balonu (lucide MessageSquareHeart); Ionicons'ta olmadığı için balonun
+ * içine küçük bir kalp oturtulur.
+ */
+function FeedbackIcon({ color }: { color: string }) {
+  return (
+    <View style={styles.feedbackIcon}>
+      <Ionicons name="chatbox-outline" size={24} color={color} />
+      <Ionicons name="heart" size={10} color={color} style={styles.feedbackHeart} />
+    </View>
+  );
+}
+
+/** Çubuğun yeşil simgeli yuvarlak düğmesi (sunucu ekle, geri bildirim); basılıyken yeşil zemin */
+function RailAction({
+  label,
+  onPress,
+  children,
+}: {
+  label: string;
+  onPress: () => void;
+  children: (pressed: boolean) => ReactNode;
+}) {
+  return (
+    <PressableScale
+      scaleTo={0.92}
+      onPress={onPress}
+      style={({ pressed }) => [styles.action, pressed && { backgroundColor: colors.ok, borderRadius: 16 }]}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+    >
+      {({ pressed }) => children(pressed)}
+    </PressableScale>
   );
 }
 
@@ -178,7 +196,7 @@ const GuildButton = memo(function GuildButton({ guild, home }: { guild: Guild; h
       }}
       onLongPress={() => {
         feedback('tick');
-        openGuildMenu(guild);
+        openGuildMenu(guild.id);
       }}
       label={`${guild.name}${unread ? ', okunmamış mesajlar var' : ''}${mentions ? `, ${mentions} bahsetme` : ''}`}
       hint="Sunucu menüsü için uzun bas"
@@ -191,52 +209,11 @@ const GuildButton = memo(function GuildButton({ guild, home }: { guild: Guild; h
   );
 });
 
-/** Sunucu menüsü: davet bağlantısını paylaş, sunucudan ayrıl */
-export function openGuildMenu(guild: Guild): void {
-  const s = useGuild.getState();
-  const selfId = useSession.getState().user?.id;
-  const perms = permissionsInGuild(s.guilds[guild.id], selfId);
-  const canInvite =
-    (perms & Permission.CREATE_INVITE) === Permission.CREATE_INVITE ||
-    (perms & Permission.MANAGE_INVITES) === Permission.MANAGE_INVITES;
-  const owner = isGuildOwner(s, guild.id);
-  Alert.alert(guild.name, owner ? 'Bu sunucunun sahibisin.' : undefined, [
-    ...(canInvite ? [{ text: 'Arkadaşlarını davet et', onPress: () => void shareInvite(guild) }] : []),
-    ...(!owner
-      ? [
-          {
-            text: 'Sunucudan ayrıl',
-            style: 'destructive' as const,
-            onPress: () =>
-              Alert.alert(`"${guild.name}" sunucusundan ayrılınsın mı?`, 'Geri dönmek için yeni bir davet gerekir.', [
-                { text: 'Vazgeç', style: 'cancel' },
-                {
-                  text: 'Ayrıl',
-                  style: 'destructive',
-                  onPress: () => void leaveGuild(guild.id).then((ok) => ok && toast(`"${guild.name}" sunucusundan ayrıldın.`)),
-                },
-              ]),
-          },
-        ]
-      : []),
-    { text: 'Kapat', style: 'cancel' },
-  ]);
-}
-
-/** 7 gün geçerli, sınırsız bir davet oluşturup paylaşma penceresini açar */
-async function shareInvite(guild: Guild): Promise<void> {
-  try {
-    const invite = await guildInvites.create(guild.id, { maxUses: null, expiresInHours: 168 });
-    const link = inviteLink(invite.code);
-    await Share.share({ message: `Diskort'ta "${guild.name}" sunucusuna gel: ${link}` });
-  } catch (err) {
-    toast(errorMessage(err), 'error');
-  }
-}
-
 const styles = createStyles(() => ({
-  rail: { width: RAIL_WIDTH, flexGrow: 0, backgroundColor: colors.rail },
-  railContent: { alignItems: 'center', gap: space.sm, paddingTop: space.sm, paddingBottom: space.lg },
+  rail: { width: RAIL_WIDTH, backgroundColor: colors.rail },
+  scroll: { flex: 1 },
+  railContent: { alignItems: 'center', gap: space.sm, paddingTop: space.sm, paddingBottom: space.md },
+  footer: { alignItems: 'center', paddingTop: space.sm, paddingBottom: space.md },
   item: { width: RAIL_WIDTH, alignItems: 'center' },
   pill: {
     position: 'absolute',
@@ -250,10 +227,8 @@ const styles = createStyles(() => ({
   pillUnread: { top: ICON / 2 - 4, height: 8 },
   home: { width: ICON, height: ICON, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
   separator: { width: 32, height: 2, borderRadius: 1, backgroundColor: colors.line },
-  icon: { backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  iconText: { color: colors.white, fontWeight: '800' },
   badge: { position: 'absolute', right: -4, bottom: -4 },
-  add: {
+  action: {
     width: ICON,
     height: ICON,
     borderRadius: ICON / 2,
@@ -261,4 +236,6 @@ const styles = createStyles(() => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  feedbackIcon: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
+  feedbackHeart: { position: 'absolute', top: 5 },
 }));

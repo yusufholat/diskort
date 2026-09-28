@@ -23,7 +23,6 @@ import { duration, useAppear } from '../motion';
 import { colors, createStyles, font, layout, radius, ripple, space } from '../theme';
 import { Avatar } from './Avatar';
 import { AttachmentList, UploadList } from './Attachments';
-import { useSettings } from '../stores/settings';
 import { GifEmbed } from './GifEmbed';
 import { LinkEmbeds } from './LinkEmbeds';
 import { Markdown, type MarkdownContext } from './Markdown';
@@ -99,8 +98,7 @@ export const MessageRow = memo(function MessageRow({
   const mentioned = isMentioned(message, self);
   // Metni yalnızca GIPHY bağlantısı olan mesaj: bağlantı yerine GIF gösterilir
   const gif = gifOf(message);
-  // Bağlantı önizlemeleri (ayarlardan kapatılabilir; kaldırılmışsa hiç gelmez)
-  const showPreviews = useSettings((s) => s.linkPreviews);
+  // Bağlantı önizlemeleri hep gösterilir (gönderen kaldırdıysa hiç gelmez)
   const linkEmbeds = visibleLinkEmbeds(message);
   const authorColor = useMemberColor(message.authorId);
   const appear = useAppear(animateIn, 240);
@@ -229,7 +227,7 @@ export const MessageRow = memo(function MessageRow({
                 ) : message.attachments.length > 0 ? (
                   <AttachmentList attachments={message.attachments} />
                 ) : null}
-                {showPreviews && linkEmbeds.length > 0 ? (
+                {linkEmbeds.length > 0 ? (
                   <LinkEmbeds embeds={linkEmbeds} dim={message.status === 'pending'} />
                 ) : null}
                 {message.status === 'failed' && message.nonce && (

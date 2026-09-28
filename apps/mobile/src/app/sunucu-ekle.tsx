@@ -4,7 +4,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GUILD_NAME_MAX_LENGTH, parseInviteCode, type InvitePreview } from '@diskort/shared';
 import { api, createGuild, errorMessage, joinGuild, useSession } from '@diskort/client-core';
-import { GuildIcon } from '../components/ServerRail';
+import { GuildIcon } from '../components/GuildIcon';
 import { Button, Field } from '../components/ui';
 import { toast } from '../stores/ui';
 import { colors, createStyles, font, radius, space } from '../theme';

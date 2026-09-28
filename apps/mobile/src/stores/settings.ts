@@ -41,8 +41,6 @@ interface MobileSettings {
   sounds: boolean;
   /** Uygulama açıkken bahsedilince ve direkt mesaj gelince ses (Rahatsız Etmeyin durumunda çalmaz) */
   notificationSound: boolean;
-  /** Mesajlardaki bağlantıların önizlemeleri (kart, YouTube, resim) gösterilsin mi */
-  linkPreviews: boolean;
   set: (patch: Partial<Omit<MobileSettings, 'set'>>) => void;
 }
 
@@ -66,7 +64,6 @@ export const useSettings = create<MobileSettings>()(
       haptics: true,
       sounds: true,
       notificationSound: true,
-      linkPreviews: true,
       set: (patch) => set(patch),
     }),
     {
@@ -77,7 +74,8 @@ export const useSettings = create<MobileSettings>()(
       // DPDFNet'e geçer (destek yoksa standart çalışır).
       // Sürüm 1 → 2: ses paketleri kaldırıldı (tek ses takımı); kayıtlı soundPack ayarı silinir; ses efekti
       // seviyesi ayarı da kaldırıldı (sesler tek, sabit seviyede).
-      version: 2,
+      // Sürüm 2 → 3: bağlantı önizlemesi ayarı kaldırıldı (önizlemeler hep gösterilir); kayıtlı değer silinir.
+      version: 3,
       migrate: (persisted, version) => {
         let state = (persisted ?? {}) as Record<string, unknown>;
         if (version < 1) {
@@ -86,6 +84,10 @@ export const useSettings = create<MobileSettings>()(
         }
         if (version < 2) {
           const { soundPack: _soundPack, sfxVolume: _sfxVolume, ...rest } = state;
+          state = rest;
+        }
+        if (version < 3) {
+          const { linkPreviews: _linkPreviews, ...rest } = state;
           state = rest;
         }
         return state as unknown as MobileSettings;

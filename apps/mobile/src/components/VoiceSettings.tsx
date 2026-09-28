@@ -16,7 +16,7 @@ const METER_MIN = -80;
 const toRatio = (db: number): number => Math.min(1, Math.max(0, (db - METER_MIN) / -METER_MIN));
 
 /**
- * Ayarlar → Ses: gürültü/yankı engelleme, otomatik ses seviyesi ve ses algılama (masaüstündeki
+ * Ayarlar → Ses ve Görüntü: titreşim, gürültü/yankı engelleme, otomatik ses seviyesi ve ses algılama (masaüstündeki
  * "ses aktivitesi"nin telefondaki karşılığı; canlı seviye göstergesiyle).
  */
 export function VoiceSettings() {
@@ -49,7 +49,6 @@ export function VoiceSettings() {
             if (v) feedback('unmute');
           }}
         />
-        <SoundSettings />
         <NoiseSetting />
         <ToggleRow
           label="Yankı engelleme"
@@ -111,7 +110,7 @@ export function VoiceSettings() {
 }
 
 /** Arayüz sesleri: aç/kapat, bildirim sesi ve her sesi dinleme listesi */
-function SoundSettings() {
+export function SoundSettings() {
   const sounds = useSettings((s) => s.sounds);
   const notificationSound = useSettings((s) => s.notificationSound);
   const set = useSettings((s) => s.set);

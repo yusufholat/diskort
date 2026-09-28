@@ -66,7 +66,7 @@ function EmptyChat({ ready }: { ready: boolean }) {
             icon="chatbubbles-outline"
             tone="muted"
             title="Henüz metin kanalı yok"
-            text="Kanallar masaüstü uygulamasındaki sunucu ayarlarından oluşturulur. Ses kanalları soldaki panelde."
+            text="Kanal oluşturmak için soldaki panelde sunucunun adına dokun → Kanal oluştur (yetkin varsa). Ses kanalları da soldaki panelde."
             action={{ title: 'Kanalları göster', onPress: openPanel }}
           />
         )}

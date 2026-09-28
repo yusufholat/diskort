@@ -4,6 +4,7 @@ import {
   Animated,
   Pressable,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -13,7 +14,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAppear, useShake } from '../motion';
+import { useAppear, useShake, useTimingTo } from '../motion';
 import { brandTint, colors, createStyles, font, radius, ripple, space, tint } from '../theme';
 import { CountBadge } from './Badge';
 import { PressableScale } from './PressableScale';
@@ -184,6 +185,183 @@ export function NavRow({
   );
 }
 
+/** Yan yana seçenek düğmeleri (tek seçim), ör. davetin kullanım hakkı */
+export function Choices<T extends string | number>({
+  options,
+  value,
+  onChange,
+  label,
+  disabled,
+}: {
+  options: readonly { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+  /** Ekran okuyucu için grubun adı */
+  label: string;
+  disabled?: boolean;
+}) {
+  return (
+    <View style={styles.choices} accessibilityRole="radiogroup" accessibilityLabel={label}>
+      {options.map((o) => {
+        const selected = o.value === value;
+        return (
+          <Pressable
+            key={String(o.value)}
+            onPress={() => onChange(o.value)}
+            disabled={disabled}
+            accessibilityRole="radio"
+            accessibilityState={{ selected, disabled }}
+            style={({ pressed }) => [
+              styles.choice,
+              selected && styles.choiceSelected,
+              (pressed || disabled) && { opacity: disabled ? 0.5 : 0.8 },
+            ]}
+          >
+            <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>{o.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/** Açma/kapama satırı: ad, açıklama, anahtar; kapalıyken (yetki yok) soluk. Altına not eklenebilir. */
+export function SwitchRow({
+  label,
+  description,
+  value,
+  onChange,
+  disabled,
+  first,
+  children,
+}: {
+  label: string;
+  description?: string;
+  value: boolean;
+  onChange: (value: boolean) => void;
+  disabled?: boolean;
+  /** Kartın ilk satırı (üstünde ayırıcı çizgi olmaz) */
+  first?: boolean;
+  /** Satırın altında gösterilen not (ör. "Bu izin @everyone rolünde açık") */
+  children?: ReactNode;
+}) {
+  return (
+    <View style={styles.switchWrap}>
+      {!first && <View style={styles.switchDivider} />}
+      <Pressable
+        onPress={() => onChange(!value)}
+        disabled={disabled}
+        android_ripple={ripple.row}
+        style={styles.switchRow}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: value, disabled }}
+        accessibilityLabel={label}
+        accessibilityHint={description}
+      >
+        <View style={[{ flex: 1 }, disabled && { opacity: 0.55 }]}>
+          <Text style={styles.switchLabel}>{label}</Text>
+          {description ? <Text style={styles.switchDescription}>{description}</Text> : null}
+        </View>
+        <Switch
+          value={value}
+          onValueChange={onChange}
+          disabled={disabled}
+          trackColor={{ false: colors.control, true: colors.brand }}
+          thumbColor="#fff"
+        />
+      </Pressable>
+      {children}
+    </View>
+  );
+}
+
+/** Sekme gibi bölüm seçici (rol düzenleyicideki Görünüm / Yetkiler / Üyeler) */
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: readonly { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  const [width, setWidth] = useState(0);
+  const index = Math.max(0, options.findIndex((o) => o.value === value));
+  const x = useTimingTo(index, 180);
+  const segment = options.length > 0 ? width / options.length : 0;
+  return (
+    <View style={styles.segmented} onLayout={(e) => setWidth(e.nativeEvent.layout.width - 6)} accessibilityRole="tablist">
+      {width > 0 && (
+        <Animated.View
+          style={[
+            styles.segmentThumb,
+            { width: segment, transform: [{ translateX: x.interpolate({ inputRange: [0, 1], outputRange: [0, segment] }) }] },
+          ]}
+        />
+      )}
+      {options.map((o) => {
+        const selected = o.value === value;
+        return (
+          <Pressable
+            key={o.value}
+            onPress={() => onChange(o.value)}
+            style={styles.segment}
+            accessibilityRole="tab"
+            accessibilityState={{ selected }}
+          >
+            <Text style={[styles.segmentText, selected && { color: colors.head }]}>{o.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/**
+ * Kaydedilmemiş değişiklik çubuğu (Discord'daki gibi): ekranın altında yükselerek belirir; Sıfırla ve
+ * Kaydet. `bottomInset` gezinme çubuğunun yüksekliği.
+ */
+export function SaveBar({
+  visible,
+  busy,
+  onReset,
+  onSave,
+  bottomInset = 0,
+  disabled,
+}: {
+  visible: boolean;
+  busy?: boolean;
+  onReset: () => void;
+  onSave: () => void;
+  bottomInset?: number;
+  disabled?: boolean;
+}) {
+  const shown = useTimingTo(visible ? 1 : 0, 200);
+  return (
+    <Animated.View
+      pointerEvents={visible ? 'box-none' : 'none'}
+      style={[
+        styles.saveBar,
+        {
+          bottom: bottomInset + space.md,
+          opacity: shown,
+          transform: [{ translateY: shown.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
+        },
+      ]}
+    >
+      <Text style={styles.saveText} numberOfLines={2}>
+        Kaydedilmemiş değişikliklerin var
+      </Text>
+      <Pressable onPress={onReset} hitSlop={8} accessibilityRole="button" style={styles.resetButton}>
+        <Text style={styles.resetText}>Sıfırla</Text>
+      </Pressable>
+      <View style={{ minWidth: 96 }}>
+        <Button title="Kaydet" busy={busy} disabled={disabled} onPress={onSave} />
+      </View>
+    </Animated.View>
+  );
+}
+
 export const ui = createStyles(() => ({
   errorBox: {
     backgroundColor: 'rgba(242,63,67,0.15)',
@@ -237,4 +415,56 @@ const styles = createStyles(() => ({
   navLabel: { color: colors.head, fontSize: font.row, fontWeight: '500' },
   navDetail: { color: colors.muted, fontSize: font.caption + 0.5, marginTop: 1, lineHeight: 17 },
   navValue: { color: colors.muted, fontSize: font.small + 0.5, maxWidth: '45%' },
+  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.sm, marginBottom: space.xs },
+  choice: {
+    paddingHorizontal: space.md,
+    paddingVertical: 7,
+    borderRadius: radius.lg,
+    backgroundColor: colors.control,
+    borderWidth: 1,
+    borderColor: colors.control,
+  },
+  choiceSelected: { backgroundColor: colors.brand, borderColor: colors.brand },
+  choiceText: { color: colors.onControl, fontSize: 14, fontWeight: '500' },
+  choiceTextSelected: { color: colors.white },
+  switchWrap: { overflow: 'hidden' },
+  switchDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.line, marginLeft: space.lg },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md },
+  switchLabel: { color: colors.head, fontSize: font.row - 0.5, fontWeight: '500' },
+  switchDescription: { color: colors.muted, fontSize: font.caption + 0.5, lineHeight: 18, marginTop: 2 },
+  segmented: {
+    flexDirection: 'row',
+    backgroundColor: colors.input,
+    borderRadius: radius.md + 2,
+    padding: 3,
+  },
+  segmentThumb: {
+    position: 'absolute',
+    top: 3,
+    bottom: 3,
+    left: 3,
+    borderRadius: radius.md,
+    backgroundColor: colors.active,
+  },
+  segment: { flex: 1, height: 36, alignItems: 'center', justifyContent: 'center' },
+  segmentText: { color: colors.muted, fontSize: font.small + 0.5, fontWeight: '600' },
+  saveBar: {
+    position: 'absolute',
+    left: space.md,
+    right: space.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    paddingLeft: space.lg,
+    paddingRight: space.sm,
+    paddingVertical: space.sm,
+    borderRadius: radius.lg - 4,
+    backgroundColor: colors.deep,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tint(0.1),
+    elevation: 12,
+  },
+  saveText: { flex: 1, color: colors.text, fontSize: font.small, fontWeight: '600' },
+  resetButton: { paddingHorizontal: space.xs },
+  resetText: { color: colors.text, fontSize: font.small + 0.5, fontWeight: '600', textDecorationLine: 'underline' },
 }));

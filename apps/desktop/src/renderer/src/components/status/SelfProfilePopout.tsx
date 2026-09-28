@@ -127,7 +127,7 @@ export function SelfProfilePopout() {
             label="Profili Düzenle"
             onClick={() => {
               closeSelfProfile();
-              openModal({ type: 'settings', section: 'account' });
+              openModal({ type: 'settings', section: 'profile' });
             }}
           />
           <div className="mx-1.5 my-1 h-px bg-line/60" />

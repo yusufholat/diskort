@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,11 +18,12 @@ import {
 } from '@diskort/client-core';
 import { CountBadge, UnreadMarker } from './Badge';
 import { BottomSheet, SheetGroup, SheetHeader, SheetItem } from './BottomSheet';
+import { confirmDialog } from './Dialog';
 import { DmAvatar } from './DmAvatar';
 import { ListSkeleton } from './Skeleton';
 import { EmptyState } from './States';
 import { TypingDots } from './TypingDots';
-import { animateNextLayout, useLayoutAnimationOn } from '../motion';
+import { useLayoutAnimationOn } from '../motion';
 import { toast } from '../stores/ui';
 import { brandTint, colors, createStyles, font, radius, ripple, space } from '../theme';
 
@@ -217,12 +218,6 @@ function DmMenu({ dm: requested, onClose }: { dm: DmChannel | null; onClose: () 
   const selfId = useSession((s) => s.user?.id);
   const title = useGuild((s) => (dm ? dmTitle(dm, s.users, selfId) : ''));
   const unread = useGuild((s) => (dm ? isUnread(s, dm.id) : false));
-  const [confirm, setConfirm] = useState(false);
-
-  useEffect(() => {
-    if (requested) setConfirm(false);
-  }, [requested]);
-
   if (!dm) return null;
   const close = (): void => onClose();
 
@@ -285,16 +280,18 @@ function DmMenu({ dm: requested, onClose }: { dm: DmChannel | null; onClose: () 
           <SheetItem
             icon="exit-outline"
             danger
-            label={confirm ? 'Emin misin? Gruptan ayrıl' : 'Gruptan ayrıl'}
-            hint={confirm ? 'Yeniden eklenmezsen mesajları göremezsin.' : undefined}
+            label="Gruptan ayrıl"
             onPress={() => {
-              if (!confirm) {
-                animateNextLayout(160);
-                setConfirm(true);
-                return;
-              }
               close();
-              void closeDm(dm.id);
+              void confirmDialog({
+                title: `"${title}" grubundan ayrılınsın mı?`,
+                message: 'Yeniden eklenmezsen bu grubun mesajlarını göremezsin.',
+                icon: 'exit-outline',
+                confirmLabel: 'Gruptan ayrıl',
+                danger: true,
+              }).then((ok) => {
+                if (ok) void closeDm(dm.id);
+              });
             }}
           />
         </SheetGroup>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   FEEDBACK_NOTE_MAX_LENGTH,
@@ -21,6 +21,7 @@ import {
   useFeedbackAuthor,
   useSession,
 } from '@diskort/client-core';
+import { confirmDialog } from '../components/Dialog';
 import { TextSkeleton } from '../components/Skeleton';
 import { Button } from '../components/ui';
 import { animateNextLayout } from '../motion';
@@ -225,15 +226,15 @@ function FeedbackDetail({ item, authorUsername }: { item: Feedback; authorUserna
     }
   };
 
-  const remove = (): void => {
-    Alert.alert('Geri bildirimi sil', `#${item.id} ve ekran görüntüleri kalıcı olarak silinir. Gönderenin listesinden de kalkar.`, [
-      { text: 'Vazgeç', style: 'cancel' },
-      {
-        text: 'Sil',
-        style: 'destructive',
-        onPress: () => void deleteFeedback(item.id).catch((err: unknown) => toast(errorMessage(err), 'error')),
-      },
-    ]);
+  const remove = async (): Promise<void> => {
+    const ok = await confirmDialog({
+      title: 'Geri bildirim silinsin mi?',
+      message: `#${item.id} ve ekran görüntüleri kalıcı olarak silinir. Gönderenin listesinden de kalkar.`,
+      icon: 'trash-outline',
+      confirmLabel: 'Sil',
+      danger: true,
+    });
+    if (ok) await deleteFeedback(item.id).catch((err: unknown) => toast(errorMessage(err), 'error'));
   };
 
   const context = item.context;
@@ -316,7 +317,7 @@ function FeedbackDetail({ item, authorUsername }: { item: Feedback; authorUserna
           <Button title="Notu kaydet" busy={saving === 'note'} disabled={!noteChanged || saving !== null} onPress={() => void saveNote()} />
         </View>
         <View style={{ flex: 1 }}>
-          <Button title="Sil" variant="danger" disabled={saving !== null} onPress={remove} />
+          <Button title="Sil" variant="danger" disabled={saving !== null} onPress={() => void remove()} />
         </View>
       </View>
     </View>

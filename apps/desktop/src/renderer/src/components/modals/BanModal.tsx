@@ -30,8 +30,8 @@ export function BanModal() {
       <Modal title={`${user.displayName} yasaklansın mı?`} onClose={close} className="w-[440px]">
         <form onSubmit={(e) => void submit(e)} noValidate>
           <p className="mb-4 text-center text-[15px] leading-relaxed text-text-normal">
-            Oturumu kapanır, rolleri alınır ve yasak kaldırılana kadar giriş yapamaz, yeni bir davetle de geri
-            dönemez. Mesajları silinmez.
+            Sunucudan çıkarılır, rolleri alınır ve yasak kaldırılana kadar yeni bir davetle de geri dönemez.
+            Hesabı, diğer sunucuları ve mesajları etkilenmez.
           </p>
           <Field label="Sebep (isteğe bağlı, yalnızca yetkililer görür)">
             <TextInput

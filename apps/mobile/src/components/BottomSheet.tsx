@@ -98,7 +98,7 @@ export function BottomSheet({
  * Klavyenin sayfayı ne kadar örttüğü. Pencere klavyeyle küçülüyorsa (adjustResize) örtme yoktur;
  * küçülmüyorsa (kenardan kenara görünüm) klavyenin üst kenarı ile pencerenin altı arasındaki fark.
  */
-function useKeyboardOverlap(enabled: boolean): {
+export function useKeyboardOverlap(enabled: boolean): {
   overlap: number;
   windowHeight: number;
   setWindowHeight: (height: number) => void;

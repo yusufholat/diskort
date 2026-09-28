@@ -2,17 +2,6 @@ import { api } from '@diskort/client-core';
 import * as Notifications from 'expo-notifications';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import { create } from 'zustand';
-
-export type PushState =
-  | { kind: 'unknown' }
-  | { kind: 'registered' }
-  | { kind: 'denied' }
-  | { kind: 'error'; message: string };
-
-/** Ayarlar ekranında gösterilir (sorun olunca nedenini görmek için) */
-export const usePushState = create<{ state: PushState }>()(() => ({ state: { kind: 'unknown' } }));
-const setPushState = (state: PushState): void => usePushState.setState({ state });
 
 /**
  * Telefon bildirimleri: bahsetmeler ve direkt mesajlar. Sunucu, ilgili kullanıcının kayıtlı cihazlarına
@@ -21,7 +10,7 @@ const setPushState = (state: PushState): void => usePushState.setState({ state }
  * vardır: kullanıcı telefon ayarlarından birini kapatabilir.
  *
  * iOS'ta cihaz jetonu APNs jetonudur (Firebase yok). Sunucuda APNs anahtarı yoksa jeton kaydedilir ama
- * bildirim gitmez; uygulama imzasında "aps-environment" yoksa jeton alınamaz ve nedeni ayarlarda görünür.
+ * bildirim gitmez; uygulama imzasında "aps-environment" yoksa jeton alınamaz (uygulama bildirimsiz çalışır).
  */
 const CHANNEL_ID = 'diskort-mentions';
 /** Direkt mesajlar (sunucu bu kanalı kullanır; bkz. push.ts notifyDm) */
@@ -56,19 +45,18 @@ export async function registerForPush(): Promise<void> {
       ios: { allowAlert: true, allowBadge: false, allowSound: true },
     });
     if (!permission.granted) {
-      setPushState({ kind: 'denied' });
+      // İzin verilmedi: uygulama bildirimsiz çalışır (telefonun ayarlarından sonradan açılabilir)
       return;
     }
     const { data } = await Notifications.getDevicePushTokenAsync();
     await sendToken(String(data));
-    setPushState({ kind: 'registered' });
     tokenSubscription?.remove();
     // Google/Apple jetonu yenilerse sunucuya yenisini bildir
     tokenSubscription = Notifications.addPushTokenListener(({ data: next }) => void sendToken(String(next)).catch(() => undefined));
   } catch (err) {
     // Ör. Google Play Hizmetleri yok, iOS imzasında bildirim yetkisi yok ya da ağ hatası: uygulama bildirimsiz
-    // çalışır, nedeni ayarlarda görünür
-    setPushState({ kind: 'error', message: err instanceof Error ? err.message : String(err) });
+    // çalışır (bir sonraki açılışta yeniden denenir)
+    console.warn('Bildirim kaydı yapılamadı:', err instanceof Error ? err.message : String(err));
   }
 }
 

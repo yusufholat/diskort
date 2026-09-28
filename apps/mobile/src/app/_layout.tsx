@@ -7,6 +7,8 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { gateway, reportClientError, useSession } from '@diskort/client-core';
+import { DialogHost } from '../components/Dialog';
+import { GuildMenuHost } from '../components/GuildMenu';
 import { StatusPickerHost } from '../components/StatusPicker';
 import { Toast } from '../components/Toast';
 import { Button } from '../components/ui';
@@ -185,10 +187,20 @@ export default function RootLayout() {
                 <Stack.Screen name="dm-new" options={{ title: 'Yeni mesaj', animation: 'fade_from_bottom' }} />
                 <Stack.Screen name="dm-rename" options={{ title: 'Grubun adı', animation: 'fade_from_bottom' }} />
                 <Stack.Screen name="settings" options={{ title: 'Ayarlar' }} />
+                <Stack.Screen name="ayarlar/[bolum]" options={{ title: 'Ayarlar' }} />
                 <Stack.Screen name="feedback" options={{ title: 'Geri bildirim' }} />
                 <Stack.Screen name="feedback-admin" options={{ title: 'Geri bildirimler (yönetim)' }} />
                 <Stack.Screen name="whats-new" options={{ title: 'Yenilikler' }} />
                 <Stack.Screen name="sunucu-ekle" options={{ title: 'Sunucu ekle', animation: 'fade_from_bottom' }} />
+                {/* Sunucu ayarları (sunucu menüsünden): bölümler, rol ve kanal düzenleme, kanal oluşturma */}
+                <Stack.Screen name="sunucu-ayarlari/index" options={{ title: 'Sunucu ayarları' }} />
+                <Stack.Screen name="sunucu-ayarlari/[bolum]" options={{ title: '' }} />
+                <Stack.Screen name="sunucu-ayarlari/rol/[id]" options={{ title: 'Rol' }} />
+                <Stack.Screen name="sunucu-ayarlari/kanal/[id]" options={{ title: 'Kanal' }} />
+                <Stack.Screen
+                  name="sunucu-ayarlari/kanal-olustur"
+                  options={{ title: 'Kanal oluştur', animation: 'fade_from_bottom' }}
+                />
               </Stack.Protected>
               <Stack.Protected guard={!token}>
                 <Stack.Screen name="login" options={{ headerShown: false, animation: 'fade', contentStyle: { backgroundColor: colors.rail } }} />
@@ -196,6 +208,8 @@ export default function RootLayout() {
             </Stack>
             <Toast key={themeVersion} />
             <StatusPickerHost />
+            <GuildMenuHost />
+            <DialogHost />
           </>
         )}
       </SafeAreaProvider>

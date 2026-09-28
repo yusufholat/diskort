@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Attachment, Channel, ChannelType, User } from '@diskort/shared';
-import { useGuild } from '@diskort/client-core';
+import { useGuild, type SettingsSectionId } from '@diskort/client-core';
 import { useVoice } from './voice';
 
 const voiceChannelId = (): string | null => useVoice.getState().channelId;
@@ -27,19 +27,11 @@ export type Modal =
   | { type: 'reactions'; channelId: string; messageId: string; emoji?: string }
   | null;
 
-export type SettingsSection =
-  | 'account'
-  | 'appearance'
-  | 'voice'
-  | 'stream'
-  | 'keybinds'
-  | 'app'
-  | 'feedback'
-  | 'whatsNew'
-  /** Yalnızca hesap yöneticilerine: gelen geri bildirimler */
-  | 'feedbackAdmin'
-  /** Yalnızca hesap yöneticilerine: hesap yöneticileri, hesap davetleri, hesaplar */
-  | 'admin';
+/**
+ * Kullanıcı Ayarları'nın kendi sayfası olan bölümleri (yapı telefonla ortak: client-core/settingsSections).
+ * Bağlantılar (web yönetim paneli, gizlilik) tarayıcıda açılır, bölüm değildir.
+ */
+export type SettingsSection = Exclude<SettingsSectionId, 'webAdmin' | 'privacy'>;
 
 export type ServerSettingsSection = 'overview' | 'roles' | 'members' | 'invites' | 'bans';
 
