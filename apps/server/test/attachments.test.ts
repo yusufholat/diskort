@@ -10,6 +10,7 @@ import { buildApp } from '../src/app.js';
 import { PENDING_TTL_MS } from '../src/attachments.js';
 import { loadConfig } from '../src/config.js';
 import type { AppContext } from '../src/context.js';
+import { joinGuild } from './helpers.js';
 import { sanitizeFileName } from '../src/fileInfo.js';
 
 // Testlerde sınır 1 MB
@@ -41,7 +42,7 @@ async function setup() {
       payload: { inviteCode: bootstrap.code, username: 'admin', password: 'sifre12345' },
     })
   ).json() as { token: string; user: { id: string } };
-  const code = (await app.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: auth(admin.token), payload: {} })).json()
+  const code = (await app.inject({ method: 'POST', url: '/api/invites', headers: auth(admin.token), payload: {} })).json()
     .code as string;
   const member = (
     await app.inject({
@@ -50,6 +51,7 @@ async function setup() {
       payload: { inviteCode: code, username: 'uye', password: 'sifre12345' },
     })
   ).json() as { token: string; user: { id: string } };
+  await joinGuild(app, ctx.guild.id, admin.token, member.token);
   const channels = ctx.store.listChannels(ctx.guild.id);
   return {
     admin,

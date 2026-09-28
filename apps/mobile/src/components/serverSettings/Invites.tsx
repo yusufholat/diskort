@@ -93,7 +93,7 @@ export function InvitesSection({ guild }: { guild: Guild }) {
     <View>
       <Intro>
         Davet bağlantısını arkadaşına gönder. Diskort hesabı varsa bağlantıya dokununca sunucuya katılır. Hesabı
-        olmayan biri Diskort'a yalnızca bir hesap yöneticisinin davetiyle katılabilir. Sunucudan ayrılan ya da atılan biri de yeni bir
+        olmayan biri önce bir hesap yöneticisinden hesap daveti almalı. Sunucudan ayrılan ya da atılan biri de yeni bir
         davetle geri dönebilir.
       </Intro>
       {canCreate || canManage ? (

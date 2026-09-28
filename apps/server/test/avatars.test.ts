@@ -11,6 +11,7 @@ import { AVATAR_MAX_BYTES, type GatewayServerMessage, type ReadyPayload, type Us
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import type { AppContext } from '../src/context.js';
+import { joinGuild } from './helpers.js';
 import { MIGRATIONS, Store } from '../src/db.js';
 
 const config = loadConfig({ NODE_ENV: 'test', DATA_DIR: '.' });
@@ -42,7 +43,7 @@ async function setup(): Promise<{ admin: Account; member: Account }> {
       payload: { inviteCode: bootstrap.code, username: 'admin', password: 'sifre12345' },
     })
   ).json() as Account;
-  const code = (await app.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: auth(admin.token), payload: {} })).json()
+  const code = (await app.inject({ method: 'POST', url: '/api/invites', headers: auth(admin.token), payload: {} })).json()
     .code as string;
   const member = (
     await app.inject({
@@ -51,6 +52,7 @@ async function setup(): Promise<{ admin: Account; member: Account }> {
       payload: { inviteCode: code, username: 'uye', password: 'sifre12345' },
     })
   ).json() as Account;
+  await joinGuild(app, ctx.guild.id, admin.token, member.token);
   return { admin, member };
 }
 
@@ -300,7 +302,7 @@ describe('profil fotoğrafı', () => {
   it('hesap silinince (kendisi ya da yönetici) fotoğrafı da silinir', async () => {
     const { admin, member } = await setup();
     await upload(member.token, await solid('#ff0000').png().toBuffer());
-    const code = (await app.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: auth(admin.token), payload: {} })).json()
+    const code = (await app.inject({ method: 'POST', url: '/api/invites', headers: auth(admin.token), payload: {} })).json()
       .code as string;
     const third = (
       await app.inject({

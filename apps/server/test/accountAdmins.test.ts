@@ -128,7 +128,7 @@ describe('komut satırı aracı (admin-cli)', () => {
         app.inject({ method: 'POST', url: '/api/auth/register', payload: { inviteCode, username, password: 'sifre12345' } });
       const owner = (await register(ctx.store.ensureBootstrapInvite()!.code, 'ziroo')).json() as Account;
       const code = (
-        await app.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: auth(owner.token), payload: {} })
+        await app.inject({ method: 'POST', url: '/api/invites', headers: auth(owner.token), payload: {} })
       ).json().code as string;
       await register(code, 'veli');
       await app.close();

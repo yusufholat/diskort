@@ -132,7 +132,7 @@ describe('sunucu kurma ve katılma', () => {
     expect(s.ctx.store.getInvite(code)!.uses).toBe(1);
   });
 
-  it('yeni hesap yalnızca hesap yöneticilerinin davetiyle açılır; başkasının sunucu daveti yalnızca hesabı olanı katar', async () => {
+  it('yeni hesap yalnızca hesap davetiyle açılır; sunucu davetleri (yöneticininki de) yalnızca hesabı olanı katar', async () => {
     const bob = await accountOnly('bob');
     const b = await createGuild(bob, 'B');
     const code = await inviteTo(bob, b.guild.id);
@@ -142,30 +142,21 @@ describe('sunucu kurma ve katılma', () => {
       payload: { inviteCode: code, username: 'dave', password: 'sifre12345' },
     });
     expect(refused.statusCode).toBe(400);
-    expect(refused.json().message).toMatch(/hesap yöneticisinden davet/);
+    expect(refused.json().message).toMatch(/hesap yöneticisinden hesap daveti/);
     expect(s.ctx.store.getUserAuthByUsername('dave')).toBeNull();
     // Davet tüketilmedi: hesabı olan biri aynı davetle katılabilir
     const erin = await accountOnly('erin');
     expect((await s.req(erin.token, 'POST', `/api/invites/${code}/accept`)).statusCode).toBe(200);
     expect(s.ctx.store.userGuildIds(erin.user.id)).toEqual([b.guild.id]);
 
-    // Hesap yöneticisinin sunucu daveti yeni hesap da açar ve sunucuya katar
-    await s.req(s.owner.token, 'POST', `/api/invites/${await inviteTo(bob, b.guild.id)}/accept`);
-    const adminCode = await inviteTo(s.owner, b.guild.id);
-    const dave = await register(adminCode, 'dave');
-    expect(s.ctx.store.userGuildIds(dave.user.id)).toEqual([b.guild.id]);
-
-    // Yöneticiliği alınınca eski davetleri yeni hesap açmaz
-    await s.req(s.owner.token, 'PUT', `/api/admins/${bob.user.id}`);
-    const bobCode = await inviteTo(bob, b.guild.id);
-    expect((await register(bobCode, 'fatih')).user.username).toBe('fatih');
-    await s.req(s.owner.token, 'DELETE', `/api/admins/${bob.user.id}`);
-    const late = await s.app.inject({
+    // Hesap yöneticisinin sunucu daveti de yeni hesap açmaz
+    const adminCode = await inviteTo(s.owner, s.guildId);
+    const byAdmin = await s.app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      payload: { inviteCode: bobCode, username: 'gul', password: 'sifre12345' },
+      payload: { inviteCode: adminCode, username: 'gul', password: 'sifre12345' },
     });
-    expect(late.statusCode).toBe(400);
+    expect(byAdmin.statusCode).toBe(400);
   });
 });
 

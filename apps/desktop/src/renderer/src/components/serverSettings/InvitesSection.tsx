@@ -68,9 +68,8 @@ export function InvitesSection() {
       <h2 className="mb-2 text-xl font-bold text-text-head">Davetler</h2>
       <p className="mb-5 text-sm text-text-muted">
         Davet bağlantısını arkadaşına gönder. Diskort hesabı varsa uygulamada <b>Sunucuya Katıl</b> düğmesine
-        yapıştırır. Hesabı olmayan biri Diskort'a yalnızca bir hesap yöneticisinin davetiyle katılabilir (hesap
-        yöneticisinin oluşturduğu davetle giriş ekranında <b>Davet koduyla kaydol</b> seçeneğinden hesap açar).
-        Sunucudan ayrılan ya da atılan biri de yeni bir davetle geri dönebilir.
+        yapıştırır. Hesabı olmayan biri önce bir hesap yöneticisinden hesap daveti almalı. Sunucudan ayrılan ya da
+        atılan biri de yeni bir davetle geri dönebilir.
       </p>
       <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-3">
         <Field label="Kullanım hakkı">

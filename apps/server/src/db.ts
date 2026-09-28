@@ -938,12 +938,6 @@ export class Store {
    * Davet kodunu kullanarak hesap oluşturur; kodu aynı işlemde tüketir. Sunucu davetiyse hesap o sunucuya
    * katılır. İlk kullanıcı (ya da başlangıç davetiyle gelen) ana sunucunun sahibi olur ve yönetici rolünü alır.
    */
-  /** Kullanıcı şu an hesap yöneticisi mi (yoksa ya da silinmişse false) */
-  private isAdminId(userId: string | null): boolean {
-    if (!userId) return false;
-    return this.one<{ a: number }>('SELECT is_admin AS a FROM users WHERE id = ?', userId)?.a === 1;
-  }
-
   registerWithInvite(input: {
     code: string;
     username: string;
@@ -957,15 +951,14 @@ export class Store {
         return { ok: false, reason: 'username', message: 'Bu kullanıcı adı alınmış.' };
       }
       const founder = check.invite.grants_admin === 1 || this.countUsers() === 0;
-      // Sisteme yeni hesap yalnızca hesap yöneticilerinin davetiyle girer: hesap daveti ya da hesap
-      // yöneticisinin (hâlâ yöneticiyse) oluşturduğu sunucu daveti. Başkasının sunucu daveti yalnızca hesabı
-      // olanları sunucuya katar.
-      if (check.invite.guild_id && !founder && !this.isAdminId(check.invite.created_by)) {
+      // Sisteme yeni hesap yalnızca hesap daveti (hesap yöneticileri oluşturur) ile girer; sunucu davetleri,
+      // kim oluşturmuş olursa olsun, yalnızca hesabı olanları sunucuya katar.
+      if (check.invite.guild_id && !founder) {
         return {
           ok: false,
           reason: 'invite',
           message:
-            'Bu davetle yalnızca Diskort hesabı olanlar sunucuya katılabilir. Hesap açmak için bir hesap yöneticisinden davet iste.',
+            'Bu davetle yalnızca Diskort hesabı olanlar sunucuya katılabilir. Hesap açmak için bir hesap yöneticisinden hesap daveti iste.',
         };
       }
       const id = nanoid(16);
