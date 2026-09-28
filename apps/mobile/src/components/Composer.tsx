@@ -21,6 +21,7 @@ import {
   useMessages,
   type LocalFile,
   type LocalMessage,
+  type MemberUser,
 } from '@diskort/client-core';
 import { pickDocuments, pickMedia } from '../attachments';
 import { useAppear, useBump, useLayoutAnimationOn, useTimingTo } from '../motion';
@@ -48,6 +49,10 @@ export function hasDraftText(): boolean {
 
 const MENTION_QUERY = /(?:^|[\s(])@([a-z0-9_.]{0,32})$/i;
 const NO_FILES: LocalFile[] = [];
+// Bahsetme yazılmıyorken (çoğu zaman) kullanıcı/çevrimiçi listesine hiç ihtiyaç yok: sabit boş nesneler
+// döndürülünce zustand aboneliği tetiklemez, yazma kutusu her üye/çevrimiçi güncellemesinde yeniden çizilmez.
+const EMPTY_USERS: Record<string, MemberUser> = {};
+const EMPTY_ONLINE: Record<string, true> = {};
 
 interface Props {
   /** Metin kanalı ya da direkt mesaj konuşması (kimlik ve görünen ad) */
@@ -73,16 +78,18 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
   const [attachMenu, setAttachMenu] = useState(false);
   const [expressions, setExpressions] = useState<ExpressionTab | null>(null);
   const gifsEnabled = useFeatures((s) => s.gifs);
-  const users = useGuild((s) => s.users);
-  const online = useGuild((s) => s.online);
+  // Düzenleme kipine geçince mesaj metniyle başla
+  const text = editing ? (editText ?? editing.content) : value;
+  const query = MENTION_QUERY.exec(text.slice(0, selection.start))?.[1];
+  // Yalnızca bahsetme yazılırken gerçek listeler abone olunur (bkz. EMPTY_USERS/EMPTY_ONLINE yukarısı)
+  const users = useGuild((s) => (query !== undefined ? s.users : EMPTY_USERS));
+  const online = useGuild((s) => (query !== undefined ? s.online : EMPTY_ONLINE));
   const files = useMessages((s) => s.pendingFiles[channel.id] ?? NO_FILES);
   const canSend = useCan(Permission.SEND_MESSAGES, channel.id);
   const canAttach = useCan(Permission.ATTACH_FILES, channel.id);
   // @everyone / @here yalnızca yetkisi olana önerilir (direkt mesajda bu yetki yoktur)
   const canMentionEveryone = useCan(Permission.MENTION_EVERYONE, channel.id);
 
-  // Düzenleme kipine geçince mesaj metniyle başla
-  const text = editing ? (editText ?? editing.content) : value;
   const setText = (next: string): void => {
     if (editing) {
       setEditText(next);
@@ -94,7 +101,6 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
     if (next.trim()) notifyTyping(channel.id);
   };
 
-  const query = MENTION_QUERY.exec(text.slice(0, selection.start))?.[1];
   const suggestions = useMemo(() => {
     if (query === undefined) return [];
     const q = query.toLocaleLowerCase('tr');
