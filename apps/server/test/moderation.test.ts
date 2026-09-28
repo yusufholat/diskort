@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Permission as P } from '@diskort/shared';
 import { TrackSource } from '../src/livekit.js';
-import { connectGateway, startServer, type TestServer } from './helpers.js';
+import { connectGateway, joinGuild, startServer, type TestServer } from './helpers.js';
 
 let s: TestServer;
 
@@ -16,9 +16,16 @@ afterEach(async () => {
 const login = (username: string, password = 'sifre12345') =>
   s.app.inject({ method: 'POST', url: '/api/auth/login', payload: { username, password } });
 
+// "Kayıt ol" ekranı: yeni hesap hesap davetiyle açılıp sunucuya katılır; hesabı olan sunucu davetiyle
+// kendi şifresiyle gelir (atılıp geri dönen)
 const register = async (username: string, password = 'sifre12345') => {
-  const code = (await s.req(s.owner.token, 'POST', `/api/guilds/${s.ctx.guild.id}/invites`, {})).json().code as string;
-  return s.app.inject({ method: 'POST', url: '/api/auth/register', payload: { inviteCode: code, username, password } });
+  const existing = s.ctx.store.getUserAuthByUsername(username) !== null;
+  const url = existing ? `/api/guilds/${s.guildId}/invites` : '/api/invites';
+  const code = (await s.req(s.owner.token, 'POST', url, {})).json().code as string;
+  if (existing) return s.app.inject({ method: 'POST', url: '/api/auth/register', payload: { inviteCode: code, username, password } });
+  const res = await s.app.inject({ method: 'POST', url: '/api/auth/register', payload: { inviteCode: code, username, password } });
+  if (res.statusCode === 201) await joinGuild(s.app, s.guildId, s.owner.token, res.json().token as string);
+  return res;
 };
 
 const accept = async (token: string) => {

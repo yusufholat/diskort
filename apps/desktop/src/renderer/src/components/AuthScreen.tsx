@@ -2,7 +2,7 @@ import { useRef, useState, type FormEvent } from 'react';
 import { AudioLines } from 'lucide-react';
 import { parseInviteCode, PASSWORD_MIN_LENGTH, USERNAME_PATTERN } from '@diskort/shared';
 import { api, errorMessage, normalizeServerUrl, useSession } from '@diskort/client-core';
-import { useSettings } from '../stores/settings';
+import { DEFAULT_SERVER_URL, useSettings } from '../stores/settings';
 import { Button, TextInput } from './ui/controls';
 import { FormAlert, FormField, REQUIRED, focusFirstInvalid, useFormErrors } from './ui/FormField';
 
@@ -29,6 +29,17 @@ export function AuthScreen() {
   const serverUrl = useSettings((s) => s.serverUrl);
   const setSettings = useSettings((s) => s.set);
   const [editingServer, setEditingServer] = useState(false);
+  // Sunucu adresi gizli: yalnızca test için (logoya art arda 5 tıklama). Varsayılan dışındaysa uyarı görünür.
+  const custom = normalizeServerUrl(serverUrl) !== normalizeServerUrl(DEFAULT_SERVER_URL);
+  const taps = useRef<number[]>([]);
+  const tapLogo = (): void => {
+    const now = Date.now();
+    taps.current = [...taps.current.filter((t) => now - t < 3000), now];
+    if (taps.current.length >= 5) {
+      taps.current = [];
+      setEditingServer(true);
+    }
+  };
   const setSession = useSession((s) => s.setSession);
   const form = useFormErrors<'code' | 'username' | 'password'>();
   const [attempt, setAttempt] = useState(0);
@@ -95,7 +106,10 @@ export function AuthScreen() {
         className="anim-modal-in w-[480px] max-w-full rounded-md border border-frame bg-bg-main p-8 shadow-2xl"
       >
         <div className="mb-5 flex flex-col items-center text-center">
-          <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand text-white">
+          <div
+            className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand text-white select-none"
+            onClick={tapLogo}
+          >
             <AudioLines size={30} />
           </div>
           <h1 className="text-2xl font-bold text-text-head">{text.title}</h1>
@@ -183,10 +197,11 @@ export function AuthScreen() {
             </span>
           )}
           {mode === 'reset' && (
-            <span className="text-xs">Sıfırlama kodunu topluluktaki bir yöneticiden iste (Ayarlar → Üyeler).</span>
+            <span className="text-xs">Sıfırlama kodunu bir hesap yöneticisinden iste.</span>
           )}
         </div>
 
+        {(editingServer || custom) && (
         <div className="mt-5 border-t border-line pt-4 text-xs text-text-muted">
           {editingServer ? (
             <FormField label="Sunucu adresi" className="anim-slide-down">
@@ -202,12 +217,14 @@ export function AuthScreen() {
               />
             </FormField>
           ) : (
-            <span>
-              Sunucu: <span className="text-text-normal">{serverUrl}</span> ·{' '}
-              <LinkButton onClick={() => setEditingServer(true)}>Değiştir</LinkButton>
+            <span className="text-warn">
+              Test sunucusu: <span className="text-text-normal">{serverUrl}</span> ·{' '}
+              <LinkButton onClick={() => setEditingServer(true)}>Değiştir</LinkButton> ·{' '}
+              <LinkButton onClick={() => setSettings({ serverUrl: DEFAULT_SERVER_URL })}>Varsayılana dön</LinkButton>
             </span>
           )}
         </div>
+        )}
       </form>
     </div>
   );

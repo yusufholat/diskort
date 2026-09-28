@@ -51,8 +51,8 @@ export function InviteModal() {
       ) : (
         <>
           <p className="mb-2 text-sm text-text-muted">
-            Bu bağlantıyı gönder. Diskort'u kuran arkadaşın <b>Sunucuya Katıl</b> ekranına yapıştırır; hesabı yoksa
-            giriş ekranında <b>Davet koduyla kaydol</b> seçeneğiyle hesap açar ve doğrudan bu sunucuya katılır.
+            Bu bağlantıyı gönder. Diskort hesabı olan arkadaşın <b>Sunucuya Katıl</b> ekranına yapıştırır. Hesabı
+            olmayan biri önce bir hesap yöneticisinden hesap daveti almalı.
           </p>
           <div className="flex gap-2">
             <TextInput readOnly value={error ?? (link || 'Oluşturuluyor…')} onFocus={(e) => e.currentTarget.select()} />

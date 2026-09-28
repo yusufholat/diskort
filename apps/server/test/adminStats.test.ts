@@ -377,9 +377,11 @@ describe('güvenlik: girişler ve davetler', () => {
     // Kayıtlar: sahip ve üye (davetle)
     expect(sec.events.filter((e: { kind: string }) => e.kind === 'register')).toHaveLength(2);
 
-    // Davet kullanımları: üye sahibin davetiyle geldi; kodlar maskelenir
-    const use = sec.inviteUses.find((u: { userId: string }) => u.userId === member.user.id);
-    expect(use).toMatchObject({ inviterId: s.owner.user.id, guildId: s.guildId, kind: 'register' });
+    // Davet kullanımları: üye sahibin hesap davetiyle hesap açtı, sunucu davetiyle katıldı; kodlar maskelenir
+    const uses = sec.inviteUses.filter((u: { userId: string }) => u.userId === member.user.id);
+    const use = uses.find((u: { kind: string }) => u.kind === 'register');
+    expect(use).toMatchObject({ inviterId: s.owner.user.id, guildId: null, kind: 'register' });
+    expect(uses.find((u: { kind: string }) => u.kind !== 'register')).toMatchObject({ inviterId: s.owner.user.id, guildId: s.guildId });
     expect(use.code).toMatch(/^[A-Z0-9]{3}•+$/);
     expect(sec.invites.every((i: { code: string }) => i.code.includes('•'))).toBe(true);
     expect(sec.users[s.owner.user.id].username).toBe('sahip');

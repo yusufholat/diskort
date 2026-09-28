@@ -71,6 +71,18 @@ export interface TestServer {
 }
 
 /** Sahip (ilk kayıt) hazır bir sunucu */
+/**
+ * Yeni hesap yalnızca hesap davetiyle açılır; üyeyi sunucuya katmak için yöneticinin (ya da davet
+ * yetkisi olanın) sunucu daveti kabul edilir.
+ */
+export async function joinGuild(app: FastifyInstance, guildId: string, inviterToken: string, memberToken: string): Promise<void> {
+  const code = (
+    await app.inject({ method: 'POST', url: `/api/guilds/${guildId}/invites`, headers: auth(inviterToken), payload: {} })
+  ).json().code as string;
+  const res = await app.inject({ method: 'POST', url: `/api/invites/${code}/accept`, headers: auth(memberToken) });
+  if (res.statusCode !== 200) throw new Error(`sunucuya katılamadı: ${res.body}`);
+}
+
 export async function startServer(opts: BuildOptions = {}): Promise<TestServer> {
   const livekit = new FakeLiveKit();
   const { app, ctx } = await buildApp(config, { dbFile: ':memory:', logger: false, livekit, ...opts });
@@ -95,8 +107,10 @@ export async function startServer(opts: BuildOptions = {}): Promise<TestServer> 
     guildId: ctx.guild.id,
     req,
     async member(username, password) {
-      const code = (await req(owner.token, 'POST', `/api/guilds/${ctx.guild.id}/invites`, {})).json().code as string;
-      return register(code, username, password);
+      const code = (await req(owner.token, 'POST', '/api/invites', {})).json().code as string;
+      const account = await register(code, username, password);
+      await joinGuild(app, ctx.guild.id, owner.token, account.token);
+      return account;
     },
     async createRole(token, body) {
       const res = await req(token, 'POST', `/api/guilds/${ctx.guild.id}/roles`, body);

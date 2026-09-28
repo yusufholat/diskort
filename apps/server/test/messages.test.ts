@@ -4,6 +4,7 @@ import WebSocket from 'ws';
 import type { GatewayServerMessage, Message, ReadyPayload } from '@diskort/shared';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
+import { joinGuild } from './helpers.js';
 import type { AppContext } from '../src/context.js';
 
 const config = loadConfig({ NODE_ENV: 'test', DATA_DIR: '.' });
@@ -30,7 +31,7 @@ async function setup() {
       payload: { inviteCode: bootstrap.code, username: 'admin', password: 'sifre12345' },
     })
   ).json();
-  const code = (await app.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: auth(admin.token), payload: {} })).json()
+  const code = (await app.inject({ method: 'POST', url: '/api/invites', headers: auth(admin.token), payload: {} })).json()
     .code as string;
   const member = (
     await app.inject({
@@ -39,6 +40,7 @@ async function setup() {
       payload: { inviteCode: code, username: 'uye', password: 'sifre12345' },
     })
   ).json();
+  await joinGuild(app, ctx.guild.id, admin.token, member.token);
   const channels = ctx.store.listChannels(ctx.guild.id);
   const text = channels.find((c) => c.type === 'text')!;
   const voice = channels.find((c) => c.type === 'voice')!;

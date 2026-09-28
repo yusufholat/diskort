@@ -1014,9 +1014,19 @@ export class Store {
       if (this.getUserAuthByUsername(input.username)) {
         return { ok: false, reason: 'username', message: 'Bu kullanıcı adı alınmış.' };
       }
+      const founder = check.invite.grants_admin === 1 || this.countUsers() === 0;
+      // Sisteme yeni hesap yalnızca hesap daveti (hesap yöneticileri oluşturur) ile girer; sunucu davetleri,
+      // kim oluşturmuş olursa olsun, yalnızca hesabı olanları sunucuya katar.
+      if (check.invite.guild_id && !founder) {
+        return {
+          ok: false,
+          reason: 'invite',
+          message:
+            'Bu davetle yalnızca Diskort hesabı olanlar sunucuya katılabilir. Hesap açmak için bir hesap yöneticisinden hesap daveti iste.',
+        };
+      }
       const id = nanoid(16);
       const color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]!;
-      const founder = check.invite.grants_admin === 1 || this.countUsers() === 0;
       this.run(
         `INSERT INTO users (id, username, display_name, password_hash, avatar_color, is_admin, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,

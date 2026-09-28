@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
+import { joinGuild } from './helpers.js';
 import type { AppContext } from '../src/context.js';
 
 const config = loadConfig({ NODE_ENV: 'test', DATA_DIR: '.' });
@@ -30,7 +31,7 @@ async function setup() {
     })
   ).json();
   const code = (
-    await app.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: auth(admin.token), payload: {} })
+    await app.inject({ method: 'POST', url: '/api/invites', headers: auth(admin.token), payload: {} })
   ).json().code as string;
   const member = (
     await app.inject({
@@ -39,6 +40,7 @@ async function setup() {
       payload: { inviteCode: code, username: 'uye', password: 'eskisifre1' },
     })
   ).json();
+  await joinGuild(app, ctx.guild.id, admin.token, member.token);
   return { admin, member } as { admin: { token: string; user: { id: string } }; member: { token: string; user: { id: string } } };
 }
 
@@ -145,7 +147,8 @@ describe('üye yönetimi', () => {
     expect(created.statusCode).toBe(201);
     expect(created.json()).toMatchObject({ guildId: null, maxUses: 1 });
     const list = await app.inject({ method: 'GET', url: '/api/invites', headers: auth(admin.token) });
-    expect(list.json().map((i: { code: string }) => i.code)).toEqual([created.json().code]);
+    expect(list.json().map((i: { code: string }) => i.code)).toContain(created.json().code);
+    expect(list.json().every((i: { guildId: string | null }) => i.guildId === null)).toBe(true);
 
     const res = await app.inject({
       method: 'POST',

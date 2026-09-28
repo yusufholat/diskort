@@ -52,7 +52,7 @@ export function InvitesSection() {
   const remove = async (inv: Invite): Promise<void> => {
     const ok = await confirmDialog({
       title: 'Daveti sil',
-      message: `${inv.code} daveti silinsin mi? Bu davetle artık katılınamaz ve kayıt olunamaz.`,
+      message: `${inv.code} daveti silinsin mi? Bu davetle artık katılınamaz.`,
       confirmLabel: 'Sil',
       danger: true,
     });
@@ -67,9 +67,9 @@ export function InvitesSection() {
     <div>
       <h2 className="mb-2 text-xl font-bold text-text-head">Davetler</h2>
       <p className="mb-5 text-sm text-text-muted">
-        Davet bağlantısını arkadaşına gönder. Diskort'u kurduysa uygulamada <b>Sunucuya Katıl</b> düğmesine
-        yapıştırır; hesabı yoksa giriş ekranında <b>Davet koduyla kaydol</b> seçeneğiyle hesap açar ve sunucuya
-        katılır. Sunucudan ayrılan ya da atılan biri de yeni bir davetle geri dönebilir.
+        Davet bağlantısını arkadaşına gönder. Diskort hesabı varsa uygulamada <b>Sunucuya Katıl</b> düğmesine
+        yapıştırır. Hesabı olmayan biri önce bir hesap yöneticisinden hesap daveti almalı. Sunucudan ayrılan ya da
+        atılan biri de yeni bir davetle geri dönebilir.
       </p>
       <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-3">
         <Field label="Kullanım hakkı">

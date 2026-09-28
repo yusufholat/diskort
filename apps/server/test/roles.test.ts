@@ -238,7 +238,7 @@ describe('metin yetkileri', () => {
   });
 
   it('bahsetme sözcükleri kullanıcı adı olamaz', async () => {
-    const code = (await s.req(s.owner.token, 'POST', `/api/guilds/${s.guildId}/invites`, {})).json().code as string;
+    const code = (await s.req(s.owner.token, 'POST', '/api/invites', {})).json().code as string;
     const res = await s.app.inject({
       method: 'POST',
       url: '/api/auth/register',

@@ -9,6 +9,7 @@ import { ApnsClient, type ApnsTransport } from '../src/apns.js';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import type { AppContext } from '../src/context.js';
+import { joinGuild } from './helpers.js';
 import { PushService } from '../src/push.js';
 
 const config = loadConfig({ NODE_ENV: 'test', DATA_DIR: '.' });
@@ -71,7 +72,7 @@ async function start(google: ReturnType<typeof fakeGoogle>) {
       payload: { inviteCode: bootstrap.code, username: 'ayse', password: 'sifre12345' },
     })
   ).json() as { token: string; user: { id: string } };
-  const code = (await app.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: auth(admin.token), payload: {} })).json()
+  const code = (await app.inject({ method: 'POST', url: '/api/invites', headers: auth(admin.token), payload: {} })).json()
     .code as string;
   const member = (
     await app.inject({
@@ -80,6 +81,7 @@ async function start(google: ReturnType<typeof fakeGoogle>) {
       payload: { inviteCode: code, username: 'mehmet', password: 'sifre12345', displayName: 'Mehmet' },
     })
   ).json() as { token: string; user: { id: string } };
+  await joinGuild(app, ctx.guild.id, admin.token, member.token);
   const text = ctx.store.listChannels(ctx.guild.id).find((c) => c.type === 'text')!;
   return { admin, member, text, push };
 }

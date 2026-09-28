@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import type { ClientPlatform } from '@diskort/shared';
 import { readJsonSync, writeJsonAtomic } from './systemStats.js';
 
@@ -93,18 +94,70 @@ export class ActivityTracker {
   }
 }
 
-/** Son N kaydı tutan halka tampon (yalnızca bellekte; sunucu yeniden başlayınca boşalır) */
+/** Hata kayıtlarının diskte tutulduğu süre */
+const ERROR_RETENTION_MS = 14 * 86_400_000;
+
+/**
+ * Son N kaydı tutan halka tampon. Dosya verilirse her kayıt ona da eklenir (JSON satırları) ve açılışta
+ * son N kayıt geri yüklenir: sunucu yeniden başlayınca (her dağıtımda) liste boşalmaz. 14 günden eskiler
+ * açılışta atılır.
+ */
 export class RingLog<T extends { at: number }> {
   private readonly items: T[] = [];
-  /** Sunucu açıldığından beri toplam kayıt */
+  /** Kayıtlı toplam (dosyadan yüklenenler dahil) */
   total = 0;
+  private warned = false;
+  private writing: Promise<void> = Promise.resolve();
 
-  constructor(private readonly max: number) {}
+  constructor(
+    private readonly max: number,
+    private readonly file: string | null = null,
+    private readonly log?: { warn(obj: object, msg: string): void },
+    now = Date.now(),
+  ) {
+    if (!file) return;
+    let text = '';
+    try {
+      text = fs.readFileSync(file, 'utf8');
+    } catch {
+      return;
+    }
+    const kept: string[] = [];
+    for (const line of text.split('\n')) {
+      if (!line) continue;
+      try {
+        const item = JSON.parse(line) as T;
+        if (typeof item?.at !== 'number' || now - item.at > ERROR_RETENTION_MS) continue;
+        kept.push(line);
+        this.items.push(item);
+      } catch {
+        // bozuk satır atlanır
+      }
+    }
+    this.total = this.items.length;
+    this.items.splice(0, Math.max(0, this.items.length - max));
+    try {
+      fs.writeFileSync(file, kept.length ? kept.join('\n') + '\n' : '');
+    } catch (err) {
+      this.warn(err);
+    }
+  }
 
   push(item: T): void {
     this.items.push(item);
     if (this.items.length > this.max) this.items.shift();
     this.total++;
+    if (!this.file) return;
+    // Eklemeler sırayla (aynı anda gelen kayıtlar dosyada karışmasın)
+    const line = JSON.stringify(item) + '\n';
+    const file = this.file;
+    this.writing = this.writing.then(() => fs.promises.appendFile(file, line)).catch((err: unknown) => this.warn(err));
+  }
+
+  private warn(err: unknown): void {
+    if (this.warned) return;
+    this.warned = true;
+    this.log?.warn({ err: String(err) }, 'hata kaydı yazılamadı');
   }
 
   /** En yeniler önce */
@@ -150,7 +203,11 @@ export interface ErrorLog {
 /** Her türden en fazla bu kadar hata tutulur */
 export const ERROR_LOG_SIZE = 200;
 
-export const createErrorLog = (): ErrorLog => ({
-  client: new RingLog<ClientErrorEntry>(ERROR_LOG_SIZE),
-  server: new RingLog<ServerErrorEntry>(ERROR_LOG_SIZE),
+/** Hata kayıtları; dosya yolları verilirse (DATA_DIR) kalıcıdır */
+export const createErrorLog = (
+  files: { client: string | null; server: string | null } = { client: null, server: null },
+  log?: { warn(obj: object, msg: string): void },
+): ErrorLog => ({
+  client: new RingLog<ClientErrorEntry>(ERROR_LOG_SIZE, files.client, log),
+  server: new RingLog<ServerErrorEntry>(ERROR_LOG_SIZE, files.server, log),
 });

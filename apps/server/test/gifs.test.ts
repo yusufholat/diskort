@@ -5,7 +5,7 @@ import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import type { AppContext } from '../src/context.js';
 import { giphyIdFromLink, GifService, normalizeGif } from '../src/gifs.js';
-import { auth, connectGateway, FakeLiveKit } from './helpers.js';
+import { auth, connectGateway, FakeLiveKit, joinGuild } from './helpers.js';
 
 /** GIPHY yanıtındaki bir GIF (alanlar gerçek API'deki gibi; boyutlar metin) */
 function giphyGif(id: string, overrides: Record<string, unknown> = {}) {
@@ -316,11 +316,12 @@ describe('mesajdaki GIF', () => {
 
   it('direkt mesajda ve yanıtta GIF: gömülür, yanıt özeti "GIF", READY DM özelliğiyle birlikte gifs bildirir', async () => {
     const { get, token, ctx, text } = await setup();
-    const code = (await app!.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: auth(token), payload: {} })).json()
+    const code = (await app!.inject({ method: 'POST', url: '/api/invites', headers: auth(token), payload: {} })).json()
       .code as string;
     const veli = (
       await app!.inject({ method: 'POST', url: '/api/auth/register', payload: { inviteCode: code, username: 'veli', password: 'sifre12345' } })
     ).json() as { token: string; user: { id: string } };
+    await joinGuild(app!, ctx.guild.id, token, veli.token);
     const picked = ((await get('/api/gifs/trending')).json() as GifPage).results[0]!;
     const dm = (
       await app!.inject({ method: 'POST', url: '/api/dms', headers: auth(token), payload: { userIds: [veli.user.id] } })

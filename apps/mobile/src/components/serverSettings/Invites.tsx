@@ -73,7 +73,7 @@ export function InvitesSection({ guild }: { guild: Guild }) {
   const remove = async (inv: Invite): Promise<void> => {
     const ok = await confirmDialog({
       title: 'Davet silinsin mi?',
-      message: `${inv.code} davetiyle artık katılınamaz ve kayıt olunamaz.`,
+      message: `${inv.code} davetiyle artık katılınamaz.`,
       icon: 'trash-outline',
       confirmLabel: 'Sil',
       danger: true,
@@ -92,8 +92,8 @@ export function InvitesSection({ guild }: { guild: Guild }) {
   return (
     <View>
       <Intro>
-        Davet bağlantısını arkadaşına gönder. Diskort'u kurduysa bağlantıya dokununca sunucuya katılır; hesabı yoksa
-        giriş ekranında Davet koduyla kaydol seçeneğiyle hesap açar. Sunucudan ayrılan ya da atılan biri de yeni bir
+        Davet bağlantısını arkadaşına gönder. Diskort hesabı varsa bağlantıya dokununca sunucuya katılır. Hesabı
+        olmayan biri önce bir hesap yöneticisinden hesap daveti almalı. Sunucudan ayrılan ya da atılan biri de yeni bir
         davetle geri dönebilir.
       </Intro>
       {canCreate || canManage ? (

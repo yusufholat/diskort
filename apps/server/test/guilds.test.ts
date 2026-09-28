@@ -70,7 +70,8 @@ async function twoGuilds() {
   const alice = await s.member('alice');
   const bob = await accountOnly('bob');
   const b = await createGuild(bob, 'Bob Grubu');
-  const carol = await register(await inviteTo(bob, b.guild.id), 'carol');
+  const carol = await accountOnly('carol');
+  expect((await s.req(carol.token, 'POST', `/api/invites/${await inviteTo(bob, b.guild.id)}/accept`)).statusCode).toBe(200);
   return { alice, bob, carol, a: s.guildId, b };
 }
 
@@ -131,11 +132,31 @@ describe('sunucu kurma ve katılma', () => {
     expect(s.ctx.store.getInvite(code)!.uses).toBe(1);
   });
 
-  it('sunucu davetiyle kayıt olan o sunucuya katılır', async () => {
+  it('yeni hesap yalnızca hesap davetiyle açılır; sunucu davetleri (yöneticininki de) yalnızca hesabı olanı katar', async () => {
     const bob = await accountOnly('bob');
     const b = await createGuild(bob, 'B');
-    const dave = await register(await inviteTo(bob, b.guild.id), 'dave');
-    expect(s.ctx.store.userGuildIds(dave.user.id)).toEqual([b.guild.id]);
+    const code = await inviteTo(bob, b.guild.id);
+    const refused = await s.app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { inviteCode: code, username: 'dave', password: 'sifre12345' },
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().message).toMatch(/hesap yöneticisinden hesap daveti/);
+    expect(s.ctx.store.getUserAuthByUsername('dave')).toBeNull();
+    // Davet tüketilmedi: hesabı olan biri aynı davetle katılabilir
+    const erin = await accountOnly('erin');
+    expect((await s.req(erin.token, 'POST', `/api/invites/${code}/accept`)).statusCode).toBe(200);
+    expect(s.ctx.store.userGuildIds(erin.user.id)).toEqual([b.guild.id]);
+
+    // Hesap yöneticisinin sunucu daveti de yeni hesap açmaz
+    const adminCode = await inviteTo(s.owner, s.guildId);
+    const byAdmin = await s.app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { inviteCode: adminCode, username: 'gul', password: 'sifre12345' },
+    });
+    expect(byAdmin.statusCode).toBe(400);
   });
 });
 

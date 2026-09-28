@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { AccessToken } from 'livekit-server-sdk';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
+import { joinGuild } from './helpers.js';
 import type { AppContext } from '../src/context.js';
 
 const config = loadConfig({ NODE_ENV: 'test', DATA_DIR: '.' });
@@ -61,7 +62,7 @@ describe('kimlik doğrulama ve davetler', () => {
     const token = await adminToken();
     const inv = await app.inject({
       method: 'POST',
-      url: `/api/guilds/${ctx.guild.id}/invites`,
+      url: '/api/invites',
       headers: { authorization: `Bearer ${token}` },
       payload: { maxUses: 1 },
     });
@@ -75,7 +76,7 @@ describe('kimlik doğrulama ve davetler', () => {
   it('davet kodu büyük/küçük harf ve boşluk duyarsızdır; davetle gelen kullanıcı yönetici değildir', async () => {
     const token = await adminToken();
     const code = (
-      await app.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: { authorization: `Bearer ${token}` }, payload: {} })
+      await app.inject({ method: 'POST', url: '/api/invites', headers: { authorization: `Bearer ${token}` }, payload: {} })
     ).json().code as string;
     const res = await register(`  ${code.toLowerCase()} `, 'mehmet');
     expect(res.statusCode).toBe(201);
@@ -107,9 +108,10 @@ describe('kimlik doğrulama ve davetler', () => {
   it('yönetici olmayan kullanıcı hesap daveti veya kanal oluşturamaz', async () => {
     const token = await adminToken();
     const code = (
-      await app.inject({ method: 'POST', url: `/api/guilds/${ctx.guild.id}/invites`, headers: { authorization: `Bearer ${token}` }, payload: {} })
+      await app.inject({ method: 'POST', url: '/api/invites', headers: { authorization: `Bearer ${token}` }, payload: {} })
     ).json().code as string;
     const userToken = (await register(code, 'uye')).json().token as string;
+    await joinGuild(app, ctx.guild.id, token, userToken);
     const headers = { authorization: `Bearer ${userToken}` };
     expect((await app.inject({ method: 'POST', url: '/api/invites', headers, payload: {} })).statusCode).toBe(403);
     expect(
