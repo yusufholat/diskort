@@ -474,6 +474,21 @@ export async function toggleReaction(channelId: string, messageId: string, emoji
 // ---------- Okundu bilgisi ----------
 
 const ackTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** Sunucuya henüz bildirilmemiş okundu bilgileri (kanal → mesaj) */
+const pendingAcks = new Map<string, string>();
+
+/**
+ * Bekleyen okundu bilgilerini hemen gönderir (ör. telefon uygulaması arka plana geçerken: zamanlayıcılar
+ * orada durabilir, diğer cihazlar okunduğunu geç öğrenirdi).
+ */
+export function flushAcks(): void {
+  for (const [channelId, messageId] of pendingAcks) {
+    clearTimeout(ackTimers.get(channelId));
+    ackTimers.delete(channelId);
+    api.ack(channelId, messageId).catch(() => undefined);
+  }
+  pendingAcks.clear();
+}
 
 /** Kanaldaki en son mesajı okundu olarak işaretler (sunucuya kısa bir gecikmeyle bildirir). */
 export function ackChannel(channelId: string): void {
@@ -485,13 +500,16 @@ export function ackChannel(channelId: string): void {
   }
   const guild = useGuild.getState();
   const last = guild.lastMessageIds[channelId];
+  if (last) env().onChannelRead?.(channelId, last);
   if (!last || Number(last) <= Number(guild.readStates[channelId] ?? 0)) return;
   guild.markRead(channelId, last);
   clearTimeout(ackTimers.get(channelId));
+  pendingAcks.set(channelId, last);
   ackTimers.set(
     channelId,
     setTimeout(() => {
       ackTimers.delete(channelId);
+      pendingAcks.delete(channelId);
       api.ack(channelId, last).catch(() => undefined);
     }, 500),
   );
@@ -610,6 +628,8 @@ gateway.on((msg: GatewayServerMessage) => {
     }
     case 'READY': {
       useMessages.setState({ mentionCounts: msg.d.mentionCounts });
+      // Kopukken başka cihazda okunanlar (ör. telefonun bildirimleri kalksın)
+      for (const [channelId, lastReadId] of Object.entries(msg.d.readStates)) env().onChannelRead?.(channelId, lastReadId);
       // Yeniden bağlanınca yüklü kanalları tazele (kopukken gelen mesajlar kaçmasın). Kopukken görülemez olan
       // kanal ya da listeden kalkan konuşma (ör. başka cihazdan gruptan ayrılındı) yüklenmez, önbellekten çıkar.
       const known = new Set([
@@ -627,6 +647,20 @@ gateway.on((msg: GatewayServerMessage) => {
         patch(channelId, () => ({ loaded: false }));
         void loadInitial(channelId);
       }
+      break;
+    }
+    case 'READ_STATE_UPDATE': {
+      // Başka cihazda okundu (okunma durumunun kendisi useGuild'de). Sunucu bahsetme sayısını ya sıfırlar
+      // ya da olduğu gibi bırakır; yerel sayım (ör. bakılan kanalda hiç sayılmamış) hiçbir zaman artırılmaz.
+      const { channelId, lastReadId, mentionCount } = msg.d;
+      const local = useMessages.getState().mentionCounts[channelId];
+      if (local !== undefined && mentionCount < local) {
+        useMessages.setState((s) => {
+          const { [channelId]: _cleared, ...rest } = s.mentionCounts;
+          return { mentionCounts: mentionCount > 0 ? { ...rest, [channelId]: mentionCount } : rest };
+        });
+      }
+      env().onChannelRead?.(channelId, lastReadId);
       break;
     }
     case 'GUILD_CREATE':

@@ -187,6 +187,7 @@ export {
 export { embedColor, embedHost, embedMediaUrl, embedVideoUrl, visibleLinkEmbeds, youtubePlayerUrl } from './linkEmbeds';
 export {
   ackChannel,
+  flushAcks,
   addFiles,
   deleteMessage,
   discardMessage,

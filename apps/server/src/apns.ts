@@ -36,8 +36,11 @@ export interface ApnsAlert {
   body: string;
   /** Bildirimde uygulamaya iletilen veri (ör. channelId) */
   data: Record<string, string>;
-  /** Aynı konudaki bildirimler kilit ekranında gruplanır ve yenisi eskisinin yerini alır */
-  collapseId?: string;
+  /**
+   * Aynı konudaki (konuşmadaki) bildirimler kilit ekranında gruplanır (thread-id); her mesaj ayrı bildirim
+   * olarak kalır, yenisi eskisinin yerini almaz (apns-collapse-id kullanılmaz).
+   */
+  threadId?: string;
 }
 
 /** Sunucu ayarında APNs anahtarı varsa istemciyi kurar; yoksa ya da okunamazsa null (iOS bildirimi kapalı). */
@@ -79,7 +82,11 @@ export class ApnsClient {
   /** Gönderir. Cihaz jetonu artık geçersizse (uygulama silinmiş) "unregistered" döner. */
   async send(token: string, alert: ApnsAlert): Promise<'ok' | 'unregistered' | 'failed'> {
     const payload = JSON.stringify({
-      aps: { alert: { title: alert.title, body: alert.body }, sound: 'default', 'thread-id': alert.collapseId },
+      aps: {
+        alert: { title: alert.title, body: alert.body },
+        sound: 'default',
+        ...(alert.threadId ? { 'thread-id': alert.threadId } : {}),
+      },
       // expo-notifications veriyi "body" anahtarından okur; üst düzeyde de dursun
       body: alert.data,
       ...alert.data,
@@ -90,7 +97,6 @@ export class ApnsClient {
       'apns-push-type': 'alert',
       'apns-priority': '10',
     };
-    if (alert.collapseId) headers['apns-collapse-id'] = alert.collapseId.slice(0, 64);
     try {
       const res = await (this.transport ?? this.request)(this.origin, `/3/device/${token}`, headers, payload);
       if (res.status === 200) return 'ok';

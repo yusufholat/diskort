@@ -16,6 +16,7 @@ import {
   type ClientPlatform,
   type Presence,
   type PresenceStatus,
+  type ReadStateUpdate,
   type ServerFeatures,
   type User,
 } from '@diskort/shared';
@@ -258,6 +259,17 @@ export class Gateway {
         if (s.dm && s.socket.readyState === s.socket.OPEN) this.out(s, data);
       }
     }
+  }
+
+  /**
+   * Okunma durumu ilerledi: kullanıcının bütün oturumlarına (onaylayan cihaz dahil; olay tekrarlansa da
+   * zararsızdır). Direkt mesaj konuşmasındaysa yalnızca DM'leri tanıyan oturumlara.
+   */
+  sendReadState(userId: string, update: ReadStateUpdate | null): void {
+    if (!update) return;
+    const msg: GatewayServerMessage = { t: 'READ_STATE_UPDATE', d: update };
+    if (this.permissions.isDm(update.channelId)) this.sendDm([userId], msg);
+    else this.sendToUsers([userId], msg);
   }
 
   /** Bağlı kullanıcıların kimlikleri */

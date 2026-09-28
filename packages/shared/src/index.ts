@@ -398,6 +398,15 @@ export interface ReactionEvent {
   emoji: string;
 }
 
+/** Kullanıcının bir kanaldaki okunma durumu (READ_STATE_UPDATE) */
+export interface ReadStateUpdate {
+  channelId: string;
+  /** Okunan son mesajın kimliği */
+  lastReadId: string;
+  /** Okunmamış bahsetme sayısı (direkt mesajda okunmamış mesaj sayısı) */
+  mentionCount: number;
+}
+
 export interface Invite {
   code: string;
   /** Katılınacak sunucu; null: yalnızca hesap açtıran davet (sunucuya katılmaz) */
@@ -769,6 +778,12 @@ export type GatewayServerMessage =
   | { t: 'MESSAGE_REACTION_REMOVE'; d: ReactionEvent }
   | { t: 'TYPING_START'; d: { channelId: string; userId: string } }
   /**
+   * Okunma durumu ilerledi (bu kullanıcı bir cihazda kanalı okudu ya da oraya yazdı): kullanıcının bütün
+   * oturumlarına gider; okunmamış işaretleri ve bahsetme sayıları diğer cihazlarda da temizlenir.
+   * `mentionCount` onaydan sonraki sayıdır (kanalın sonuna kadar okunduysa 0). Eski istemciler yok sayar.
+   */
+  | { t: 'READ_STATE_UPDATE'; d: ReadStateUpdate }
+  /**
    * Direkt mesaj olayları (yalnızca 'dm' özelliğini bildiren istemcilere, yalnızca katılımcılara).
    * CREATE: konuşma listende göründü (yeni, yeniden açıldı ya da gruba eklendin; mesaj olaylarından önce
    * gelir). UPDATE: grup adı ya da katılımcılar değişti. DELETE: listenden kalktı (kapattın ya da ayrıldın).
@@ -893,6 +908,25 @@ export function voiceRoomName(channelId: string): string {
 
 export function channelIdFromRoom(roomName: string): string | null {
   return roomName.startsWith(VOICE_ROOM_PREFIX) ? roomName.slice(VOICE_ROOM_PREFIX.length) : null;
+}
+
+const PUSH_TAG_PREFIX = 'diskort:';
+
+/**
+ * Android bildiriminin etiketi (FCM `tag`): mesaja özgüdür, yani yeni mesaj öncekinin yerini almaz. Uygulama
+ * kapalıyken bildirimi işletim sistemi gösterir ve verisi (channelId) uygulamaya okunamaz; okununca
+ * kaldırılacak bildirimler bu etiketten bulunur (bkz. parsePushTag).
+ */
+export function pushTag(channelId: string, messageId: string): string {
+  return `${PUSH_TAG_PREFIX}${channelId}:${messageId}`;
+}
+
+export function parsePushTag(tag: string): { channelId: string; messageId: string } | null {
+  if (!tag.startsWith(PUSH_TAG_PREFIX)) return null;
+  const rest = tag.slice(PUSH_TAG_PREFIX.length);
+  const at = rest.lastIndexOf(':');
+  if (at <= 0 || at === rest.length - 1) return null;
+  return { channelId: rest.slice(0, at), messageId: rest.slice(at + 1) };
 }
 
 // ---------- Yardımcılar ----------

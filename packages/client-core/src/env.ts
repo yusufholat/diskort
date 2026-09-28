@@ -54,6 +54,11 @@ export interface ClientEnvironment {
   onMention?(message: Message): void;
   /** Görülmeyen bir direkt mesaj konuşmasına başkasından mesaj geldi */
   onDirectMessage?(message: Message, dm: DmChannel): void;
+  /**
+   * Kanal `lastReadId`'ye kadar okundu (bu cihazda ya da başka bir cihazda): ör. telefon o kanalın
+   * gösterilen bildirimlerini kaldırır. Aynı bilgiyle birden çok kez çağrılabilir.
+   */
+  onChannelRead?(channelId: string, lastReadId: string): void;
   /** Sunucu bu sürümü artık kabul etmiyor */
   onUpdateRequired?(version: string): void;
   /** Yeni sürüm yayınlandı */

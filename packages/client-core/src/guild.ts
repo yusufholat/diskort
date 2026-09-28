@@ -508,6 +508,13 @@ function applyEvent(s: GuildStore, msg: GatewayServerMessage): Partial<GuildStor
           }
         : { lastMessageIds };
     }
+    case 'READ_STATE_UPDATE': {
+      // Başka cihazda (ya da bu cihazda) okundu: okunma durumu yalnızca ileri gider
+      const { channelId, lastReadId } = msg.d;
+      return Number(lastReadId) > Number(s.readStates[channelId] ?? 0)
+        ? { readStates: { ...s.readStates, [channelId]: lastReadId } }
+        : {};
+    }
     case 'DM_CHANNEL_CREATE':
     case 'DM_CHANNEL_UPDATE': {
       // Konuşma listeye (yeniden) girerken son mesajı okunmamış bilgisine de yansır
