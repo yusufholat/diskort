@@ -34,7 +34,7 @@ import {
   SEARCH_TOTAL_CAP,
   type SearchHas,
 } from '@diskort/shared';
-import { AVATAR_COLORS } from '@diskort/shared';
+import { AVATAR_COLORS, PROFILE_EFFECTS, type ProfileEffect, type ProfileTheme } from '@diskort/shared';
 import { FEEDBACK_MIGRATION } from './feedbackStore.js';
 import { ADMIN_HISTORY_MIGRATION } from './voiceHistory.js';
 
@@ -398,6 +398,15 @@ export const MIGRATIONS: string[] = [
   SEARCH_MIGRATION,
   // 20: yönetim paneli geçmişi — ses/yayın oturumları ve davet kullanımları (bkz. voiceHistory.ts)
   ADMIN_HISTORY_MIGRATION,
+  // 21: profil süsleri. banner_hash: afiş (<DATA_DIR>/avatars/<özet>.webp, profil fotoğraflarıyla aynı
+  // klasör); theme_primary/theme_accent: profil kartının iki rengi ("#rrggbb", ikisi birlikte ya da hiç);
+  // profile_effect: kartta oynayan efektin kimliği (bkz. PROFILE_EFFECTS). Hepsi boş başlar.
+  `
+  ALTER TABLE users ADD COLUMN banner_hash TEXT;
+  ALTER TABLE users ADD COLUMN theme_primary TEXT;
+  ALTER TABLE users ADD COLUMN theme_accent TEXT;
+  ALTER TABLE users ADD COLUMN profile_effect TEXT;
+  `,
 ];
 
 type Param = string | number | null;
@@ -422,6 +431,10 @@ interface UserRow {
   is_admin: number;
   sessions_valid_after: number;
   avatar_hash: string | null;
+  banner_hash: string | null;
+  theme_primary: string | null;
+  theme_accent: string | null;
+  profile_effect: string | null;
 }
 
 interface RoleRow {
@@ -735,6 +748,11 @@ export class Store {
       displayName: r.display_name,
       avatarColor: r.avatar_color,
       avatarUrl: r.avatar_hash ? `/api/avatars/${r.id}/${r.avatar_hash}.webp` : null,
+      bannerUrl: r.banner_hash ? `/api/banners/${r.id}/${r.banner_hash}.webp` : null,
+      profileTheme: r.theme_primary && r.theme_accent ? { primary: r.theme_primary, accent: r.theme_accent } : null,
+      profileEffect: (PROFILE_EFFECTS as readonly string[]).includes(r.profile_effect ?? '')
+        ? (r.profile_effect as ProfileEffect)
+        : null,
       isAdmin: r.is_admin === 1,
     };
   }
@@ -900,10 +918,42 @@ export class Store {
     });
   }
 
-  updateUser(id: string, patch: { displayName?: string; avatarColor?: string }): User | null {
+  updateUser(
+    id: string,
+    patch: {
+      displayName?: string;
+      avatarColor?: string;
+      profileTheme?: ProfileTheme | null;
+      profileEffect?: ProfileEffect | null;
+    },
+  ): User | null {
     if (patch.displayName !== undefined) this.run('UPDATE users SET display_name = ? WHERE id = ?', patch.displayName, id);
     if (patch.avatarColor !== undefined) this.run('UPDATE users SET avatar_color = ? WHERE id = ?', patch.avatarColor, id);
+    if (patch.profileTheme !== undefined) {
+      this.run(
+        'UPDATE users SET theme_primary = ?, theme_accent = ? WHERE id = ?',
+        patch.profileTheme?.primary ?? null,
+        patch.profileTheme?.accent ?? null,
+        id,
+      );
+    }
+    if (patch.profileEffect !== undefined) this.run('UPDATE users SET profile_effect = ? WHERE id = ?', patch.profileEffect, id);
     return this.getUser(id);
+  }
+
+  /** Kullanıcının şu anki afişinin özeti (yoksa ya da kullanıcı yoksa null). */
+  getBannerHash(userId: string): string | null {
+    return this.one<{ h: string | null }>('SELECT banner_hash AS h FROM users WHERE id = ?', userId)?.h ?? null;
+  }
+
+  /** Afişi değiştirir ya da kaldırır (null); önceki özet diskten silinmek üzere döner. Kullanıcı yoksa null. */
+  setBanner(userId: string, hash: string | null): { user: User; previous: string | null } | null {
+    return this.tx(() => {
+      const row = this.one<{ h: string | null }>('SELECT banner_hash AS h FROM users WHERE id = ?', userId);
+      if (!row) return null;
+      this.run('UPDATE users SET banner_hash = ? WHERE id = ?', hash, userId);
+      return { user: this.getUser(userId)!, previous: row.h };
+    });
   }
 
   /** Kullanıcının şu anki profil fotoğrafının özeti (yoksa ya da kullanıcı yoksa null). */
@@ -924,11 +974,12 @@ export class Store {
     });
   }
 
-  /** Kullanılan tüm profil fotoğrafı ve sunucu simgesi özetleri (artık dosyaların temizliği için) */
+  /** Kullanılan tüm profil fotoğrafı, afiş ve sunucu simgesi özetleri (artık dosyaların temizliği için) */
   avatarHashes(): Set<string> {
     return new Set(
       this.all<{ h: string }>(
         `SELECT avatar_hash AS h FROM users WHERE avatar_hash IS NOT NULL
+         UNION SELECT banner_hash AS h FROM users WHERE banner_hash IS NOT NULL
          UNION SELECT icon_hash AS h FROM guilds WHERE icon_hash IS NOT NULL`,
       ).map((r) => r.h),
     );

@@ -24,6 +24,15 @@ export interface User {
    */
   avatarUrl?: string | null;
   /**
+   * Profil afişi: sunucu köküne göre adres (/api/banners/<kullanıcı>/<özet>.webp; 1020×360
+   * WebP). Profil kartının üstünde; yoksa null (tema rengi ya da profil rengi gösterilir). Eski sunucularda yok.
+   */
+  bannerUrl?: string | null;
+  /** Profil teması: kartın iki rengi (üstten alta degrade). Yoksa null: varsayılan kart */
+  profileTheme?: ProfileTheme | null;
+  /** Profil kartında oynayan efekt (bkz. PROFILE_EFFECTS). Yoksa null */
+  profileEffect?: ProfileEffect | null;
+  /**
    * Hesap yöneticisi: ana sunucunun (ilk kurulan sunucu) sahibi ya da orada Yönetici yetkili bir rolü var.
    * Hesaplarla ilgili işleri yapar (şifre sıfırlama kodu, hesap silme, hesap daveti, geri bildirimler).
    * Sunuculardaki yetkiler rollerden gelir (bkz. GuildMember).
@@ -445,7 +454,33 @@ export interface DeleteAccountRequest {
 export interface UpdateMeRequest {
   displayName?: string;
   avatarColor?: string;
+  /** null: temayı kaldırır */
+  profileTheme?: ProfileTheme | null;
+  /** null: efekti kaldırır */
+  profileEffect?: ProfileEffect | null;
 }
+
+/** Profil kartının iki rengi ("#rrggbb"): üstte primary, altta accent */
+export interface ProfileTheme {
+  primary: string;
+  accent: string;
+}
+
+/** Profil efektleri: kodla çizilir (dosya yok); istemci tanımadığı efekti göstermez */
+export const PROFILE_EFFECTS = ['snow', 'sparkles', 'petals'] as const;
+export type ProfileEffect = (typeof PROFILE_EFFECTS)[number];
+export const PROFILE_EFFECT_LABELS: Record<ProfileEffect, string> = {
+  snow: 'Kar',
+  sparkles: 'Işıltı',
+  petals: 'Yapraklar',
+};
+
+/** "#rrggbb" */
+export const HEX_COLOR = /^#[0-9a-f]{6}$/;
+
+/** Afiş boyutu (piksel, 17:6); istemciler kartın genişliğine göre sığdırır */
+export const BANNER_WIDTH = 1020;
+export const BANNER_HEIGHT = 360;
 
 export interface ChangePasswordRequest {
   currentPassword: string;

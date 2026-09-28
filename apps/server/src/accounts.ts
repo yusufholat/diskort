@@ -2,7 +2,7 @@ import type { AppContext } from './context.js';
 
 /**
  * Hesabı siler ve izlerini kaldırır: ses kanalından çıkarır, açık bağlantılarını kapatır, profil
- * fotoğrafını siler, diğer istemcilere haber verir. Mesajlar kalır, yazarı "Silinmiş Kullanıcı" olur.
+ * fotoğrafını ve afişini siler, diğer istemcilere haber verir. Mesajlar kalır, yazarı "Silinmiş Kullanıcı" olur.
  * Direkt mesaj konuşmalarından düşer: kalan katılımcılar güncel hâlini alır, kimsenin kalmadığı konuşma
  * (mesajları ve dosyalarıyla) silinir.
  */
@@ -10,6 +10,7 @@ export async function removeAccount(ctx: AppContext, userId: string, reason: str
   const { store, moderation, gateway, avatars, attachments } = ctx;
   if (!store.getUser(userId)) return false;
   const avatar = store.getAvatarHash(userId);
+  const banner = store.getBannerHash(userId);
   const dmIds = store.dmIdsOf(userId);
   // Silinmeden önce: hesabı görebilenler (ortak sunucular, eski üyelikler, DM'ler)
   const observers = store.observerIds(userId);
@@ -26,5 +27,6 @@ export async function removeAccount(ctx: AppContext, userId: string, reason: str
   await attachments.remove(files).catch(() => undefined);
   // Silinemezse de sorun değil: kimsenin kullanmadığı dosyayı temizlik görevi siler
   await avatars.removeDeleted(avatar).catch(() => undefined);
+  await avatars.removeDeleted(banner).catch(() => undefined);
   return true;
 }

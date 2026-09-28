@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   AVATAR_COLORS,
+  HEX_COLOR,
+  PROFILE_EFFECTS,
   DISPLAY_NAME_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
   RESERVED_USERNAMES,
@@ -58,9 +60,16 @@ const pushTokenSchema = z.object({
 });
 const removePushTokenSchema = z.object({ token: z.string().min(10).max(4096) });
 
+const themeColor = z
+  .string()
+  .transform((v) => v.toLowerCase())
+  .pipe(z.string().regex(HEX_COLOR, 'Geçersiz renk.'));
+
 const updateMeSchema = z.object({
   displayName: displayName.optional(),
   avatarColor: z.enum(AVATAR_COLORS, { message: 'Geçersiz renk.' }).optional(),
+  profileTheme: z.object({ primary: themeColor, accent: themeColor }).nullable().optional(),
+  profileEffect: z.enum(PROFILE_EFFECTS, { message: 'Geçersiz efekt.' }).nullable().optional(),
 });
 
 /** Basit bellek içi deneme sınırlayıcı (kaba kuvvet girişimlerine karşı). */

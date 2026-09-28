@@ -247,7 +247,17 @@ export {
   useDmUnreadTotal,
   useUnreadDms,
 } from './dms';
-export { attachmentUrl, avatarUrl, formatBytes, removeAvatar, uploadAvatar } from './uploads';
+export {
+  attachmentUrl,
+  avatarUrl,
+  bannerUrl,
+  formatBytes,
+  removeAvatar,
+  removeBanner,
+  updateProfileLook,
+  uploadAvatar,
+  uploadBanner,
+} from './uploads';
 export {
   EMOJI_CATEGORIES,
   isJumboEmoji,
@@ -311,3 +321,4 @@ export {
   SOUND_NAMES,
   type SoundName,
 } from './sfx';
+export { effectParticles, PROFILE_THEME_PRESETS, profileGradient, type Particle } from './profileLook';

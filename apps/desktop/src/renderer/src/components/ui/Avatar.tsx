@@ -14,10 +14,21 @@ interface Props {
   status?: DisplayStatus;
   /** Noktanın çevresindeki halkanın rengi (avatarın durduğu zemin) */
   ringClassName?: string;
+  /** Halkanın rengi sınıfla verilemiyorsa (ör. temalı profil kartı); ringClassName'in önüne geçer */
+  ringColor?: string;
   className?: string;
 }
 
-export function Avatar({ user, size = 32, speaking, online, status, ringClassName = 'bg-bg-panel', className }: Props) {
+export function Avatar({
+  user,
+  size = 32,
+  speaking,
+  online,
+  status,
+  ringClassName = 'bg-bg-panel',
+  ringColor,
+  className,
+}: Props) {
   // 32 piksellik avatarda 10 piksellik nokta, 3 piksellik halka; büyük avatarda (profil) orantılı daha küçük
   const dot = size > 40 ? Math.round(size * 0.22) : Math.max(8, Math.round(size * 0.3125));
   const ring = size > 40 ? Math.round(size * 0.075) : Math.max(2, Math.round(size * 0.094));
@@ -51,7 +62,12 @@ export function Avatar({ user, size = 32, speaking, online, status, ringClassNam
       {shown !== undefined && (
         <span
           className={cn('absolute flex items-center justify-center rounded-full', ringClassName)}
-          style={{ padding: ring, right: -ring + Math.round(size * 0.03), bottom: -ring + Math.round(size * 0.03) }}
+          style={{
+            padding: ring,
+            right: -ring + Math.round(size * 0.03),
+            bottom: -ring + Math.round(size * 0.03),
+            background: ringColor,
+          }}
           role="img"
           aria-label={STATUS_LABELS[shown]}
         >

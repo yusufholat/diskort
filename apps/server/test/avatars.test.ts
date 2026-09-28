@@ -384,3 +384,68 @@ describe('profil fotoğrafı', () => {
     ws.close();
   });
 });
+
+describe('profil afişi, tema ve efekt', () => {
+  const uploadBanner = (token: string, body: Buffer) =>
+    app.inject({
+      method: 'POST',
+      url: '/api/me/banner',
+      headers: { ...auth(token), 'content-type': 'image/png' },
+      payload: body,
+    });
+
+  it('afiş 1020×360 WebP olur, sunulur, değişince eskisi silinir, kaldırılır', async () => {
+    const { member } = await setup();
+    const res = await uploadBanner(member.token, await halves(2000, 1000).png().toBuffer());
+    expect(res.statusCode).toBe(200);
+    const user = res.json() as User;
+    expect(user.bannerUrl).toMatch(new RegExp(`^/api/banners/${member.user.id}/[0-9a-f]{32}\.webp$`));
+    expect(user.avatarUrl).toBeNull();
+
+    const served = await app.inject({ method: 'GET', url: user.bannerUrl! });
+    expect(served.statusCode).toBe(200);
+    expect(served.headers['cache-control']).toBe('private, max-age=31536000, immutable');
+    expect(await sharp(served.rawPayload).metadata()).toMatchObject({ format: 'webp', width: 1020, height: 360 });
+    // Afişin adresi fotoğraf olarak sunulmaz (ve tersi)
+    expect((await app.inject({ method: 'GET', url: user.bannerUrl!.replace('/banners/', '/avatars/') })).statusCode).toBe(404);
+
+    const second = (await uploadBanner(member.token, await solid('#00ff00', 1200, 400).png().toBuffer())).json() as User;
+    expect(second.bannerUrl).not.toBe(user.bannerUrl);
+    expect(files()).toEqual([path.basename(second.bannerUrl!)]);
+    expect((await app.inject({ method: 'GET', url: user.bannerUrl! })).statusCode).toBe(404);
+
+    const removed = await app.inject({ method: 'DELETE', url: '/api/me/banner', headers: auth(member.token) });
+    expect(removed.statusCode).toBe(200);
+    expect((removed.json() as User).bannerUrl).toBeNull();
+    expect(files()).toEqual([]);
+  });
+
+  it('afiş temizlikte silinmez, hesap silinince silinir', async () => {
+    const { member } = await setup();
+    await uploadBanner(member.token, await solid('#123456', 1020, 360).png().toBuffer());
+    expect(files()).toHaveLength(1);
+    expect(await ctx.avatars.sweep(Date.now() + 2 * 3600_000)).toBe(0);
+    await app.inject({ method: 'DELETE', url: '/api/me', headers: auth(member.token), payload: { password: 'sifre12345' } });
+    expect(files()).toEqual([]);
+  });
+
+  it('tema renkleri ve efekt kaydedilir, geçersizleri reddedilir, null kaldırır', async () => {
+    const { member } = await setup();
+    const patch = (payload: unknown) =>
+      app.inject({ method: 'PATCH', url: '/api/me', headers: auth(member.token), payload: payload as object });
+
+    const ok = await patch({ profileTheme: { primary: '#FF0000', accent: '#00ff00' }, profileEffect: 'snow' });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ profileTheme: { primary: '#ff0000', accent: '#00ff00' }, profileEffect: 'snow' });
+
+    expect((await patch({ profileTheme: { primary: 'red', accent: '#00ff00' } })).statusCode).toBe(400);
+    expect((await patch({ profileTheme: { primary: '#ff0000' } })).statusCode).toBe(400);
+    expect((await patch({ profileEffect: 'fireworks' })).statusCode).toBe(400);
+
+    // Yalnızca verilen alan değişir
+    expect((await patch({ displayName: 'Üye' })).json()).toMatchObject({ profileEffect: 'snow' });
+    const cleared = (await patch({ profileTheme: null, profileEffect: null })).json() as User;
+    expect(cleared.profileTheme).toBeNull();
+    expect(cleared.profileEffect).toBeNull();
+  });
+});

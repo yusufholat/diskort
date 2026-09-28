@@ -14,6 +14,7 @@ import { usePresence } from '../../lib/motion';
 import { watchUserStream } from '../../lib/watchStream';
 import { cn } from '../../lib/utils';
 import { Avatar } from '../ui/Avatar';
+import { ProfileBanner, ProfileEffectLayer, themedCardStyle, themedRingColor } from '../profile/ProfileLook';
 
 const MARGIN = 8;
 const GAP = 8;
@@ -134,14 +135,20 @@ export function ProfilePopover() {
         'fixed z-50 w-[300px] overflow-hidden rounded-lg border border-edge bg-bg-float shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
         closing ? 'anim-pop-out pointer-events-none' : 'anim-pop-in',
       )}
-      style={pos ? { left: pos.x, top: pos.y, transformOrigin: pos.origin } : { left: -9999, top: -9999 }}
+      style={{
+        ...(pos ? { left: pos.x, top: pos.y, transformOrigin: pos.origin } : { left: -9999, top: -9999 }),
+        ...themedCardStyle(user.profileTheme),
+      }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <div className="h-[60px]" style={{ background: user.avatarColor }} />
+      <ProfileBanner user={user} className={user.bannerUrl ? 'h-[106px]' : 'h-[60px]'} />
       <div className="px-4 pb-4">
         <div className="-mt-10 mb-2 flex items-start gap-2">
-          <div className="w-fit shrink-0 rounded-full border-[6px] border-bg-float">
-            <Avatar user={user} size={80} status={status} ringClassName="bg-bg-float" />
+          <div
+            className="relative w-fit shrink-0 rounded-full border-[6px] border-bg-float"
+            style={{ borderColor: themedRingColor(user.profileTheme) }}
+          >
+            <Avatar user={user} size={80} status={status} ringClassName="bg-bg-float" ringColor={themedRingColor(user.profileTheme)} />
           </div>
           {custom && (
             // Özel durum: avatarın yanında konuşma balonu
@@ -205,6 +212,7 @@ export function ProfilePopover() {
           )
         )}
       </div>
+      <ProfileEffectLayer effect={user.profileEffect} />
     </div>
   );
 }
