@@ -57,7 +57,10 @@ function attemptApplyOta(): void {
   }
   deferredOta = false;
   applyingOta = true;
-  void applyOta();
+  // Yeniden başlatma başarısız olursa bir sonraki öne gelişte tekrar denenebilsin
+  applyOta().catch(() => {
+    applyingOta = false;
+  });
 }
 
 /**
