@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, Share, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, Share, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
 import { router } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
@@ -499,7 +499,7 @@ function SearchBox({
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
-  style?: object;
+  style?: StyleProp<ViewStyle>;
 }) {
   return (
     <View style={[styles.search, style]}>
