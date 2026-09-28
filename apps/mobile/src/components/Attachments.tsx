@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Image, Linking, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Image, Linking, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { isImageAttachment, isVideoAttachment, type Attachment } from '@diskort/shared';
 import { attachmentUrl, discardMessage, formatBytes, type LocalMessage } from '@diskort/client-core';
 import { canSaveToGallery, openAttachment, saveToGallery } from '../attachments';
 import { colors, createStyles } from '../theme';
+import { Toast } from './Toast';
 import { VideoAttachment } from './VideoAttachment';
 
 /** Mesaj satırında avatar sütunu ve sağ boşluk (MessageRow ile aynı) */
@@ -70,6 +71,12 @@ export function AttachmentList({ attachments }: { attachments: Attachment[] }) {
  * uygulamasında). Bağlantı önizlemesindeki resimde `source` asıl sayfadır: "Aç" onu açar.
  */
 export function ImageViewer({ attachment, onClose, source }: { attachment: Attachment; onClose: () => void; source?: string }) {
+  // Kaydetme düğmesi kaydederken döner, bitince tik olur (kaydedildiği anında görünsün)
+  const [saving, setSaving] = useState<'idle' | 'busy' | 'done'>('idle');
+  const save = async (): Promise<void> => {
+    setSaving('busy');
+    setSaving((await saveToGallery([attachment])) ? 'done' : 'idle');
+  };
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <SafeAreaView style={styles.viewer}>
@@ -78,8 +85,22 @@ export function ImageViewer({ attachment, onClose, source }: { attachment: Attac
             {attachment.name}
           </Text>
           {canSaveToGallery() ? (
-            <Pressable hitSlop={10} onPress={() => void saveToGallery([attachment])} accessibilityLabel="Galeriye kaydet">
-              <Ionicons name="download-outline" size={24} color="#fff" />
+            <Pressable
+              hitSlop={10}
+              disabled={saving === 'busy'}
+              onPress={() => void save()}
+              accessibilityLabel={saving === 'done' ? 'Galeriye kaydedildi, yeniden kaydet' : 'Galeriye kaydet'}
+              style={styles.viewerButton}
+            >
+              {saving === 'busy' ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Ionicons
+                  name={saving === 'done' ? 'checkmark-circle' : 'download-outline'}
+                  size={24}
+                  color={saving === 'done' ? colors.okText : '#fff'}
+                />
+              )}
             </Pressable>
           ) : null}
           <Pressable
@@ -100,6 +121,8 @@ export function ImageViewer({ attachment, onClose, source }: { attachment: Attac
           {attachment.width && attachment.height ? `${attachment.width}×${attachment.height}` : ''}
           {attachment.size > 0 ? `${attachment.width && attachment.height ? ' · ' : ''}${formatBytes(attachment.size)}` : ''}
         </Text>
+        {/* Uygulamanın toast'ı bu pencerenin arkasında kalır: aynı bildirim burada da gösterilir */}
+        <Toast />
       </SafeAreaView>
     </Modal>
   );
@@ -168,6 +191,7 @@ const styles = createStyles(() => ({
   viewer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' },
   viewerBar: { flexDirection: 'row', alignItems: 'center', gap: 20, paddingHorizontal: 16, paddingVertical: 12 },
   viewerName: { flex: 1, color: '#fff', fontSize: 15 },
+  viewerButton: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
   viewerImage: { flex: 1 },
   viewerInfo: { color: 'rgba(255,255,255,0.6)', fontSize: 13, textAlign: 'center', paddingVertical: 12 },
 }));

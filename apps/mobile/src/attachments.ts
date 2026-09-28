@@ -170,11 +170,11 @@ function galleryName(attachment: Attachment): string {
   return ext && !/\.[a-z0-9]{2,5}$/i.test(name) ? `${name}.${ext}` : name;
 }
 
-/** Resimleri (ve videoları) telefonun galerisine, Pictures/Diskort klasörüne kaydeder */
-export async function saveToGallery(attachments: Attachment[]): Promise<void> {
-  if (!Gallery || attachments.length === 0) return;
+/** Resimleri (ve videoları) telefonun galerisine, Pictures/Diskort klasörüne kaydeder. Kaydedildiyse true. */
+export async function saveToGallery(attachments: Attachment[]): Promise<boolean> {
+  if (!Gallery || attachments.length === 0) return false;
   const key = attachments.map((a) => a.id).join(',');
-  if (busy.has(key)) return;
+  if (busy.has(key)) return false;
   busy.add(key);
   try {
     for (const attachment of attachments) {
@@ -182,8 +182,10 @@ export async function saveToGallery(attachments: Attachment[]): Promise<void> {
       await Gallery.save(local, galleryName(attachment), attachment.contentType || 'image/jpeg');
     }
     toast(attachments.length === 1 ? 'Galeriye kaydedildi.' : `${attachments.length} dosya galeriye kaydedildi.`);
+    return true;
   } catch (err) {
     toast(downloadError(err), 'error');
+    return false;
   } finally {
     busy.delete(key);
   }
