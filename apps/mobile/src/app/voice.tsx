@@ -332,7 +332,13 @@ const MemberTile = memo(function MemberTile({
           </View>
         )}
         <SpeakingRing speaking={speaking} size={avatar}>
-          <Avatar user={user} size={avatar} decoration={user?.avatarDecoration} />
+          {/* Hareketli dekorasyon hafif modda: yalnızca konuşurken oynar (katılımcı kadar yüzey, sesle yarışır) */}
+          <Avatar
+            user={user}
+            size={avatar}
+            decoration={user?.avatarDecoration}
+            decorationLite={speaking ? 'on' : 'paused'}
+          />
         </SpeakingRing>
         <View style={styles.nameRow}>
           <VoiceStateIcon state={state} size={14} />

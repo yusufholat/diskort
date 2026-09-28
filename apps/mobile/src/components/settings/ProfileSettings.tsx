@@ -2,16 +2,26 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
+  animatedDecoration,
+  animatedDecorationSet,
   AVATAR_COLORS,
   COSMETIC_SET_LABELS,
+  COSMETIC_SETS,
   isCosmeticSet,
-  isLegacyProfileEffect,
   LEGACY_PROFILE_EFFECTS,
+  NAMEPLATE_LABELS,
+  NAMEPLATES,
   PROFILE_EFFECT_LABELS,
+  profileEffectFields,
+  userProfileEffect,
+  type CosmeticSet,
+  type Nameplate,
   type ProfileEffect,
   type ProfileTheme,
+  type User,
 } from '@diskort/shared';
 import {
+  COSMETIC_SET_INFO,
   api,
   errorMessage,
   loadCosmetics,
@@ -30,6 +40,7 @@ import { pickAvatar, pickBanner } from '../../attachments';
 import { toast } from '../../stores/ui';
 import { colors, createStyles, font, radius, space } from '../../theme';
 import { Avatar, PresenceAvatar } from '../Avatar';
+import { hasSkia, NAMEPLATE_TEXT_SHADOW, NameplateBackground, nameplateNameColor, SetThumb } from '../cosmetics/Cosmetics';
 import { confirmDialog } from '../Dialog';
 import { PressableScale } from '../PressableScale';
 import { ProfileFrame } from '../ProfileFrame';
@@ -48,6 +59,8 @@ export function ProfileSettings() {
   const banner = useProfileBanner();
   const look = useProfileLook();
   const [savingColor, setSavingColor] = useState(false);
+  // Hareketli setler yalnızca Skia'lı uygulamada sunulur (yoksa çizilemez)
+  const animated = hasSkia();
 
   const setColor = async (avatarColor: string): Promise<void> => {
     setSavingColor(true);
@@ -62,17 +75,26 @@ export function ProfileSettings() {
   };
 
   if (!user) return null;
+  // Önizleme: seçimler kaydedilmeden önce de kartta görünür
+  const preview: User = {
+    ...user,
+    profileTheme: look.theme,
+    ...profileEffectFields(look.effect),
+    avatarDecoration: look.decoration,
+    profileFrame: look.frame,
+    nameplate: look.nameplate,
+  };
+  // Setin üç parçası birden seçili mi
+  const appliedSet =
+    COSMETIC_SETS.find(
+      (set) => look.effect === set && animatedDecorationSet(look.decoration) === set && look.nameplate === set,
+    ) ?? null;
   return (
     <View>
       <ProfileHeader
-        user={{
-          ...user,
-          profileTheme: look.theme,
-          // Telefon şimdilik yalnızca eski efektleri çizer (hareketli setler masaüstünde)
-          profileEffect: isLegacyProfileEffect(look.effect) ? look.effect : null,
-          avatarDecoration: look.decoration,
-          profileFrame: look.frame,
-        }}
+        user={preview}
+        // Ayarlar sayfasında seçicilerle birlikte çizilir: önizleme 30 kare/sn
+        effectFps={30}
         centered
         avatar={(ring) => (
           <PressableScale
@@ -184,31 +206,65 @@ export function ProfileSettings() {
         </View>
       </Card>
 
+      {animated && (
+        <>
+          <SectionTitle>Hareketli setler</SectionTitle>
+          <Card style={styles.pad}>
+            <Text style={styles.hint}>
+              Her set üç parça: kartı saran efekt, avatar dekorasyonu ve üye listesindeki isim plakası. Seti uygula ya
+              da parçaları aşağıdan tek tek seçip karıştır.
+            </Text>
+            <SetPicker applied={appliedSet} onApply={look.applySet} />
+          </Card>
+        </>
+      )}
+
       <SectionTitle>Profil efekti</SectionTitle>
       <Card style={styles.pad}>
-        <Text style={styles.hint}>Profil kartında oynayan hafif bir süs.</Text>
-        {look.effectSet && (
+        <Text style={styles.hint}>Profil kartında oynayan süs.</Text>
+        {!animated && isCosmeticSet(look.effect) && (
           <Text style={styles.hint}>
-            Masaüstünde seçilen hareketli efekt açık: {COSMETIC_SET_LABELS[look.effectSet]}. Telefonda henüz
-            görünmez; Yok ile kaldırabilir ya da başka bir efekt seçebilirsin.
+            Hareketli efekt açık: {COSMETIC_SET_LABELS[look.effect]}. Bu sürümde telefonda görünmez; Yok ile
+            kaldırabilir ya da başka bir efekt seçebilirsin.
           </Text>
         )}
         <Choices
           label="Profil efekti"
-          options={EFFECT_OPTIONS}
-          // Hareketli set efekti açıkken hiçbir seçenek seçili görünmez: Yok ona dokununca kaldırır
-          value={look.effectSet ? 'set' : (look.effect ?? 'none')}
+          options={animated ? EFFECT_OPTIONS_ALL : EFFECT_OPTIONS}
+          // Çizilemeyen set efekti açıkken hiçbir seçenek seçili görünmez: Yok ona dokununca kaldırır
+          value={!animated && isCosmeticSet(look.effect) ? 'set' : (look.effect ?? 'none')}
           onChange={(value) => look.setEffect(value === 'none' || value === 'set' ? null : value)}
         />
       </Card>
 
       <SectionTitle>Avatar dekorasyonu</SectionTitle>
       <Card style={styles.pad}>
-        <Text style={styles.hint}>Avatarının çevresindeki süs; mesajlarda ve üye listesinde de görünür.</Text>
-        <CosmeticChoices kind="decorations" label="Avatar dekorasyonu" value={look.decoration} onPick={look.setDecoration}>
-          {(id) => <Avatar user={user} size={42} decoration={id} />}
+        <Text style={styles.hint}>
+          {animated
+            ? 'Avatarının çevresindeki süs; mesajlarda ve üye listesinde de görünür (hareketli olanlar küçük avatarda sabit bir halka olur).'
+            : 'Avatarının çevresindeki süs; mesajlarda ve üye listesinde de görünür.'}
+        </Text>
+        <CosmeticChoices
+          kind="decorations"
+          label="Avatar dekorasyonu"
+          value={look.decoration}
+          onPick={look.setDecoration}
+          extra={animated ? ANIMATED_DECORATION_OPTIONS : undefined}
+        >
+          {/* Yalnızca seçili dekorasyon oynar; diğerleri tek sabit kare (sayfada onlarca yüzey olmasın) */}
+          {(id) => <Avatar user={user} size={42} decoration={id} animateDecoration decorationStill={id !== look.decoration} />}
         </CosmeticChoices>
       </Card>
+
+      {animated && (
+        <>
+          <SectionTitle>İsim plakası</SectionTitle>
+          <Card style={styles.pad}>
+            <Text style={styles.hint}>Üye listesinde adının arkasında oynayan zemin.</Text>
+            <NameplatePicker user={preview} value={look.nameplate} onPick={look.setNameplate} />
+          </Card>
+        </>
+      )}
 
       <SectionTitle>Profil çerçevesi</SectionTitle>
       <Card style={styles.pad}>
@@ -226,11 +282,99 @@ export function ProfileSettings() {
   );
 }
 
+/** Skia'sız uygulamada yalnızca eski efektler (hareketli setler çizilemez) */
 const EFFECT_OPTIONS: readonly { value: ProfileEffect | 'none' | 'set'; label: string }[] = [
   { value: 'none', label: 'Yok' },
-  // Hareketli set efektleri telefonda henüz çizilmiyor: yalnızca eski efektler sunulur
   ...LEGACY_PROFILE_EFFECTS.map((value) => ({ value, label: PROFILE_EFFECT_LABELS[value] })),
 ];
+const EFFECT_OPTIONS_ALL: readonly { value: ProfileEffect | 'none' | 'set'; label: string }[] = [
+  ...EFFECT_OPTIONS,
+  ...COSMETIC_SETS.map((value) => ({ value, label: PROFILE_EFFECT_LABELS[value] })),
+];
+/** Hareketli dekorasyonlar: katalogdakilerden önce */
+const ANIMATED_DECORATION_OPTIONS = COSMETIC_SETS.map((set) => ({ id: animatedDecoration(set), name: COSMETIC_SET_LABELS[set] }));
+
+/** Hareketli setler: canlı küçük resimli kutular; dokununca setin üç parçası birden uygulanır */
+function SetPicker({ applied, onApply }: { applied: CosmeticSet | null; onApply: (set: CosmeticSet) => void }) {
+  return (
+    <View style={styles.sets}>
+      {COSMETIC_SETS.map((set) => {
+        const info = COSMETIC_SET_INFO[set];
+        const on = applied === set;
+        return (
+          <Pressable
+            key={set}
+            onPress={() => onApply(set)}
+            style={({ pressed }) => [
+              styles.set,
+              on && { borderColor: info.accent, boxShadow: `0 6px 18px -8px ${info.accent}` },
+              pressed && { opacity: 0.85 },
+            ]}
+            accessibilityRole="button"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={`${COSMETIC_SET_LABELS[set]} setini uygula`}
+            accessibilityHint={info.description}
+          >
+            <SetThumb set={set} still={!on} style={styles.setThumb} />
+            <View style={styles.setLabel}>
+              <Text style={styles.setName} numberOfLines={1}>
+                {COSMETIC_SET_LABELS[set]}
+              </Text>
+              {on && <Ionicons name="checkmark" size={16} color={info.accent} />}
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/** İsim plakaları: "Yok" ve her setin plakası, üye listesindeki satırın küçük kopyasıyla */
+function NameplatePicker({
+  user,
+  value,
+  onPick,
+}: {
+  user: User;
+  value: Nameplate | null;
+  onPick: (id: Nameplate | null) => void;
+}) {
+  const options: { id: Nameplate | null; name: string }[] = [
+    { id: null, name: 'Yok' },
+    ...NAMEPLATES.map((id) => ({ id, name: NAMEPLATE_LABELS[id] })),
+  ];
+  return (
+    <View style={styles.plates} accessibilityRole="radiogroup" accessibilityLabel="İsim plakası">
+      {options.map((o) => {
+        const selected = value === o.id;
+        return (
+          <Pressable
+            key={o.id ?? 'none'}
+            onPress={() => onPick(o.id)}
+            style={({ pressed }) => [styles.plateOption, selected && styles.tileOn, pressed && { opacity: 0.85 }]}
+            accessibilityRole="radio"
+            accessibilityState={{ selected }}
+            accessibilityLabel={o.name}
+          >
+            <View style={styles.plateRow}>
+              {o.id && <NameplateBackground set={o.id} still={!selected} />}
+              <Avatar user={user} size={30} status="online" surface={o.id ? '#0a0a0a' : colors.main} decoration={user.avatarDecoration} />
+              <Text
+                style={[styles.plateName, o.id ? [{ color: nameplateNameColor(null) }, NAMEPLATE_TEXT_SHADOW] : null]}
+                numberOfLines={1}
+              >
+                {user.displayName}
+              </Text>
+              <Text style={[styles.plateLabel, o.id ? styles.plateLabelOn : null]} numberOfLines={1}>
+                {o.name}
+              </Text>
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
 
 const sameTheme = (a: ProfileTheme | null, b: ProfileTheme | null): boolean =>
   a === b || (a !== null && b !== null && a.primary === b.primary && a.accent === b.accent);
@@ -241,19 +385,22 @@ function CosmeticChoices({
   label,
   value,
   onPick,
+  extra = [],
   children,
 }: {
   kind: CosmeticKind;
   label: string;
   value: string | null;
   onPick: (id: string | null) => void;
+  /** Katalogdan önce gösterilen seçenekler (ör. hareketli dekorasyonlar) */
+  extra?: readonly { id: string; name: string }[];
   /** Kutunun içindeki önizleme (null: süs yok) */
   children: (id: string | null) => ReactNode;
 }) {
   const catalog = useCosmetics((s) => s.catalog);
   useEffect(() => void loadCosmetics(), []);
-  if (!catalog) return <Text style={styles.hint}>Tasarımlar yükleniyor…</Text>;
-  const options = [{ id: null, name: 'Yok' }, ...catalog[kind]];
+  if (!catalog && extra.length === 0) return <Text style={styles.hint}>Tasarımlar yükleniyor…</Text>;
+  const options = [{ id: null, name: 'Yok' }, ...extra, ...(catalog?.[kind] ?? [])];
   return (
     <View style={styles.tiles} accessibilityRole="radiogroup" accessibilityLabel={label}>
       {options.map((o) => {
@@ -278,8 +425,8 @@ function CosmeticChoices({
 type LookPatch = Parameters<typeof updateProfileLook>[0];
 
 /**
- * Profil teması, efekti, dekorasyonu ve çerçevesi: seçim önizlemede hemen görünür ve sunucuya
- * kaydedilir; kaydedilemezse eskisine döner ve hata gösterilir.
+ * Profil teması, efekti, dekorasyonu, çerçevesi ve isim plakası: seçim önizlemede hemen görünür ve sunucuya
+ * kaydedilir; kaydedilemezse eskisine döner ve hata gösterilir. Setin üç parçası tek istekle kaydedilir.
  */
 function useProfileLook() {
   const user = useSession((s) => s.user);
@@ -303,15 +450,18 @@ function useProfileLook() {
 
   return {
     theme: pick('profileTheme'),
-    effect: pick('profileEffect'),
-    // Masaüstünde seçilmiş hareketli set efekti (telefon henüz çizmez); efekt seçilince taslak onun yerine geçer
-    effectSet: !('profileEffect' in draft) && isCosmeticSet(user?.animatedEffect) ? user.animatedEffect : null,
+    // Kullanıcıda efekt iki alanda durur (eski efekt profileEffect'te, set efekti animatedEffect'te)
+    effect: 'profileEffect' in draft ? (draft.profileEffect ?? null) : user ? userProfileEffect(user) : null,
     decoration: pick('avatarDecoration'),
     frame: pick('profileFrame'),
+    nameplate: pick('nameplate'),
     setTheme: (profileTheme: ProfileTheme | null) => save({ profileTheme }),
     setEffect: (profileEffect: ProfileEffect | null) => save({ profileEffect }),
     setDecoration: (avatarDecoration: string | null) => save({ avatarDecoration }),
     setFrame: (profileFrame: string | null) => save({ profileFrame }),
+    setNameplate: (nameplate: Nameplate | null) => save({ nameplate }),
+    applySet: (set: CosmeticSet) =>
+      save({ profileEffect: set, avatarDecoration: animatedDecoration(set), nameplate: set }),
   };
 }
 
@@ -439,4 +589,41 @@ const styles = createStyles(() => ({
   miniCard: { width: 46, height: 60, borderRadius: 6, overflow: 'hidden', backgroundColor: colors.side },
   miniBanner: { height: 14 },
   button: { flex: 1 },
+  // Hareketli setler: iki sütun, 16:10 canlı küçük resim ve adı
+  sets: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  set: {
+    width: '48.5%',
+    flexGrow: 1,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    borderColor: colors.line,
+    backgroundColor: colors.main,
+    overflow: 'hidden',
+  },
+  setThumb: { width: '100%', aspectRatio: 16 / 10 },
+  setLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.xs,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.sm - 2,
+  },
+  setName: { color: colors.head, fontSize: font.small, fontWeight: '700', flexShrink: 1 },
+  // İsim plakası seçenekleri: üye listesindeki satırın küçük kopyası
+  plates: { gap: space.sm },
+  plateOption: { borderRadius: radius.md, borderWidth: 2, borderColor: 'transparent', padding: 2 },
+  plateRow: {
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm + 2,
+    paddingHorizontal: space.sm,
+    borderRadius: radius.sm,
+    overflow: 'hidden',
+    backgroundColor: colors.main,
+  },
+  plateName: { color: colors.text, fontSize: font.small, fontWeight: '600', flexShrink: 1 },
+  plateLabel: { marginLeft: 'auto', color: colors.muted, fontSize: font.caption },
+  plateLabelOn: { color: 'rgba(255,255,255,0.85)', ...NAMEPLATE_TEXT_SHADOW },
 }));

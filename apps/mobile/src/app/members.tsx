@@ -6,6 +6,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import type { User } from '@diskort/shared';
 import { memberGroups, useCustomStatus, useGuild, useMemberColor, useSession, useStatus } from '@diskort/client-core';
 import { Avatar } from '../components/Avatar';
+import { hasSkia, NAMEPLATE_TEXT_SHADOW, NameplateBackground, nameplateNameColor } from '../components/cosmetics/Cosmetics';
 import { MemberSheet } from '../components/MemberSheet';
 import { ListSkeleton } from '../components/Skeleton';
 import { EmptyState } from '../components/States';
@@ -53,6 +54,8 @@ export default function MembersScreen() {
           sections={sections}
           keyExtractor={(u) => u.id}
           stickySectionHeadersEnabled={false}
+          // Varsayılan 21 ekranlık pencere yerine 11: pencerenin dışında kurulan satır (isim plakası yüzeyi) azalır
+          windowSize={11}
           contentContainerStyle={{ paddingBottom: space.lg, flexGrow: 1 }}
           renderSectionHeader={({ section }) => (
             <Text style={styles.section}>
@@ -84,6 +87,9 @@ const MemberRow = memo(function MemberRow({
   const self = useSession((s) => s.user?.id === user.id);
   const status = useStatus(user.id);
   const custom = useCustomStatus(user.id);
+  // İsim plakası: satırın arkasında hareketli zemin; üstündeki yazılar açık renkli ve gölgeli (Skia yoksa
+  // plaka çizilmez, satır eskisi gibi kalır)
+  const plate = hasSkia() ? (user.nameplate ?? null) : null;
   return (
     <View style={styles.rowWrap}>
       <Pressable
@@ -95,12 +101,22 @@ const MemberRow = memo(function MemberRow({
         accessibilityRole="button"
         accessibilityLabel={`${user.displayName}${offline ? ', çevrimdışı' : ''}${inVoice ? ', sesli sohbette' : ''}`}
       >
+        {plate && <NameplateBackground set={plate} />}
         <View style={offline && styles.offline}>
-          <Avatar user={user} size={38} status={status} surface={colors.main} decoration={user.avatarDecoration} />
+          <Avatar
+            user={user}
+            size={38}
+            status={status}
+            surface={plate ? '#0a0a0a' : colors.main}
+            decoration={user.avatarDecoration}
+          />
         </View>
         <View style={[{ flex: 1 }, offline && styles.offline]}>
           <View style={styles.nameRow}>
-            <Text style={[styles.name, color ? { color } : null]} numberOfLines={1}>
+            <Text
+              style={[styles.name, plate ? [{ color: nameplateNameColor(color) }, NAMEPLATE_TEXT_SHADOW] : color ? { color } : null]}
+              numberOfLines={1}
+            >
               {user.displayName}
             </Text>
             {/* Masaüstündeki gibi taç; Ionicons'ta taç yok */}
@@ -116,7 +132,7 @@ const MemberRow = memo(function MemberRow({
           {/* Masaüstündeki gibi önce özel durum, yoksa sesli sohbet; ikisi de yoksa yalnız isim.
               Kullanıcı adı burada gösterilmez, özel durumla karışıyordu. */}
           {custom ? (
-            <Text style={styles.sub} numberOfLines={1}>
+            <Text style={[styles.sub, plate && styles.plateSub]} numberOfLines={1}>
               {`${custom.emoji ? `${custom.emoji} ` : ''}${custom.text ?? ''}`}
             </Text>
           ) : (
@@ -151,6 +167,7 @@ const styles = createStyles(() => ({
   name: { color: colors.text, fontSize: font.row, fontWeight: '600', flexShrink: 1 },
   subRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
   sub: { color: colors.muted, fontSize: font.caption + 0.5, marginTop: 1 },
+  plateSub: { color: 'rgba(255,255,255,0.78)', ...NAMEPLATE_TEXT_SHADOW },
   youTag: { backgroundColor: colors.brandSoft, borderRadius: radius.sm, paddingHorizontal: 5, paddingVertical: 1 },
   youText: { color: colors.brandText, fontSize: 9.5, fontWeight: '800' },
 }));

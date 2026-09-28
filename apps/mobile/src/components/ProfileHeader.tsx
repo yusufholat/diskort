@@ -1,9 +1,10 @@
-import { useState, type ReactNode } from 'react';
-import { Image, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
-import { PROFILE_FRAME_PADDING, type CustomStatus, type User } from '@diskort/shared';
+import { useMemo, useState, type ReactNode } from 'react';
+import { Image, StyleSheet, Text, View, type LayoutRectangle, type StyleProp, type ViewStyle } from 'react-native';
+import { isCosmeticSet, isLegacyProfileEffect, PROFILE_FRAME_PADDING, userProfileEffect, type CustomStatus, type User } from '@diskort/shared';
 import { bannerUrl, profileGradient, useCosmeticUrl, type DisplayStatus } from '@diskort/client-core';
 import { colors, createStyles, font, radius, space } from '../theme';
 import { Avatar } from './Avatar';
+import { CardEffect, type CardGeo } from './cosmetics/Cosmetics';
 import { ProfileEffect } from './ProfileEffect';
 import { ProfileFrame } from './ProfileFrame';
 
@@ -16,6 +17,7 @@ type ProfileUser = Pick<
   | 'bannerUrl'
   | 'profileTheme'
   | 'profileEffect'
+  | 'animatedEffect'
   | 'avatarDecoration'
   | 'profileFrame'
 >;
@@ -55,6 +57,7 @@ export function ProfileHeader({
   surface = colors.side,
   children,
   style,
+  effectFps,
 }: {
   user: ProfileUser;
   status?: DisplayStatus;
@@ -73,6 +76,8 @@ export function ProfileHeader({
   surface?: string;
   children?: ReactNode;
   style?: StyleProp<ViewStyle>;
+  /** Hareketli set efektinin en fazla kare hızı (ayarlardaki önizlemede düşük) */
+  effectFps?: number;
 }) {
   const theme = user.profileTheme ?? null;
   const src = bannerUrl(user);
@@ -84,6 +89,8 @@ export function ProfileHeader({
   const size = centered ? 88 : 72;
   // Çerçeveliyken içerik içeri alınır (süsler yazılara binmez); çerçevesiz kart eskisi gibi sıkı
   const framed = useCosmeticUrl('frames', user.profileFrame) !== null;
+  const effect = userProfileEffect(user);
+  const geo = useCardGeo();
 
   return (
     <View style={[styles.card, { backgroundColor: surface }, framed && { padding: PROFILE_FRAME_PADDING }, style]}>
@@ -94,6 +101,7 @@ export function ProfileHeader({
         </>
       )}
       <View
+        onLayout={geo.onBanner}
         style={[
           src ? styles.bannerTall : styles.banner,
           framed && styles.bannerFramed,
@@ -110,8 +118,9 @@ export function ProfileHeader({
           />
         )}
       </View>
-      <View style={[styles.body, centered && styles.bodyCentered]}>
+      <View style={[styles.body, centered && styles.bodyCentered]} onLayout={geo.onBody}>
         <View
+          onLayout={geo.onRing}
           style={[
             styles.avatarRing,
             centered && styles.avatarCentered,
@@ -138,10 +147,42 @@ export function ProfileHeader({
         ) : null}
         {children}
       </View>
-      <ProfileEffect effect={user.profileEffect} />
+      {isCosmeticSet(effect) ? (
+        <CardEffect set={effect} geo={geo.value} fps={effectFps} />
+      ) : (
+        <ProfileEffect effect={isLegacyProfileEffect(effect) ? effect : null} />
+      )}
       <ProfileFrame frame={user.profileFrame} />
     </View>
   );
+}
+
+/**
+ * Kartın ölçüleri (hareketli set efekti için): afişin alt kenarı, avatarın merkezi ve halkasıyla dış yarıçapı,
+ * kartın sol üstüne göre. Gölgelendirici afişi ve avatarın yerini bunlardan bilir (masaüstünde measureCard).
+ */
+function useCardGeo() {
+  const [banner, setBanner] = useState<LayoutRectangle | null>(null);
+  const [body, setBody] = useState<LayoutRectangle | null>(null);
+  const [ring, setRing] = useState<LayoutRectangle | null>(null);
+  const value = useMemo<CardGeo | null>(
+    () =>
+      banner && body && ring
+        ? {
+            bh: banner.y + banner.height,
+            ax: body.x + ring.x + ring.width / 2,
+            ay: body.y + ring.y + ring.height / 2,
+            ar: ring.width / 2,
+          }
+        : null,
+    [banner, body, ring],
+  );
+  return {
+    value,
+    onBanner: (e: { nativeEvent: { layout: LayoutRectangle } }) => setBanner(e.nativeEvent.layout),
+    onBody: (e: { nativeEvent: { layout: LayoutRectangle } }) => setBody(e.nativeEvent.layout),
+    onRing: (e: { nativeEvent: { layout: LayoutRectangle } }) => setRing(e.nativeEvent.layout),
+  };
 }
 
 const styles = createStyles(() => ({

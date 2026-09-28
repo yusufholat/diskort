@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Image, Text, View } from 'react-native';
-import { AVATAR_DECORATION_SCALE, type User } from '@diskort/shared';
+import { animatedDecorationSet, AVATAR_DECORATION_SCALE, type User } from '@diskort/shared';
 import { avatarUrl, useCosmeticUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
 import { colors, createStyles } from '../theme';
+import { AnimatedDecoration } from './cosmetics/Cosmetics';
 import { StatusDot } from './StatusDot';
 
 function initials(name: string): string {
@@ -24,9 +25,26 @@ interface Props {
   surface?: string;
   /** Avatar dekorasyonunun kimliği (user.avatarDecoration): avatarın üstüne, yerleşimi değiştirmeden çizilir */
   decoration?: string | null;
+  /** Hareketli dekorasyon küçük avatarda da canlı çizilsin (ayarlardaki seçici) */
+  animateDecoration?: boolean;
+  /** Hareketli dekorasyonun hafif modu (sesli sahne): 'paused' ise son kare sabit kalır */
+  decorationLite?: 'on' | 'paused';
+  /** Hareketli dekorasyon tek sabit kare (seçicide seçili olmayan seçenek) */
+  decorationStill?: boolean;
 }
 
-export function Avatar({ user, size = 40, speaking, online, status, surface = colors.side, decoration }: Props) {
+export function Avatar({
+  user,
+  size = 40,
+  speaking,
+  online,
+  status,
+  surface = colors.side,
+  decoration,
+  animateDecoration,
+  decorationLite,
+  decorationStill,
+}: Props) {
   const shown: DisplayStatus | undefined = status ?? (online === undefined ? undefined : online ? 'online' : 'offline');
   const border = size >= 32 ? 3 : 2;
   const dot = Math.round(size * 0.36) - 2 * border;
@@ -34,7 +52,9 @@ export function Avatar({ user, size = 40, speaking, online, status, surface = co
   const src = avatarUrl(user);
   // Yüklenemeyen fotoğrafın yerine baş harfler (adres değişince yeniden denenir)
   const [failed, setFailed] = useState<string | null>(null);
-  const decorationSrc = useCosmeticUrl('decorations', decoration);
+  // Hareketli dekorasyon (anim:<set>) kodla çizilir; diğerleri sunucunun kataloğundaki resim
+  const animated = animatedDecorationSet(decoration);
+  const decorationSrc = useCosmeticUrl('decorations', animated ? null : decoration);
   const over = (size * (AVATAR_DECORATION_SCALE - 1)) / 2;
   return (
     <View style={{ width: size, height: size }}>
@@ -62,7 +82,9 @@ export function Avatar({ user, size = 40, speaking, online, status, surface = co
           <Text style={[styles.text, { fontSize: Math.max(10, size * 0.38) }]}>{initials(user?.displayName ?? '?')}</Text>
         )}
       </View>
-      {decorationSrc ? (
+      {animated ? (
+        <AnimatedDecoration set={animated} size={size} animate={animateDecoration} lite={decorationLite} still={decorationStill} />
+      ) : decorationSrc ? (
         <Image
           source={{ uri: decorationSrc }}
           style={{ position: 'absolute', left: -over, top: -over, width: size + 2 * over, height: size + 2 * over }}
