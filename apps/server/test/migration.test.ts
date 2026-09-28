@@ -449,6 +449,8 @@ describe('göç 14: çoklu sunucu', () => {
           profile_effect: null,
           avatar_decoration: null,
           profile_frame: null,
+          // göç 22: isim plakası boş başlar
+          nameplate: null,
         })),
       );
 
@@ -651,6 +653,44 @@ describe('göç 21: profil süsleri', () => {
         avatarDecoration: null,
         profileFrame: null,
       });
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe('göç 22: isim plakası', () => {
+  it('şema 21 veritabanı 22 ile göçer; süsler korunur, plaka boş başlar, set efekti ayrı alanda okunur', () => {
+    const file = schema19Database();
+    const db = new DatabaseSync(file);
+    for (let v = 19; v < 21; v++) db.exec(MIGRATIONS[v]!);
+    db.exec('PRAGMA user_version = 21');
+    const [first, second] = db.prepare('SELECT id FROM users ORDER BY id').all() as { id: string }[];
+    db.prepare(`UPDATE users SET profile_effect = 'snow', avatar_decoration = 'halka' WHERE id = ?`).run(first!.id);
+    db.prepare(`UPDATE users SET profile_effect = 'karadelik', avatar_decoration = 'anim:buz' WHERE id = ?`).run(second!.id);
+    db.close();
+
+    const store = new Store(file);
+    try {
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
+      expect(MIGRATIONS.length).toBe(22);
+      expect(store.getUser(first!.id)).toMatchObject({
+        profileEffect: 'snow',
+        animatedEffect: null,
+        avatarDecoration: 'halka',
+        nameplate: null,
+      });
+      // Eski istemciler tanımadıkları efekt kimliğinde çöker: set efekti profileEffect'te hiç görünmez
+      expect(store.getUser(second!.id)).toMatchObject({
+        profileEffect: null,
+        animatedEffect: 'karadelik',
+        avatarDecoration: 'anim:buz',
+        nameplate: null,
+      });
+      // Bilinmeyen plaka (ör. ileride kaldırılmış bir set) gösterilmez
+      store.db.prepare(`UPDATE users SET nameplate = 'eski-set' WHERE id = ?`).run(first!.id);
+      expect(store.getUser(first!.id)!.nameplate).toBeNull();
+      expect(store.updateUser(first!.id, { nameplate: 'sakura' })!.nameplate).toBe('sakura');
     } finally {
       store.close();
     }

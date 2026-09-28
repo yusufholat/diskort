@@ -1,13 +1,24 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Camera, Check } from 'lucide-react';
 import {
+  animatedDecoration,
+  animatedDecorationSet,
+  COSMETIC_SET_LABELS,
+  COSMETIC_SETS,
   HEX_COLOR,
+  LEGACY_PROFILE_EFFECTS,
+  NAMEPLATE_LABELS,
+  NAMEPLATES,
   PROFILE_EFFECT_LABELS,
-  PROFILE_EFFECTS,
+  profileEffectFields,
+  userProfileEffect,
+  type CosmeticSet,
+  type Nameplate,
   type ProfileTheme,
   type User,
 } from '@diskort/shared';
 import {
+  COSMETIC_SET_INFO,
   errorMessage,
   loadCosmetics,
   formatBytes,
@@ -25,6 +36,7 @@ import { confirmDialog } from '../../lib/dialog';
 import { PresenceProvider, usePresence } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { toast } from '../../stores/ui';
+import { NameplateCanvas, SetThumbCanvas } from '../cosmetics/Cosmetics';
 import { Avatar } from '../ui/Avatar';
 import { Button, SectionTitle } from '../ui/controls';
 import { AvatarCropper } from './AvatarCropper';
@@ -105,17 +117,20 @@ export function ProfileLookSettings({ user }: { user: User }) {
     if (HEX_COLOR.test(color)) pickTheme({ ...(theme ?? fallback), [key]: color }, SAVE_DELAY);
   };
 
-  const [effect, pickEffect] = useLookField(user, 'profileEffect');
-  const [decoration, pickDecoration] = useLookField(user, 'avatarDecoration');
-  const [frame, pickFrame] = useLookField(user, 'profileFrame');
+  const { effect, decoration, frame, nameplate, pick } = useLook(user);
 
   const preview: User = {
     ...user,
     profileTheme: theme,
-    profileEffect: effect,
+    ...profileEffectFields(effect),
     avatarDecoration: decoration,
     profileFrame: frame,
+    nameplate,
   };
+  // Setin üç parçası birden seçili mi
+  const appliedSet = COSMETIC_SETS.find(
+    (set) => effect === set && animatedDecorationSet(decoration) === set && nameplate === set,
+  );
 
   return (
     <div className="flex flex-wrap-reverse items-start gap-x-8">
@@ -166,23 +181,37 @@ export function ProfileLookSettings({ user }: { user: User }) {
           <ColorInput label="Alt renk" value={(theme ?? fallback).accent} onChange={(v) => setColor('accent', v)} />
         </div>
 
+        <SectionTitle>Hareketli Setler</SectionTitle>
+        <p className="mb-3 text-sm text-text-muted">
+          Her set üç parça: kartı saran efekt, avatar dekorasyonu ve üye listesindeki isim plakası. Seti uygula ya da
+          parçaları aşağıdan tek tek seçip karıştır.
+        </p>
+        <SetPicker applied={appliedSet ?? null} onApply={(set) => void pick(setPatch(set))} />
+
         <SectionTitle>Profil Efekti</SectionTitle>
-        <p className="mb-3 text-sm text-text-muted">Profil kartında oynayan hafif bir süs.</p>
+        <p className="mb-3 text-sm text-text-muted">Profil kartında oynayan süs.</p>
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Profil efekti">
-          {([null, ...PROFILE_EFFECTS] as const).map((value) => {
+          {([null, ...LEGACY_PROFILE_EFFECTS, ...COSMETIC_SETS] as const).map((value) => {
             const selected = effect === value;
+            const set = value && (COSMETIC_SETS as readonly string[]).includes(value) ? (value as CosmeticSet) : null;
             return (
               <button
                 key={value ?? 'none'}
                 type="button"
                 role="radio"
                 aria-checked={selected}
-                onClick={() => void pickEffect(value)}
+                onClick={() => void pick({ profileEffect: value })}
                 className={cn(
-                  'press rounded-full px-4 py-1.5 text-sm font-medium transition-colors',
+                  'press flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors',
                   selected ? 'bg-brand text-white' : 'bg-bg-side text-text-normal hover:bg-bg-hover hover:text-text-head',
                 )}
               >
+                {set && (
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ background: COSMETIC_SET_INFO[set].accent, boxShadow: `0 0 6px ${COSMETIC_SET_INFO[set].accent}` }}
+                  />
+                )}
                 {value ? PROFILE_EFFECT_LABELS[value] : 'Yok'}
               </button>
             );
@@ -190,14 +219,27 @@ export function ProfileLookSettings({ user }: { user: User }) {
         </div>
 
         <SectionTitle>Avatar Dekorasyonu</SectionTitle>
-        <p className="mb-3 text-sm text-text-muted">Avatarının çevresindeki süs; mesajlarda ve üye listesinde de görünür.</p>
-        <CosmeticPicker kind="decorations" label="Avatar dekorasyonu" value={decoration} onPick={(id) => void pickDecoration(id)}>
-          {(id) => <Avatar user={user} size={44} decoration={id} />}
+        <p className="mb-3 text-sm text-text-muted">
+          Avatarının çevresindeki süs; mesajlarda ve üye listesinde de görünür (hareketli olanlar küçük avatarda sabit bir
+          halka olur).
+        </p>
+        <CosmeticPicker
+          kind="decorations"
+          label="Avatar dekorasyonu"
+          value={decoration}
+          onPick={(id) => void pick({ avatarDecoration: id })}
+          extra={COSMETIC_SETS.map((set) => ({ id: animatedDecoration(set), name: COSMETIC_SET_LABELS[set] }))}
+        >
+          {(id) => <Avatar user={user} size={44} decoration={id} animateDecoration />}
         </CosmeticPicker>
+
+        <SectionTitle>İsim Plakası</SectionTitle>
+        <p className="mb-3 text-sm text-text-muted">Üye listesinde adının arkasında oynayan zemin.</p>
+        <NameplatePicker user={user} value={nameplate} onPick={(id) => void pick({ nameplate: id })} />
 
         <SectionTitle>Profil Çerçevesi</SectionTitle>
         <p className="mb-3 text-sm text-text-muted">Profil kartının kenarlarındaki süs.</p>
-        <CosmeticPicker kind="frames" label="Profil çerçevesi" value={frame} onPick={(id) => void pickFrame(id)}>
+        <CosmeticPicker kind="frames" label="Profil çerçevesi" value={frame} onPick={(id) => void pick({ profileFrame: id })}>
           {(id) => (
             <div className="relative h-[68px] w-[52px] overflow-hidden rounded-md bg-bg-float" style={themedCardStyle(theme)}>
               <div className="h-4" style={{ background: theme?.primary ?? user.avatarColor }} />
@@ -207,58 +249,187 @@ export function ProfileLookSettings({ user }: { user: User }) {
         </CosmeticPicker>
       </div>
 
-      <div className="shrink-0">
-        <SectionTitle>Önizleme</SectionTitle>
-        <ProfilePreviewCard user={preview} />
+      {/* Önizleme seçicilerin yanında kaydırılırken görünür kalır */}
+      <div className="shrink-0 self-stretch">
+        <div className="sticky top-0 pb-4">
+          <SectionTitle>Önizleme</SectionTitle>
+          <ProfilePreviewCard user={preview} />
+          <div className="mt-4 mb-1.5 text-xs font-bold tracking-wide text-text-muted uppercase">Üye listesinde</div>
+          <div className="w-[300px] rounded-lg border border-edge bg-bg-side p-2">
+            <MemberRowPreview user={preview} />
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-type LookField = 'profileEffect' | 'avatarDecoration' | 'profileFrame';
+type LookPatch = Omit<Parameters<typeof updateProfileLook>[0], 'profileTheme'>;
+
+/** Setin üç parçası birden */
+const setPatch = (set: CosmeticSet): LookPatch => ({
+  profileEffect: set,
+  avatarDecoration: animatedDecoration(set),
+  nameplate: set,
+});
 
 /**
- * Tek seçimli süs (efekt, dekorasyon, çerçeve): seçim önizlemede hemen görünür ve kaydedilir;
- * kaydedilemezse eskisine döner ve hata gösterilir.
+ * Tek seçimli süsler (efekt, dekorasyon, çerçeve, isim plakası): seçim önizlemede hemen görünür ve
+ * kaydedilir; kaydedilemezse eskisine döner ve hata gösterilir. Setin tamamı tek istekle kaydedilir.
  */
-function useLookField<K extends LookField>(user: User, key: K) {
-  type Value = NonNullable<User[K]> | null;
-  const [draft, setDraft] = useState<Value | undefined>(undefined);
-  const value = (draft === undefined ? (user[key] ?? null) : draft) as Value;
-  const pick = async (next: Value): Promise<void> => {
-    if (next === value) return;
-    setDraft(next);
+function useLook(user: User) {
+  const [draft, setDraft] = useState<LookPatch>({});
+  const effect = 'profileEffect' in draft ? (draft.profileEffect ?? null) : userProfileEffect(user);
+  const decoration = 'avatarDecoration' in draft ? (draft.avatarDecoration ?? null) : (user.avatarDecoration ?? null);
+  const frame = 'profileFrame' in draft ? (draft.profileFrame ?? null) : (user.profileFrame ?? null);
+  const nameplate = 'nameplate' in draft ? (draft.nameplate ?? null) : (user.nameplate ?? null);
+  const current: Required<LookPatch> = { profileEffect: effect, avatarDecoration: decoration, profileFrame: frame, nameplate };
+
+  const pick = async (patch: LookPatch): Promise<void> => {
+    const keys = (Object.keys(patch) as (keyof LookPatch)[]).filter((k) => patch[k] !== current[k]);
+    if (keys.length === 0) return;
+    const changed = Object.fromEntries(keys.map((k) => [k, patch[k]])) as LookPatch;
+    setDraft((d) => ({ ...d, ...changed }));
     try {
-      await updateProfileLook({ [key]: next } as Parameters<typeof updateProfileLook>[0]);
+      await updateProfileLook(changed);
     } catch (err) {
       toast(errorMessage(err), 'error');
     } finally {
-      // Bu arada başka bir seçim yapıldıysa taslak onundur
-      setDraft((d) => (d === next ? undefined : d));
+      // Bu arada aynı alan için başka bir seçim yapıldıysa taslak onundur
+      setDraft((d) => {
+        const next = { ...d };
+        for (const k of keys) if (next[k] === changed[k]) delete next[k];
+        return next;
+      });
     }
   };
-  return [value, pick] as const;
+  return { effect, decoration, frame, nameplate, pick };
 }
 
-/** Katalogdaki tasarımlar ve "Yok": küçük önizlemeli kutular */
+/** Hareketli setler: canlı küçük resimli kutular; tıklayınca setin üç parçası birden uygulanır */
+function SetPicker({ applied, onApply }: { applied: CosmeticSet | null; onApply: (set: CosmeticSet) => void }) {
+  return (
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2.5">
+      {COSMETIC_SETS.map((set) => {
+        const info = COSMETIC_SET_INFO[set];
+        const on = applied === set;
+        return (
+          <button
+            key={set}
+            type="button"
+            aria-pressed={on}
+            aria-label={`${COSMETIC_SET_LABELS[set]} setini uygula`}
+            data-tooltip={info.description}
+            onClick={() => onApply(set)}
+            className={cn(
+              'press group flex flex-col overflow-hidden rounded-lg border bg-bg-side text-left transition-[border-color,box-shadow]',
+              on ? 'border-transparent' : 'border-edge hover:border-edge-strong',
+            )}
+            style={on ? { boxShadow: `0 0 0 2px ${info.accent}, 0 10px 26px -14px ${info.accent}` } : undefined}
+          >
+            <span className="relative block aspect-[16/10] w-full">
+              <SetThumbCanvas set={set} />
+              {!on && (
+                <span className="absolute right-1.5 bottom-1.5 rounded-full bg-black/70 px-2 py-0.5 text-[11px] font-semibold text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                  Seti uygula
+                </span>
+              )}
+            </span>
+            <span className="flex items-center justify-between gap-2 px-2.5 py-2">
+              <span className="truncate text-sm font-semibold text-text-head">{COSMETIC_SET_LABELS[set]}</span>
+              {on && <Check size={16} strokeWidth={3} className="anim-pill-in shrink-0" style={{ color: info.accent }} />}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** İsim plakaları: "Yok" ve her setin plakası, kendi satırının küçük önizlemesiyle */
+function NameplatePicker({
+  user,
+  value,
+  onPick,
+}: {
+  user: User;
+  value: Nameplate | null;
+  onPick: (id: Nameplate | null) => void;
+}) {
+  const options: { id: Nameplate | null; name: string }[] = [
+    { id: null, name: 'Yok' },
+    ...NAMEPLATES.map((id) => ({ id, name: NAMEPLATE_LABELS[id] })),
+  ];
+  return (
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2" role="radiogroup" aria-label="İsim plakası">
+      {options.map((o) => {
+        const selected = value === o.id;
+        return (
+          <button
+            key={o.id ?? 'none'}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            aria-label={o.name}
+            data-tooltip={o.name}
+            onClick={() => onPick(o.id)}
+            className={cn(
+              'press rounded-lg border-2 bg-bg-side p-1 transition-colors',
+              selected ? 'border-brand' : 'border-transparent hover:border-edge-strong hover:bg-bg-hover',
+            )}
+          >
+            <MemberRowPreview user={{ ...user, nameplate: o.id }} label={o.id ? undefined : 'Yok'} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Üye listesindeki satırın küçük kopyası (isim plakasıyla) */
+function MemberRowPreview({ user, label }: { user: User; label?: string }) {
+  const plate = user.nameplate ?? null;
+  return (
+    <div className="relative isolate flex h-[42px] items-center gap-3 overflow-hidden rounded px-2 text-left">
+      {plate && <NameplateCanvas set={plate} />}
+      <Avatar
+        user={user}
+        size={32}
+        status="online"
+        ringClassName="bg-bg-side"
+        ringColor={plate ? '#0a0a0a' : undefined}
+        decoration={user.avatarDecoration}
+      />
+      <span className={cn('min-w-0 truncate font-medium', plate ? 'nameplate-text' : 'text-text-normal')}>
+        {user.displayName}
+      </span>
+      {label && <span className="ml-auto shrink-0 text-xs text-text-muted">{label}</span>}
+    </div>
+  );
+}
+
+/** Katalogdaki tasarımlar (ve varsa kodla çizilen ek seçenekler) ile "Yok": küçük önizlemeli kutular */
 function CosmeticPicker({
   kind,
   label,
   value,
   onPick,
+  extra = [],
   children,
 }: {
   kind: CosmeticKind;
   label: string;
   value: string | null;
   onPick: (id: string | null) => void;
+  /** Katalogdan önce gösterilen seçenekler (ör. hareketli dekorasyonlar) */
+  extra?: { id: string; name: string }[];
   /** Kutunun içindeki önizleme (null: süs yok) */
   children: (id: string | null) => ReactNode;
 }) {
   const catalog = useCosmetics((s) => s.catalog);
   useEffect(() => void loadCosmetics(), []);
-  if (!catalog) return <p className="text-sm text-text-muted">Tasarımlar yükleniyor…</p>;
-  const options = [{ id: null, name: 'Yok' }, ...catalog[kind]];
+  if (!catalog && extra.length === 0) return <p className="text-sm text-text-muted">Tasarımlar yükleniyor…</p>;
+  const options = [{ id: null, name: 'Yok' }, ...extra, ...(catalog?.[kind] ?? [])];
   return (
     <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={label}>
       {options.map((o) => {
@@ -302,7 +473,7 @@ function ProfilePreviewCard({ user }: { user: User }) {
         aside={custom && <StatusBubble custom={custom} />}
         bannerClassName={framed ? 'rounded-md' : undefined}
       />
-      <ProfileEffectLayer effect={user.profileEffect} />
+      <ProfileEffectLayer effect={userProfileEffect(user)} />
       <ProfileFrameLayer frame={user.profileFrame} />
     </div>
   );

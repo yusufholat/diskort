@@ -45,6 +45,7 @@ import { cn } from '../../lib/utils';
 import { DEFAULT_SERVER_URL, useSettings, type ScreenCodec, type ScreenPresetId, type ThemeId } from '../../stores/settings';
 import { toast, useUi, type SettingsSection } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
+import { useCosmeticsCover } from '../cosmetics/Cosmetics';
 import { Button, Divider, Field, SectionTitle, Select, TextInput, Toggle } from '../ui/controls';
 import { ChangePassword } from './ChangePassword';
 import { DeleteAccount } from './DeleteAccount';
@@ -103,6 +104,8 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
   const available = groups.some((g) => g.sections.some((s) => s.id === chosen));
   const section: SettingsSection = available ? chosen : 'account';
   const closing = usePresenceClosing();
+  // Açıkken altta kalan hareketli kozmetikler (üye listesi plakaları) çizilmez
+  const cover = useCosmeticsCover();
   useEscapeLayer(close, !closing);
 
   const logout = async (): Promise<void> => {
@@ -126,6 +129,7 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
 
   return (
     <div
+      ref={cover}
       className={cn(
         'fixed inset-x-0 bottom-0 top-[var(--titlebar-h,0px)] z-40 flex bg-bg-main',
         closing ? 'anim-settings-out pointer-events-none' : 'anim-settings-in',

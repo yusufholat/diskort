@@ -3,13 +3,22 @@ import {
   PROFILE_FRAME_BORDER,
   PROFILE_FRAME_PADDING,
   PROFILE_FRAME_SLICE,
+  isCosmeticSet,
   type CustomStatus,
   type ProfileEffect,
   type ProfileTheme,
   type User,
 } from '@diskort/shared';
-import { bannerUrl, effectParticles, profileGradient, useCosmeticUrl, type DisplayStatus } from '@diskort/client-core';
+import {
+  bannerUrl,
+  COSMETIC_SET_INFO,
+  effectParticles,
+  profileGradient,
+  useCosmeticUrl,
+  type DisplayStatus,
+} from '@diskort/client-core';
 import { cn } from '../../lib/utils';
+import { CardEffectCanvas } from '../cosmetics/Cosmetics';
 import { Avatar } from '../ui/Avatar';
 
 // Profil süsleri (afiş, tema, efekt) masaüstünde: profil kartı ve Ayarlar > Profil'deki önizleme kullanır.
@@ -34,19 +43,27 @@ export function themedRingColor(theme: ProfileTheme | null | undefined): string 
     : undefined;
 }
 
-/** Kartın üstündeki afiş: resim, yoksa tema rengi, o da yoksa profil rengi */
+/**
+ * Kartın üstündeki afiş: resim, yoksa tema rengi, yoksa hareketli set efektinin gökyüzü degradesi, o da yoksa
+ * profil rengi
+ */
 export function ProfileBanner({
   user,
   className,
 }: {
-  user: Pick<User, 'bannerUrl' | 'profileTheme' | 'avatarColor'>;
+  user: Pick<User, 'bannerUrl' | 'profileTheme' | 'avatarColor' | 'animatedEffect'>;
   className?: string;
 }) {
   const src = bannerUrl(user);
+  const set = isCosmeticSet(user.animatedEffect) ? COSMETIC_SET_INFO[user.animatedEffect] : null;
   return (
     <div
+      data-fx-banner
       className={cn('relative shrink-0 overflow-hidden', className)}
-      style={{ background: user.profileTheme?.primary ?? user.avatarColor }}
+      style={{
+        background:
+          user.profileTheme?.primary ?? (set ? `linear-gradient(140deg, ${set.from}, ${set.to})` : user.avatarColor),
+      }}
     >
       {src && <img src={src} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover" />}
     </div>
@@ -66,7 +83,14 @@ export function ProfileCardTop({
 }: {
   user: Pick<
     User,
-    'displayName' | 'username' | 'avatarColor' | 'avatarUrl' | 'bannerUrl' | 'profileTheme' | 'avatarDecoration'
+    | 'displayName'
+    | 'username'
+    | 'avatarColor'
+    | 'avatarUrl'
+    | 'bannerUrl'
+    | 'profileTheme'
+    | 'avatarDecoration'
+    | 'animatedEffect'
   >;
   status?: DisplayStatus;
   /** Avatarın yanında (ör. özel durum balonu) */
@@ -79,10 +103,18 @@ export function ProfileCardTop({
   const ring = themedRingColor(user.profileTheme);
   return (
     <>
-      <ProfileBanner user={user} className={cn(user.bannerUrl ? 'h-[106px]' : 'h-[60px]', bannerClassName)} />
+      {/* Hareketli set efekti afiş alanına göre çizildiğinden efektli kartın afişi resim yokken de uzun */}
+      <ProfileBanner
+        user={user}
+        className={cn(user.bannerUrl || isCosmeticSet(user.animatedEffect) ? 'h-[106px]' : 'h-[60px]', bannerClassName)}
+      />
       <div className="px-4">
         <div className="-mt-10 mb-2 flex items-start gap-2">
-          <div className="relative w-fit shrink-0 rounded-full border-[6px] border-bg-float" style={{ borderColor: ring }}>
+          <div
+            data-fx-avatar
+            className="relative w-fit shrink-0 rounded-full border-[6px] border-bg-float"
+            style={{ borderColor: ring }}
+          >
             <Avatar
               user={user}
               size={80}
@@ -159,7 +191,10 @@ export function ProfileFrameLayer({
   );
 }
 
-/** Kartın üstünde oynayan efekt (tıklamaları engellemez; "hareketi azalt" açıkken görünmez) */
+/**
+ * Kartın üstünde oynayan efekt (tıklamaları engellemez). Eski parçacıklı efektler "hareketi azalt" açıkken
+ * görünmez; hareketli set efekti o zaman sabit bir kare olarak çizilir.
+ */
 export const ProfileEffectLayer = memo(function ProfileEffectLayer({
   effect,
   className,
@@ -169,6 +204,7 @@ export const ProfileEffectLayer = memo(function ProfileEffectLayer({
   className?: string;
 }) {
   if (!effect) return null;
+  if (isCosmeticSet(effect)) return <CardEffectCanvas set={effect} className={className} />;
   return (
     <div className={cn('fx-layer', className)} aria-hidden>
       {effectParticles(effect).map((p, i) =>

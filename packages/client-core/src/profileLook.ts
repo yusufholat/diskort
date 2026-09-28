@@ -105,12 +105,16 @@ function build(effect: ProfileEffect): Particle[] {
         spin: 90,
       }));
     }
+    // Hareketli set efektleri parçacıkla değil platformun kendi çizicisiyle çizilir; tanınmayan kimlik
+    // (daha yeni bir sürümün efekti) hiçbir şey çizmez, çökmez
+    default:
+      return [];
   }
 }
 
 const cache = new Map<ProfileEffect, Particle[]>();
 
-/** Efektin parçacıkları (her efekt için sabit) */
+/** Efektin parçacıkları (her efekt için sabit); parçacıklı olmayan ya da tanınmayan efektte boş */
 export function effectParticles(effect: ProfileEffect): Particle[] {
   let list = cache.get(effect);
   if (!list) {

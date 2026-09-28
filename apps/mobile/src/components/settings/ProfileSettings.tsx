@@ -3,8 +3,9 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   AVATAR_COLORS,
+  isLegacyProfileEffect,
+  LEGACY_PROFILE_EFFECTS,
   PROFILE_EFFECT_LABELS,
-  PROFILE_EFFECTS,
   type ProfileEffect,
   type ProfileTheme,
 } from '@diskort/shared';
@@ -65,7 +66,8 @@ export function ProfileSettings() {
         user={{
           ...user,
           profileTheme: look.theme,
-          profileEffect: look.effect,
+          // Telefon şimdilik yalnızca eski efektleri çizer (hareketli setler masaüstünde)
+          profileEffect: isLegacyProfileEffect(look.effect) ? look.effect : null,
           avatarDecoration: look.decoration,
           profileFrame: look.frame,
         }}
@@ -217,7 +219,8 @@ export function ProfileSettings() {
 
 const EFFECT_OPTIONS: readonly { value: ProfileEffect | 'none'; label: string }[] = [
   { value: 'none', label: 'Yok' },
-  ...PROFILE_EFFECTS.map((value) => ({ value, label: PROFILE_EFFECT_LABELS[value] })),
+  // Hareketli set efektleri telefonda henüz çizilmiyor: yalnızca eski efektler sunulur
+  ...LEGACY_PROFILE_EFFECTS.map((value) => ({ value, label: PROFILE_EFFECT_LABELS[value] })),
 ];
 
 const sameTheme = (a: ProfileTheme | null, b: ProfileTheme | null): boolean =>

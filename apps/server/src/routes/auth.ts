@@ -1,9 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
+  animatedDecorationSet,
   AVATAR_COLORS,
   COSMETIC_ID,
   HEX_COLOR,
+  NAMEPLATES,
   PROFILE_EFFECTS,
   DISPLAY_NAME_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -73,9 +75,15 @@ const updateMeSchema = z.object({
   avatarColor: z.enum(AVATAR_COLORS, { message: 'Geçersiz renk.' }).optional(),
   profileTheme: z.object({ primary: themeColor, accent: themeColor }).nullable().optional(),
   profileEffect: z.enum(PROFILE_EFFECTS, { message: 'Geçersiz efekt.' }).nullable().optional(),
-  // Katalogda olup olmadığı aşağıda denetlenir
-  avatarDecoration: z.string().regex(COSMETIC_ID, 'Geçersiz dekorasyon.').nullable().optional(),
+  // Katalog dekorasyonunun katalogda olup olmadığı aşağıda denetlenir; hareketli dekorasyon (anim:<set>)
+  // istemcide çizilir, listede olması yeter
+  avatarDecoration: z
+    .string()
+    .refine((v) => COSMETIC_ID.test(v) || animatedDecorationSet(v) !== null, 'Geçersiz dekorasyon.')
+    .nullable()
+    .optional(),
   profileFrame: z.string().regex(COSMETIC_ID, 'Geçersiz çerçeve.').nullable().optional(),
+  nameplate: z.enum(NAMEPLATES, { message: 'Geçersiz isim plakası.' }).nullable().optional(),
 });
 
 /** Basit bellek içi deneme sınırlayıcı (kaba kuvvet girişimlerine karşı). */
@@ -277,7 +285,11 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.patch('/api/me', { preHandler: auth.requireUser }, async (req, reply) => {
     const body = parseBody(updateMeSchema, req.body, reply);
     if (!body) return reply;
-    if (body.avatarDecoration && !ctx.cosmetics.has('decorations', body.avatarDecoration)) {
+    if (
+      body.avatarDecoration &&
+      animatedDecorationSet(body.avatarDecoration) === null &&
+      !ctx.cosmetics.has('decorations', body.avatarDecoration)
+    ) {
       return sendError(reply, 400, 'invalid_body', 'Geçersiz dekorasyon.');
     }
     if (body.profileFrame && !ctx.cosmetics.has('frames', body.profileFrame)) {

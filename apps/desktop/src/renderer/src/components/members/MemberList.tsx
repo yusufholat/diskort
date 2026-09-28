@@ -8,6 +8,7 @@ import { currentView } from '../../lib/mainView';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
+import { NameplateCanvas } from '../cosmetics/Cosmetics';
 import { Avatar } from '../ui/Avatar';
 import { openProfile } from './ProfilePopover';
 
@@ -43,6 +44,8 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
   const custom = useCustomStatus(user.id);
   const openContextMenu = useUi((s) => s.openContextMenu);
   const isSelf = user.id === selfId;
+  // İsim plakası satırın arkasında oynar (yalnızca ekrandaki satırlar çizilir, bkz. cosmetics/engine.ts)
+  const plate = user.nameplate ?? null;
 
   // Tıklayınca profil kartı listenin soluna açılır
   const showProfile = (el: HTMLElement): void => {
@@ -62,6 +65,7 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
       aria-label={`${user.displayName} profili`}
       className={cn(
         'group flex h-[42px] cursor-pointer items-center gap-3 rounded px-2 hover:bg-bg-hover',
+        plate && 'relative isolate overflow-hidden',
         offline && 'opacity-40 hover:opacity-100',
       )}
       onClick={(e) => showProfile(e.currentTarget)}
@@ -79,18 +83,31 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
         }
       }}
     >
-      <Avatar user={user} size={32} status={status} ringClassName="bg-bg-side" decoration={user.avatarDecoration} />
+      {plate && <NameplateCanvas set={plate} />}
+      <Avatar
+        user={user}
+        size={32}
+        status={status}
+        ringClassName="bg-bg-side"
+        ringColor={plate ? '#0a0a0a' : undefined}
+        decoration={user.avatarDecoration}
+      />
       <div className="min-w-0 flex-1 leading-tight">
         <div className="flex items-center gap-1">
-          <span className="truncate font-medium text-text-normal" style={color ? { color } : undefined}>
+          <span
+            className={cn('truncate font-medium', plate ? 'nameplate-text' : 'text-text-normal')}
+            style={color ? { color } : undefined}
+          >
             {user.displayName}
           </span>
           {owner && <Crown size={13} aria-label="Sunucunun sahibi" className="shrink-0 text-warn" />}
         </div>
         {custom ? (
-          <CustomStatusLine status={custom} className="text-xs text-text-muted" />
+          <CustomStatusLine status={custom} className={cn('text-xs', plate ? 'nameplate-sub' : 'text-text-muted')} />
         ) : (
-          inVoice && <div className="truncate text-xs text-text-muted">Sesli sohbette</div>
+          inVoice && (
+            <div className={cn('truncate text-xs', plate ? 'nameplate-sub' : 'text-text-muted')}>Sesli sohbette</div>
+          )
         )}
       </div>
       {!isSelf && (

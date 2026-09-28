@@ -6,6 +6,7 @@ import { useEscapeLayer } from '../../lib/escape';
 import { usePresenceClosing } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { useUi, type ServerSettingsSection } from '../../stores/ui';
+import { useCosmeticsCover } from '../cosmetics/Cosmetics';
 import { BansSection } from './BansSection';
 import { InvitesSection } from './InvitesSection';
 import { MembersSection } from './MembersSection';
@@ -46,6 +47,8 @@ export function ServerSettingsModal({ initial }: { initial?: ServerSettingsSecti
 
   // Esc yalnızca en üstteki katmanı kapatır (üstte açık menü ya da onay penceresi varsa önce o)
   const closing = usePresenceClosing();
+  // Açıkken altta kalan hareketli kozmetikler (üye listesi plakaları) çizilmez
+  const cover = useCosmeticsCover();
   useEscapeLayer(close, !closing);
 
   // Yetki alınırsa ayarlar kapanır
@@ -55,6 +58,7 @@ export function ServerSettingsModal({ initial }: { initial?: ServerSettingsSecti
 
   return (
     <div
+      ref={cover}
       className={cn(
         'fixed inset-x-0 bottom-0 top-[var(--titlebar-h,0px)] z-40 flex bg-bg-main',
         closing ? 'anim-settings-out pointer-events-none' : 'anim-settings-in',

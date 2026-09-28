@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Crown, Eye, MessageCircle } from 'lucide-react';
 import { create } from 'zustand';
+import { userProfileEffect } from '@diskort/shared';
 import {
   sortedRoles,
   useCustomStatus,
@@ -202,7 +203,7 @@ export function ProfilePopover() {
           )
         )}
       </div>
-      <ProfileEffectLayer effect={user.profileEffect} />
+      <ProfileEffectLayer effect={userProfileEffect(user)} />
       <ProfileFrameLayer frame={user.profileFrame} />
     </div>
   );

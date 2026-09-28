@@ -334,3 +334,12 @@ export {
 } from './sfx';
 export { effectParticles, PROFILE_THEME_PRESETS, profileGradient, type Particle } from './profileLook';
 export { cosmeticUrl, loadCosmetics, useCosmetics, useCosmeticUrl, type CosmeticKind } from './cosmetics';
+export { COSMETIC_SET_INFO, type CosmeticSetInfo } from './cosmeticSets';
+export {
+  COSMETIC_SHADER_COMMON,
+  COSMETIC_SHADER_MAIN,
+  COSMETIC_SHADERS,
+  COSMETIC_VERTEX_SHADER,
+  SHADER_MODE,
+  type ShaderViewKind,
+} from './cosmeticShaders';
