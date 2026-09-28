@@ -7,6 +7,7 @@ import type { MarkdownContext } from '../../features/messages/markdown';
 import { animate, riseIn } from '../../lib/motion';
 import { MessageSkeleton } from '../ui/Skeleton';
 import { MessageItem } from './MessageItem';
+import { BrokenMessage, ErrorBoundary } from '../ErrorBoundary';
 import { formatDay, sameDay } from './format';
 
 const GROUP_WINDOW_MS = 7 * 60_000;
@@ -179,14 +180,17 @@ export function MessageList({ channel, dm, self, dividerId, onAtBottomChange, sc
           return (
             <Fragment key={m.nonce ?? m.id}>
               {(newDay || divider) && <Separator day={newDay ? m.createdAt : null} unread={divider} />}
-              <MessageItem
-                message={m}
-                author={m.authorId ? users[m.authorId] : undefined}
-                compact={compact}
-                editing={editingId === m.id}
-                self={self}
-                md={md}
-              />
+              {/* Bozuk veri tek mesajı düşürür, kanalın tamamını değil */}
+              <ErrorBoundary where="mesaj" resetKey={m} fallback={<BrokenMessage />}>
+                <MessageItem
+                  message={m}
+                  author={m.authorId ? users[m.authorId] : undefined}
+                  compact={compact}
+                  editing={editingId === m.id}
+                  self={self}
+                  md={md}
+                />
+              </ErrorBoundary>
             </Fragment>
           );
         })}

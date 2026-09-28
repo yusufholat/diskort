@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Image, Linking, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { Attachment, LinkEmbed } from '@diskort/shared';
-import { embedColor, embedHost, embedMediaUrl, embedVideoUrl, fitBox, parseInline, type MdInline } from '@diskort/client-core';
+import { embedColor, embedHost, embedMediaUrl, embedVideoUrl, fitBox, lastPathSegment, parseInline, type MdInline } from '@diskort/client-core';
 import { colors, createStyles, font, radius, space } from '../theme';
 import { ImageViewer } from './Attachments';
 
@@ -23,12 +23,8 @@ function youtubeWatchUrl(embed: LinkEmbed): string {
 /** Görüntüleyici için resmi dosya eki gibi tanıtır (adres sunucumuzdaki imzalı adres) */
 function viewerAttachment(embed: LinkEmbed): Attachment | null {
   if (!embed.image || !embedMediaUrl(embed.image)) return null;
-  let name = embedHost(embed.url);
-  try {
-    name = decodeURIComponent(embed.url.split(/[?#]/)[0]!.split('/').pop() || '') || name;
-  } catch {
-    // bozuk kodlama: alan adı kalır
-  }
+  // Bozuk kodlama (ör. %zz) fırlatmaz: çözülemeyen parça olduğu gibi kalır
+  const name = lastPathSegment(embed.url) || embedHost(embed.url);
   return {
     id: `embed:${embed.url}`,
     name,
