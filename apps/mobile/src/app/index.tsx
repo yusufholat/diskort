@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useGuild } from '@diskort/client-core';
+import { takePendingInvite, useGuild, usePendingInvite } from '@diskort/client-core';
 import { ChannelChat } from '../components/ChannelChat';
 import { NoGuilds } from '../components/ChannelList';
 import { ConnectionBanner } from '../components/ConnectionBanner';
@@ -24,6 +24,16 @@ const openPanel = (): void => setPanelOpen(true);
 export default function HomeScreen() {
   const chatId = useCurrentChat();
   const ready = useGuild((s) => s.status === 'ready');
+  const router = useRouter();
+
+  // Davet bağlantısıyla açıldıysa (diskort://davet/<kod>, bkz. +native-intent.ts) ya da girişten önce
+  // gelmişse: "Sunucu ekle" kodla hazır açılır, katılmak için yine Katıl'a basılır
+  const pendingInvite = usePendingInvite((s) => s.code);
+  useEffect(() => {
+    if (!pendingInvite) return;
+    const code = takePendingInvite();
+    if (code) router.push({ pathname: '/sunucu-ekle', params: { code } });
+  }, [pendingInvite, router]);
 
   // Gösterilecek sohbet yoksa (sunucu yok, kanal yok, konuşma seçilmedi) panel açık gelir
   useEffect(() => {

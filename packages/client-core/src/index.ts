@@ -96,6 +96,15 @@ export {
 } from './presence';
 export { useSession } from './session';
 export {
+  clearPendingInvite,
+  keepIfGuildInvite,
+  pendingInviteNotice,
+  refreshPendingInvitePreview,
+  setPendingInvite,
+  takePendingInvite,
+  usePendingInvite,
+} from './pendingInvite';
+export {
   channelById,
   isGuildUnread,
   isUnread,

@@ -6,6 +6,7 @@
 ;   Günlükler        %APPDATA%\Diskort\logs
 ;   Güncelleme önb.  %LOCALAPPDATA%\diskort-updater
 ;   Kayıt defteri    HKCU\Software\921913cc-d4e1-5f2f-9679-952e9a2927d6 ve ...\Uninstall\<aynı GUID>
+;   Bağlantılar      HKCU\Software\Classes\diskort (diskort://davet/<kod>; uygulama da açılışta yazar)
 
 !macro customInit
   ; Kurulum klasörü her zaman aynıdır. Önceki sürüm başka bir klasördeyse (0.1.2 ve öncesi:
@@ -20,6 +21,12 @@
     RMDir /r "$LOCALAPPDATA\@diskortdesktop-updater"
   !endif
 
+  ; Davet bağlantıları (diskort://davet/<kod>) uygulamayı açsın, ilk açılışı beklemeden. Uygulama da
+  ; açılışta aynı komutu yazar (app.setAsDefaultProtocolClient).
+  WriteRegStr HKCU "Software\Classes\diskort" "" "URL:Diskort"
+  WriteRegStr HKCU "Software\Classes\diskort" "URL Protocol" ""
+  WriteRegStr HKCU "Software\Classes\diskort\shell\open\command" "" '"$appExe" "%1"'
+
   ; Görev çubuğuna sabitlenmiş kısayol varsa yeni konumu göstersin
   StrCpy $0 "$APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\${SHORTCUT_NAME}.lnk"
   ${If} ${FileExists} "$0"
@@ -33,5 +40,7 @@
   ${ifNot} ${isUpdated}
     ; Tamamen kaldırılırken indirilmiş güncellemeleri de sil (ayarlar ve oturum kalır)
     RMDir /r "$LOCALAPPDATA\${APP_FILENAME}-updater"
+    ; Bağlantı kaydı artık olmayan uygulamayı göstermesin
+    DeleteRegKey HKCU "Software\Classes\diskort"
   ${endIf}
 !macroend
