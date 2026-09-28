@@ -94,6 +94,7 @@ const RESET_ROOM_STATE = {
   sharing: false,
   selfPreview: false,
   shareHasAudio: false,
+  shareQuality: null,
   pttActive: false,
 };
 
@@ -952,7 +953,7 @@ class VoiceClient {
     } catch (err) {
       await abandon();
       if (room !== this.room) return null;
-      setVoice({ sharing: false, shareHasAudio: false });
+      setVoice({ sharing: false, shareHasAudio: false, shareQuality: null });
       this.bumpTracks();
       throw err;
     }
@@ -966,7 +967,12 @@ class VoiceClient {
     this.screenHardwareEncoder = hardware;
     // Paylaşılan pencere kapanırsa veya sistemden durdurulursa yayını bitir.
     videoTrack.addEventListener('ended', () => void this.stopScreenShare());
-    setVoice({ sharing: true, selfPreview: false, shareHasAudio: audio !== null });
+    setVoice({
+      sharing: true,
+      selfPreview: false,
+      shareHasAudio: audio !== null,
+      shareQuality: `${preset.height}p ${preset.fps} FPS`,
+    });
     this.bumpTracks();
     playSound('streamStart');
     return warning;
@@ -988,7 +994,7 @@ class VoiceClient {
       if (room) await room.localParticipant.unpublishTrack(track, true).catch(() => undefined);
       track.stop();
     }
-    setVoice({ sharing: false, shareHasAudio: false });
+    setVoice({ sharing: false, shareHasAudio: false, shareQuality: null });
     this.bumpTracks();
     if (withSound) playSound('streamStop');
   }

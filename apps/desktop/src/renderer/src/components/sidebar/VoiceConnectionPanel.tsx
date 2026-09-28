@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import {
+  AppWindow,
   AudioWaveform,
   LayoutGrid,
   MicOff,
+  Monitor,
   MonitorCog,
   PhoneOff,
   ScreenShare,
@@ -98,6 +100,7 @@ export function VoiceConnectionPanel() {
 
   return (
     <div className="anim-rise-in px-2 pt-2 pb-1.5">
+      {sharing && selfId && <OwnStreamRow userId={selfId} />}
       <div className="flex items-center gap-2">
         <span
           className={cn(
@@ -179,6 +182,47 @@ export function VoiceConnectionPanel() {
       {sharing && selfId && <StreamViewers userId={selfId} variant="panel" className="mt-2" />}
       <ConnectionInfoPopover open={infoOpen} anchorRef={labelRef} onClose={closeInfo} />
       <NoiseMenu open={noiseOpen} anchorRef={noiseRef} onClose={closeNoise} />
+    </div>
+  );
+}
+
+/**
+ * Yayındayken ses bağlantısının üstündeki satır: paylaşılan kaynağın simgesi, adı ve kalitesi, sağda "Yayını
+ * durdur". Satıra tıklamak kendi yayınını ses sahnesinde öne alır.
+ */
+function OwnStreamRow({ userId }: { userId: string }) {
+  const sourceName = useGuild((s) => s.voiceStates[userId]?.streamSourceName);
+  const sourceKind = useGuild((s) => s.voiceStates[userId]?.streamSourceKind);
+  const quality = useVoice((s) => s.shareQuality);
+  const setView = useUi((s) => s.setView);
+  const SourceIcon = sourceKind === 'window' ? AppWindow : Monitor;
+  const title = sourceName ?? (sourceKind === 'window' ? 'Pencere' : 'Ekran');
+
+  return (
+    <div className="anim-rise-in mb-2 flex items-center gap-2 border-b border-float-edge pb-2">
+      <button
+        type="button"
+        data-tooltip="Yayınına git"
+        className="group flex min-w-0 flex-1 items-center gap-2 rounded-md text-left"
+        onClick={() => {
+          voice.focusStream(userId);
+          setView({ kind: 'voice' });
+        }}
+      >
+        <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-brand/15 text-brand">
+          <SourceIcon size={18} aria-hidden />
+          <span className="absolute -right-1 -bottom-1 flex h-4 w-4 items-center justify-center rounded-full bg-bg-card text-text-head">
+            <Video size={10} strokeWidth={2.5} aria-hidden />
+          </span>
+        </span>
+        <span className="min-w-0 flex-1 leading-tight">
+          <span className="block truncate text-sm font-semibold text-text-head group-hover:underline">{title}</span>
+          {quality && <span className="block truncate text-xs font-medium text-brand">{quality}</span>}
+        </span>
+      </button>
+      <IconButton label="Yayını durdur" danger onClick={() => void voice.stopScreenShare()}>
+        <ScreenShareOff size={20} />
+      </IconButton>
     </div>
   );
 }
