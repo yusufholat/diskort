@@ -58,7 +58,7 @@ export function DmHome() {
                   <span className="block truncate font-medium text-text-normal">{u.displayName}</span>
                   <span className="block truncate text-xs text-text-muted">@{u.username}</span>
                 </span>
-                <MessageCircle size={18} className="shrink-0 text-text-muted group-hover:text-text-head" />
+                <MessageCircle size={18} className="ico-pop shrink-0 text-text-muted group-hover:text-text-head" />
               </button>
             ))}
           </div>

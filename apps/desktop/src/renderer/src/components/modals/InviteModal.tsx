@@ -57,7 +57,7 @@ export function InviteModal() {
           <div className="flex gap-2">
             <TextInput readOnly value={error ?? (link || 'Oluşturuluyor…')} onFocus={(e) => e.currentTarget.select()} />
             <Button disabled={!link} variant={copied ? 'success' : 'primary'} onClick={copy} className="flex shrink-0 items-center gap-1.5">
-              <Copy size={16} />
+              <Copy size={16} className="ico-pop" />
               {copied ? 'Kopyalandı' : 'Kopyala'}
             </Button>
           </div>

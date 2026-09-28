@@ -192,7 +192,7 @@ function FeedbackDetail({ item, onBack }: { item: Feedback; onBack: () => void }
   return (
     <div>
       <button onClick={onBack} className="mb-4 flex items-center gap-1.5 text-sm text-text-muted hover:text-text-normal">
-        <ArrowLeft size={16} /> Tüm geri bildirimler
+        <ArrowLeft size={16} className="ico-nudge-l" /> Tüm geri bildirimler
       </button>
 
       <div className="mb-1 flex items-center gap-2 text-sm text-text-muted">
@@ -221,7 +221,7 @@ function FeedbackDetail({ item, onBack }: { item: Feedback; onBack: () => void }
         </label>
         <div className="flex-1" />
         <Button variant="danger" className="flex items-center gap-1.5" onClick={() => void remove()}>
-          <Trash2 size={16} /> Sil
+          <Trash2 size={16} className="ico-shake" /> Sil
         </Button>
       </div>
 

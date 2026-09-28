@@ -7,6 +7,7 @@ import { useSettings } from '../../stores/settings';
 import { useVoice } from '../../stores/voice';
 import { LiveBadge } from '../sidebar/VoiceMemberRow';
 import { Slider } from '../ui/Slider';
+import { SwapIcon } from '../ui/SwapIcon';
 
 interface Props {
   userId: string;
@@ -98,7 +99,9 @@ export function StreamView({ userId, large, onClick }: Props) {
               data-tooltip={volume > 0 ? 'Yayın sesini kapat' : 'Yayın sesini aç'}
               aria-label="Yayın sesi"
             >
-              {volume > 0 ? <Volume2 size={18} /> : <VolumeX size={18} />}
+              <SwapIcon swapKey={volume > 0 ? 'on' : 'off'} motion="ico-pop">
+                {volume > 0 ? <Volume2 size={18} /> : <VolumeX size={18} />}
+              </SwapIcon>
             </button>
             <Slider
               className="w-28"
@@ -111,11 +114,13 @@ export function StreamView({ userId, large, onClick }: Props) {
           </div>
         )}
         <IconButton title={fullscreen ? 'Tam ekrandan çık' : 'Tam ekran'} onClick={toggleFullscreen}>
-          {fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+          <SwapIcon swapKey={fullscreen ? 'on' : 'off'} motion={fullscreen ? 'ico-shrink' : 'ico-grow'}>
+            {fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+          </SwapIcon>
         </IconButton>
         {!isSelf && (
           <IconButton title="İzlemeyi bırak" onClick={() => voice.stopWatching(userId)}>
-            <X size={18} />
+            <X size={18} className="ico-rotate" />
           </IconButton>
         )}
       </div>

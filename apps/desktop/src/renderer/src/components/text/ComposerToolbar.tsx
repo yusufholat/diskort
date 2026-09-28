@@ -48,7 +48,7 @@ export function ComposerToolbar({ channelId, onEmoji, onClosed, onSent }: Props)
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => toggle('gif')}
           >
-            <span className="rounded-[4px] border-2 border-current px-[3px] text-[10px] leading-[13px] font-extrabold">GIF</span>
+            <span className="ico-tilt rounded-[4px] border-2 border-current px-[3px] text-[10px] leading-[13px] font-extrabold">GIF</span>
           </button>
         )}
         <button
@@ -62,7 +62,7 @@ export function ComposerToolbar({ channelId, onEmoji, onClosed, onSent }: Props)
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => toggle('emoji')}
         >
-          <Smile size={22} />
+          <Smile size={22} className="ico-bounce" />
         </button>
       </div>
       <ExpressionPicker

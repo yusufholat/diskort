@@ -139,7 +139,7 @@ export function PinsButton({ channelId }: { channelId: string }) {
         )}
         onClick={() => setOpen((v) => !v)}
       >
-        <Pin size={22} />
+        <Pin size={22} className="ico-pin" />
         {unseen && !open && (
           <span className="absolute right-0.5 bottom-0.5 h-2.5 w-2.5 rounded-full border-2 border-bg-main bg-danger" />
         )}
@@ -274,7 +274,7 @@ function PinsPopout({
                       className="press-icon rounded bg-bg-side p-1 text-text-muted shadow hover:bg-bg-hover hover:text-text-head"
                       onClick={(e) => void confirmUnpin(m, e.shiftKey)}
                     >
-                      <X size={14} />
+                      <X size={14} className="ico-rotate" />
                     </button>
                   )}
                 </div>

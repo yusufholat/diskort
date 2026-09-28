@@ -54,7 +54,7 @@ export function KeybindInput({
           aria-label="Kısayolu kaldır"
           onClick={() => onChange(null)}
         >
-          <X size={16} />
+          <X size={16} className="ico-rotate" />
         </button>
       )}
     </div>

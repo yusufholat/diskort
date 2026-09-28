@@ -3,7 +3,7 @@ import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { channelById, useFeedback, useGuild, useSession } from '@diskort/client-core';
-import { useAppear, useBump } from '../motion';
+import { useAppear } from '../motion';
 import { useSettings } from '../stores/settings';
 import { colors, createStyles, font, radius, ripple, space, tint } from '../theme';
 import { leaveVoice, toggleDeafen, toggleMute } from '../voice/actions';
@@ -11,6 +11,7 @@ import { useVoice } from '../voice/voice';
 import { CountBadge } from './Badge';
 import { PressableScale } from './PressableScale';
 import { ConnectionSheet } from './ConnectionSheet';
+import { SwapIcon, type SwapMotion } from './SwapIcon';
 import { SignalBars, useVoiceLevel } from './VoiceQuality';
 
 /** Alt çubuktaki düğme boyu (tek satırda kalsın diye ses ekranındakilerden küçük) */
@@ -113,6 +114,7 @@ function VoiceBarInner({ bottomInset, onSettings }: { bottomInset: number; onSet
           size={BUTTON}
           label={selfDeaf ? 'Sağırlaştırmayı kaldır' : 'Sağırlaştır'}
           onPress={toggleDeafen}
+          motion="tilt"
         />
         <VoiceControl icon="call" danger size={BUTTON} label="Bağlantıyı kes" onPress={leaveVoice} />
       </View>
@@ -122,7 +124,7 @@ function VoiceBarInner({ bottomInset, onSettings }: { bottomInset: number; onSet
 
 /**
  * Ses denetim düğmesi (alt çubukta ve ses ekranında). Kapalı olan (susturuldu) kırmızı, açık olan
- * (yayında) yeşil, ayrıl kırmızı dolgu. Simge değişince kısa zıplar.
+ * (yayında) yeşil, ayrıl kırmızı dolgu. Simge değişince `motion`'a göre canlı geçer (SwapIcon).
  */
 export function VoiceControl({
   icon,
@@ -134,6 +136,7 @@ export function VoiceControl({
   size = 40,
   caption,
   badge = 0,
+  motion = 'pop',
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -148,8 +151,9 @@ export function VoiceControl({
   caption?: string;
   /** Sağ üst köşede kırmızı sayı (ör. yeni geri bildirimler) */
   badge?: number;
+  /** Simge değişirken oynayan hareket */
+  motion?: SwapMotion;
 }) {
-  const bump = useBump(icon);
   const bg = danger ? colors.danger : off ? colors.dangerSoft : on ? colors.okSoft : caption ? colors.active : 'transparent';
   const fg = danger ? '#fff' : off ? colors.danger : on ? colors.ok : colors.text;
   return (
@@ -164,14 +168,13 @@ export function VoiceControl({
         accessibilityState={{ selected: Boolean(off || on) }}
         style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}
       >
-        <Animated.View style={{ transform: [{ scale: bump }] }}>
-          <Ionicons
-            name={icon}
-            size={Math.round(size * 0.5)}
-            color={fg}
-            style={danger && icon === 'call' ? { transform: [{ rotate: '135deg' }] } : undefined}
-          />
-        </Animated.View>
+        <SwapIcon
+          name={icon}
+          size={Math.round(size * 0.5)}
+          color={fg}
+          motion={motion}
+          style={danger && icon === 'call' ? { transform: [{ rotate: '135deg' }] } : undefined}
+        />
         {badge > 0 && (
           <View pointerEvents="none" style={{ position: 'absolute', top: -4, right: -6 }}>
             <CountBadge count={badge} ring={colors.panel} />

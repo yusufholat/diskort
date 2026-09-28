@@ -104,7 +104,7 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
           }}
           onKeyDown={(e) => e.stopPropagation()}
         >
-          <MessageCircle size={18} />
+          <MessageCircle size={18} className="ico-pop" />
         </button>
       )}
     </div>

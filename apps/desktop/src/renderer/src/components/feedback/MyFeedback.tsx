@@ -26,7 +26,7 @@ export function MyFeedback() {
         Gönderdiğin hata ve önerilerin durumu burada. Bir şey düzeltilince ya da planlanınca burada görürsün.
       </p>
       <Button className="mb-6 flex items-center gap-2" onClick={() => openModal({ type: 'feedback' })}>
-        <MessageSquarePlus size={18} />
+        <MessageSquarePlus size={18} className="ico-bounce" />
         Geri bildirim gönder
       </Button>
 
@@ -61,7 +61,7 @@ function MyFeedbackItem({ item, open, onToggle }: { item: Feedback; open: boolea
         aria-expanded={open}
         onClick={onToggle}
       >
-        <ChevronRight size={16} className={cn('shrink-0 text-text-muted transition-transform duration-150', open && 'rotate-90')} />
+        <ChevronRight size={16} className={cn('ico-nudge-r shrink-0 text-text-muted', open && 'rotate-90')} />
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium text-text-head">{feedbackSummary(item)}</div>
           <div className="mt-0.5 flex items-center gap-2 text-xs text-text-muted">

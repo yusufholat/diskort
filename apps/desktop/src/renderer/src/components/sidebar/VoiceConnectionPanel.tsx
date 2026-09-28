@@ -20,6 +20,7 @@ import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
 import { useConnectionStats } from '../../stores/connectionStats';
 import { ConnectionInfoPopover } from './ConnectionInfoPopover';
+import { SwapIcon } from '../ui/SwapIcon';
 import { NoiseMenu, noiseSummary } from './AudioMenus';
 
 const STATUS_TEXT = {
@@ -139,10 +140,10 @@ export function VoiceConnectionPanel() {
           aria-expanded={noiseOpen}
           onClick={() => setNoiseOpen((v) => !v)}
         >
-          <AudioWaveform size={20} className={cn(noise === 'off' && 'opacity-50')} />
+          <AudioWaveform size={20} className={cn('ico-wave', noise === 'off' && 'opacity-50')} />
         </IconButton>
         <IconButton label="Bağlantıyı Kes" danger onClick={() => void voice.leave()}>
-          <PhoneOff size={20} />
+          <PhoneOff size={20} className="ico-hangup" />
         </IconButton>
       </div>
       {micTesting && (
@@ -161,13 +162,15 @@ export function VoiceConnectionPanel() {
           active={sharing}
           onClick={() => (sharing ? void voice.stopScreenShare() : openModal({ type: 'screenPicker' }))}
         >
-          {sharing ? <ScreenShareOff size={20} /> : <ScreenShare size={20} />}
+          <SwapIcon swapKey={sharing ? 'on' : 'off'} motion="ico-lift">
+            {sharing ? <ScreenShareOff size={20} /> : <ScreenShare size={20} />}
+          </SwapIcon>
         </ActionButton>
         <ActionButton label="Ses Sahnesini Aç" onClick={() => setView({ kind: 'voice' })}>
-          <LayoutGrid size={20} />
+          <LayoutGrid size={20} className="ico-grow" />
         </ActionButton>
         <ActionButton label="Yayın Ayarları" onClick={() => openModal({ type: 'settings', section: 'stream' })}>
-          <MonitorCog size={20} />
+          <MonitorCog size={20} className="ico-tilt" />
         </ActionButton>
       </div>
       <ConnectionInfoPopover open={infoOpen} anchorRef={labelRef} onClose={closeInfo} />

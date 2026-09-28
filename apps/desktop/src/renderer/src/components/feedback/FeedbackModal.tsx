@@ -200,7 +200,7 @@ export function FeedbackModal() {
                     selected ? 'bg-bg-active text-text-head ring-2 ring-brand ring-inset' : 'bg-bg-side text-text-normal hover:bg-bg-hover',
                   )}
                 >
-                  <Icon size={20} className={selected ? 'text-text-head' : 'text-text-muted'} />
+                  <Icon size={20} className={cn('ico-pop', selected ? 'text-text-head' : 'text-text-muted')} />
                   <span className="text-sm font-semibold">{FEEDBACK_TYPE_LABELS[t]}</span>
                   <span className="text-xs text-text-muted">{TYPE_HINTS[t]}</span>
                 </button>
@@ -263,7 +263,7 @@ export function FeedbackModal() {
                       data-tooltip="Kaldır"
                       className="press-icon absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-white hover:bg-danger"
                     >
-                      <X size={14} />
+                      <X size={14} className="ico-rotate" />
                     </button>
                   </div>
                 ))}
@@ -279,7 +279,7 @@ export function FeedbackModal() {
                   data-tooltip={full ? `En fazla ${FEEDBACK_MAX_SCREENSHOTS} ekran görüntüsü` : 'Yalnızca Diskort penceresi çekilir'}
                   onClick={() => void capture()}
                 >
-                  <Camera size={16} />
+                  <Camera size={16} className="ico-pop" />
                   Uygulamanın ekran görüntüsünü ekle
                 </Button>
               )}
@@ -290,7 +290,7 @@ export function FeedbackModal() {
                 disabled={full}
                 onClick={() => fileRef.current?.click()}
               >
-                <ImagePlus size={16} />
+                <ImagePlus size={16} className="ico-lift" />
                 Resim ekle
               </Button>
               <input
@@ -320,7 +320,7 @@ export function FeedbackModal() {
                 className="flex items-center gap-1 text-sm text-text-muted hover:text-text-normal"
               >
                 Gönderilecek teknik bilgiler
-                <ChevronRight size={16} className={cn('transition-transform duration-150', showContext && 'rotate-90')} />
+                <ChevronRight size={16} className={cn('ico-nudge-r', showContext && 'rotate-90')} />
               </button>
             </div>
             {showContext && (

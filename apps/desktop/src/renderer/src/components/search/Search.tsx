@@ -101,7 +101,8 @@ export function SearchBox({ scope, placeholder }: { scope: SearchScope; placehol
     <div className="relative" onClick={(e) => e.stopPropagation()}>
       <div
         className={cn(
-          'flex h-8 items-center gap-1.5 rounded-lg border bg-bg-input px-2.5 text-sm transition-[width,border-color] duration-150',
+          // motion-host: üstüne gelince / yazarken büyüteç hafifçe büyüyüp eğilir (styles/hover.css)
+          'motion-host flex h-8 items-center gap-1.5 rounded-lg border bg-bg-input px-2.5 text-sm transition-[width,border-color] duration-200 ease-out',
           wide ? 'w-80 border-brand/60' : 'w-60 border-float-edge',
         )}
       >
@@ -127,10 +128,10 @@ export function SearchBox({ scope, placeholder }: { scope: SearchScope; placehol
               clearSearchResults();
             }}
           >
-            <X size={16} />
+            <X size={16} className="ico-rotate" />
           </button>
         ) : (
-          <Search size={16} className="shrink-0 text-text-muted" />
+          <Search size={16} className="ico-zoom shrink-0 text-text-muted" />
         )}
       </div>
       {(showOptions || showSuggestions) && (
@@ -322,7 +323,7 @@ export function SearchPanel() {
           className="press-icon rounded p-1 text-text-muted hover:text-text-normal"
           onClick={() => clearSearchResults()}
         >
-          <X size={20} />
+          <X size={20} className="ico-rotate" />
         </button>
       </div>
       <div ref={list} className="min-h-0 flex-1 overflow-y-auto px-3 pb-3" onScroll={onScroll}>

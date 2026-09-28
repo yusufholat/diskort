@@ -35,7 +35,7 @@ export function DmSidebar() {
           )}
           onClick={() => setView({ kind: 'dms' })}
         >
-          <MessagesSquare size={18} className="shrink-0" />
+          <MessagesSquare size={18} className="ico-bounce shrink-0" />
           <span className="truncate">Direkt Mesajlar</span>
         </button>
         <button
@@ -44,7 +44,7 @@ export function DmSidebar() {
           aria-label="Yeni Mesaj"
           onClick={() => openModal({ type: 'newDm' })}
         >
-          <Plus size={18} />
+          <Plus size={18} className="ico-rotate" />
         </button>
       </div>
 
@@ -129,7 +129,7 @@ const DmRow = memo(function DmRow({ dm, selected }: { dm: DmChannel; selected: b
         aria-label={dm.group ? 'Gruptan ayrıl' : 'Konuşmayı kapat'}
         onClick={() => void closeOrLeaveDm(dm)}
       >
-        <X size={16} />
+        <X size={16} className="ico-rotate" />
       </button>
     </div>
   );

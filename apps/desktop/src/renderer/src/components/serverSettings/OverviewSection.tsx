@@ -199,7 +199,7 @@ function IconPicker({ guildId }: { guildId: string }) {
       >
         <GuildIcon guild={guild} size={80} className="rounded-full" />
         <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100">
-          <Camera size={22} />
+          <Camera size={22} className="ico-pop" />
         </span>
       </button>
       <div>

@@ -2,7 +2,6 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, BackHandler, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import { channelById, membersOf, useCan, useGuild, useMemberColor, useSession } from '@diskort/client-core';
 import { Permission, type VoiceState } from '@diskort/shared';
 import { Avatar } from '../components/Avatar';
@@ -10,6 +9,7 @@ import { MemberSheet } from '../components/MemberSheet';
 import { SpeakingRing } from '../components/SpeakingRing';
 import { EmptyState, Notice } from '../components/States';
 import { StreamViewer } from '../components/StreamViewer';
+import { SwapIcon } from '../components/SwapIcon';
 import { VoiceControl } from '../components/VoiceBar';
 import { ConnectionQualityBadge } from '../components/VoiceQuality';
 import { VoiceStateIcon } from '../components/VoiceStateIcon';
@@ -129,6 +129,7 @@ export default function VoiceScreen() {
           caption={speaker ? 'Hoparlör' : 'Kulaklık'}
           label={speaker ? 'Hoparlör açık, kulaklığa geç' : 'Ahize, hoparlöre geç'}
           size={52}
+          motion="flip"
           onPress={toggleSpeaker}
         />
         <VoiceControl
@@ -137,6 +138,7 @@ export default function VoiceScreen() {
           label={sharing ? 'Ekran paylaşımını durdur' : 'Ekranını paylaş'}
           on={sharing}
           size={52}
+          motion="rise"
           onPress={() => toggleScreenShare(canStream)}
         />
         <VoiceControl
@@ -153,6 +155,7 @@ export default function VoiceScreen() {
           label={selfDeaf ? 'Sağırlaştırmayı kaldır' : 'Sağırlaştır'}
           off={selfDeaf}
           size={52}
+          motion="tilt"
           onPress={toggleDeafen}
         />
         <VoiceControl
@@ -344,7 +347,7 @@ const MemberTile = memo(function MemberTile({
             style={[styles.watch, watching && { backgroundColor: colors.control }]}
             accessibilityRole="button"
           >
-            <Ionicons name={watching ? 'eye-off' : 'eye'} size={14} color={watching ? colors.onControl : '#fff'} />
+            <SwapIcon name={watching ? 'eye-off' : 'eye'} size={14} color={watching ? colors.onControl : '#fff'} motion="blink" />
             <Text style={[styles.watchText, watching && { color: colors.onControl }]}>{watching ? 'İzlemeyi bırak' : 'Yayını izle'}</Text>
           </Pressable>
         )}

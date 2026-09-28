@@ -184,7 +184,7 @@ export function ProfilePopover() {
             className="press mt-4 flex w-full items-center justify-center gap-1.5 rounded bg-danger px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-danger-hover"
             onClick={watch}
           >
-            <Eye size={16} />
+            <Eye size={16} className="ico-blink" />
             {user.id === selfId ? 'Yayınını göster' : 'Yayını izle'}
           </button>
         )}
@@ -198,7 +198,7 @@ export function ProfilePopover() {
                 className="press flex flex-1 items-center justify-center gap-1.5 rounded bg-brand px-3 py-2 text-sm font-medium whitespace-nowrap text-white transition-colors hover:bg-brand-hover"
                 onClick={message}
               >
-                <MessageCircle size={16} />
+                <MessageCircle size={16} className="ico-pop" />
                 Mesaj gönder
               </button>
             </div>

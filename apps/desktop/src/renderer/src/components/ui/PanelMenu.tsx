@@ -247,7 +247,7 @@ export function MenuRadioItem({
           checked ? 'border-brand' : 'border-text-muted',
         )}
       >
-        {checked && <span className="h-2 w-2 rounded-full bg-brand" />}
+        {checked && <span className="anim-pill-in h-2 w-2 rounded-full bg-brand" />}
       </span>
     </button>
   );
@@ -372,7 +372,7 @@ export function MenuSubmenu({
           <span className="block truncate">{label}</span>
           {hint && <span className="block truncate text-xs text-text-muted">{hint}</span>}
         </span>
-        <ChevronRight size={16} className="shrink-0 opacity-70" />
+        <ChevronRight size={16} className="ico-nudge-r shrink-0 opacity-70" />
       </button>
       {open && (
         // Soldaki boşluk fareyle alt menüye geçerken köprü olur

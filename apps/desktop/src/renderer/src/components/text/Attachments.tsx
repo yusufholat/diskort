@@ -97,7 +97,7 @@ export function FileCard({ attachment }: { attachment: Attachment }) {
         aria-label="İndir"
         onClick={() => downloadAttachment(attachment)}
       >
-        <Download size={22} />
+        <Download size={22} className="ico-drop" />
       </button>
     </div>
   );
@@ -141,7 +141,7 @@ export function UploadList({ message }: { message: LocalMessage }) {
                 aria-label="Yüklemeyi iptal et"
                 onClick={() => discardMessage(message.channelId, message.nonce!)}
               >
-                <X size={18} />
+                <X size={18} className="ico-rotate" />
               </button>
             )}
           </div>

@@ -20,6 +20,7 @@ import { spring, timing } from '../motion';
 import { useSettings } from '../stores/settings';
 import { colors, createStyles } from '../theme';
 import { useVoice, voice } from '../voice/voice';
+import { SwapIcon, type SwapMotion } from './SwapIcon';
 import { VolumeControl } from './VolumeControl';
 
 /** Denetimler son dokunuştan bu kadar sonra kaybolur */
@@ -215,6 +216,7 @@ export function StreamViewer({
               <RoundButton
                 icon={landscape ? 'phone-portrait-outline' : 'phone-landscape-outline'}
                 label={landscape ? 'Dikey çevir' : 'Yatay çevir'}
+                motion="turn"
                 onPress={() => {
                   poke();
                   onRotate();
@@ -239,11 +241,14 @@ function RoundButton({
   label,
   onPress,
   small,
+  motion,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   onPress: () => void;
   small?: boolean;
+  /** Simge değişince (tam ekran ↔ çık, yatay ↔ dikey) yenisine geçerken oynayan hareket */
+  motion?: SwapMotion;
 }) {
   const size = small ? 32 : 40;
   return (
@@ -258,7 +263,7 @@ function RoundButton({
         pressed && { backgroundColor: 'rgba(255,255,255,0.22)' },
       ]}
     >
-      <Ionicons name={icon} size={small ? 17 : 21} color="#fff" />
+      <SwapIcon name={icon} size={small ? 17 : 21} color="#fff" motion={motion} />
     </Pressable>
   );
 }

@@ -181,7 +181,7 @@ function AdminsBlock({ users, selfId, onChange }: { users: User[]; selfId?: stri
           {candidates.map((u) => (
             <UserLine key={u.id} user={u} selfId={selfId}>
               <Button variant="secondary" className="flex h-8 items-center gap-1.5 px-3" onClick={() => void grant(u)}>
-                <ShieldCheck size={15} /> Yönetici yap
+                <ShieldCheck size={15} className="ico-pop" /> Yönetici yap
               </Button>
             </UserLine>
           ))}
@@ -299,10 +299,10 @@ function AccountInvitesBlock({ users }: { users: User[] }) {
                 {creator ? ` · ${creator}` : ''}
               </span>
               <IconButton label="Kodu kopyala" onClick={() => copy(inv.code)}>
-                <Copy size={16} />
+                <Copy size={16} className="ico-pop" />
               </IconButton>
               <IconButton label="Daveti sil" danger onClick={() => void remove(inv)}>
-                <Trash2 size={16} />
+                <Trash2 size={16} className="ico-shake" />
               </IconButton>
             </div>
           );
@@ -365,7 +365,7 @@ function AccountsBlock({ users, selfId, onChange }: { users: User[]; selfId?: st
                 disabled={protectedAdmin}
                 onClick={() => createCode(u)}
               >
-                <KeyRound size={16} />
+                <KeyRound size={16} className="ico-tilt" />
               </IconButton>
               <IconButton
                 label={
@@ -375,7 +375,7 @@ function AccountsBlock({ users, selfId, onChange }: { users: User[]; selfId?: st
                 disabled={self || protectedAdmin}
                 onClick={() => void remove(u)}
               >
-                <UserX size={16} />
+                <UserX size={16} className="ico-shake" />
               </IconButton>
             </UserLine>
           );
@@ -401,7 +401,7 @@ function ResetCodeCard({ user, code, expiresAt }: { user: User; code: string; ex
             toast('Kopyalandı.');
           }}
         >
-          <Copy size={14} /> Kopyala
+          <Copy size={14} className="ico-pop" /> Kopyala
         </button>
       </div>
       <div className="mt-2 text-xs text-text-muted">

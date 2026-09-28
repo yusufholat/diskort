@@ -162,7 +162,7 @@ export function GifPanel({ onSend }: { onSend: (gif: GifResult) => void }) {
                 inputRef.current?.focus();
               }}
             >
-              <X size={16} />
+              <X size={16} className="ico-rotate" />
             </button>
           ) : (
             <Search size={16} className="mr-2 text-text-muted" />

@@ -35,7 +35,7 @@ function UpdateButton() {
       disabled={installing}
       onClick={() => void bridge?.updates.install()}
     >
-      <Download size={16} strokeWidth={2.5} />
+      <Download size={16} strokeWidth={2.5} className="ico-drop" />
     </button>
   );
 }

@@ -64,7 +64,7 @@ export function VideoAttachment({ attachment }: { attachment: Attachment }) {
           aria-label={`${attachment.name} videosunu oynat`}
           onClick={play}
         >
-          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-black/60 text-white shadow-lg transition-transform duration-150 group-hover/play:scale-110 group-active/play:scale-95">
+          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-black/60 text-white shadow-lg transition-transform duration-200 ease-(--ease-hov) group-hover/play:scale-110 group-active/play:scale-95">
             <Play size={26} fill="currentColor" className="ml-1" />
           </span>
         </button>
@@ -86,7 +86,7 @@ export function VideoAttachment({ attachment }: { attachment: Attachment }) {
         aria-label="İndir"
         onClick={() => downloadAttachment(attachment)}
       >
-        <Download size={18} />
+        <Download size={18} className="ico-drop" />
       </button>
     </div>
   );

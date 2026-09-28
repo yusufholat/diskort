@@ -127,7 +127,7 @@ export function InvitesSection() {
                 className="press-icon rounded p-1.5 text-text-muted hover:bg-bg-hover hover:text-text-head"
                 onClick={() => void copyInvite(inv.code)}
               >
-                <Link2 size={16} />
+                <Link2 size={16} className="ico-tilt" />
               </button>
               <button
                 data-tooltip="Kodu kopyala"
@@ -135,7 +135,7 @@ export function InvitesSection() {
                 className="press-icon rounded p-1.5 text-text-muted hover:bg-bg-hover hover:text-text-head"
                 onClick={() => void copyInvite(inv.code, false)}
               >
-                <Copy size={16} />
+                <Copy size={16} className="ico-pop" />
               </button>
               <button
                 data-tooltip="Daveti sil"
@@ -143,7 +143,7 @@ export function InvitesSection() {
                 className="press-icon rounded p-1.5 text-text-muted hover:bg-bg-hover hover:text-danger"
                 onClick={() => void remove(inv)}
               >
-                <Trash2 size={16} />
+                <Trash2 size={16} className="ico-shake" />
               </button>
             </div>
           );

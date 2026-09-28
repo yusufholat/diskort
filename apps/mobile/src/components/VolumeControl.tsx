@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react';
 import { Pressable, Text, View, type StyleProp, type ViewStyle } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { useSettings } from '../stores/settings';
 import { colors, createStyles } from '../theme';
 import { voice } from '../voice/voice';
 import { Slider } from './Slider';
+import { SwapIcon } from './SwapIcon';
 
 /** Ses seviyesi 0–2 (%0–%200); %100'de kaydırıcı hafifçe yapışır */
 const MAX = 2;
@@ -68,7 +68,7 @@ export function VolumeControl({
         accessibilityRole="button"
         accessibilityLabel={muted ? `${label}: sesi aç` : `${label}: sessize al`}
       >
-        <Ionicons name={volumeIcon(muted ? 0 : shown)} size={20} color={muted ? colors.danger : themed ? colors.head : '#fff'} />
+        <SwapIcon name={volumeIcon(muted ? 0 : shown)} size={20} color={muted ? colors.danger : themed ? colors.head : '#fff'} />
       </Pressable>
       <Slider
         style={styles.slider}

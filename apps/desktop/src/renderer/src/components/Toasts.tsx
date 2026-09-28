@@ -32,7 +32,7 @@ export function Toasts() {
                   onClick={() => dismiss(t.id)}
                   aria-label="Kapat"
                 >
-                  <X size={16} />
+                  <X size={16} className="ico-rotate" />
                 </button>
               </div>
             </div>

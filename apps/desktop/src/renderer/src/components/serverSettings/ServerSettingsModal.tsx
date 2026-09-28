@@ -84,7 +84,7 @@ export function ServerSettingsModal({ initial }: { initial?: ServerSettingsSecti
           className="group fixed top-14 right-10 flex flex-col items-center gap-1 text-text-muted transition-colors hover:text-text-head"
           aria-label="Kapat"
         >
-          <span className="press-icon flex h-9 w-9 items-center justify-center rounded-full border-2 border-current transition-transform group-hover:rotate-90 group-active:scale-90">
+          <span className="ico-rotate flex h-9 w-9 items-center justify-center rounded-full border-2 border-current group-active:scale-90">
             <X size={20} />
           </span>
           <span className="text-xs font-semibold">ESC</span>
@@ -103,7 +103,8 @@ function NavItem({ active, onClick, children }: { active?: boolean; onClick: () 
         active ? 'bg-bg-active text-text-head' : 'text-text-muted hover:bg-bg-hover hover:text-text-normal',
       )}
     >
-      {children}
+      {/* Seçili olmayan bölümün adı üstüne gelince hafifçe sağa kayar */}
+      <span className={cn('inline-block', !active && 'ico-nudge-r')}>{children}</span>
     </button>
   );
 }

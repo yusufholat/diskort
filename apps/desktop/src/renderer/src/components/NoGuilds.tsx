@@ -34,7 +34,7 @@ export function NoGuilds() {
           onClick={() => openModal({ type: 'addGuild', tab: 'create' })}
         >
           <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand text-white">
-            <Sparkles size={24} />
+            <Sparkles size={24} className="ico-twinkle" />
           </span>
           <span className="font-semibold text-text-head">Sunucu oluştur</span>
           <span className="text-sm text-text-muted">Metin ve ses kanalıyla hazır gelir</span>
@@ -44,7 +44,7 @@ export function NoGuilds() {
           onClick={() => openModal({ type: 'addGuild', tab: 'join' })}
         >
           <span className="flex h-12 w-12 items-center justify-center rounded-full bg-ok text-white">
-            <Link2 size={24} />
+            <Link2 size={24} className="ico-tilt" />
           </span>
           <span className="font-semibold text-text-head">Sunucuya katıl</span>
           <span className="text-sm text-text-muted">Davet bağlantın ya da kodun var</span>

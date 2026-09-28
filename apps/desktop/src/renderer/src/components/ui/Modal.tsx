@@ -45,7 +45,7 @@ export function Modal({ title, subtitle, onClose, children, footer, className }:
           onClick={onClose}
           aria-label="Kapat"
         >
-          <X size={22} />
+          <X size={22} className="ico-rotate" />
         </button>
         {title && (
           <div className="px-4 pt-5 pb-3 text-center">

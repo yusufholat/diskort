@@ -34,13 +34,13 @@ export function AddGuildModal({ tab, code }: { tab?: 'create' | 'join'; code?: s
     <Modal title="Sunucu ekle" subtitle="Kendi sunucunu kur ya da bir davetle arkadaşlarının sunucusuna katıl." onClose={close}>
       <div className="flex flex-col gap-2">
         <ChoiceButton
-          icon={<Sparkles size={22} />}
+          icon={<Sparkles size={22} className="ico-twinkle" />}
           title="Kendi sunucunu kur"
           hint="Metin ve ses kanalıyla hazır gelir"
           onClick={() => setStep('create')}
         />
         <ChoiceButton
-          icon={<Link2 size={22} />}
+          icon={<Link2 size={22} className="ico-tilt" />}
           title="Sunucuya katıl"
           hint="Davet bağlantın ya da kodun var"
           onClick={() => setStep('join')}
@@ -62,7 +62,7 @@ function ChoiceButton({ icon, title, hint, onClick }: { icon: ReactNode; title: 
         <span className="block font-semibold text-text-head">{title}</span>
         <span className="block text-sm text-text-muted">{hint}</span>
       </span>
-      <ChevronRight size={20} className="text-text-muted" />
+      <ChevronRight size={20} className="ico-nudge-r text-text-muted" />
     </button>
   );
 }

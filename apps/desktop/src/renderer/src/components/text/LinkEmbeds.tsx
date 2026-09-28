@@ -197,7 +197,7 @@ function DirectVideo({ url, host }: { url: string; host: string }) {
 function PlayBadge() {
   return (
     <span className="absolute inset-0 flex items-center justify-center">
-      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-bg-float/80 text-text-head shadow-lg transition-transform duration-150 group-hover/play:scale-110">
+      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-bg-float/80 text-text-head shadow-lg transition-transform duration-200 ease-(--ease-hov) group-hover/play:scale-110">
         <Play size={22} fill="currentColor" className="ml-0.5" />
       </span>
     </span>
