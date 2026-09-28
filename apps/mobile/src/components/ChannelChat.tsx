@@ -56,6 +56,7 @@ import { EmojiGrid } from './EmojiGrid';
 import { HeaderButton } from './HeaderButton';
 import type { MarkdownContext } from './Markdown';
 import { MemberSheet } from './MemberSheet';
+import { MessageErrorBoundary } from './MessageErrorBoundary';
 import { MessageRow, sameDay } from './MessageRow';
 import { PressableScale } from './PressableScale';
 import { MessageSkeleton } from './Skeleton';
@@ -320,20 +321,23 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
 
   const renderItem: ListRenderItem<Row> = useCallback(
     ({ item }) => (
-      <MessageRow
-        message={item.message}
-        author={item.message.authorId ? users[item.message.authorId] : undefined}
-        compact={item.compact}
-        dayBreak={item.dayBreak}
-        newDivider={item.newDivider}
-        self={self!}
-        md={md}
-        onLongPress={setMenuFor}
-        animateIn={fresh.has(keyOf(item.message))}
-        flash={flash?.id === item.message.id ? flash.seq : 0}
-        onReply={canReply ? startReply : undefined}
-        onAvatarPress={setProfileOf}
-      />
+      // Bozuk veri tek satırı düşürür, sohbetin tamamını değil
+      <MessageErrorBoundary resetKey={item.message}>
+        <MessageRow
+          message={item.message}
+          author={item.message.authorId ? users[item.message.authorId] : undefined}
+          compact={item.compact}
+          dayBreak={item.dayBreak}
+          newDivider={item.newDivider}
+          self={self!}
+          md={md}
+          onLongPress={setMenuFor}
+          animateIn={fresh.has(keyOf(item.message))}
+          flash={flash?.id === item.message.id ? flash.seq : 0}
+          onReply={canReply ? startReply : undefined}
+          onAvatarPress={setProfileOf}
+        />
+      </MessageErrorBoundary>
     ),
     [users, self, md, fresh, flash, canReply],
   );

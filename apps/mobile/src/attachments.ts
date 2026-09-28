@@ -1,7 +1,7 @@
 // Dosya ekleri (Android ve iOS): dosya/resim seçme, yükleme (yerel dosyayı ham gövde olarak) ve gelen dosyayı
 // indirip telefondaki uygun uygulamayla açma.
 import type { Attachment } from '@diskort/shared';
-import { attachmentUrl, type LocalFile, type UploadRequest, type UploadResponse } from '@diskort/client-core';
+import { attachmentUrl, safeDecodeURIComponent, type LocalFile, type UploadRequest, type UploadResponse } from '@diskort/client-core';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
@@ -31,7 +31,7 @@ export async function uploadFromDevice(request: UploadRequest): Promise<UploadRe
   }
 }
 
-const baseName = (uri: string): string => decodeURIComponent(uri.split('/').pop() ?? '') || 'dosya';
+const baseName = (uri: string): string => safeDecodeURIComponent(uri.split('/').pop() ?? '') || 'dosya';
 
 /** Seçicinin bildirmediği boyut dosyanın kendisinden okunur. */
 async function withSize(file: Omit<LocalFile, 'size'> & { size?: number | null }): Promise<LocalFile> {

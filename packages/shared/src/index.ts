@@ -552,6 +552,8 @@ export const BANNER_HEIGHT = 360;
 export interface ChangePasswordRequest {
   currentPassword: string;
   newPassword: string;
+  /** Bu cihazın bildirim jetonu (biliniyorsa): diğer jetonlar silinirken bu korunur */
+  pushToken?: string;
 }
 
 /** Yöneticinin verdiği tek kullanımlık kodla şifre sıfırlama (giriş ekranı). */

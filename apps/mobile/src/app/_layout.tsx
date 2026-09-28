@@ -23,6 +23,9 @@ import { useVoice, voice } from '../voice/voice';
 
 void SplashScreen.preventAutoHideAsync();
 
+/** İşlenmiş bildirim dokunuşları (bileşenden uzun yaşar: Android ekranı yeniden kurunca da hatırlanır) */
+const handledNotificationResponses = new Set<string>();
+
 /**
  * Ekran çizilirken bir hata olursa (ör. bir ekranın kodunda hata) uygulama kapanmak yerine bunu gösterir
  * ve hatayı sunucu kayıtlarına bildirir.
@@ -102,6 +105,17 @@ export default function RootLayout() {
   useEffect(() => {
     if (!ready || !token) return;
     const open = (response: Notifications.NotificationResponse | null): void => {
+      if (!response) return;
+      // Aynı dokunuş bir kez işlenir: bileşen yeniden kurulunca ya da yeniden girişte son yanıt tekrar
+      // okunur ve kullanıcı eski kanala geri atılmamalı
+      const key = `${response.notification.request.identifier}:${response.notification.date}`;
+      if (handledNotificationResponses.has(key)) return;
+      handledNotificationResponses.add(key);
+      try {
+        Notifications.clearLastNotificationResponse();
+      } catch {
+        // eski yerel modülde yok: yukarıdaki kayıt yeter
+      }
       const channelId = channelFromResponse(response);
       if (channelId) showChat(channelId);
     };

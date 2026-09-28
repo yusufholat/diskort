@@ -3,7 +3,7 @@ import { Text, View } from 'react-native';
 import { DISPLAY_NAME_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '@diskort/shared';
 import { api, ApiError, errorMessage, gateway, useSession } from '@diskort/client-core';
 import { animateNextLayout } from '../../motion';
-import { unregisterPush } from '../../notifications';
+import { currentPushToken, unregisterPush } from '../../notifications';
 import { toast } from '../../stores/ui';
 import { colors, createStyles, font, space } from '../../theme';
 import { voice } from '../../voice/voice';
@@ -103,7 +103,10 @@ function ChangePassword() {
     if (found.current || found.next || found.repeat) return;
     setBusy(true);
     try {
-      const res = await api.changePassword({ currentPassword: current, newPassword: next });
+      // Sunucu diğer cihazların bildirim jetonlarını siler; bu cihazınki gönderilirse korunur
+      const pushToken = (await currentPushToken()) ?? undefined;
+      const res = await api.changePassword({ currentPassword: current, newPassword: next, pushToken });
+      // Yeni oturum jetonu: değişince _layout.tsx bildirim kaydını yeniler (jeton bilinmiyorsa da kaydolunur)
       useSession.getState().setSession(res.token, res.user);
       setCurrent('');
       setNext('');

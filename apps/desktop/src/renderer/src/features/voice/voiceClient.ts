@@ -224,6 +224,8 @@ class VoiceClient {
     // Ses bağlamı ve çıkış aygıtı bağlanırken hazırlanır: "katıldın" sesi aygıt değişimine takılmasın
     prepareSounds();
     await this.teardownRoom();
+    // Sökme beklenirken başka bir katılma/ayrılma başladıysa bu istek eskidir: durumu ezmesin
+    if (seq !== this.joinSeq) return;
     setVoice({ ...RESET_ROOM_STATE, channelId, status: 'connecting', error: null });
 
     try {
@@ -255,7 +257,7 @@ class VoiceClient {
       }
       this.applyVolumes();
       setConnectionStats({ server: this.serverInfo(room, url) });
-      setVoice({ status: 'connected', micAllowed: this.canPublish(room, PROTO_SOURCE.microphone) });
+      setVoice({ channelId, status: 'connected', micAllowed: this.canPublish(room, PROTO_SOURCE.microphone) });
       // Bağlantı kurulunca (öncesinde değil) çalınır; kanaldakilerin girişleri ve yayınları ses seli yapmaz
       this.channelSounds.quiet();
       this.startStats();
@@ -904,31 +906,55 @@ class VoiceClient {
       return null;
     }
     const video = new LocalVideoTrack(videoTrack, undefined, true);
-    await room.localParticipant.publishTrack(video, {
-      source: Track.Source.ScreenShare,
-      videoCodec: opts.codec,
-      // Donanım kodlayıcısı yayın ortasında hata verirse WebRTC başka kodeğe geçer; LiveKit sunucusu yük türü
-      // değişince yayını izleyicilere iletmeyi keser. Yedek VP8 tanımlıyken sunucu izleyicileri kesintisiz ona
-      // aktarır (yedek yalnızca gerektiğinde kodlanır, normalde ek yük yok).
-      backupCodec: hardware ? { codec: 'vp8' } : false,
-      // Simulcast kapalı: ekran kartı kodlayıcısı olmayan sistemlerde H.264 yazılımla (OpenH264) kodlanıyor;
-      // 720p alt katman toplam kodlama süresini ~2 katına çıkarıp çözünürlüğü CPU yüzünden düşürtüyor.
-      // 10–20 kişide sunucu trafiği kazancı bu bedele değmiyor.
-      simulcast: false,
-      screenShareEncoding: { maxBitrate: preset.bitrate, maxFramerate: preset.fps, priority: 'high' },
-      degradationPreference: opts.content === 'motion' ? 'maintain-framerate' : 'maintain-resolution',
-    });
-
     let audio: LocalAudioTrack | null = null;
-    if (audioTrack) {
-      audio = new LocalAudioTrack(audioTrack, undefined, true);
-      await room.localParticipant.publishTrack(audio, {
-        source: Track.Source.ScreenShareAudio,
-        dtx: false,
-        red: false,
-        forceStereo: true,
-        audioPreset: { maxBitrate: 128_000 },
+    // Yayın başlatılamazsa (ör. bağlantı koptu) yakalama açık kalmasın: yayınlanan geri alınır, izler durur
+    const abandon = async (): Promise<void> => {
+      for (const track of [video, audio]) {
+        if (track) await room.localParticipant.unpublishTrack(track, true).catch(() => undefined);
+      }
+      releaseHardwareEncoder(videoTrack);
+      video.stop();
+      audio?.stop();
+      stream.getTracks().forEach((t) => t.stop());
+      audioTrack?.stop();
+    };
+    try {
+      await room.localParticipant.publishTrack(video, {
+        source: Track.Source.ScreenShare,
+        videoCodec: opts.codec,
+        // Donanım kodlayıcısı yayın ortasında hata verirse WebRTC başka kodeğe geçer; LiveKit sunucusu yük türü
+        // değişince yayını izleyicilere iletmeyi keser. Yedek VP8 tanımlıyken sunucu izleyicileri kesintisiz ona
+        // aktarır (yedek yalnızca gerektiğinde kodlanır, normalde ek yük yok).
+        backupCodec: hardware ? { codec: 'vp8' } : false,
+        // Simulcast kapalı: ekran kartı kodlayıcısı olmayan sistemlerde H.264 yazılımla (OpenH264) kodlanıyor;
+        // 720p alt katman toplam kodlama süresini ~2 katına çıkarıp çözünürlüğü CPU yüzünden düşürtüyor.
+        // 10–20 kişide sunucu trafiği kazancı bu bedele değmiyor.
+        simulcast: false,
+        screenShareEncoding: { maxBitrate: preset.bitrate, maxFramerate: preset.fps, priority: 'high' },
+        degradationPreference: opts.content === 'motion' ? 'maintain-framerate' : 'maintain-resolution',
       });
+
+      if (audioTrack) {
+        audio = new LocalAudioTrack(audioTrack, undefined, true);
+        await room.localParticipant.publishTrack(audio, {
+          source: Track.Source.ScreenShareAudio,
+          dtx: false,
+          red: false,
+          forceStereo: true,
+          audioPreset: { maxBitrate: 128_000 },
+        });
+      }
+    } catch (err) {
+      await abandon();
+      if (room !== this.room) return null;
+      setVoice({ sharing: false, shareHasAudio: false });
+      this.bumpTracks();
+      throw err;
+    }
+    // Yayınlanırken odadan çıkıldı ya da başka odaya geçildi: yayın bu odaya ait değil
+    if (room !== this.room) {
+      await abandon();
+      return null;
     }
 
     this.screen = { video, audio, preview: new StreamPreviewUploader(videoTrack, sourceOf(opts, videoTrack)) };

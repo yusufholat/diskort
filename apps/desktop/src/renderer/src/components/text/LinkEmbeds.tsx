@@ -7,6 +7,7 @@ import {
   embedMediaUrl,
   embedVideoUrl,
   fitBox,
+  lastPathSegment,
   parseInline,
   youtubePlayerUrl,
   type MdInline,
@@ -44,7 +45,8 @@ export function LinkEmbeds({ embeds, dim = false }: { embeds: LinkEmbed[]; dim?:
 /** Görüntüleyici için resmi dosya eki gibi tanıtır (adres sunucumuzdaki imzalı adres) */
 function viewerAttachment(embed: LinkEmbed): Attachment | null {
   if (!embed.image || !embedMediaUrl(embed.image)) return null;
-  const name = decodeURIComponent(embed.url.split(/[?#]/)[0]!.split('/').pop() || '') || embedHost(embed.url);
+  // Bozuk kodlama (ör. %zz) fırlatmaz: çözülemeyen parça olduğu gibi kalır
+  const name = lastPathSegment(embed.url) || embedHost(embed.url);
   return {
     id: `embed:${embed.url}`,
     name,

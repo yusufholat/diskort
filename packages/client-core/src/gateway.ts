@@ -11,6 +11,8 @@ import { restoreActiveGuild, useGuild } from './guild';
 import { useSession } from './session';
 
 const RECONNECT_DELAYS_MS = [500, 1000, 2000, 5000, 10000];
+/** Öne gelince açık görünen bağlantının yoklaması: bu sürede HEARTBEAT_ACK gelmezse bağlantı ölü sayılır */
+const RESUME_PROBE_MS = 5000;
 
 type Listener = (msg: GatewayServerMessage) => void;
 
@@ -19,6 +21,8 @@ class GatewayClient {
   private ws: WebSocket | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** resume() yoklamasının zaman aşımı (HEARTBEAT_ACK gelince temizlenir) */
+  private probeTimer: ReturnType<typeof setTimeout> | null = null;
   private attempts = 0;
   private awaitingAck = false;
   private active = false;
@@ -49,12 +53,26 @@ class GatewayClient {
 
   /**
    * Bekleyen yeniden bağlanma denemesini beklemeden hemen bağlan (mobilde uygulama öne gelince ya da
-   * ağ değişince). Bağlantı zaten açıksa bir şey yapmaz.
+   * ağ değişince). Bağlantı açık görünüyorsa hemen yoklanır: arka planda TCP yolu ölmüş olabilir ve
+   * kapanış olayı dakikalarca gelmeyebilir. RESUME_PROBE_MS içinde yanıt gelmezse yeniden bağlanılır.
    */
   resume(): void {
-    if (!this.active || this.ws) return;
-    this.attempts = 0;
-    this.open();
+    if (!this.active) return;
+    const ws = this.ws;
+    if (!ws) {
+      this.attempts = 0;
+      this.open();
+      return;
+    }
+    if (ws.readyState !== WebSocket.OPEN || this.probeTimer !== null) return;
+    this.send({ t: 'HEARTBEAT' });
+    this.probeTimer = setTimeout(() => {
+      this.probeTimer = null;
+      if (this.ws !== ws || !this.active) return;
+      this.dropSocket('resume probe timeout');
+      this.attempts = 0;
+      this.open();
+    }, RESUME_PROBE_MS);
   }
 
   /**
@@ -131,6 +149,8 @@ class GatewayClient {
         break;
       case 'HEARTBEAT_ACK':
         this.awaitingAck = false;
+        if (this.probeTimer !== null) clearTimeout(this.probeTimer);
+        this.probeTimer = null;
         break;
       case 'INVALID_SESSION':
         // Ör. "Sunucudan çıkarıldın.", "Hesabın bir yönetici tarafından silindi."
@@ -157,13 +177,30 @@ class GatewayClient {
     this.awaitingAck = false;
     this.heartbeatTimer = setInterval(() => {
       if (this.awaitingAck) {
-        // Yanıt gelmedi: bağlantı ölü, yeniden bağlan.
-        this.ws?.close(4000, 'heartbeat timeout');
+        // Yanıt gelmedi: bağlantı ölü. Kapanış olayı ölü TCP yolunda ~1 dk gecikebilir; beklemeden
+        // bırakılır ve yeniden bağlanılır.
+        this.dropSocket('heartbeat timeout');
+        if (this.active) this.scheduleReconnect();
         return;
       }
       this.awaitingAck = true;
       this.send({ t: 'HEARTBEAT' });
     }, interval);
+  }
+
+  /** Ölü sayılan bağlantıyı olaylarını ayırarak bırakır (geç gelen kapanış olayı artık bir şey yapmaz). */
+  private dropSocket(reason: string): void {
+    const ws = this.ws;
+    this.ws = null;
+    this.clearTimers();
+    if (!ws) return;
+    ws.onmessage = null;
+    ws.onclose = null;
+    try {
+      ws.close(4000, reason);
+    } catch {
+      // zaten kapanmış
+    }
   }
 
   private scheduleReconnect(): void {
@@ -176,8 +213,10 @@ class GatewayClient {
   private clearTimers(): void {
     if (this.heartbeatTimer !== null) clearInterval(this.heartbeatTimer);
     if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
+    if (this.probeTimer !== null) clearTimeout(this.probeTimer);
     this.heartbeatTimer = null;
     this.reconnectTimer = null;
+    this.probeTimer = null;
   }
 }
 

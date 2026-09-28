@@ -185,6 +185,7 @@ export {
   type SettingsSectionInfo,
 } from './settingsSections';
 export { embedColor, embedHost, embedMediaUrl, embedVideoUrl, visibleLinkEmbeds, youtubePlayerUrl } from './linkEmbeds';
+export { lastPathSegment, safeDecodeURIComponent } from './uri';
 export {
   ackChannel,
   flushAcks,

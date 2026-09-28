@@ -37,7 +37,10 @@ async function sendToken(token: string): Promise<void> {
   await SecureStore.setItemAsync(TOKEN_KEY, token);
 }
 
-/** Giriş yapılınca: bildirim izni iste, cihaz jetonunu sunucuya kaydet. */
+/**
+ * Giriş yapılınca: bildirim izni iste, cihaz jetonunu sunucuya kaydet. Her girişte (jeton öncekiyle aynı olsa
+ * da) yeniden gönderilir: zorunlu çıkışta sunucu kaydı silmiş olabilir.
+ */
 export async function registerForPush(): Promise<void> {
   if (Platform.OS !== 'android' && Platform.OS !== 'ios') return;
   try {
@@ -78,6 +81,21 @@ async function createChannels(): Promise<void> {
     lightColor: '#5865f2',
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
+}
+
+/**
+ * Oturum kapandı (zorunlu çıkış dahil: 401, gateway 4004, INVALID_SESSION): yerel kayıt unutulur. Sunucu jetonu
+ * silmiş olabilir; sonraki girişte registerForPush jeton aynı olsa da yeniden kaydeder.
+ */
+export function forgetPushRegistration(): void {
+  tokenSubscription?.remove();
+  tokenSubscription = null;
+  void SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => undefined);
+}
+
+/** Bu cihazın sunucuya kaydedilmiş bildirim jetonu (yoksa null) */
+export async function currentPushToken(): Promise<string | null> {
+  return SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
 }
 
 /** Çıkış yapmadan önce: bu cihaza artık bu hesabın bildirimleri gitmesin. */

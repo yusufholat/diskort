@@ -6,6 +6,7 @@ import {
   discardMessage,
   EMOJI_CATEGORIES,
   gateway,
+  loadInitial,
   retryMessage,
   sendMessage,
   toggleReaction,
@@ -15,6 +16,7 @@ import {
   useSession,
   type KeyValueStorage,
   type LocalFile,
+  type LocalMessage,
   type UploadRequest,
   type UploadResponse,
 } from '../src';
@@ -302,5 +304,53 @@ describe('dosya ekleri', () => {
     expect(messages().map((m) => m.id)).toEqual(['50']);
     // Yazma kutusuna sonradan eklenen dosya yerinde durur
     expect(useMessages.getState().pendingFiles.c1!.map((f) => f.name)).toEqual(['b.png']);
+  });
+});
+
+describe('yeniden bağlanınca tazeleme', () => {
+  const ids = (from: number, to: number): string[] => Array.from({ length: to - from + 1 }, (_, i) => String(from + i));
+  const cached = (list: string[], extra: LocalMessage[] = []): void =>
+    useMessages.setState({
+      channels: { c1: { messages: [...list.map((id) => message(id, id)), ...extra], hasMore: true, loading: false, loaded: false } },
+    });
+  const serve = (list: string[]) =>
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(list.map((id) => message(id, id))), { status: 200 })));
+  const shown = () => useMessages.getState().channels.c1!.messages.map((m) => m.id);
+
+  it('en yeni sayfa önbellekle örtüşmüyorsa önbellek sayfayla değiştirilir (boşluk kalmaz)', async () => {
+    const pending: LocalMessage = { ...message('tmp-1', 'gidiyor', 'u1'), status: 'pending', nonce: 'n1' };
+    cached(['1', '2', '3'], [pending]);
+    serve(ids(100, 149));
+    await loadInitial('c1');
+    expect(shown()).toEqual([...ids(100, 149), 'tmp-1']);
+    expect(useMessages.getState().channels.c1!.hasMore).toBe(true);
+  });
+
+  it('sayfanın aralığında olup sayfada olmayan mesajlar (kopukken silinen) çıkarılır', async () => {
+    const failed: LocalMessage = { ...message('tmp-2', 'gitmedi', 'u1'), status: 'failed', nonce: 'n2' };
+    // Tam sayfa: sayfadan eski önbellek (örtüşme var) korunur, aralıktaki 30 silinmiş
+    cached([...ids(5, 60), '61'], [failed]);
+    serve(ids(10, 60).filter((id) => id !== '30'));
+    await loadInitial('c1');
+    // 61 istekten önce önbellekteydi ama en yeni sayfada yok: o da silinmiş
+    expect(shown()).toEqual([...ids(5, 60).filter((id) => id !== '30'), 'tmp-2']);
+  });
+
+  it('tam olmayan sayfa kanalın tamamıdır: sayfada olmayan eski mesajlar da çıkarılır', async () => {
+    cached(['1', '2', '3', '4']);
+    serve(['2', '4']);
+    await loadInitial('c1');
+    expect(shown()).toEqual(['2', '4']);
+  });
+
+  it('istek sürerken gelen mesaj sayfada olmasa da kalır', async () => {
+    cached(['10', '11']);
+    let resolve!: (r: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((r) => (resolve = r))));
+    const done = loadInitial('c1');
+    receive({ t: 'MESSAGE_CREATE', d: message('14', 'yeni') });
+    resolve(new Response(JSON.stringify(['10', '11', '12'].map((id) => message(id, id))), { status: 200 }));
+    await done;
+    expect(shown()).toEqual(['10', '11', '12', '14']);
   });
 });

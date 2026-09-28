@@ -3,6 +3,7 @@ import './platform';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { AppCrashScreen, ErrorBoundary } from './components/ErrorBoundary';
 import { installTurnPortRewrite } from './features/voice/turnPort';
 import { installTheme } from './lib/theme';
 import { voice } from './features/voice/voiceClient';
@@ -28,6 +29,9 @@ if (import.meta.env.DEV) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    {/* Çizim hatası tüm pencereyi beyaz bırakmasın */}
+    <ErrorBoundary where="uygulama" fallback={<AppCrashScreen />}>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 );
