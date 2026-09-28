@@ -2,6 +2,9 @@ import type { FastifyReply } from 'fastify';
 import type { ZodType } from 'zod';
 import type { Guild } from '@diskort/shared';
 import type { ErrorLog } from './activity.js';
+import type { ApiStats } from './apiStats.js';
+import type { AuthLog } from './authLog.js';
+import type { DailyCounters } from './counters.js';
 import type { AttachmentService } from './attachments.js';
 import type { AvatarService } from './avatars.js';
 import type { AuthService } from './auth.js';
@@ -18,6 +21,7 @@ import type { PermissionService } from './permissions.js';
 import type { PushService } from './push.js';
 import type { ReleaseService } from './releases.js';
 import type { StreamPreviewStore } from './streamPreview.js';
+import type { VoiceTelemetryStore } from './telemetry.js';
 import type { VoiceModeration } from './voiceModeration.js';
 import type { VoiceStateStore } from './voiceState.js';
 
@@ -46,6 +50,14 @@ export interface AppContext {
   streamPreviews: StreamPreviewStore;
   /** Son istemci ve sunucu hataları (yalnızca bellekte; yönetim paneli) */
   errors: ErrorLog;
+  /** Yönetim paneli: gün başına sayaçlar (bildirimler, indirmeler, güncelleme denetimleri…) */
+  counters: DailyCounters;
+  /** Yönetim paneli: giriş kayıtları */
+  authLog: AuthLog;
+  /** Yönetim paneli: istek sayıları, gecikmeler, sınır aşımları, sunucu günlüğündeki hatalar */
+  apiStats: ApiStats;
+  /** Yönetim paneli: istemcilerin ses kalitesi özetleri ve kalite sorunları */
+  telemetry: VoiceTelemetryStore;
   /**
    * Ana sunucu (ilk kurulan; hesap yöneticileri onun yöneticileridir). Adı, simgesi ya da sahibi değişince
    * yerinde güncellenir. Diğer sunucular veritabanındadır.

@@ -32,6 +32,8 @@ import {
   summarizePings,
   useGuild,
   useSession,
+  voiceTelemetry,
+  type TelemetryContext,
   type TransportStats,
 } from '@diskort/client-core';
 import { bridge } from '../../lib/bridge';
@@ -170,6 +172,8 @@ class VoiceClient {
     document.body.appendChild(this.audioSink);
 
     useSettings.subscribe((next, prev) => this.onSettingsChanged(next, prev));
+    // Yönetim paneli için ses kalitesi özetleri (bkz. client-core voiceTelemetry)
+    voiceTelemetry.setContext(() => this.telemetryContext());
     gateway.on((msg) => {
       if (msg.t === 'READY') this.syncVoiceState();
       // Yetkili biri seni başka ses kanalına taşıdı: o kanala geç
@@ -297,6 +301,8 @@ class VoiceClient {
     this.channelSounds.cancel();
     this.clearReconnectTimer();
     this.stopStats();
+    // Yarım kalan ses kalitesi özeti (kanal ve mikrofon bilgisi henüz duruyor)
+    voiceTelemetry.reset();
     this.statsPrev = { publisher: null, subscriber: null };
     setConnectionStats(EMPTY_CONNECTION_STATS);
     if (this.pttReleaseTimer !== null) window.clearTimeout(this.pttReleaseTimer);
@@ -344,6 +350,28 @@ class VoiceClient {
     if (noise === 'dpdfnet' && (await dpdfnetAvailable())) return 'dpdfnet';
     if ((noise === 'dpdfnet' || noise === 'deepfilter') && (await deepFilterAvailable())) return 'deepfilter';
     return null;
+  }
+
+  /** Ses kalitesi özetinin kanal ve mikrofon bilgisi (yalnızca ölçümler; ad, içerik yok) */
+  private telemetryContext(): TelemetryContext {
+    const v = useVoice.getState();
+    const stats = this.processor?.stats ?? null;
+    return {
+      channelId: v.status === 'idle' ? null : v.channelId,
+      mic: this.mic
+        ? {
+            noise: getSettings().noise,
+            model: stats?.model ?? null,
+            load: stats?.load ?? null,
+            avgFrameMs: stats?.avgFrameMs ?? null,
+            p99FrameMs: stats?.p99FrameMs ?? null,
+            maxFrameMs: stats?.maxFrameMs ?? null,
+            underruns: stats?.underruns ?? null,
+            droppedSamples: stats?.droppedSamples ?? null,
+            muted: this.micMuted(),
+          }
+        : null,
+    };
   }
 
   /** Mikrofon işleme ölçümleri (gürültü engelleyici yükü, kare süreleri); bağlı değilse null */
@@ -675,6 +703,7 @@ class VoiceClient {
       .on(RoomEvent.Reconnecting, () => {
         this.duplicates.noteReconnect();
         if (room !== this.room) return;
+        voiceTelemetry.noteReconnect();
         setVoice({ status: 'reconnecting' });
         // Kısa kopmalar sessiz geçer; bağlantı birkaç saniyede gelmezse "koptu" sesi
         this.clearReconnectTimer();
@@ -961,7 +990,7 @@ class VoiceClient {
       const pubReport = await pcs?.publisher.getStats()?.catch(() => undefined);
       const publisher = pubReport ? parseTransportStats(pubReport, at) : null;
       // Yayın bağlantısında ölçüm yoksa (ör. konuşma izni yok) ping abonelik bağlantısından alınır
-      const needSubscriber = detail || publisher?.rttMs == null;
+      const needSubscriber = detail || publisher?.rttMs == null || voiceTelemetry.wantsSubscriber(at);
       const subReport = needSubscriber ? await pcs?.subscriber?.getStats()?.catch(() => undefined) : undefined;
       const subscriber = subReport ? parseTransportStats(subReport, at) : null;
       if (room !== this.room) return;
@@ -985,6 +1014,14 @@ class VoiceClient {
           : null,
       });
       if (rttMs !== null) setVoice({ pingMs: rttMs });
+      voiceTelemetry.sample({
+        at,
+        publisher,
+        prevPublisher: prev.publisher,
+        subscriber,
+        quality: useConnectionStats.getState().quality,
+        serverQuality: useVoice.getState().quality,
+      });
     } finally {
       this.statsBusy = false;
     }

@@ -41,5 +41,13 @@ webhook:
   urls:
     - http://127.0.0.1:3000/api/livekit/webhook
 
+# Yönetim paneli ölçümleri (Prometheus): bayt/paket, kayıp, NACK/PLI, oda/katılımcı/iz sayıları, LiveKit
+# sürecinin CPU/belleği. API 127.0.0.1:6789/metrics'ten 10 sn'de bir okur (LIVEKIT_METRICS_URL).
+# LiveKit bu portu (7880 gibi) tüm arayüzlerde açar; dışarıdan erişim güvenlik duvarıyla kapalıdır (ufw
+# yalnızca 22, 80, 443, 7881/tcp, 3478/udp, 50000-60000/udp'ye izin verir). Bu ayar LiveKit yeniden
+# başlatılınca etkinleşir (görüşmeler birkaç saniye kopar); o zamana kadar panel "metrikler kapalı" gösterir.
+prometheus:
+  port: 6789
+
 logging:
   level: info

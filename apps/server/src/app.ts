@@ -3,6 +3,14 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { ActivityTracker, createErrorLog } from './activity.js';
+import { ApiStats } from './apiStats.js';
+import { AuthLog } from './authLog.js';
+import { DailyCounters } from './counters.js';
+import { InfraMonitor, LiveKitMetrics } from './infraStats.js';
+import { VoiceTelemetryStore } from './telemetry.js';
+import { VoiceSessionRecorder } from './voiceHistory.js';
+import { registerAdminStatsRoutes } from './routes/adminStats.js';
+import { registerTelemetryRoutes } from './routes/telemetry.js';
 import { AttachmentService } from './attachments.js';
 import { AvatarService } from './avatars.js';
 import { AuthService } from './auth.js';
@@ -70,6 +78,15 @@ export interface BuildOptions {
   linkFetch?: Fetcher;
   /** Yönetim paneli: makine ölçümü (testlerde sahte /proc klasörüyle) */
   systemMonitor?: SystemMonitor;
+  /** Ses kalitesi ölçümlerinin klasörü (varsayılan: SYSTEM_STATS açıkken <DATA_DIR>/telemetry; null: yalnızca bellek) */
+  telemetryDir?: string | null;
+  /** Testler için sahte ölçüm uçları (LiveKit ve Caddy Prometheus) */
+  metricsFetch?: typeof fetch;
+  /** Yönetim paneli: hazır LiveKit ölçümü ve altyapı ölçümü (testler ve ekran görüntüsü düzeneği) */
+  livekitMetrics?: LiveKitMetrics;
+  infraMonitor?: InfraMonitor;
+  /** Testler: günlüğün yazılacağı akış (verilirse günlük açık olur; hata kayıtları panele de düşer) */
+  logStream?: { write(msg: string): void };
 }
 
 /** Süresi geçmiş yüklemelerin ve artık dosyaların temizlenme aralığı */
@@ -81,8 +98,18 @@ export async function buildApp(
   config: Config,
   opts: BuildOptions = {},
 ): Promise<{ app: FastifyInstance; ctx: AppContext }> {
+  // Yönetim paneli: istek sayıları ve gecikmeler; günlükteki hata/ölümcül kayıtlar pino kancasıyla yakalanır
+  // (günlüğün kendisi değişmez, kayıt yine yazılır)
+  const apiStats = new ApiStats();
+  const logMethod = function (this: unknown, args: unknown[], method: (...a: unknown[]) => void, level: number): void {
+    apiStats.captureLog(level, args);
+    method.apply(this, args);
+  };
+  const logging = opts.logStream !== undefined || (opts.logger ?? true);
   const app = Fastify({
-    logger: opts.logger ?? true,
+    logger: logging
+      ? { level: 'info', hooks: { logMethod }, ...(opts.logStream ? { stream: opts.logStream } : {}) }
+      : false,
     trustProxy: true,
     bodyLimit: 64 * 1024,
   });
@@ -123,6 +150,16 @@ export async function buildApp(
   );
   const linkPreviews =
     config.linkPreviews || opts.linkFetch ? new LinkPreviewService(store, embedMedia, opts.linkFetch, app.log) : null;
+  // Yönetim paneli: kalıcı sayaçlar ve kayıtlar yalnızca SYSTEM_STATS açıkken dosyaya yazılır (testlerde kapalı)
+  const statsFile = (name: string): string | null => (config.systemStats ? path.join(config.dataDir, name) : null);
+  const counters = new DailyCounters(statsFile('counters.json'), config.statsUtcOffsetMin, Date.now(), app.log);
+  const authLog = new AuthLog(statsFile('auth-log.jsonl'), app.log);
+  push.onDelivery = (platform, result) => counters.inc(`push.${platform}.${result}`);
+  const telemetry = new VoiceTelemetryStore({
+    dir: opts.telemetryDir !== undefined ? opts.telemetryDir : statsFile('telemetry'),
+    offsetMin: config.statsUtcOffsetMin,
+    log: app.log,
+  });
   const ctx: AppContext = {
     config,
     store,
@@ -143,6 +180,10 @@ export async function buildApp(
     moderation,
     streamPreviews: new StreamPreviewStore(voice),
     errors: createErrorLog(),
+    counters,
+    authLog,
+    apiStats,
+    telemetry,
     guild,
   };
 
@@ -170,9 +211,42 @@ export async function buildApp(
   if (!config.isDev) releases.startPolling();
   app.addHook('onClose', async () => releases.stopPolling());
 
+  // Yönetim paneli: ses kalitesi özetleri, ses geçmişi (veritabanı), LiveKit/Caddy ölçümleri, yedekler, TLS
+  const livekitMetrics =
+    opts.livekitMetrics ?? new LiveKitMetrics({ url: config.livekitMetricsUrl, fetchImpl: opts.metricsFetch, log: app.log });
+  const infra =
+    opts.infraMonitor ??
+    new InfraMonitor(
+      {
+        cgroupRoot: config.cgroupRoot,
+        caddyMetricsUrl: config.caddyMetricsUrl,
+        backupDir: config.backupDir,
+        tlsDomains: config.tlsCheckDomains,
+        tlsHost: config.tlsCheckHost,
+        fetchImpl: opts.metricsFetch,
+        log: app.log,
+      },
+      livekitMetrics,
+    );
+  const voiceSessions = new VoiceSessionRecorder(store.db, (channelId) => store.getChannel(channelId)?.guildId ?? null, app.log);
+  voiceSessions.attach(voice);
+  if (config.systemStats) {
+    telemetry.start();
+    livekitMetrics.start();
+    infra.start();
+    voiceSessions.start();
+    authLog.start();
+    apiStats.startLoopMonitor();
+  }
+  app.addHook('onClose', async () => {
+    livekitMetrics.stop();
+    infra.stop();
+    apiStats.stop();
+    await Promise.all([telemetry.stop(), authLog.stop()]);
+  });
+
   // Yönetim paneli: makine yükü, aylık trafik ve hesapların son görülme anı. Kalıcı sayaçlar ve düzenli
   // ölçüm yalnızca SYSTEM_STATS açıkken (testlerde kapalı; panel istek anında ölçer).
-  const statsFile = (name: string): string | null => (config.systemStats ? path.join(config.dataDir, name) : null);
   const feedbackStore = new FeedbackStore(store.db);
   const dashboard = new DashboardService(ctx, {
     monitor:
@@ -192,6 +266,8 @@ export async function buildApp(
       feedback: opts.feedbackDir ?? path.join(config.dataDir, 'feedback'),
       linkPreviews: opts.embedMediaDir ?? path.join(config.dataDir, 'embed-media'),
     },
+    telemetry,
+    livekitMetrics,
   });
   if (config.systemStats) dashboard.start();
   app.addHook('onClose', async () => dashboard.stop());
@@ -202,6 +278,17 @@ export async function buildApp(
     failures.set(req, error.message);
   });
   app.addHook('onResponse', async (req, reply) => {
+    const route = req.routeOptions.url ?? '(eşleşmeyen)';
+    apiStats.record(req.method, route, reply.statusCode, reply.elapsedTime);
+    if (reply.statusCode === 429) {
+      apiStats.recordRateLimit({
+        at: Date.now(),
+        method: req.method,
+        route,
+        ip: req.ip,
+        user: (req.user as { username?: string } | null)?.username ?? null,
+      });
+    }
     if (reply.statusCode < 500) return;
     ctx.errors.server.push({
       at: Date.now(),
@@ -216,6 +303,8 @@ export async function buildApp(
   // Arka planda süren önizlemeler veritabanı kapanmadan bitsin
   app.addHook('onClose', async () => {
     await linkPreviews?.idle();
+    // Açık ses oturumları "yeniden başlatma" olarak kapanır (açılışta sürdürülür)
+    voiceSessions.stop();
     store.close();
   });
 
@@ -248,6 +337,8 @@ export async function buildApp(
     new FeedbackService(feedbackStore, opts.feedbackDir ?? path.join(config.dataDir, 'feedback'), app.log),
   );
   registerDashboardRoutes(app, ctx, dashboard);
+  registerTelemetryRoutes(app, ctx);
+  registerAdminStatsRoutes(app, ctx, { telemetry, livekitMetrics, infra });
 
   return { app, ctx };
 }

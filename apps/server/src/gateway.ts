@@ -19,6 +19,7 @@ import {
   type ServerFeatures,
   type User,
 } from '@diskort/shared';
+import type { GatewayTraffic } from './apiStats.js';
 import type { AuthService } from './auth.js';
 import type { ClientVersionPolicy } from './clientVersion.js';
 import type { Store } from './db.js';
@@ -52,6 +53,8 @@ interface Session {
 }
 
 const OFFLINE_KEY = JSON.stringify(OFFLINE_PRESENCE);
+/** Son bağlantısı kapanan hesap bu süre içinde yeniden bağlanırsa "yeniden bağlanma" sayılır */
+const RECONNECT_WINDOW_MS = 60_000;
 
 /** Kullanıcı → gördüğü kanallar (yetki değişikliğinden önceki durum) */
 export type Visibility = Map<string, Set<string>>;
@@ -71,6 +74,20 @@ export class Gateway {
   private closing = false;
   /** Kullanıcı → en son duyurulan durum (JSON); çevrimdışı görünenler yok. Aynı durum tekrar duyurulmaz. */
   private readonly announced = new Map<string, string>();
+  /** Yönetim paneli: mesaj ve bağlantı sayaçları (sunucu açıldığından beri) */
+  readonly traffic: GatewayTraffic = {
+    messagesIn: 0,
+    messagesOut: 0,
+    bytesOut: 0,
+    connections: 0,
+    identified: 0,
+    reconnects: 0,
+    authFailures: 0,
+    updateRequired: 0,
+    closes: {},
+  };
+  /** Hesap → son bağlantısının kapandığı an (yeniden bağlanma sayımı) */
+  private readonly lastClosed = new Map<string, number>();
 
   constructor(
     private readonly store: Store,
@@ -183,7 +200,7 @@ export class Gateway {
     const data = JSON.stringify(msg);
     for (const s of this.sessions) {
       if (!s.userId) continue;
-      if (s.socket.readyState === s.socket.OPEN) s.socket.send(data);
+      if (s.socket.readyState === s.socket.OPEN) this.out(s, data);
     }
   }
 
@@ -206,7 +223,7 @@ export class Gateway {
         ok = s.userId === opts.include || this.permissions.canView(s.userId, channelId);
         allowed.set(s.userId, ok);
       }
-      if (ok && s.socket.readyState === s.socket.OPEN) s.socket.send(data);
+      if (ok && s.socket.readyState === s.socket.OPEN) this.out(s, data);
     }
   }
 
@@ -215,7 +232,7 @@ export class Gateway {
     const data = JSON.stringify(msg);
     for (const userId of new Set(userIds)) {
       for (const s of this.byUser.get(userId) ?? []) {
-        if (s.socket.readyState === s.socket.OPEN) s.socket.send(data);
+        if (s.socket.readyState === s.socket.OPEN) this.out(s, data);
       }
     }
   }
@@ -238,7 +255,7 @@ export class Gateway {
     const data = JSON.stringify(msg);
     for (const userId of new Set(userIds)) {
       for (const s of this.byUser.get(userId) ?? []) {
-        if (s.dm && s.socket.readyState === s.socket.OPEN) s.socket.send(data);
+        if (s.dm && s.socket.readyState === s.socket.OPEN) this.out(s, data);
       }
     }
   }
@@ -377,7 +394,19 @@ export class Gateway {
   }
 
   private send(s: Session, msg: GatewayServerMessage): void {
-    if (s.socket.readyState === s.socket.OPEN) s.socket.send(JSON.stringify(msg));
+    if (s.socket.readyState === s.socket.OPEN) this.out(s, JSON.stringify(msg));
+  }
+
+  /** Tek giden mesaj (sayılarak) */
+  private out(s: Session, data: string): void {
+    this.traffic.messagesOut++;
+    this.traffic.bytesOut += data.length;
+    s.socket.send(data);
+  }
+
+  /** Açık WebSocket bağlantıları (kimliği doğrulanmamışlar dahil) */
+  openSockets(): number {
+    return this.sessions.size;
   }
 
   private accept(socket: WebSocket): void {
@@ -394,6 +423,7 @@ export class Gateway {
       idle: false,
     };
     this.sessions.add(session);
+    this.traffic.connections++;
     this.send(session, { t: 'HELLO', d: { heartbeatInterval: GATEWAY_HEARTBEAT_INTERVAL_MS } });
 
     const identifyTimer = setTimeout(() => {
@@ -405,6 +435,7 @@ export class Gateway {
     });
 
     socket.on('message', (raw) => {
+      this.traffic.messagesIn++;
       let msg: GatewayClientMessage;
       try {
         msg = JSON.parse(raw.toString()) as GatewayClientMessage;
@@ -415,13 +446,19 @@ export class Gateway {
       void this.handle(session, msg).catch(() => socket.close(4000, 'internal error'));
     });
 
-    socket.on('close', () => {
+    socket.on('close', (code) => {
       clearTimeout(identifyTimer);
       this.sessions.delete(session);
+      const key = String(code);
+      this.traffic.closes[key] = (this.traffic.closes[key] ?? 0) + 1;
       if (!session.userId) return;
       const set = this.byUser.get(session.userId);
       set?.delete(session);
-      if (set && set.size === 0) this.byUser.delete(session.userId);
+      if (set && set.size === 0) {
+        this.byUser.delete(session.userId);
+        if (this.lastClosed.size > 5_000) this.lastClosed.clear();
+        this.lastClosed.set(session.userId, Date.now());
+      }
       // Son oturum kapandıysa çevrimdışı; kalan oturumların hepsi boştaysa "Boşta"
       this.announcePresence(session.userId);
     });
@@ -444,7 +481,7 @@ export class Gateway {
     } satisfies GatewayServerMessage);
     for (const id of this.permissions.coMembers(userId)) {
       for (const s of this.byUser.get(id) ?? []) {
-        if (s !== except && s.socket.readyState === s.socket.OPEN) s.socket.send(data);
+        if (s !== except && s.socket.readyState === s.socket.OPEN) this.out(s, data);
       }
     }
   }
@@ -456,12 +493,14 @@ export class Gateway {
       // ve yeniden bağlanmayı dener; kendi güncelleyicileri yeni sürümü indirip kurar).
       const required = await this.clientVersions?.outdated(msg.d?.version, msg.d?.platform);
       if (required) {
+        this.traffic.updateRequired++;
         this.send(s, { t: 'UPDATE_REQUIRED', d: { version: required } });
         s.socket.close(GATEWAY_CLOSE_UPDATE_REQUIRED, 'update required');
         return;
       }
       const user = await this.auth.userFromToken(msg.d.token);
       if (!user) {
+        this.traffic.authFailures++;
         this.send(s, { t: 'INVALID_SESSION', d: { reason: 'Oturum geçersiz.' } });
         s.socket.close(4004, 'authentication failed');
         return;
@@ -512,6 +551,10 @@ export class Gateway {
 
   private identify(s: Session, user: User): void {
     s.userId = user.id;
+    this.traffic.identified++;
+    const closedAt = this.lastClosed.get(user.id);
+    if (closedAt !== undefined && Date.now() - closedAt <= RECONNECT_WINDOW_MS) this.traffic.reconnects++;
+    this.lastClosed.delete(user.id);
     let set = this.byUser.get(user.id);
     if (!set) this.byUser.set(user.id, (set = new Set()));
     set.add(s);

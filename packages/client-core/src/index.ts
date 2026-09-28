@@ -76,6 +76,13 @@ export {
   type TransportStats,
   type TransportView,
 } from './connectionStats';
+export {
+  TELEMETRY_SUBSCRIBER_EVERY_MS,
+  VoiceTelemetry,
+  voiceTelemetry,
+  type TelemetryContext,
+  type TelemetrySample,
+} from './voiceTelemetry';
 export { gateway } from './gateway';
 export {
   displayStatusOf,

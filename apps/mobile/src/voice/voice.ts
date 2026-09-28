@@ -13,6 +13,7 @@ import {
   toggleStreamMute,
   useGuild,
   useSession,
+  voiceTelemetry,
 } from '@diskort/client-core';
 import {
   type AudioCaptureOptions,
@@ -722,6 +723,7 @@ class MobileVoiceClient {
         this.duplicates.noteReconnect();
         useVoice.setState({ status: 'reconnecting' });
         if (this.room !== room) return;
+        voiceTelemetry.noteReconnect();
         // Kısa kopmalar sessiz geçer; bağlantı birkaç saniyede gelmezse "koptu" sesi
         this.clearReconnectTimer();
         this.reconnectTimer = setTimeout(() => {
