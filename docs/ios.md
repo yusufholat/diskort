@@ -106,6 +106,7 @@ Depo → **Settings** → **Secrets and variables** → **Actions** → **New re
 | `IOS_CERT_PASSWORD` | `.p12` parolası |
 | `IOS_PROVISIONING_PROFILE_BASE64` | `base64 -w0 Diskort_Ad_Hoc.mobileprovision` çıktısı (ASC anahtarı varsa gerekmez) |
 | `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8` | İsteğe bağlı: otomatik cihaz ekleme (aşağıda) |
+| `IOS_DEVICES_KEY` | İsteğe bağlı: şifreli cihaz listesinin anahtarı (aşağıda; sunucuda da aynısı) |
 
 `OTA_SIGNING_KEY` zaten var (Android ile aynı anahtar, iOS OTA paketini de imzalar).
 
@@ -139,10 +140,14 @@ Amaç: yeni bir arkadaşın iPhone'u için tek iş yönetim panelinde **Onayla**
 2. Sen **Onayla** dersin (ya da **Reddet**). Durumlar `/data/udid-status.json`'da tutulur; `udids.jsonl`
    değişmez, eski kayıtlar "Bekliyor" sayılır.
 3. Sunucu onayları 3 dakika toplar (`IOS_DISPATCH_DELAY_SEC`; aynı anda birkaç onay tek derleme olur), sonra
-   GitHub'da **iOS** iş akışını başlatır: `signed=true`, `attach-latest=true`, `devices=<onaylı cihazlar>`.
-   Panelde **Hemen derle** beklemeyi atlar.
+   GitHub'da **iOS** iş akışını başlatır: `signed=true`, `attach-latest=true`, `devices=<onaylı cihazlar, şifreli>`.
+   Panelde **Hemen derle** beklemeyi atlar. Depo herkese açık olduğundan `devices` girdisi **AES-256-GCM ile
+   şifrelidir** (`v1.<iv>.<veri>`, anahtar `IOS_DEVICES_KEY`); UDID ve adlar GitHub'da görünmez.
 4. İş akışı (`.github/workflows/ios.yml`):
    - en son **yayınlanmış** sürümün etiketini alır ve o kodu derler (yeni sürüm gerekmez);
+   - cihaz listesini `scripts/ios-devices-crypto.mjs` ile çözer: her UDID ve ad önce `::add-mask::` ile
+     günlükte gizlenir, açık metin hiçbir yere yazılmaz (betik UDID'nin en çok son 4 karakterini yazar).
+     Anahtar yoksa ya da çözme başarısızsa derleme hemen durur;
    - `scripts/ios-provisioning.mjs sync` ile App Store Connect API üzerinden cihazları Apple'a kaydeder,
      p12'deki sertifikayı Apple'daki kaydıyla eşler ve **tüm açık iOS cihazlarını** içeren yeni bir Ad Hoc
      profili oluşturur (`Diskort Ad Hoc otomatik <tarih>`; eski otomatik profiller silinir, elle
@@ -167,13 +172,18 @@ başarılı biter, yani "Eklendi" gerçekten kurulabilir demektir.
 | Eksik | Ne olur |
 | --- | --- |
 | `GITHUB_DISPATCH_TOKEN` (sunucu) | Onay yalnızca durumu değiştirir; panel çalıştırılacak `gh workflow run …` komutunu gösterir. Derleme bitince cihazları panelde **Eklendi say** ile işaretle. |
+| `IOS_DEVICES_KEY` (sunucu) | Belirteç olsa bile derleme **başlatılmaz** (UDID'ler asla açık gönderilmez); panel kırmızı uyarı ve elle komut gösterir. |
+| `IOS_DEVICES_KEY` (GitHub) | Şifreli cihaz listesiyle başlatılan derleme hemen hata verir. |
 | `ASC_*` gizli değişkenleri (GitHub) | İş akışı eskisi gibi `IOS_PROVISIONING_PROFILE_BASE64`'ü kullanır. Cihazı Apple'da elle ekleyip profili güncellemediysen derleme "Cihaz profilde yok" diye durur (boşuna IPA yüklenmez). |
 
-Elle çalıştırma (Git Bash ya da PowerShell; UDID'ler virgülle):
+Elle çalıştırma: UDID'leri **açık yazma** (herkese açık depoda görünür). Yollar:
 
-```sh
-gh workflow run ios.yml --repo yusufholat/diskort -f simulator=false -f signed=true -f attach-latest=true -f devices=00008110-001A2B3C4D5E6F70
-```
+- Panelin gösterdiği komut: sunucuda `IOS_DEVICES_KEY` varsa cihaz listesi komutta şifreli hazırdır.
+- Cihazsız: `gh workflow run ios.yml --repo yusufholat/diskort -f simulator=false -f signed=true -f attach-latest=true`.
+  ASC yalnızca verilen cihazları kaydeder; cihaz verilmezse profil Apple'da zaten kayıtlı ve açık olan tüm
+  cihazlarla yenilenir. Yani önce cihazı Apple Developer → Devices'ta elle ekle.
+- Şifreli değeri kendin üretmek (anahtar dosyası bilgisayardaysa):
+  `node scripts/ios-devices-crypto.mjs encrypt --key-file ios-devices.key UDID1,UDID2`
 
 ### Bir kerelik kurulum
 
@@ -229,7 +239,33 @@ rm gh-dispatch-token.txt
 değişkeni api kapsayıcısına geçirir; sunucu bu sürümle güncellenmiş olmalı. Belirteç süresi dolunca
 yenisini aynı şekilde yaz (önce `.env`'deki eski satırı sil).
 
-Kontrol: panel → **iPhone cihazları** → "Otomatik derleme: Açık" görünmeli.
+**4. Cihaz listesi şifre anahtarı (`IOS_DEVICES_KEY`)** — aynı anahtar hem GitHub'a hem sunucuya.
+PowerShell'de:
+
+```powershell
+cd C:\Users\yusuf\diskort-ios
+node -e "require('fs').writeFileSync('ios-devices.key', require('crypto').randomBytes(32).toString('base64'))"
+cmd /c 'gh secret set IOS_DEVICES_KEY --repo yusufholat/diskort < "C:\Users\yusuf\diskort-ios\ios-devices.key"'
+```
+
+Sonra sunucuya, Git Bash'te (`/c/Users/yusuf/diskort-ios` klasöründe):
+
+```sh
+scp ios-devices.key diskort-vps:/tmp/ios-devices-key
+ssh diskort-vps 'printf "\nIOS_DEVICES_KEY=%s\n" "$(tr -d "\r\n" < /tmp/ios-devices-key)" >> /opt/diskort/infra/.env && rm /tmp/ios-devices-key && chmod 600 /opt/diskort/infra/.env && cd /opt/diskort/infra && docker compose up -d api'
+```
+
+`ios-devices.key` dosyasını sakla (elle şifreli komut üretmek için gerekir); depoya koyma. Anahtar kaybolursa
+yenisini üretip iki yere de yeniden yaz (önce `.env`'deki eski satırı sil).
+
+Kontrol: panel → **iPhone cihazları** → "Otomatik derleme: Açık" görünmeli (anahtar eksikse kırmızı uyarı çıkar).
+
+### Bilinen: IPA'daki cihaz listesi
+
+Yayınlanan IPA herkese açık GitHub sürümündedir ve içine gömülü dağıtım profili **kayıtlı tüm cihazların
+UDID'lerini** içerir (Ad Hoc'un doğası; IPA'yı indiren biri profili açıp okuyabilir). Adlar profilde yok.
+Risk düşük (UDID tek başına cihaza erişim sağlamaz). İleride IPA yalnızca kendi sunucumuzdan, kurulum
+bağlantısıyla sunulursa bu da kapanır.
 
 ## Nasıl çalışıyor (teknik)
 

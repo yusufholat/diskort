@@ -7,6 +7,7 @@ import {
   diffDevices,
   makeJwt,
   matchCertificate,
+  neutralDeviceName,
   parseDevices,
   profileDevices,
   registerDeviceBody,
@@ -60,11 +61,11 @@ describe('App Store Connect betiği: saf kısımlar', () => {
     expect(parseDevices('')).toEqual([]);
     expect(parseDevices(JSON.stringify([{ udid: U1.toLowerCase(), name: 'Ayşe\u0007' }, U2, { udid: U1 }]))).toEqual([
       { udid: U1, name: 'Ayşe' },
-      { udid: U2, name: 'iPhone' },
+      { udid: U2, name: neutralDeviceName(U2) },
     ]);
     expect(parseDevices(`${U1}=Ali, ${U3}`)).toEqual([
       { udid: U1, name: 'Ali' },
-      { udid: U3, name: 'iPhone' },
+      { udid: U3, name: neutralDeviceName(U3) },
     ]);
     expect(() => parseDevices('1234')).toThrow(/Geçersiz UDID/);
     expect(() => parseDevices('{"udid":"x"}')).toThrow();

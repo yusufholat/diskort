@@ -1,7 +1,7 @@
 // App Store Connect API ile iOS Ad Hoc dağıtım profilinin otomatik yenilenmesi (bkz. docs/ios.md).
 // Bağımlılık yok: JWT (ES256) node:crypto ile imzalanır, istekler fetch ile gider. Komut satırı:
 // scripts/ios-provisioning.mjs. Testler: apps/server/test/iosProvisioning.test.ts
-import { createPrivateKey, sign, X509Certificate } from 'node:crypto';
+import { createHash, createPrivateKey, sign, X509Certificate } from 'node:crypto';
 
 export const ASC_BASE = 'https://api.appstoreconnect.apple.com';
 export const DEFAULT_BUNDLE_ID = 'com.diskort.app';
@@ -37,8 +37,8 @@ export function makeJwt({ keyId, issuerId, privateKey, now = Date.now() }) {
 
 export const normalizeUdid = (udid) => String(udid).trim().toUpperCase();
 
-/** Günlüklerde (depo herkese açık) UDID'nin yalnızca başı ve sonu */
-export const maskUdid = (udid) => `${udid.slice(0, 8)}…${udid.slice(-4)}`;
+/** Günlüklerde (depo herkese açık) UDID'nin yalnızca son 4 karakteri */
+export const maskUdid = (udid) => `…${udid.slice(-4)}`;
 
 /** Apple'daki cihaz adı: en çok 50 karakter, denetim karakteri yok */
 export function deviceName(name) {
@@ -48,6 +48,9 @@ export function deviceName(name) {
     .slice(0, 50);
   return clean || 'iPhone';
 }
+
+/** Ad verilmemiş cihazın Apple'daki adı: kimliği ele vermeyen, UDID'den türeyen sabit ad */
+export const neutralDeviceName = (udid) => `Diskort-${createHash('sha256').update(normalizeUdid(udid)).digest('hex').slice(0, 6)}`;
 
 /**
  * `--devices` değeri: JSON dizisi ([{"udid":"…","name":"…"}] ya da ["UDID", …]) veya virgülle ayrılmış
@@ -75,7 +78,7 @@ export function parseDevices(input) {
   for (const item of items) {
     const udid = normalizeUdid(item.udid ?? '');
     if (!UDID_RE.test(udid)) throw new Error(`Geçersiz UDID: ${String(item.udid).slice(0, 60)}`);
-    if (!seen.has(udid)) seen.set(udid, { udid, name: deviceName(item.name) });
+    if (!seen.has(udid)) seen.set(udid, { udid, name: item.name ? deviceName(item.name) : neutralDeviceName(udid) });
   }
   return [...seen.values()];
 }

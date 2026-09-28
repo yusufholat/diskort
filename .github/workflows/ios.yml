@@ -16,7 +16,10 @@
 # - Yeni cihaz (attach-latest): IPA en son yayınlanmış sürümün etiketinden yeniden derlenir ve o sürümdeki
 #   IPA'nın yerine yüklenir; yeni sürüm gerekmez. Yönetim panelinde "Onayla" deyince sunucu bunu kendisi
 #   başlatır (GITHUB_DISPATCH_TOKEN; bkz. apps/server/src/iosDevices.ts). Elle:
-#     gh workflow run ios.yml -f simulator=false -f signed=true -f attach-latest=true -f devices=UDID1,UDID2
+#     gh workflow run ios.yml -f simulator=false -f signed=true -f attach-latest=true [-f devices=v1.…]
+# - "devices" girdisi şifrelidir (depo herkese açık; UDID ve ad görünmesin): AES-256-GCM, anahtar GitHub'da
+#   IOS_DEVICES_KEY, sunucuda aynı adla. Çözme: scripts/ios-devices-crypto.mjs (her UDID günlükte gizlenir).
+#   Cihazsız çalıştırmada profil Apple'daki tüm açık cihazlarla yenilenir.
 name: iOS
 # Sunucu çalıştırmayı bu adla (request-id) bulur
 run-name: iOS${{ inputs.request-id && format(' · cihaz ekleme {0}', inputs.request-id) || '' }}
@@ -37,7 +40,7 @@ on:
         type: boolean
         default: false
       devices:
-        description: "Apple'a kaydedilecek cihazlar (ASC anahtarı gerekir): UDID1,UDID2 ya da JSON dizisi"
+        description: "Apple'a kaydedilecek cihazlar, ŞİFRELİ (v1.…; yönetim paneli ya da scripts/ios-devices-crypto.mjs encrypt üretir)"
         type: string
         default: ''
       request-id:
@@ -170,7 +173,12 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
           DEVICES: ${{ inputs.devices }}
+          DEVICES_KEY: ${{ secrets.IOS_DEVICES_KEY }}
         run: |
+          if [ -n "$DEVICES" ] && [ -z "$DEVICES_KEY" ]; then
+            echo "::error::Şifreli cihaz listesi verildi ama IOS_DEVICES_KEY gizli değişkeni yok (bkz. docs/ios.md)"
+            exit 1
+          fi
           asc=false
           if [ -n "$ASC_KEY_ID" ] && [ -n "$ASC_ISSUER_ID" ] && [ -n "$ASC_KEY_P8" ]; then asc=true; fi
           echo "asc=$asc" >> "$GITHUB_OUTPUT"
@@ -226,7 +234,7 @@ jobs:
 
       # Profil betiği iş akışının kendi commit'inden alınır (eski sürüm etiketlerinde betik yok)
       - uses: actions/checkout@v4
-        if: needs.signing.outputs.asc == 'true'
+        if: needs.signing.outputs.asc == 'true' || inputs.devices != ''
         with:
           path: .ios-ci
           sparse-checkout: scripts
@@ -316,8 +324,17 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
-          DEVICES: ${{ inputs.devices }}
+          IOS_DEVICES_PAYLOAD: ${{ inputs.devices }}
+          IOS_DEVICES_KEY: ${{ secrets.IOS_DEVICES_KEY }}
         run: |
+          # Şifreli cihaz listesini çöz: betik her UDID'yi ve adı önce ::add-mask:: ile gizler, açık metni yazmaz
+          devices_file=""
+          if [ -n "$IOS_DEVICES_PAYLOAD" ]; then
+            devices_file="$RUNNER_TEMP/devices.json"
+            node .ios-ci/scripts/ios-devices-crypto.mjs decrypt --out "$devices_file"
+          fi
+          unset IOS_DEVICES_KEY
+
           keychain="$RUNNER_TEMP/diskort.keychain-db"
           kc_password=$(openssl rand -hex 16)
           echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
@@ -333,7 +350,7 @@ jobs:
             # p12'deki sertifika (Apple'daki kaydını bulmak için) → cihazları kaydet → güncel Ad Hoc profil
             security find-certificate -a -c "Apple Distribution" -p "$keychain" > "$RUNNER_TEMP/dist-cert.pem"
             node .ios-ci/scripts/ios-provisioning.mjs sync --cert "$RUNNER_TEMP/dist-cert.pem" \
-              --devices "$DEVICES" --out "$RUNNER_TEMP/profile.mobileprovision"
+              ${devices_file:+--devices-file "$devices_file"} --out "$RUNNER_TEMP/profile.mobileprovision"
             rm "$RUNNER_TEMP/dist-cert.pem"
           else
             echo "$PROFILE" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
@@ -355,17 +372,21 @@ jobs:
             exit 1
           fi
           # İstenen cihazların hepsi profilde olmalı (yoksa IPA onlara kurulamaz; derleme boşa gitmesin)
-          if [ -n "$DEVICES" ]; then
+          # (UDID'ler günlüğe yazılmaz; yalnızca sıra numarası)
+          if [ -n "$devices_file" ]; then
             /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$RUNNER_TEMP/profile.plist" | tr '[:lower:]' '[:upper:]' > "$RUNNER_TEMP/provisioned.txt"
             missing=0
-            for udid in $(printf '%s' "$DEVICES" | grep -oiE '[0-9a-f]{8}-[0-9a-f]{16}|[0-9a-f]{40}' | tr '[:lower:]' '[:upper:]' | sort -u); do
+            n=0
+            for udid in $(node -e 'for (const d of JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))) console.log(String(d.udid).toUpperCase())' "$devices_file"); do
+              n=$((n + 1))
               if ! grep -q "$udid" "$RUNNER_TEMP/provisioned.txt"; then
-                echo "::error::Cihaz profilde yok: ${udid:0:8}…${udid: -4}"
+                echo "::error::İstenen $n. cihaz profilde yok"
                 missing=1
               fi
             done
+            rm -f "$devices_file" "$RUNNER_TEMP/provisioned.txt"
             [ "$missing" = 0 ] || exit 1
-            echo "İstenen cihazların hepsi profilde."
+            echo "İstenen $n cihazın hepsi profilde."
           fi
           for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
             mkdir -p "$dir"

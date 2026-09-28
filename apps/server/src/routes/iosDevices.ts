@@ -19,6 +19,8 @@ export function registerIosDeviceRoutes(app: FastifyInstance, ctx: AppContext, s
       devices,
       automation: {
         enabled: service.automationEnabled,
+        /** GITHUB_DISPATCH_TOKEN var ama IOS_DEVICES_KEY yok: derleme başlatılmaz */
+        keyMissing: service.keyMissing,
         pendingDispatchAt: service.pendingDispatchAt,
       },
       ci: service.ci,
@@ -45,6 +47,9 @@ export function registerIosDeviceRoutes(app: FastifyInstance, ctx: AppContext, s
 
   // Toplama beklemesini atlayıp hemen derlet (ya da başarısız derlemeyi yeniden dene)
   app.post('/api/admin/ios-devices/dispatch', guard, async (_req, reply) => {
+    if (service.keyMissing) {
+      return sendError(reply, 400, 'devices_key_missing', 'IOS_DEVICES_KEY yok: cihaz listesi şifrelenemediği için derleme başlatılmaz.');
+    }
     if (!service.automationEnabled) {
       return sendError(reply, 400, 'automation_disabled', 'Otomatik derleme kapalı (GITHUB_DISPATCH_TOKEN yok).');
     }

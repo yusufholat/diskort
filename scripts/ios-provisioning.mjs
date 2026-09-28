@@ -2,7 +2,7 @@
 //
 //   node scripts/ios-provisioning.mjs list
 //       Apple'daki iOS cihazlarını, sertifikaları ve Ad Hoc profilleri listeler (hiçbir şey değiştirmez).
-//   node scripts/ios-provisioning.mjs sync --cert dagitim.pem [--devices '<JSON ya da UDID=Ad,…>']
+//   node scripts/ios-provisioning.mjs sync --cert dagitim.pem [--devices '<JSON ya da UDID=Ad,…>' | --devices-file cihazlar.json]
 //        [--out profil.mobileprovision] [--base64-out profil.b64] [--bundle-id com.diskort.app] [--dry-run]
 //       Verilen cihazları kaydeder, tüm açık iOS cihazlarını içeren Ad Hoc profilini hazırlar ve dosyaya yazar.
 //       --dry-run: yalnızca okur ve ne yapılacağını yazar (kayıt, profil oluşturma, silme yok).
@@ -19,6 +19,7 @@ const { positionals, values } = parseArgs({
   options: {
     cert: { type: 'string' },
     devices: { type: 'string', default: '' },
+    'devices-file': { type: 'string' },
     out: { type: 'string' },
     'base64-out': { type: 'string' },
     'bundle-id': { type: 'string', default: DEFAULT_BUNDLE_ID },
@@ -77,7 +78,7 @@ try {
     if (!values.cert) fail('--cert (dağıtım sertifikası, PEM) gerekli');
     let devices;
     try {
-      devices = parseDevices(values.devices);
+      devices = parseDevices(values['devices-file'] ? readFileSync(values['devices-file'], 'utf8') : values.devices);
     } catch (err) {
       fail(err.message);
     }

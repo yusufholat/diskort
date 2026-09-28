@@ -2599,18 +2599,29 @@ function iosDevices(x) {
       }),
     );
   } else {
+    const manual = x.manualCommand;
     out.push(
       h(
         'article',
-        'adm-card adm-wide adm-tone-accent',
-        h('div', 'adm-label', 'Otomatik derleme kapalı'),
+        `adm-card adm-wide ${auto.keyMissing ? 'adm-tone-bad' : 'adm-tone-accent'}`,
+        h('div', 'adm-label', auto.keyMissing ? 'Otomatik derleme durdu: IOS_DEVICES_KEY yok' : 'Otomatik derleme kapalı'),
         h(
           'div',
           'adm-sub',
-          "Sunucuda GITHUB_DISPATCH_TOKEN yok (bkz. docs/ios.md). Onayladığın cihazlar için şu komutu çalıştır; derleme bitince cihazları \"Eklendi\" olarak işaretle.",
+          auto.keyMissing
+            ? 'Sunucuda GitHub belirteci var ama cihaz listesini şifreleyecek anahtar (IOS_DEVICES_KEY) yok. Depo herkese açık olduğundan UDID\'ler açık gönderilmez; anahtarı .env\'e ekle (bkz. docs/ios.md). O zamana kadar elle:'
+            : 'Sunucuda GITHUB_DISPATCH_TOKEN yok (bkz. docs/ios.md). Onayladığın cihazlar için şu komutu çalıştır; derleme bitince cihazları "Eklendi" olarak işaretle.',
         ),
-        x.manualCommand
-          ? h('pre', 'adm-mono adm-pre', x.manualCommand)
+        manual
+          ? [
+              h('pre', 'adm-mono adm-pre', manual.command),
+              !manual.encrypted &&
+                h(
+                  'div',
+                  'adm-sub',
+                  "Cihaz listesi şifrelenemediği için komut cihazsız: önce cihazları Apple Developer'da (Devices) elle ekle; derleme Apple'daki tüm açık cihazlarla profili yeniler.",
+                ),
+            ]
           : h('div', 'adm-sub', 'Şu an onaylı cihaz yok.'),
       ),
     );

@@ -21,6 +21,7 @@ export declare function makeJwt(opts: { keyId: string; issuerId: string; private
 export declare function normalizeUdid(udid: string): string;
 export declare function maskUdid(udid: string): string;
 export declare function deviceName(name: unknown): string;
+export declare function neutralDeviceName(udid: string): string;
 export declare function parseDevices(input: string | null | undefined): RequestedDevice[];
 export declare function diffDevices(
   requested: RequestedDevice[],

@@ -52,6 +52,8 @@ services:
       IOS_BUNDLE_ID: ${IOS_BUNDLE_ID:-com.diskort.app}
       # iPhone cihaz onayında Ad Hoc IPA'yı otomatik derletmek için GitHub belirteci (Actions: write); bkz. docs/ios.md
       GITHUB_DISPATCH_TOKEN: ${GITHUB_DISPATCH_TOKEN:-}
+      # İş akışına giden cihaz listesinin şifre anahtarı (GitHub'daki IOS_DEVICES_KEY ile aynı); yoksa derleme başlatılmaz
+      IOS_DEVICES_KEY: ${IOS_DEVICES_KEY:-}
       IOS_DISPATCH_DELAY_SEC: ${IOS_DISPATCH_DELAY_SEC:-180}
       # Tek dosya ekinin en büyük boyutu (MB); dosyalar diskort-data biriminde /data/attachments altında
       ATTACHMENT_MAX_MB: ${ATTACHMENT_MAX_MB:-25}

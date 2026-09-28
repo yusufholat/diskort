@@ -2,7 +2,9 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { randomBytes } from 'node:crypto';
 import { loadConfig } from '../src/config.js';
+import { decryptDevices } from '../src/iosDevicesCrypto.js';
 import { startServer, type TestServer } from './helpers.js';
 
 // Yönetim paneli → iPhone cihazları: onay/ret, onayların toplanıp tek GitHub iş akışı başlatması,
@@ -11,6 +13,8 @@ import { startServer, type TestServer } from './helpers.js';
 const U1 = '00008110-001A2B3C4D5E6F70';
 const U2 = '00008120-000A1B2C3D4E5F60';
 const U3 = 'A'.repeat(40);
+const KEY = randomBytes(32);
+const KEY_ENV = { IOS_DEVICES_KEY: KEY.toString('base64') };
 
 let t: TestServer | undefined;
 let dir: string | undefined;
@@ -71,7 +75,7 @@ describe('iPhone cihazları (yönetim)', () => {
     const body = res.json();
     expect(body.devices.map((d: { udid: string }) => d.udid)).toEqual([U3, U2, U1]);
     expect(body.devices.every((d: { status: string }) => d.status === 'bekliyor')).toBe(true);
-    expect(body.automation).toEqual({ enabled: false, pendingDispatchAt: null });
+    expect(body.automation).toEqual({ enabled: false, keyMissing: false, pendingDispatchAt: null });
     expect(body.manualCommand).toBeNull();
   });
 
@@ -93,9 +97,12 @@ describe('iPhone cihazları (yönetim)', () => {
     expect(state.statuses[U2].status).toBe('bekliyor');
 
     const body = (await t!.req(t!.owner.token, 'GET', '/api/admin/ios-devices')).json();
-    expect(body.manualCommand).toBe(
-      `gh workflow run ios.yml --repo yusufholat/diskort -f simulator=false -f signed=true -f attach-latest=true -f devices=${U3},${U1}`,
-    );
+    // Anahtar yok: komut cihazsız, UDID açık yazılmaz
+    expect(body.manualCommand).toEqual({
+      command: 'gh workflow run ios.yml --repo yusufholat/diskort -f simulator=false -f signed=true -f attach-latest=true',
+      encrypted: false,
+    });
+    expect(JSON.stringify(body.manualCommand)).not.toContain(U1);
     expect((await t!.req(t!.owner.token, 'POST', '/api/admin/ios-devices/dispatch')).statusCode).toBe(400);
     await wait(50);
     expect(github.calls).toHaveLength(0);
@@ -104,7 +111,7 @@ describe('iPhone cihazları (yönetim)', () => {
   });
 
   it('kısa sürede gelen onaylar tek derlemede toplanır; başarıyla bitince cihazlar "eklendi" olur', async () => {
-    const github = await setup({ GITHUB_DISPATCH_TOKEN: 'gizli-belirtec', IOS_DISPATCH_DELAY_SEC: '0.3' });
+    const github = await setup({ GITHUB_DISPATCH_TOKEN: 'gizli-belirtec', IOS_DISPATCH_DELAY_SEC: '0.3', ...KEY_ENV });
     const set = (udid: string, status: string) => t!.req(t!.owner.token, 'PATCH', `/api/admin/ios-devices/${udid}`, { status });
     await set(U1, 'onaylandi');
     await set(U3, 'onaylandi');
@@ -122,7 +129,9 @@ describe('iPhone cihazları (yönetim)', () => {
     expect(d.auth).toBe('Bearer gizli-belirtec');
     expect(d.body.ref).toBe('main');
     expect(d.body.inputs).toMatchObject({ simulator: 'false', signed: 'true', 'attach-latest': 'true' });
-    expect(JSON.parse(d.body.inputs.devices)).toEqual([
+    // Girdide UDID ya da ad açık görünmez; anahtarla çözülür
+    expect(JSON.stringify(d.body)).not.toMatch(/00008110|AAAAAAAA|Ali|Ay/);
+    expect(decryptDevices(d.body.inputs.devices, KEY)).toEqual([
       { udid: U3, name: 'Ali' },
       { udid: U1, name: 'Ayşe' },
     ]);
@@ -149,7 +158,7 @@ describe('iPhone cihazları (yönetim)', () => {
   });
 
   it('elle "hemen derle" beklemeyi atlar; GitHub hatası panelde görünür, cihaz onaylı kalır', async () => {
-    const github = await setup({ GITHUB_DISPATCH_TOKEN: 'x', IOS_DISPATCH_DELAY_SEC: '600' }, fakeGithub({ dispatchStatus: 403 }));
+    const github = await setup({ GITHUB_DISPATCH_TOKEN: 'x', IOS_DISPATCH_DELAY_SEC: '600', ...KEY_ENV }, fakeGithub({ dispatchStatus: 403 }));
     await t!.req(t!.owner.token, 'PATCH', `/api/admin/ios-devices/${U2}`, { status: 'onaylandi' });
     const res = await t!.req(t!.owner.token, 'POST', '/api/admin/ios-devices/dispatch');
     expect(res.statusCode).toBe(502);
@@ -158,5 +167,30 @@ describe('iPhone cihazları (yönetim)', () => {
     expect(body.ci).toMatchObject({ status: 'hata', udids: [U2] });
     expect(body.automation.pendingDispatchAt).toBeNull();
     expect(body.devices.find((x: { udid: string }) => x.udid === U2).status).toBe('onaylandi');
+  });
+
+  it('belirteç var ama IOS_DEVICES_KEY yoksa derleme başlatılmaz (açık metne düşülmez); elle komut şifreli', async () => {
+    const github = await setup({ GITHUB_DISPATCH_TOKEN: 'x', IOS_DISPATCH_DELAY_SEC: '0.05' });
+    await t!.req(t!.owner.token, 'PATCH', `/api/admin/ios-devices/${U1}`, { status: 'onaylandi' });
+    await wait(150);
+    expect(github.calls).toHaveLength(0);
+    const res = await t!.req(t!.owner.token, 'POST', '/api/admin/ios-devices/dispatch');
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('devices_key_missing');
+    const body = (await t!.req(t!.owner.token, 'GET', '/api/admin/ios-devices')).json();
+    expect(body.automation).toMatchObject({ enabled: false, keyMissing: true, pendingDispatchAt: null });
+    expect(body.manualCommand.encrypted).toBe(false);
+    expect(github.calls).toHaveLength(0);
+    await t!.close();
+    t = undefined;
+
+    // Anahtar var, belirteç yok: panel komutu şifreli cihaz listesiyle verir
+    await setup(KEY_ENV);
+    await t!.req(t!.owner.token, 'PATCH', `/api/admin/ios-devices/${U1}`, { status: 'onaylandi' });
+    const manual = (await t!.req(t!.owner.token, 'GET', '/api/admin/ios-devices')).json().manualCommand;
+    expect(manual.encrypted).toBe(true);
+    expect(manual.command).not.toContain(U1);
+    const payload = /-f devices=(\S+)$/.exec(manual.command)![1]!;
+    expect(decryptDevices(payload, KEY)).toEqual([{ udid: U1, name: 'Ayşe' }]);
   });
 });

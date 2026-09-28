@@ -348,6 +348,7 @@ export async function buildApp(
     dataDir: config.dataDir,
     repo: config.githubRepo,
     token: config.githubDispatchToken,
+    devicesKey: config.iosDevicesKey,
     delayMs: config.iosDispatchDelayMs,
     ...(opts.iosPollMs !== undefined ? { pollMs: opts.iosPollMs } : {}),
     ...(opts.githubFetch ? { fetch: opts.githubFetch } : {}),

@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { GIF_RATINGS } from './gifs.js';
+import { parseDevicesKey } from './iosDevicesCrypto.js';
 
 export interface Config {
   host: string;
@@ -65,6 +66,8 @@ export interface Config {
   githubDispatchToken: string | null;
   /** Onaylar toplanıp tek derleme başlatılmadan önce beklenen süre (IOS_DISPATCH_DELAY_SEC, varsayılan 180) */
   iosDispatchDelayMs: number;
+  /** Cihaz listesini iş akışına şifreli göndermek için AES-256-GCM anahtarı (IOS_DEVICES_KEY, 32 bayt base64) */
+  iosDevicesKey: Buffer | null;
   /** Günlük sayaçların ve ses kalitesi dosyalarının günü: UTC'ye göre dakika (STATS_UTC_OFFSET_MIN, varsayılan 180) */
   statsUtcOffsetMin: number;
   isDev: boolean;
@@ -168,6 +171,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     cgroupRoot: env.CGROUP_ROOT || '/sys/fs/cgroup',
     githubDispatchToken: env.GITHUB_DISPATCH_TOKEN?.trim() || null,
     iosDispatchDelayMs: Math.round(iosDispatchDelaySec * 1000),
+    iosDevicesKey: parseDevicesKey(env.IOS_DEVICES_KEY),
     statsUtcOffsetMin: statsOffset,
     isDev,
   };

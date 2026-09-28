@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
+import { encryptDevices } from './iosDevicesCrypto.js';
 import type { UdidRecord } from './routes/udid.js';
 
 /**
@@ -16,6 +17,8 @@ import type { UdidRecord } from './routes/udid.js';
  * ios.yml iş akışı workflow_dispatch ile başlatılır (GITHUB_DISPATCH_TOKEN). Sunucu çalıştırmayı adındaki
  * istek kimliğiyle bulur ve durumunu GitHub API'sinden izler; başarıyla biterse o çalıştırmadaki cihazlar
  * "eklendi" olur. Belirteç yoksa panel elle çalıştırılacak `gh workflow run` komutunu gösterir.
+ * Cihaz listesi iş akışına IOS_DEVICES_KEY ile şifreli gider (depo herkese açık); anahtar yoksa derleme
+ * başlatılmaz.
  */
 
 export const IOS_DEVICE_STATUSES = ['bekliyor', 'onaylandi', 'eklendi', 'reddedildi'] as const;
@@ -56,6 +59,11 @@ export interface IosDeviceOptions {
   repo: string;
   /** GitHub ince taneli erişim belirteci (Actions: write); yoksa otomatik derleme kapalı */
   token: string | null;
+  /**
+   * Cihaz listesinin şifrelenme anahtarı (IOS_DEVICES_KEY). Depo herkese açık: iş akışı girdisi UDID ya da ad
+   * göstermemeli. Yoksa belirteç olsa bile derleme başlatılmaz (açık metne asla düşülmez).
+   */
+  devicesKey?: Buffer | null;
   delayMs: number;
   /** Etkin çalıştırmanın yoklanma aralığı */
   pollMs?: number;
@@ -97,8 +105,14 @@ export class IosDeviceService {
     this.state = this.load();
   }
 
+  /** Otomatik derleme: GitHub belirteci ve şifreleme anahtarı birlikte gerekir */
   get automationEnabled(): boolean {
-    return this.opts.token !== null;
+    return this.opts.token !== null && !!this.opts.devicesKey;
+  }
+
+  /** Belirteç var ama şifreleme anahtarı yok: derleme başlatılmaz, panel uyarır */
+  get keyMissing(): boolean {
+    return this.opts.token !== null && !this.opts.devicesKey;
   }
 
   /** Sunucu açılınca: yarım kalan toplama ya da izleme sürdürülür */
@@ -174,14 +188,21 @@ export class IosDeviceService {
     return new Date(Date.parse(this.state.pendingSince) + this.opts.delayMs).toISOString();
   }
 
-  /** Elle çalıştırma komutu (belirteç yokken ya da hata sonrası): onaylı cihazların UDID'leri */
-  async manualCommand(): Promise<string | null> {
+  /**
+   * Elle çalıştırma komutu (otomatik derleme kapalıyken). UDID'ler komutta hiçbir zaman açık yazılmaz:
+   * anahtar varsa cihaz listesi şifreli verilir; yoksa komut cihazsız çalışır (ASC yalnızca Apple'da zaten
+   * kayıtlı/açık cihazlarla profili yeniler, yani cihaz önce Apple Developer'da elle eklenmeli).
+   */
+  async manualCommand(): Promise<{ command: string; encrypted: boolean } | null> {
     const approved = (await this.list()).filter((d) => d.status === 'onaylandi');
     if (approved.length === 0) return null;
-    return (
-      `gh workflow run ${this.workflow} --repo ${this.opts.repo} -f simulator=false -f signed=true ` +
-      `-f attach-latest=true -f devices=${approved.map((d) => d.udid).join(',')}`
-    );
+    const base = `gh workflow run ${this.workflow} --repo ${this.opts.repo} -f simulator=false -f signed=true -f attach-latest=true`;
+    if (!this.opts.devicesKey) return { command: base, encrypted: false };
+    return { command: `${base} -f devices=${encryptDevices(this.devicesOf(approved), this.opts.devicesKey)}`, encrypted: true };
+  }
+
+  private devicesOf(list: IosDevice[]): { udid: string; name: string }[] {
+    return list.map((d) => ({ udid: d.udid, name: (d.name || d.deviceName || 'iPhone').slice(0, 50) }));
   }
 
   /** Durumu değiştirir; bilinmeyen UDID için null. Onayda otomatik derleme zamanlanır. */
@@ -240,7 +261,7 @@ export class IosDeviceService {
       return null;
     }
     const requestId = randomBytes(4).toString('hex');
-    const devices = approved.map((d) => ({ udid: d.udid, name: (d.name || d.deviceName || 'iPhone').slice(0, 50) }));
+    const devices = this.devicesOf(approved);
     const run: IosCiRun = {
       requestId,
       dispatchedAt: new Date().toISOString(),
@@ -259,7 +280,8 @@ export class IosDeviceService {
           simulator: 'false',
           signed: 'true',
           'attach-latest': 'true',
-          devices: JSON.stringify(devices),
+          // Şifreli: herkese açık depoda girdiler görülebilir (bkz. iosDevicesCrypto.ts)
+          devices: encryptDevices(devices, this.opts.devicesKey!),
           'request-id': requestId,
         },
       });
