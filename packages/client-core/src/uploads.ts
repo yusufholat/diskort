@@ -132,8 +132,16 @@ export async function removeBanner(): Promise<User> {
   return user;
 }
 
-/** Profil teması (null: kaldır) ve efekti (null: kaldır); verilmeyen alan değişmez. */
-export async function updateProfileLook(patch: { profileTheme?: ProfileTheme | null; profileEffect?: ProfileEffect | null }): Promise<User> {
+/**
+ * Profil süsleri: tema, efekt, avatar dekorasyonu ve profil çerçevesi (null: kaldır); verilmeyen alan
+ * değişmez.
+ */
+export async function updateProfileLook(patch: {
+  profileTheme?: ProfileTheme | null;
+  profileEffect?: ProfileEffect | null;
+  avatarDecoration?: string | null;
+  profileFrame?: string | null;
+}): Promise<User> {
   const user = await api.updateMe(patch);
   applyOwnUser(user);
   return user;

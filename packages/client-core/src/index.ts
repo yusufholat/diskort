@@ -322,3 +322,4 @@ export {
   type SoundName,
 } from './sfx';
 export { effectParticles, PROFILE_THEME_PRESETS, profileGradient, type Particle } from './profileLook';
+export { cosmeticUrl, loadCosmetics, useCosmetics, useCosmeticUrl, type CosmeticKind } from './cosmetics';

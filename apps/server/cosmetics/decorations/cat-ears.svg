@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 120 120" width="120" height="120">
+<defs>
+  <linearGradient id="fur" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#52525b"/><stop offset="1" stop-color="#27272a"/>
+  </linearGradient>
+  <g id="ear">
+    <path d="M15,42 C12,28 9,15 8,5 C7.6,1.6 10,0.4 13,1.8 C24,7 38,12 52,13 C40,18 26,28 15,42Z" fill="url(#fur)" stroke="#18181b" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M18,31 C16,22 14,14 13.5,8 C22,11 31,14 40,15.5 C32,19 24,24 18,31Z" fill="#f9a8d4"/>
+    <path d="M14,6 C20,9 26,11.5 32,13" fill="none" stroke="#ffffff" stroke-width="1" stroke-linecap="round" opacity="0.35"/>
+  </g>
+</defs>
+<use href="#ear" xlink:href="#ear"/>
+<use href="#ear" xlink:href="#ear" transform="translate(120,0) scale(-1,1)"/>
+</svg>

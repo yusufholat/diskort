@@ -1,31 +1,41 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Camera, Check } from 'lucide-react';
 import {
   HEX_COLOR,
   PROFILE_EFFECT_LABELS,
   PROFILE_EFFECTS,
-  type ProfileEffect,
   type ProfileTheme,
   type User,
 } from '@diskort/shared';
 import {
   errorMessage,
+  loadCosmetics,
   formatBytes,
   PROFILE_THEME_PRESETS,
   profileGradient,
   removeBanner,
   updateProfileLook,
   uploadBanner,
+  useCosmetics,
   useCustomStatus,
   useStatus,
+  type CosmeticKind,
 } from '@diskort/client-core';
 import { confirmDialog } from '../../lib/dialog';
 import { PresenceProvider, usePresence } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { toast } from '../../stores/ui';
+import { Avatar } from '../ui/Avatar';
 import { Button, SectionTitle } from '../ui/controls';
 import { AvatarCropper } from './AvatarCropper';
-import { ProfileBanner, ProfileCardTop, ProfileEffectLayer, StatusBubble, themedCardStyle } from '../profile/ProfileLook';
+import {
+  ProfileBanner,
+  ProfileCardTop,
+  ProfileEffectLayer,
+  ProfileFrameLayer,
+  StatusBubble,
+  themedCardStyle,
+} from '../profile/ProfileLook';
 
 const ACCEPT = 'image/png,image/jpeg,image/webp,image/gif';
 /** Tarayıcıda açılıp kırpılacak resmin en büyük boyutu (sunucuya kırpılmış küçük kopya gider) */
@@ -93,21 +103,17 @@ export function ProfileLookSettings({ user }: { user: User }) {
     if (HEX_COLOR.test(color)) pickTheme({ ...(theme ?? fallback), [key]: color }, SAVE_DELAY);
   };
 
-  const [effectDraft, setEffectDraft] = useState<ProfileEffect | null | undefined>(undefined);
-  const effect = effectDraft === undefined ? (user.profileEffect ?? null) : effectDraft;
-  const pickEffect = async (next: ProfileEffect | null): Promise<void> => {
-    if (next === effect) return;
-    setEffectDraft(next);
-    try {
-      await updateProfileLook({ profileEffect: next });
-    } catch (err) {
-      toast(errorMessage(err), 'error');
-    } finally {
-      setEffectDraft(undefined);
-    }
-  };
+  const [effect, pickEffect] = useLookField(user, 'profileEffect');
+  const [decoration, pickDecoration] = useLookField(user, 'avatarDecoration');
+  const [frame, pickFrame] = useLookField(user, 'profileFrame');
 
-  const preview: User = { ...user, profileTheme: theme, profileEffect: effect };
+  const preview: User = {
+    ...user,
+    profileTheme: theme,
+    profileEffect: effect,
+    avatarDecoration: decoration,
+    profileFrame: frame,
+  };
 
   return (
     <div className="flex flex-wrap-reverse items-start gap-x-8">
@@ -180,12 +186,99 @@ export function ProfileLookSettings({ user }: { user: User }) {
             );
           })}
         </div>
+
+        <SectionTitle>Avatar Dekorasyonu</SectionTitle>
+        <p className="mb-3 text-sm text-text-muted">Avatarının çevresindeki süs; mesajlarda ve üye listesinde de görünür.</p>
+        <CosmeticPicker kind="decorations" label="Avatar dekorasyonu" value={decoration} onPick={(id) => void pickDecoration(id)}>
+          {(id) => <Avatar user={user} size={44} decoration={id} />}
+        </CosmeticPicker>
+
+        <SectionTitle>Profil Çerçevesi</SectionTitle>
+        <p className="mb-3 text-sm text-text-muted">Profil kartının kenarlarındaki süs.</p>
+        <CosmeticPicker kind="frames" label="Profil çerçevesi" value={frame} onPick={(id) => void pickFrame(id)}>
+          {(id) => (
+            <div className="relative h-[68px] w-[52px] overflow-hidden rounded-md bg-bg-float" style={themedCardStyle(theme)}>
+              <div className="h-4" style={{ background: theme?.primary ?? user.avatarColor }} />
+              <ProfileFrameLayer frame={id} border={16} />
+            </div>
+          )}
+        </CosmeticPicker>
       </div>
 
       <div className="shrink-0">
         <SectionTitle>Önizleme</SectionTitle>
         <ProfilePreviewCard user={preview} />
       </div>
+    </div>
+  );
+}
+
+type LookField = 'profileEffect' | 'avatarDecoration' | 'profileFrame';
+
+/**
+ * Tek seçimli süs (efekt, dekorasyon, çerçeve): seçim önizlemede hemen görünür ve kaydedilir;
+ * kaydedilemezse eskisine döner ve hata gösterilir.
+ */
+function useLookField<K extends LookField>(user: User, key: K) {
+  type Value = NonNullable<User[K]> | null;
+  const [draft, setDraft] = useState<Value | undefined>(undefined);
+  const value = (draft === undefined ? (user[key] ?? null) : draft) as Value;
+  const pick = async (next: Value): Promise<void> => {
+    if (next === value) return;
+    setDraft(next);
+    try {
+      await updateProfileLook({ [key]: next } as Parameters<typeof updateProfileLook>[0]);
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    } finally {
+      // Bu arada başka bir seçim yapıldıysa taslak onundur
+      setDraft((d) => (d === next ? undefined : d));
+    }
+  };
+  return [value, pick] as const;
+}
+
+/** Katalogdaki tasarımlar ve "Yok": küçük önizlemeli kutular */
+function CosmeticPicker({
+  kind,
+  label,
+  value,
+  onPick,
+  children,
+}: {
+  kind: CosmeticKind;
+  label: string;
+  value: string | null;
+  onPick: (id: string | null) => void;
+  /** Kutunun içindeki önizleme (null: süs yok) */
+  children: (id: string | null) => ReactNode;
+}) {
+  const catalog = useCosmetics((s) => s.catalog);
+  useEffect(() => void loadCosmetics(), []);
+  if (!catalog) return <p className="text-sm text-text-muted">Tasarımlar yükleniyor…</p>;
+  const options = [{ id: null, name: 'Yok' }, ...catalog[kind]];
+  return (
+    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={label}>
+      {options.map((o) => {
+        const selected = value === o.id;
+        return (
+          <button
+            key={o.id ?? 'none'}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            aria-label={o.name}
+            data-tooltip={o.name}
+            onClick={() => onPick(o.id)}
+            className={cn(
+              'press flex h-[84px] w-[84px] items-center justify-center rounded-lg border-2 bg-bg-side transition-colors',
+              selected ? 'border-brand' : 'border-transparent hover:border-edge-strong hover:bg-bg-hover',
+            )}
+          >
+            {children(o.id)}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -202,6 +295,7 @@ function ProfilePreviewCard({ user }: { user: User }) {
     >
       <ProfileCardTop user={user} status={status} aside={custom && <StatusBubble custom={custom} />} />
       <ProfileEffectLayer effect={user.profileEffect} />
+      <ProfileFrameLayer frame={user.profileFrame} />
     </div>
   );
 }

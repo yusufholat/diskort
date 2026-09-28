@@ -158,7 +158,7 @@ function ParticipantTile({ state, compact }: { state: VoiceState; compact?: bool
         }
       }}
     >
-      <Avatar user={user} size={compact ? 44 : 80} speaking={speaking} />
+      <Avatar user={user} size={compact ? 44 : 80} speaking={speaking} decoration={user?.avatarDecoration} />
       <div className="absolute bottom-2 left-2 flex max-w-[85%] items-center gap-1.5 rounded bg-black/50 px-2 py-0.5 text-sm text-white">
         <VoiceStateIcons state={state} localMuted={localMuted} size={14} />
         <span className="truncate" style={color ? { color } : undefined}>

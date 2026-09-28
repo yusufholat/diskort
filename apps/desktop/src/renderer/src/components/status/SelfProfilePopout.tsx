@@ -15,7 +15,7 @@ import { useEscapeLayer } from '../../lib/escape';
 import { usePresence } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
-import { ProfileCardTop, ProfileEffectLayer, themedCardStyle } from '../profile/ProfileLook';
+import { ProfileCardTop, ProfileEffectLayer, ProfileFrameLayer, themedCardStyle } from '../profile/ProfileLook';
 import { StatusIcon } from '../ui/StatusIcon';
 
 const MARGIN = 8;
@@ -182,6 +182,7 @@ export function SelfProfilePopout() {
         </div>
       </div>
       <ProfileEffectLayer effect={user.profileEffect} className="rounded-lg" />
+      <ProfileFrameLayer frame={user.profileFrame} />
     </div>
   );
 }

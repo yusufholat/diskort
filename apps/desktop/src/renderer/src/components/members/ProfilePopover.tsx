@@ -13,7 +13,7 @@ import { useEscapeLayer } from '../../lib/escape';
 import { usePresence } from '../../lib/motion';
 import { watchUserStream } from '../../lib/watchStream';
 import { cn } from '../../lib/utils';
-import { ProfileCardTop, ProfileEffectLayer, StatusBubble, themedCardStyle } from '../profile/ProfileLook';
+import { ProfileCardTop, ProfileEffectLayer, ProfileFrameLayer, StatusBubble, themedCardStyle } from '../profile/ProfileLook';
 
 const MARGIN = 8;
 const GAP = 8;
@@ -192,6 +192,7 @@ export function ProfilePopover() {
         )}
       </div>
       <ProfileEffectLayer effect={user.profileEffect} />
+      <ProfileFrameLayer frame={user.profileFrame} />
     </div>
   );
 }

@@ -47,7 +47,7 @@ const Participant = memo(function Participant({ userId, owner }: { userId: strin
       }}
     >
       {reachable || isSelf ? (
-        <PresenceAvatar userId={userId} user={user} size={32} ringClassName="bg-bg-side" />
+        <PresenceAvatar userId={userId} user={user} size={32} ringClassName="bg-bg-side" decoration={user?.avatarDecoration} />
       ) : (
         <Avatar user={user} size={32} />
       )}

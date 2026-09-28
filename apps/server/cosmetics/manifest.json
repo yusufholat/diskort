@@ -1,0 +1,54 @@
+{
+  "decorations": [
+    {
+      "id": "neon",
+      "name": "Neon halka"
+    },
+    {
+      "id": "sparkle",
+      "name": "Işıltılı halka"
+    },
+    {
+      "id": "cat-ears",
+      "name": "Kedi kulakları"
+    },
+    {
+      "id": "crown",
+      "name": "Taç"
+    },
+    {
+      "id": "wreath",
+      "name": "Yaprak çelengi"
+    },
+    {
+      "id": "flames",
+      "name": "Alevler"
+    },
+    {
+      "id": "pixel",
+      "name": "Piksel halka"
+    },
+    {
+      "id": "moon",
+      "name": "Ay ve yıldızlar"
+    }
+  ],
+  "frames": [
+    {
+      "id": "neon",
+      "name": "Neon"
+    },
+    {
+      "id": "gold",
+      "name": "Altın süsler"
+    },
+    {
+      "id": "floral",
+      "name": "Çiçekli"
+    },
+    {
+      "id": "pixel",
+      "name": "Piksel"
+    }
+  ]
+}

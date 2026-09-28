@@ -400,12 +400,15 @@ export const MIGRATIONS: string[] = [
   ADMIN_HISTORY_MIGRATION,
   // 21: profil süsleri. banner_hash: afiş (<DATA_DIR>/avatars/<özet>.webp, profil fotoğraflarıyla aynı
   // klasör); theme_primary/theme_accent: profil kartının iki rengi ("#rrggbb", ikisi birlikte ya da hiç);
-  // profile_effect: kartta oynayan efektin kimliği (bkz. PROFILE_EFFECTS). Hepsi boş başlar.
+  // profile_effect: kartta oynayan efektin kimliği (bkz. PROFILE_EFFECTS); avatar_decoration ve
+  // profile_frame: kozmetik kataloğundaki dekorasyon ve çerçeve (bkz. cosmetics.ts). Hepsi boş başlar.
   `
   ALTER TABLE users ADD COLUMN banner_hash TEXT;
   ALTER TABLE users ADD COLUMN theme_primary TEXT;
   ALTER TABLE users ADD COLUMN theme_accent TEXT;
   ALTER TABLE users ADD COLUMN profile_effect TEXT;
+  ALTER TABLE users ADD COLUMN avatar_decoration TEXT;
+  ALTER TABLE users ADD COLUMN profile_frame TEXT;
   `,
 ];
 
@@ -435,6 +438,8 @@ interface UserRow {
   theme_primary: string | null;
   theme_accent: string | null;
   profile_effect: string | null;
+  avatar_decoration: string | null;
+  profile_frame: string | null;
 }
 
 interface RoleRow {
@@ -753,6 +758,8 @@ export class Store {
       profileEffect: (PROFILE_EFFECTS as readonly string[]).includes(r.profile_effect ?? '')
         ? (r.profile_effect as ProfileEffect)
         : null,
+      avatarDecoration: r.avatar_decoration,
+      profileFrame: r.profile_frame,
       isAdmin: r.is_admin === 1,
     };
   }
@@ -925,6 +932,8 @@ export class Store {
       avatarColor?: string;
       profileTheme?: ProfileTheme | null;
       profileEffect?: ProfileEffect | null;
+      avatarDecoration?: string | null;
+      profileFrame?: string | null;
     },
   ): User | null {
     if (patch.displayName !== undefined) this.run('UPDATE users SET display_name = ? WHERE id = ?', patch.displayName, id);
@@ -938,6 +947,10 @@ export class Store {
       );
     }
     if (patch.profileEffect !== undefined) this.run('UPDATE users SET profile_effect = ? WHERE id = ?', patch.profileEffect, id);
+    if (patch.avatarDecoration !== undefined) {
+      this.run('UPDATE users SET avatar_decoration = ? WHERE id = ?', patch.avatarDecoration, id);
+    }
+    if (patch.profileFrame !== undefined) this.run('UPDATE users SET profile_frame = ? WHERE id = ?', patch.profileFrame, id);
     return this.getUser(id);
   }
 

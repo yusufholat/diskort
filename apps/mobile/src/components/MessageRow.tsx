@@ -192,7 +192,7 @@ export const MessageRow = memo(function MessageRow({
                 {!compact &&
                   (author && onAvatarPress ? (
                     <Pressable onPress={() => onAvatarPress(author.id)} hitSlop={4} accessibilityRole="button" accessibilityLabel={`${author.displayName} profili`}>
-                      <Avatar user={author} size={40} />
+                      <Avatar user={author} size={40} decoration={author.avatarDecoration} />
                     </Pressable>
                   ) : (
                     <Avatar user={author} size={40} />

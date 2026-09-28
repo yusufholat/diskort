@@ -447,6 +447,8 @@ describe('göç 14: çoklu sunucu', () => {
           theme_primary: null,
           theme_accent: null,
           profile_effect: null,
+          avatar_decoration: null,
+          profile_frame: null,
         })),
       );
 
@@ -633,7 +635,7 @@ describe('göç 21: profil süsleri', () => {
     new Store(file).close();
     const db = new DatabaseSync(file);
     const users = db.prepare('SELECT id, username, avatar_hash FROM users ORDER BY id').all();
-    for (const column of ['banner_hash', 'theme_primary', 'theme_accent', 'profile_effect']) {
+    for (const column of ['banner_hash', 'theme_primary', 'theme_accent', 'profile_effect', 'avatar_decoration', 'profile_frame']) {
       expect(db.prepare(`SELECT COUNT(*) AS n FROM users WHERE ${column} IS NOT NULL`).get()).toEqual({ n: 0 });
     }
     db.close();
@@ -642,7 +644,13 @@ describe('göç 21: profil süsleri', () => {
       expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
       expect(store.db.prepare('SELECT id, username, avatar_hash FROM users ORDER BY id').all()).toEqual(users);
       const user = store.listUsers()[0]!;
-      expect(user).toMatchObject({ bannerUrl: null, profileTheme: null, profileEffect: null });
+      expect(user).toMatchObject({
+        bannerUrl: null,
+        profileTheme: null,
+        profileEffect: null,
+        avatarDecoration: null,
+        profileFrame: null,
+      });
     } finally {
       store.close();
     }

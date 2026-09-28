@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 240 240" width="240" height="240">
+<defs>
+  <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#fff7d6"/><stop offset="0.45" stop-color="#fbbf24"/><stop offset="1" stop-color="#b45309"/>
+  </linearGradient>
+  <g id="k">
+    <path d="M40,14 C56,4 62,26 76,16" fill="none" stroke="#78350f" stroke-width="6" stroke-linecap="round"/>
+    <path d="M14,40 C4,56 26,62 16,76" fill="none" stroke="#78350f" stroke-width="6" stroke-linecap="round"/>
+    <path d="M40,14 C56,4 62,26 76,16" fill="none" stroke="url(#g)" stroke-width="3.4" stroke-linecap="round"/>
+    <path d="M14,40 C4,56 26,62 16,76" fill="none" stroke="url(#g)" stroke-width="3.4" stroke-linecap="round"/>
+    <circle cx="44" cy="30" r="4" fill="none" stroke="url(#g)" stroke-width="2.4"/>
+    <circle cx="30" cy="44" r="4" fill="none" stroke="url(#g)" stroke-width="2.4"/>
+    <path d="M26,6 L46,26 L26,46 L6,26Z" fill="url(#g)" stroke="#78350f" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M26,14 L38,26 L26,38 L14,26Z" fill="#dc2626" stroke="#7f1d1d" stroke-width="1.4"/>
+    <path d="M26,14 L32,20 L26,26 L20,20Z" fill="#f87171"/>
+    <path d="M22,19 L25,16" stroke="#fee2e2" stroke-width="1.8" stroke-linecap="round"/>
+    <circle cx="62" cy="10" r="2.4" fill="#fff7d6" stroke="#92400e" stroke-width="1"/>
+    <circle cx="10" cy="62" r="2.4" fill="#fff7d6" stroke="#92400e" stroke-width="1"/>
+  </g>
+</defs>
+<rect x="8" y="8" width="224" height="224" rx="16" fill="none" stroke="#78350f" stroke-width="7"/>
+<rect x="8" y="8" width="224" height="224" rx="16" fill="none" stroke="url(#g)" stroke-width="4"/>
+<rect x="8" y="8" width="224" height="224" rx="16" fill="none" stroke="#fef3c7" stroke-width="1" opacity="0.8"/>
+<rect x="17" y="17" width="206" height="206" rx="10" fill="none" stroke="#fbbf24" stroke-width="1.4" opacity="0.75"/>
+<use href="#k" xlink:href="#k"/><use href="#k" xlink:href="#k" transform="translate(240,0) scale(-1,1)"/><use href="#k" xlink:href="#k" transform="translate(0,240) scale(1,-1)"/><use href="#k" xlink:href="#k" transform="translate(240,240) scale(-1,-1)"/>
+</svg>

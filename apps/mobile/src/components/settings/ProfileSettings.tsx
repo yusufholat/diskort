@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -11,6 +11,7 @@ import {
 import {
   api,
   errorMessage,
+  loadCosmetics,
   PROFILE_THEME_PRESETS,
   profileGradient,
   removeAvatar,
@@ -18,14 +19,17 @@ import {
   updateProfileLook,
   uploadAvatar,
   uploadBanner,
+  useCosmetics,
   useSession,
+  type CosmeticKind,
 } from '@diskort/client-core';
 import { pickAvatar, pickBanner } from '../../attachments';
 import { toast } from '../../stores/ui';
-import { colors, createStyles, font, space } from '../../theme';
-import { PresenceAvatar } from '../Avatar';
+import { colors, createStyles, font, radius, space } from '../../theme';
+import { Avatar, PresenceAvatar } from '../Avatar';
 import { confirmDialog } from '../Dialog';
 import { PressableScale } from '../PressableScale';
+import { ProfileFrame } from '../ProfileFrame';
 import { ProfileHeader } from '../ProfileHeader';
 import { StatusChip } from '../StatusPicker';
 import { Button, Card, Choices, SectionTitle } from '../ui';
@@ -58,7 +62,13 @@ export function ProfileSettings() {
   return (
     <View>
       <ProfileHeader
-        user={{ ...user, profileTheme: look.theme, profileEffect: look.effect }}
+        user={{
+          ...user,
+          profileTheme: look.theme,
+          profileEffect: look.effect,
+          avatarDecoration: look.decoration,
+          profileFrame: look.frame,
+        }}
         centered
         avatar={(ring) => (
           <PressableScale
@@ -67,7 +77,7 @@ export function ProfileSettings() {
             disabled={photo.busy !== null}
             accessibilityLabel="Profil fotoğrafını değiştir"
           >
-            <PresenceAvatar userId={user.id} user={user} size={88} surface={ring} />
+            <PresenceAvatar userId={user.id} user={user} size={88} surface={ring} decoration={look.decoration} />
             <View style={[styles.cameraBadge, { borderColor: ring }]}>
               {photo.busy ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="camera" size={15} color="#fff" />}
             </View>
@@ -180,6 +190,27 @@ export function ProfileSettings() {
           onChange={(value) => look.setEffect(value === 'none' ? null : value)}
         />
       </Card>
+
+      <SectionTitle>Avatar dekorasyonu</SectionTitle>
+      <Card style={styles.pad}>
+        <Text style={styles.hint}>Avatarının çevresindeki süs; mesajlarda ve üye listesinde de görünür.</Text>
+        <CosmeticChoices kind="decorations" label="Avatar dekorasyonu" value={look.decoration} onPick={look.setDecoration}>
+          {(id) => <Avatar user={user} size={42} decoration={id} />}
+        </CosmeticChoices>
+      </Card>
+
+      <SectionTitle>Profil çerçevesi</SectionTitle>
+      <Card style={styles.pad}>
+        <Text style={styles.hint}>Profil kartının kenarlarındaki süs.</Text>
+        <CosmeticChoices kind="frames" label="Profil çerçevesi" value={look.frame} onPick={look.setFrame}>
+          {(id) => (
+            <View style={styles.miniCard}>
+              <View style={[styles.miniBanner, { backgroundColor: look.theme?.primary ?? user.avatarColor }]} />
+              <ProfileFrame frame={id} border={16} />
+            </View>
+          )}
+        </CosmeticChoices>
+      </Card>
     </View>
   );
 }
@@ -192,35 +223,81 @@ const EFFECT_OPTIONS: readonly { value: ProfileEffect | 'none'; label: string }[
 const sameTheme = (a: ProfileTheme | null, b: ProfileTheme | null): boolean =>
   a === b || (a !== null && b !== null && a.primary === b.primary && a.accent === b.accent);
 
+/** Katalogdaki tasarımlar ve "Yok": küçük önizlemeli kutular */
+function CosmeticChoices({
+  kind,
+  label,
+  value,
+  onPick,
+  children,
+}: {
+  kind: CosmeticKind;
+  label: string;
+  value: string | null;
+  onPick: (id: string | null) => void;
+  /** Kutunun içindeki önizleme (null: süs yok) */
+  children: (id: string | null) => ReactNode;
+}) {
+  const catalog = useCosmetics((s) => s.catalog);
+  useEffect(() => void loadCosmetics(), []);
+  if (!catalog) return <Text style={styles.hint}>Tasarımlar yükleniyor…</Text>;
+  const options = [{ id: null, name: 'Yok' }, ...catalog[kind]];
+  return (
+    <View style={styles.tiles} accessibilityRole="radiogroup" accessibilityLabel={label}>
+      {options.map((o) => {
+        const selected = value === o.id;
+        return (
+          <Pressable
+            key={o.id ?? 'none'}
+            onPress={() => onPick(o.id)}
+            style={({ pressed }) => [styles.tile, selected && styles.tileOn, pressed && { opacity: 0.8 }]}
+            accessibilityRole="radio"
+            accessibilityState={{ selected }}
+            accessibilityLabel={o.name}
+          >
+            {children(o.id)}
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+type LookPatch = Parameters<typeof updateProfileLook>[0];
+
 /**
- * Profil teması ve efekti: seçim önizlemede hemen görünür ve sunucuya kaydedilir; kaydedilemezse eskisine
- * döner ve hata gösterilir.
+ * Profil teması, efekti, dekorasyonu ve çerçevesi: seçim önizlemede hemen görünür ve sunucuya
+ * kaydedilir; kaydedilemezse eskisine döner ve hata gösterilir.
  */
 function useProfileLook() {
   const user = useSession((s) => s.user);
-  const [theme, setThemeDraft] = useState<ProfileTheme | null | undefined>(undefined);
-  const [effect, setEffectDraft] = useState<ProfileEffect | null | undefined>(undefined);
+  const [draft, setDraft] = useState<LookPatch>({});
 
-  const setTheme = (next: ProfileTheme | null): void => {
-    setThemeDraft(next);
-    updateProfileLook({ profileTheme: next })
+  const save = (patch: LookPatch): void => {
+    setDraft((d) => ({ ...d, ...patch }));
+    updateProfileLook(patch)
       .catch((err: unknown) => toast(errorMessage(err), 'error'))
-      // Bu arada başka bir seçim yapıldıysa taslak onundur
-      .finally(() => setThemeDraft((d) => (d === next ? undefined : d)));
+      // Bu arada aynı alan için başka bir seçim yapıldıysa taslak onundur
+      .finally(() =>
+        setDraft((d) => {
+          const next = { ...d };
+          for (const key of Object.keys(patch) as (keyof LookPatch)[]) if (next[key] === patch[key]) delete next[key];
+          return next;
+        }),
+      );
   };
-
-  const setEffect = (next: ProfileEffect | null): void => {
-    setEffectDraft(next);
-    updateProfileLook({ profileEffect: next })
-      .catch((err: unknown) => toast(errorMessage(err), 'error'))
-      .finally(() => setEffectDraft((d) => (d === next ? undefined : d)));
-  };
+  const pick = <K extends keyof LookPatch>(key: K): NonNullable<LookPatch[K]> | null =>
+    ((key in draft ? draft[key] : user?.[key]) ?? null) as NonNullable<LookPatch[K]> | null;
 
   return {
-    theme: theme === undefined ? (user?.profileTheme ?? null) : theme,
-    effect: effect === undefined ? (user?.profileEffect ?? null) : effect,
-    setTheme,
-    setEffect,
+    theme: pick('profileTheme'),
+    effect: pick('profileEffect'),
+    decoration: pick('avatarDecoration'),
+    frame: pick('profileFrame'),
+    setTheme: (profileTheme: ProfileTheme | null) => save({ profileTheme }),
+    setEffect: (profileEffect: ProfileEffect | null) => save({ profileEffect }),
+    setDecoration: (avatarDecoration: string | null) => save({ avatarDecoration }),
+    setFrame: (profileFrame: string | null) => save({ profileFrame }),
   };
 }
 
@@ -333,5 +410,19 @@ const styles = createStyles(() => ({
   swatchOn: { borderWidth: 3, borderColor: colors.head },
   swatchNone: { backgroundColor: colors.main, borderWidth: 1, borderColor: colors.line },
   buttons: { flexDirection: 'row', gap: space.sm },
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  tile: {
+    width: 72,
+    height: 72,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    backgroundColor: colors.main,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tileOn: { borderColor: colors.brand },
+  miniCard: { width: 46, height: 60, borderRadius: 6, overflow: 'hidden', backgroundColor: colors.side },
+  miniBanner: { height: 14 },
   button: { flex: 1 },
 }));

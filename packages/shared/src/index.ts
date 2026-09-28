@@ -33,6 +33,13 @@ export interface User {
   /** Profil kartında oynayan efekt (bkz. PROFILE_EFFECTS). Yoksa null */
   profileEffect?: ProfileEffect | null;
   /**
+   * Avatar dekorasyonunun kimliği (sunucunun kozmetik kataloğunda, bkz. CosmeticsCatalog). Yoksa null;
+   * istemci katalogda bulamadığı kimliği göstermez.
+   */
+  avatarDecoration?: string | null;
+  /** Profil kartının çerçevesinin kimliği (kozmetik kataloğunda). Yoksa null */
+  profileFrame?: string | null;
+  /**
    * Hesap yöneticisi: ana sunucunun (ilk kurulan sunucu) sahibi ya da orada Yönetici yetkili bir rolü var.
    * Hesaplarla ilgili işleri yapar (şifre sıfırlama kodu, hesap silme, hesap daveti, geri bildirimler).
    * Sunuculardaki yetkiler rollerden gelir (bkz. GuildMember).
@@ -458,6 +465,10 @@ export interface UpdateMeRequest {
   profileTheme?: ProfileTheme | null;
   /** null: efekti kaldırır */
   profileEffect?: ProfileEffect | null;
+  /** Katalogdaki bir dekorasyon; null: kaldırır */
+  avatarDecoration?: string | null;
+  /** Katalogdaki bir çerçeve; null: kaldırır */
+  profileFrame?: string | null;
 }
 
 /** Profil kartının iki rengi ("#rrggbb"): üstte primary, altta accent */
@@ -477,6 +488,39 @@ export const PROFILE_EFFECT_LABELS: Record<ProfileEffect, string> = {
 
 /** "#rrggbb" */
 export const HEX_COLOR = /^#[0-9a-f]{6}$/;
+
+/**
+ * Kozmetik kataloğu (GET /api/cosmetics): avatar dekorasyonları ve profil çerçeveleri. Tasarımlar
+ * sunucuda SVG olarak durur, sunucu saydam WebP'ye çevirip sunar (uygulamalar büyümez); adres içeriğin
+ * özetini taşır, süresiz önbelleklenebilir.
+ */
+export interface CosmeticsCatalog {
+  decorations: CosmeticItem[];
+  frames: CosmeticItem[];
+}
+
+export interface CosmeticItem {
+  id: string;
+  name: string;
+  /** Resmin sunucu köküne göre adresi (/api/cosmetics/<tür>/<kimlik>.webp?v=<özet>) */
+  url: string;
+}
+
+/** Kozmetik kimliği: küçük harf, rakam, tire */
+export const COSMETIC_ID = /^[a-z0-9-]{1,32}$/;
+
+/**
+ * Dekorasyon avatarın üstüne, ortalanarak bu kat büyüklükte çizilir (avatar resmin ortadaki %80'i);
+ * yerleşimi değiştirmez.
+ */
+export const AVATAR_DECORATION_SCALE = 1.25;
+
+/**
+ * Profil çerçevesi dokuz dilimli kare resimdir: her kenardan resmin üçte biri köşedir (olduğu gibi
+ * çizilir), aradaki şeritler kart boyunca esnetilir, orta boştur. Kartta köşeler bu kadar piksel çizilir.
+ */
+export const PROFILE_FRAME_SLICE = 1 / 3;
+export const PROFILE_FRAME_BORDER = 40;
 
 /** Afiş boyutu (piksel, 17:6); istemciler kartın genişliğine göre sığdırır */
 export const BANNER_WIDTH = 1020;

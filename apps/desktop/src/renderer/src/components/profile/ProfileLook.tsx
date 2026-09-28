@@ -1,6 +1,13 @@
 import { memo, type CSSProperties, type ReactNode } from 'react';
-import type { CustomStatus, ProfileEffect, ProfileTheme, User } from '@diskort/shared';
-import { bannerUrl, effectParticles, profileGradient, type DisplayStatus } from '@diskort/client-core';
+import {
+  PROFILE_FRAME_BORDER,
+  PROFILE_FRAME_SLICE,
+  type CustomStatus,
+  type ProfileEffect,
+  type ProfileTheme,
+  type User,
+} from '@diskort/shared';
+import { bannerUrl, effectParticles, profileGradient, useCosmeticUrl, type DisplayStatus } from '@diskort/client-core';
 import { cn } from '../../lib/utils';
 import { Avatar } from '../ui/Avatar';
 
@@ -56,7 +63,10 @@ export function ProfileCardTop({
   badge,
   bannerClassName,
 }: {
-  user: Pick<User, 'displayName' | 'username' | 'avatarColor' | 'avatarUrl' | 'bannerUrl' | 'profileTheme'>;
+  user: Pick<
+    User,
+    'displayName' | 'username' | 'avatarColor' | 'avatarUrl' | 'bannerUrl' | 'profileTheme' | 'avatarDecoration'
+  >;
   status?: DisplayStatus;
   /** Avatarın yanında (ör. özel durum balonu) */
   aside?: ReactNode;
@@ -72,7 +82,14 @@ export function ProfileCardTop({
       <div className="px-4">
         <div className="-mt-10 mb-2 flex items-start gap-2">
           <div className="relative w-fit shrink-0 rounded-full border-[6px] border-bg-float" style={{ borderColor: ring }}>
-            <Avatar user={user} size={80} status={status} ringClassName="bg-bg-float" ringColor={ring} />
+            <Avatar
+              user={user}
+              size={80}
+              status={status}
+              ringClassName="bg-bg-float"
+              ringColor={ring}
+              decoration={user.avatarDecoration}
+            />
           </div>
           {aside}
         </div>
@@ -97,6 +114,34 @@ export function StatusBubble({ custom }: { custom: CustomStatus }) {
         {custom.text}
       </span>
     </div>
+  );
+}
+
+/**
+ * Profil çerçevesi: kartın kenarlarına dokuz dilimli resim (köşeler olduğu gibi, kenarlar esnetilerek).
+ * Kartın en üstündedir, tıklamaları engellemez; kart taşanı kırpmalıdır (köşeler yuvarlak).
+ */
+export function ProfileFrameLayer({
+  frame,
+  border = PROFILE_FRAME_BORDER,
+}: {
+  frame: string | null | undefined;
+  /** Köşelerin boyu (piksel); ayarlardaki küçük önizlemede daha küçük */
+  border?: number;
+}) {
+  const src = useCosmeticUrl('frames', frame);
+  if (!src) return null;
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 z-[2]"
+      style={{
+        borderStyle: 'solid',
+        borderColor: 'transparent',
+        borderWidth: border,
+        borderImage: `url("${src}") ${PROFILE_FRAME_SLICE * 100}% / ${border}px stretch`,
+      }}
+      aria-hidden
+    />
   );
 }
 

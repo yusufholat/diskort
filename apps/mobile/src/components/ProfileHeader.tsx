@@ -5,10 +5,19 @@ import { bannerUrl, profileGradient, type DisplayStatus } from '@diskort/client-
 import { colors, createStyles, font, radius, space } from '../theme';
 import { Avatar } from './Avatar';
 import { ProfileEffect } from './ProfileEffect';
+import { ProfileFrame } from './ProfileFrame';
 
 type ProfileUser = Pick<
   User,
-  'displayName' | 'username' | 'avatarColor' | 'avatarUrl' | 'bannerUrl' | 'profileTheme' | 'profileEffect'
+  | 'displayName'
+  | 'username'
+  | 'avatarColor'
+  | 'avatarUrl'
+  | 'bannerUrl'
+  | 'profileTheme'
+  | 'profileEffect'
+  | 'avatarDecoration'
+  | 'profileFrame'
 >;
 
 /** "#rrggbb" iki rengin karışımı (a'dan t kadar); çözülemezse a */
@@ -32,7 +41,7 @@ const VEIL = 0.55;
  * Profil kartının üst kısmı (masaüstündeki profil kartı gibi): üstte afiş (resim, yoksa tema rengi, o da
  * yoksa profil rengi), afişe taşan avatar (halkası kartın renginde), ad, kullanıcı adı ve satırlar. Tema
  * varsa zemin iki renkli degradedir, üstüne yazılar okunsun diye sayfanın renginde yarı saydam bir tül
- * serilir. Efekt en üstte oynar. Üye menüsü ve Ayarlar → Profil'deki önizleme kullanır.
+ * serilir. Efekt ve çerçeve en üsttedir. Üye menüsü ve Ayarlar → Profil'deki önizleme kullanır.
  */
 export function ProfileHeader({
   user,
@@ -106,7 +115,7 @@ export function ProfileHeader({
             { backgroundColor: ring, borderRadius: size, marginTop: -(size / 2 + 4) },
           ]}
         >
-          {avatar ? avatar(ring) : <Avatar user={user} size={size} status={status} surface={ring} />}
+          {avatar ? avatar(ring) : <Avatar user={user} size={size} status={status} surface={ring} decoration={user.avatarDecoration} />}
         </View>
         <View style={[styles.nameRow, centered && styles.nameRowCentered]}>
           <Text style={[styles.name, nameColor ? { color: nameColor } : null]} numberOfLines={1}>
@@ -127,6 +136,7 @@ export function ProfileHeader({
         {children}
       </View>
       <ProfileEffect effect={user.profileEffect} />
+      <ProfileFrame frame={user.profileFrame} />
     </View>
   );
 }

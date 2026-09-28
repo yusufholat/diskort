@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { STATUS_LABELS, type User } from '@diskort/shared';
-import { avatarUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
+import { AVATAR_DECORATION_SCALE, STATUS_LABELS, type User } from '@diskort/shared';
+import { avatarUrl, useCosmeticUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
 import { cn, initials } from '../../lib/utils';
 import { StatusIcon } from './StatusIcon';
 
@@ -16,6 +16,8 @@ interface Props {
   ringClassName?: string;
   /** Halkanın rengi sınıfla verilemiyorsa (ör. temalı profil kartı); ringClassName'in önüne geçer */
   ringColor?: string;
+  /** Avatar dekorasyonunun kimliği (user.avatarDecoration): avatarın üstüne, yerleşimi değiştirmeden çizilir */
+  decoration?: string | null;
   className?: string;
 }
 
@@ -27,6 +29,7 @@ export function Avatar({
   status,
   ringClassName = 'bg-bg-panel',
   ringColor,
+  decoration,
   className,
 }: Props) {
   // 32 piksellik avatarda 10 piksellik nokta, 3 piksellik halka; büyük avatarda (profil) orantılı daha küçük
@@ -37,6 +40,8 @@ export function Avatar({
   const src = avatarUrl(user);
   // Yüklenemeyen fotoğrafın yerine baş harfler (adres değişince yeniden denenir)
   const [failed, setFailed] = useState<string | null>(null);
+  const decorationSrc = useCosmeticUrl('decorations', decoration);
+  const over = (size * (AVATAR_DECORATION_SCALE - 1)) / 2;
   return (
     <div className={cn('relative shrink-0', className)} style={{ width: size, height: size }}>
       <div
@@ -59,6 +64,16 @@ export function Avatar({
           initials(name)
         )}
       </div>
+      {decorationSrc && (
+        <img
+          src={decorationSrc}
+          alt=""
+          draggable={false}
+          decoding="async"
+          className="pointer-events-none absolute max-w-none select-none"
+          style={{ left: -over, top: -over, width: size + 2 * over, height: size + 2 * over }}
+        />
+      )}
       {shown !== undefined && (
         <span
           className={cn('absolute flex items-center justify-center rounded-full', ringClassName)}
