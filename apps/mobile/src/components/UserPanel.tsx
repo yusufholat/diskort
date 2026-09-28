@@ -52,7 +52,7 @@ export function UserPanel({ onSettings }: { onSettings: () => void }) {
           accessibilityRole="button"
           accessibilityLabel={`Durumun: ${STATUS_LABELS[status]}. Değiştir`}
         >
-          <Avatar user={user} size={34} status={status} surface={colors.panel} />
+          <Avatar user={user} size={34} status={status} surface={colors.panel} decoration={user.avatarDecoration} />
         </PressableScale>
         <View style={{ flex: 1 }}>
           <Text style={styles.name} numberOfLines={1}>

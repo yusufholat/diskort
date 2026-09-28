@@ -15,7 +15,14 @@ import { useEscapeLayer } from '../../lib/escape';
 import { usePresence } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
-import { ProfileCardTop, ProfileEffectLayer, ProfileFrameLayer, themedCardStyle } from '../profile/ProfileLook';
+import {
+  framedPadding,
+  ProfileCardTop,
+  ProfileEffectLayer,
+  ProfileFrameLayer,
+  themedCardStyle,
+  useProfileFramed,
+} from '../profile/ProfileLook';
 import { StatusIcon } from '../ui/StatusIcon';
 
 const MARGIN = 8;
@@ -48,6 +55,7 @@ export function SelfProfilePopout() {
   const user = useSession((s) => s.user);
   const self = useSelfStatus();
   const status = useStatus(user?.id);
+  const framed = useProfileFramed(user?.profileFrame);
   const custom = useCustomStatus(user?.id);
   const openModal = useUi((s) => s.openModal);
   const ref = useRef<HTMLDivElement>(null);
@@ -96,13 +104,14 @@ export function SelfProfilePopout() {
         bottom: Math.max(MARGIN, window.innerHeight - shown.top + MARGIN),
         transformOrigin: 'bottom left',
         ...themedCardStyle(user.profileTheme),
+        ...framedPadding(framed),
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
       <ProfileCardTop
         user={user}
         status={status}
-        bannerClassName="rounded-t-lg"
+        bannerClassName={framed ? 'rounded-md' : 'rounded-t-lg'}
         aside={
           <SpeechBubble onClick={editCustom}>
             {custom ? (

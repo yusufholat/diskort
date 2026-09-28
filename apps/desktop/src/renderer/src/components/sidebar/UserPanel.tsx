@@ -87,7 +87,14 @@ export function UserPanel() {
           toggleSelfProfile({ left: rect.left, top: rect.top });
         }}
       >
-        <Avatar user={user ?? undefined} size={32} speaking={speaking} status={status} ringClassName="bg-bg-card" />
+        <Avatar
+          user={user ?? undefined}
+          size={32}
+          speaking={speaking}
+          status={status}
+          ringClassName="bg-bg-card"
+          decoration={user?.avatarDecoration}
+        />
         <div className="min-w-0 leading-tight">
           <div className="truncate text-sm font-semibold text-text-head">{user?.displayName}</div>
           <div className="truncate text-xs text-text-muted">{subtitle}</div>

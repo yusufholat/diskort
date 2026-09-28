@@ -13,7 +13,15 @@ import { useEscapeLayer } from '../../lib/escape';
 import { usePresence } from '../../lib/motion';
 import { watchUserStream } from '../../lib/watchStream';
 import { cn } from '../../lib/utils';
-import { ProfileCardTop, ProfileEffectLayer, ProfileFrameLayer, StatusBubble, themedCardStyle } from '../profile/ProfileLook';
+import {
+  framedPadding,
+  ProfileCardTop,
+  ProfileEffectLayer,
+  ProfileFrameLayer,
+  StatusBubble,
+  themedCardStyle,
+  useProfileFramed,
+} from '../profile/ProfileLook';
 
 const MARGIN = 8;
 const GAP = 8;
@@ -68,6 +76,7 @@ export function ProfilePopover() {
     const v = shown ? s.voiceStates[shown.userId] : undefined;
     return v?.streaming ? v.channelId : null;
   });
+  const framed = useProfileFramed(user?.profileFrame);
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number; origin: string } | null>(null);
 
@@ -137,12 +146,14 @@ export function ProfilePopover() {
       style={{
         ...(pos ? { left: pos.x, top: pos.y, transformOrigin: pos.origin } : { left: -9999, top: -9999 }),
         ...themedCardStyle(user.profileTheme),
+        ...framedPadding(framed),
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
       <ProfileCardTop
         user={user}
         status={status}
+        bannerClassName={framed ? 'rounded-md' : undefined}
         aside={custom && <StatusBubble custom={custom} />}
         badge={owner && <Crown size={16} aria-label="Sunucunun sahibi" className="shrink-0 text-warn" />}
       />

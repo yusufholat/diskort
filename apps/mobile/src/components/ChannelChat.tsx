@@ -593,7 +593,7 @@ function Intro({
     <View style={styles.intro}>
       {dm ? (
         <>
-          <DmAvatar dm={dm} size={72} />
+          <DmAvatar dm={dm} size={72} decorated />
           <Text style={styles.introTitle}>{name}</Text>
           {username && <Text style={styles.introUser}>@{username}</Text>}
           <Text style={styles.introText}>

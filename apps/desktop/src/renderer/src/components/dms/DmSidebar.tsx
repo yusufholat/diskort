@@ -97,7 +97,7 @@ const DmRow = memo(function DmRow({ dm, selected }: { dm: DmChannel; selected: b
           openContextMenu({ x: e.clientX, y: e.clientY, items: dmMenuItems(dm) });
         }}
       >
-        <DmAvatar dm={dm} size={32} status ringClassName="bg-bg-side" />
+        <DmAvatar dm={dm} size={32} status ringClassName="bg-bg-side" decorated />
         <span className="min-w-0 flex-1 leading-tight">
           <span className={cn('block truncate', highlight ? 'font-semibold' : 'font-medium')}>{title}</span>
           {dm.group ? (

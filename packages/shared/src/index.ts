@@ -520,7 +520,9 @@ export const AVATAR_DECORATION_SCALE = 1.25;
  * çizilir), aradaki şeritler kart boyunca esnetilir, orta boştur. Kartta köşeler bu kadar piksel çizilir.
  */
 export const PROFILE_FRAME_SLICE = 1 / 3;
-export const PROFILE_FRAME_BORDER = 40;
+export const PROFILE_FRAME_BORDER = 48;
+/** Çerçeveli kartta içerik kenardan bu kadar içeride (piksel): süsler yazılara ve düğmelere binmez */
+export const PROFILE_FRAME_PADDING = 14;
 
 /** Afiş boyutu (piksel, 17:6); istemciler kartın genişliğine göre sığdırır */
 export const BANNER_WIDTH = 1020;

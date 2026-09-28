@@ -1,15 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 120 120" width="120" height="120">
 <defs>
   <linearGradient id="r" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#a78bfa"/><stop offset="0.5" stop-color="#f472b6"/><stop offset="1" stop-color="#fbbf24"/>
+    <stop offset="0" stop-color="#c4b5fd"/><stop offset="0.5" stop-color="#f9a8d4"/><stop offset="1" stop-color="#fcd34d"/>
   </linearGradient>
-  <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.6"/></filter>
+  <radialGradient id="s" cx="0.5" cy="0.5" r="0.5">
+    <stop offset="0" stop-color="#ffffff"/><stop offset="0.55" stop-color="#fff7d1"/><stop offset="1" stop-color="#fcd34d"/>
+  </radialGradient>
+  
+  <filter id="soft" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="2.2"/></filter>
+  
+  <filter id="gl" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
 </defs>
-<circle cx="60" cy="60" r="51" fill="none" stroke="url(#r)" stroke-width="4.5"/>
-<circle cx="60" cy="60" r="53" fill="none" stroke="#ffffff" stroke-width="0.8" opacity="0.55"/>
-<g><path d="M92.01,5.22 Q92.01,19.02 105.81,19.02 Q92.01,19.02 92.01,32.82 Q92.01,19.02 78.21,19.02 Q92.01,19.02 92.01,5.22Z" fill="#fff7cc" filter="url(#glow)" opacity="0.8"/><path d="M92.01,7.02 Q92.01,19.02 104.01,19.02 Q92.01,19.02 92.01,31.02 Q92.01,19.02 80.01,19.02 Q92.01,19.02 92.01,7.02Z" fill="#fff7cc"/></g>
-<g><path d="M15.9,79.51 Q15.9,87.56 23.95,87.56 Q15.9,87.56 15.9,95.61 Q15.9,87.56 7.85,87.56 Q15.9,87.56 15.9,79.51Z" fill="#ffffff" filter="url(#glow)" opacity="0.8"/><path d="M15.9,80.56 Q15.9,87.56 22.9,87.56 Q15.9,87.56 15.9,94.56 Q15.9,87.56 8.9,87.56 Q15.9,87.56 15.9,80.56Z" fill="#ffffff"/></g>
-<g><path d="M105.91,78.08 Q105.91,84.41 112.24,84.41 Q105.91,84.41 105.91,90.74 Q105.91,84.41 99.59,84.41 Q105.91,84.41 105.91,78.08Z" fill="#fde68a" filter="url(#glow)" opacity="0.8"/><path d="M105.91,78.91 Q105.91,84.41 111.41,84.41 Q105.91,84.41 105.91,89.91 Q105.91,84.41 100.41,84.41 Q105.91,84.41 105.91,78.91Z" fill="#fde68a"/></g>
-<g><path d="M15.9,27.26 Q15.9,32.44 21.08,32.44 Q15.9,32.44 15.9,37.61 Q15.9,32.44 10.73,32.44 Q15.9,32.44 15.9,27.26Z" fill="#ffffff" filter="url(#glow)" opacity="0.8"/><path d="M15.9,27.94 Q15.9,32.44 20.4,32.44 Q15.9,32.44 15.9,36.94 Q15.9,32.44 11.4,32.44 Q15.9,32.44 15.9,27.94Z" fill="#ffffff"/></g>
-<g><path d="M55.47,107.78 Q55.47,111.8 59.5,111.8 Q55.47,111.8 55.47,115.83 Q55.47,111.8 51.45,111.8 Q55.47,111.8 55.47,107.78Z" fill="#fbcfe8" filter="url(#glow)" opacity="0.8"/><path d="M55.47,108.3 Q55.47,111.8 58.97,111.8 Q55.47,111.8 55.47,115.3 Q55.47,111.8 51.97,111.8 Q55.47,111.8 55.47,108.3Z" fill="#fbcfe8"/></g>
+<circle cx="60" cy="60" r="51.5" fill="none" stroke="url(#r)" stroke-width="6" filter="url(#soft)" opacity="0.6"/>
+<circle cx="60" cy="60" r="51.5" fill="none" stroke="url(#r)" stroke-width="4"/>
+<circle cx="60" cy="60" r="50.2" fill="none" stroke="#ffffff" stroke-width="0.9" opacity="0.55"/>
+<g filter="url(#gl)">
+  <path d="M94.07,7.4 C95.75,15.56 97.91,17.72 106.07,19.4 C97.91,21.08 95.75,23.24 94.07,31.4 C92.39,23.24 90.23,21.08 82.07,19.4 C90.23,17.72 92.39,15.56 94.07,7.4Z" fill="url(#s)"/>
+  <path d="M15.05,80.59 C16.1,85.69 17.45,87.04 22.55,88.09 C17.45,89.14 16.1,90.49 15.05,95.59 C14,90.49 12.65,89.14 7.55,88.09 C12.65,87.04 14,85.69 15.05,80.59Z" fill="url(#s)"/>
+  <path d="M105.79,83.62 C106.49,87.02 107.39,87.92 110.79,88.62 C107.39,89.32 106.49,90.22 105.79,93.62 C105.09,90.22 104.19,89.32 100.79,88.62 C104.19,87.92 105.09,87.02 105.79,83.62Z" fill="url(#s)"/>
+  <circle cx="77.61" cy="5.79" r="1.5" fill="#fff7d1"/>
+  <circle cx="31.5" cy="109.36" r="1.3" fill="#fbcfe8"/>
+  <circle cx="6.44" cy="40.5" r="1.2" fill="#ede9fe"/>
+</g>
 </svg>

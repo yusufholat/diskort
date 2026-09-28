@@ -18,15 +18,15 @@
     },
     {
       "id": "wreath",
-      "name": "Yaprak çelengi"
+      "name": "Çiçekli çelenk"
     },
     {
       "id": "flames",
       "name": "Alevler"
     },
     {
-      "id": "pixel",
-      "name": "Piksel halka"
+      "id": "bubbles",
+      "name": "Baloncuklar"
     },
     {
       "id": "moon",
@@ -47,8 +47,8 @@
       "name": "Çiçekli"
     },
     {
-      "id": "pixel",
-      "name": "Piksel"
+      "id": "stars",
+      "name": "Yıldızlı gece"
     }
   ]
 }

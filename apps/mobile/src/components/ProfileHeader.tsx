@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Image, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
-import type { CustomStatus, User } from '@diskort/shared';
-import { bannerUrl, profileGradient, type DisplayStatus } from '@diskort/client-core';
+import { PROFILE_FRAME_PADDING, type CustomStatus, type User } from '@diskort/shared';
+import { bannerUrl, profileGradient, useCosmeticUrl, type DisplayStatus } from '@diskort/client-core';
 import { colors, createStyles, font, radius, space } from '../theme';
 import { Avatar } from './Avatar';
 import { ProfileEffect } from './ProfileEffect';
@@ -82,9 +82,11 @@ export function ProfileHeader({
   // Halka kartın o hizadaki rengindedir: degradenin üçte biri kadar aşağısı, tüle karışmış
   const ring = theme ? mix(surface, mix(theme.primary, theme.accent, 0.7), VEIL) : surface;
   const size = centered ? 88 : 72;
+  // Çerçeveliyken içerik içeri alınır (süsler yazılara binmez); çerçevesiz kart eskisi gibi sıkı
+  const framed = useCosmeticUrl('frames', user.profileFrame) !== null;
 
   return (
-    <View style={[styles.card, { backgroundColor: surface }, style]}>
+    <View style={[styles.card, { backgroundColor: surface }, framed && { padding: PROFILE_FRAME_PADDING }, style]}>
       {theme && (
         <>
           <View style={[StyleSheet.absoluteFill, { experimental_backgroundImage: profileGradient(theme) }]} />
@@ -94,6 +96,7 @@ export function ProfileHeader({
       <View
         style={[
           src ? styles.bannerTall : styles.banner,
+          framed && styles.bannerFramed,
           { backgroundColor: theme?.primary ?? user.avatarColor },
         ]}
       >
@@ -151,6 +154,7 @@ const styles = createStyles(() => ({
   banner: { height: 64 },
   // Afiş 17:6 (sunucu 1020×360'a kırpar)
   bannerTall: { aspectRatio: 17 / 6 },
+  bannerFramed: { borderRadius: radius.md, overflow: 'hidden' },
   body: { paddingHorizontal: space.lg, paddingBottom: space.lg },
   bodyCentered: { alignItems: 'center' },
   avatarRing: { alignSelf: 'flex-start', padding: 4, marginBottom: space.xs },

@@ -32,9 +32,11 @@ import {
   ProfileBanner,
   ProfileCardTop,
   ProfileEffectLayer,
+  framedPadding,
   ProfileFrameLayer,
   StatusBubble,
   themedCardStyle,
+  useProfileFramed,
 } from '../profile/ProfileLook';
 
 const ACCEPT = 'image/png,image/jpeg,image/webp,image/gif';
@@ -287,13 +289,19 @@ function CosmeticPicker({
 function ProfilePreviewCard({ user }: { user: User }) {
   const status = useStatus(user.id);
   const custom = useCustomStatus(user.id);
+  const framed = useProfileFramed(user.profileFrame);
   return (
     <div
       className="relative w-[300px] overflow-hidden rounded-lg border border-edge bg-bg-float pb-4 shadow-[0_8px_24px_rgb(0_0_0/0.25)]"
-      style={themedCardStyle(user.profileTheme)}
+      style={{ ...themedCardStyle(user.profileTheme), ...framedPadding(framed) }}
       aria-label="Profil kartı önizlemesi"
     >
-      <ProfileCardTop user={user} status={status} aside={custom && <StatusBubble custom={custom} />} />
+      <ProfileCardTop
+        user={user}
+        status={status}
+        aside={custom && <StatusBubble custom={custom} />}
+        bannerClassName={framed ? 'rounded-md' : undefined}
+      />
       <ProfileEffectLayer effect={user.profileEffect} />
       <ProfileFrameLayer frame={user.profileFrame} />
     </div>

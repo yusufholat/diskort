@@ -1,6 +1,7 @@
 import { memo, type CSSProperties, type ReactNode } from 'react';
 import {
   PROFILE_FRAME_BORDER,
+  PROFILE_FRAME_PADDING,
   PROFILE_FRAME_SLICE,
   type CustomStatus,
   type ProfileEffect,
@@ -116,6 +117,19 @@ export function StatusBubble({ custom }: { custom: CustomStatus }) {
     </div>
   );
 }
+
+/**
+ * Kartın çerçevesi gerçekten çizilecek mi (katalogda var). Çizilecekse kart içeriği PROFILE_FRAME_PADDING
+ * kadar içeri alınır (süsler yazılara ve düğmelere binmez), afişin köşeleri yuvarlanır; çerçevesiz kart
+ * eskisi gibi sıkı kalır.
+ */
+export function useProfileFramed(frame: string | null | undefined): boolean {
+  return useCosmeticUrl('frames', frame) !== null;
+}
+
+/** Çerçeveli kartın iç boşluğu (style olarak) */
+export const framedPadding = (framed: boolean): CSSProperties | undefined =>
+  framed ? { padding: PROFILE_FRAME_PADDING } : undefined;
 
 /**
  * Profil çerçevesi: kartın kenarlarına dokuz dilimli resim (köşeler olduğu gibi, kenarlar esnetilerek).
