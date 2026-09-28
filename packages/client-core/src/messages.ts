@@ -111,6 +111,39 @@ function merge(existing: LocalMessage[], incoming: Message[]): LocalMessage[] {
   return [...confirmed, ...existing.filter((m) => m.status)];
 }
 
+/** Mesaj kimliklerini (sıfırla başlamayan ondalık tam sayılar) büyüklüğe göre karşılaştırır */
+const idCompare = (a: string, b: string): number => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * Önbellekteki mesajları kanalın en yeni sayfasıyla eşitler (ilk yükleme ve yeniden bağlanınca tazeleme).
+ * `before`: istek gönderilirken önbellekte olan onaylı mesajların kimlikleri. Sayfanın kapsadığı aralıkta
+ * olup sayfada olmayan önbellek mesajları kopukken silinmiştir, çıkarılır; istek sürerken gelenler kalır.
+ * Sayfa önbellekle hiç örtüşmüyorsa (kopukken bir sayfadan fazla mesaj geldi) önbellek sayfayla değiştirilir:
+ * birleştirmek arada kalıcı bir boşluk bırakırdı. Bekleyen/başarısız yerel mesajlara dokunulmaz.
+ */
+function reconcileNewest(existing: LocalMessage[], page: Message[], before: ReadonlySet<string>, full: boolean): LocalMessage[] {
+  if (page.length === 0) {
+    // Kanal boş: istekten önce önbellekte olanların hepsi silinmiş
+    return merge(existing.filter((m) => m.status || !before.has(m.id)), []);
+  }
+  const inPage = new Set(page.map((m) => m.id));
+  let oldest = page[0]!.id;
+  let newest = oldest;
+  for (const m of page) {
+    if (idCompare(m.id, oldest) < 0) oldest = m.id;
+    if (idCompare(m.id, newest) > 0) newest = m.id;
+  }
+  // Tam sayfa değilse sayfa kanalın tamamıdır: alt sınır yok
+  const noOverlap = full && before.size > 0 && [...before].every((id) => idCompare(id, oldest) < 0);
+  const kept = existing.filter((m) => {
+    if (m.status || inPage.has(m.id)) return true;
+    if (idCompare(m.id, newest) > 0) return !before.has(m.id); // sayfadan yeni: istek sürerken geldiyse kalır
+    if (idCompare(m.id, oldest) >= 0 || !full) return false; // sayfanın aralığında ama sayfada yok: silinmiş
+    return !noOverlap; // sayfadan eski: örtüşme yoksa boşluk kalmasın diye atılır
+  });
+  return merge(kept, page);
+}
+
 const selfId = (): string | undefined => useSession.getState().user?.id;
 
 // ---------- Yükleme ----------
@@ -119,10 +152,11 @@ export async function loadInitial(channelId: string): Promise<void> {
   const current = useMessages.getState().channels[channelId];
   if (current?.loaded || current?.loading) return;
   patch(channelId, () => ({ loading: true }));
+  const before = new Set((current?.messages ?? []).filter((m) => !m.status).map((m) => m.id));
   try {
     const page = await api.listMessages(channelId);
     patch(channelId, (c) => ({
-      messages: merge(c.messages, page),
+      messages: reconcileNewest(c.messages, page, before, page.length >= MESSAGE_PAGE_SIZE),
       hasMore: page.length >= MESSAGE_PAGE_SIZE,
       loading: false,
       loaded: true,
@@ -590,7 +624,9 @@ gateway.on((msg: GatewayServerMessage) => {
       const m = msg.d;
       const me = useSession.getState().user;
       if (m.authorId) setTyping(m.channelId, m.authorId, null);
-      if (useMessages.getState().channels[m.channelId]?.loaded) {
+      // Yüklenirken (ör. yeniden bağlanınca tazelenirken) gelen de tutulur: sayfa ondan önce hazırlanmış olabilir
+      const cached = useMessages.getState().channels[m.channelId];
+      if (cached?.loaded || cached?.loading) {
         patch(m.channelId, (c) => {
           // Kendi bekleyen mesajımızın onayı gateway'den önce geldiyse onu yerine koy
           const pendingIndex = m.authorId === me?.id ? c.messages.findIndex((x) => isPendingOf(x, m)) : -1;
