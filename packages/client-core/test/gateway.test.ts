@@ -95,6 +95,38 @@ describe('gateway bağlantısı', () => {
   });
 });
 
+describe('zorunlu çıkış', () => {
+  const withSessionEnded = async (): Promise<ReturnType<typeof vi.fn>> => {
+    const ended = vi.fn();
+    await configureClient({
+      platform: 'android',
+      version: '9.9.9',
+      storage,
+      serverUrl: () => 'http://sunucu.test',
+      notifyError: () => undefined,
+      onSessionEnded: ended,
+    });
+    useSession.getState().setSession('jeton', me);
+    return ended;
+  };
+
+  it('INVALID_SESSION oturumu kapatır ve platforma bildirir (ör. bildirim kaydı unutulsun)', async () => {
+    const ended = await withSessionEnded();
+    gateway.connect();
+    FakeSocket.opened[0]!.receive({ t: 'INVALID_SESSION', d: {} });
+    expect(useSession.getState().token).toBeNull();
+    expect(ended).toHaveBeenCalledTimes(1);
+  });
+
+  it('gateway 4004 kapanışı da bildirir; oturum açılırken bildirilmez', async () => {
+    const ended = await withSessionEnded();
+    expect(ended).not.toHaveBeenCalled();
+    gateway.connect();
+    FakeSocket.opened[0]!.close(4004);
+    expect(ended).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('ölü bağlantı', () => {
   it('heartbeat yanıtsız kalınca kapanış olayını beklemeden yeniden bağlanır', () => {
     vi.useFakeTimers();

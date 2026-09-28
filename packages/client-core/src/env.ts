@@ -59,6 +59,11 @@ export interface ClientEnvironment {
    * gösterilen bildirimlerini kaldırır. Aynı bilgiyle birden çok kez çağrılabilir.
    */
   onChannelRead?(channelId: string, lastReadId: string): void;
+  /**
+   * Oturum kapandı: kullanıcı çıktı ya da sunucu oturumu geçersiz saydı (401, gateway 4004,
+   * INVALID_SESSION). Ör. telefon yerel bildirim kaydını unutur; sonraki girişte yeniden kaydolur.
+   */
+  onSessionEnded?(): void;
   /** Sunucu bu sürümü artık kabul etmiyor */
   onUpdateRequired?(version: string): void;
   /** Yeni sürüm yayınlandı */

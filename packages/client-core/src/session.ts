@@ -35,3 +35,13 @@ export const useSession = create<SessionStore>()(
     },
   ),
 );
+
+// Oturum kapanınca (elle çıkış ya da zorunlu: 401, gateway 4004, INVALID_SESSION) platform haberdar edilir
+useSession.subscribe((s, prev) => {
+  if (!prev.token || s.token) return;
+  try {
+    env().onSessionEnded?.();
+  } catch {
+    // platform henüz yapılandırılmadı
+  }
+});

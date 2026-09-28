@@ -6,7 +6,7 @@ import * as SecureStore from 'expo-secure-store';
 import { AppState, Platform, Vibration } from 'react-native';
 import { uploadFromDevice } from './attachments';
 import { soundCue } from './haptics';
-import { dismissChannelNotifications } from './notifications';
+import { dismissChannelNotifications, forgetPushRegistration } from './notifications';
 import { setupSounds } from './sounds';
 import { getSettings } from './stores/settings';
 import { toast, useUi } from './stores/ui';
@@ -38,6 +38,8 @@ export const clientReady = configureClient({
   storage: secureStorage,
   serverUrl: () => getSettings().serverUrl,
   notifyError: (message) => toast(message, 'error'),
+  // Zorunlu çıkışta da bildirim kaydı unutulur; sonraki girişte yeniden kaydolunur
+  onSessionEnded: forgetPushRegistration,
   isViewingChannel: (channelId) =>
     AppState.currentState === 'active' && useUi.getState().viewingChannelId === channelId,
   // Rahatsız Etmeyin: uygulama içi bildirim ve titreşim yok (okunmamış işaretleri yine güncellenir;
