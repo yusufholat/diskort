@@ -13,6 +13,7 @@ import { Avatar } from '../ui/Avatar';
 import { SwapIcon } from '../ui/SwapIcon';
 import { LiveBadge, openVoiceProfile, VoiceStateIcons, WatchLiveBadge } from '../sidebar/VoiceMemberRow';
 import { StreamView } from './StreamView';
+import { StreamViewers } from './StreamViewers';
 
 type Tile = { kind: 'user'; state: VoiceState } | { kind: 'stream'; userId: string };
 
@@ -192,6 +193,7 @@ function StreamTile({ userId, compact }: { userId: string; compact?: boolean }) 
       <div className="absolute top-2 left-2 flex items-center gap-2">
         <LiveBadge />
       </div>
+      <StreamViewers userId={userId} className="absolute top-2 right-2" />
       {!compact && <div className="text-sm text-text-muted">{user?.displayName} ekranını paylaşıyor</div>}
       <button
         className="press flex items-center gap-2 rounded bg-control px-4 py-2 text-sm font-medium text-on-control hover:bg-control-hover"

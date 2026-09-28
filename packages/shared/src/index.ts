@@ -168,7 +168,15 @@ export interface VoiceState {
    * indirir (GET /api/voice/:channelId/stream-preview/:userId).
    */
   streamPreviewAt?: number;
+  /**
+   * İzlediği yayınların sahipleri (aynı ses kanalında yayında olanlar; kendisi hariç). İstemcinin
+   * STREAM_WATCH_SET ile bildirdiğinden sunucu türetir; boşsa gelmez, eski sunucularda hiç gelmez.
+   */
+  watching?: string[];
 }
+
+/** STREAM_WATCH_SET'te aynı anda izlenebilecek en fazla yayın (fazlası yok sayılır) */
+export const STREAM_WATCH_MAX = 25;
 
 export type StreamSourceKind = 'screen' | 'window';
 
@@ -859,7 +867,12 @@ export type GatewayClientMessage =
   | { t: 'VOICE_STATE_SET'; d: { selfMute: boolean; selfDeaf: boolean } }
   | { t: 'TYPING_START'; d: { channelId: string } }
   /** Bu oturum boşta mı (masaüstünde ~10 dk girdi yok ya da ekran kilitli; telefonda uygulama arka planda) */
-  | { t: 'IDLE_SET'; d: { idle: boolean } };
+  | { t: 'IDLE_SET'; d: { idle: boolean } }
+  /**
+   * İzlenen yayınların tam listesi (yayıncıların kimlikleri). Liste her değiştiğinde ve yeniden bağlanınca
+   * (seste iken) gönderilir; eski sunucular tanımaz ve yok sayar.
+   */
+  | { t: 'STREAM_WATCH_SET'; d: { userIds: string[] } };
 
 // ---------- Sabitler ----------
 

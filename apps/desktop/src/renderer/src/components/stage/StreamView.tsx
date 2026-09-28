@@ -7,6 +7,7 @@ import { useSettings } from '../../stores/settings';
 import { useVoice } from '../../stores/voice';
 import { LiveBadge } from '../sidebar/VoiceMemberRow';
 import { Slider } from '../ui/Slider';
+import { StreamViewers } from './StreamViewers';
 import { SwapIcon } from '../ui/SwapIcon';
 
 interface Props {
@@ -77,12 +78,15 @@ export function StreamView({ userId, large, onClick }: Props) {
       />
       {!hasVideo && <div className="absolute animate-pulse text-sm text-text-muted">Yayın yükleniyor…</div>}
 
-      <div className="pointer-events-none absolute top-0 right-0 left-0 flex items-center gap-2 bg-gradient-to-b from-black/60 to-transparent p-3 opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="pointer-events-none absolute top-0 right-0 left-0 flex items-center gap-2 bg-gradient-to-b from-black/60 to-transparent p-3 pr-32 opacity-0 transition-opacity group-hover:opacity-100">
         <LiveBadge />
         <span className="truncate text-sm font-semibold text-white">
           {isSelf ? 'Senin yayının' : user?.displayName}
         </span>
       </div>
+
+      {/* İzleyenler her zaman görünür (yayıncı için asıl bilgi) */}
+      <StreamViewers userId={userId} className="absolute top-2.5 right-2.5" />
 
       <div
         className={cn(

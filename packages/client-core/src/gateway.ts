@@ -29,6 +29,10 @@ class GatewayClient {
   private listeners = new Set<Listener>();
   /** Bu cihaz boşta mı (masaüstünde girdi yok / ekran kilitli, telefonda uygulama arka planda) */
   private idle = false;
+  /** Bu cihazın izlediği yayınlar (yayıncı kimlikleri, sıralı) */
+  private watching: string[] = [];
+  /** Bu bağlantıda READY geldi (kimlik doğrulandı) */
+  private identified = false;
 
   /**
    * Bağlantıyı başlatır. Zaten bağlıysa ya da bağlanıyorsa bir şey yapmaz: telefonda Android ekranı
@@ -45,6 +49,8 @@ class GatewayClient {
 
   disconnect(): void {
     this.active = false;
+    this.watching = [];
+    this.identified = false;
     this.clearTimers();
     this.ws?.close(1000, 'logout');
     this.ws = null;
@@ -85,6 +91,19 @@ class GatewayClient {
     this.send({ t: 'IDLE_SET', d: { idle } });
   }
 
+  /**
+   * İzlenen yayınların tam listesini bildirir (yayıncı kimlikleri; boş liste izlemeyi bırakır). Yalnızca
+   * değişince gönderilir; yeniden bağlanınca liste boş değilse yeniden bildirilir (sunucu kopan bağlantının
+   * izlemesini siler). Seste olmayan cihaz hiç çağırmaz, böylece sesteki cihazın listesini ezmez.
+   */
+  setWatching(userIds: readonly string[]): void {
+    const next = [...new Set(userIds)].sort();
+    if (next.length === this.watching.length && next.every((id, i) => id === this.watching[i])) return;
+    this.watching = next;
+    // Kimlik doğrulanmadan gönderilen mesaj bağlantıyı kapatır (4003); READY gelince zaten gönderilir
+    if (this.identified) this.send({ t: 'STREAM_WATCH_SET', d: { userIds: next } });
+  }
+
   send(msg: GatewayClientMessage): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
   }
@@ -106,6 +125,7 @@ class GatewayClient {
 
     const ws = new WebSocket(url);
     this.ws = ws;
+    this.identified = false;
 
     ws.onmessage = (ev) => {
       let msg: GatewayServerMessage;
@@ -142,10 +162,12 @@ class GatewayClient {
         break;
       case 'READY':
         this.attempts = 0;
+        this.identified = true;
         useGuild.getState().setReady(msg.d);
         useSession.getState().setUser(msg.d.user);
         // Yeni oturum etkin sayılır; boştaysak hemen bildir
         if (this.idle) this.send({ t: 'IDLE_SET', d: { idle: true } });
+        if (this.watching.length > 0) this.send({ t: 'STREAM_WATCH_SET', d: { userIds: this.watching } });
         break;
       case 'HEARTBEAT_ACK':
         this.awaitingAck = false;
