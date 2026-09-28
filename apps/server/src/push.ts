@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { importPKCS8, SignJWT } from 'jose';
-import { GIF_SNIPPET, isGifMessage, type DmChannel, type Message } from '@diskort/shared';
+import { GIF_SNIPPET, isGifMessage, pushTag, type DmChannel, type Message } from '@diskort/shared';
 import type { ApnsClient } from './apns.js';
 import type { Store } from './db.js';
 
@@ -30,7 +30,15 @@ interface Outgoing {
   data: Record<string, string>;
   /** Android bildirim kanalı */
   channelId: string;
-  /** Aynı konudaki bildirimler üst üste biner */
+  /**
+   * Konuşma (kanal kimliği): iOS aynı konuşmanın bildirimlerini gruplar (thread-id). Her mesaj ayrı
+   * bildirimdir, yenisi eskisinin yerini almaz (apns-collapse-id yok).
+   */
+  thread?: string;
+  /**
+   * Android etiketi: mesaja özgü (pushTag), bu yüzden bildirimler üst üste binmez; Android aynı
+   * uygulamanın bildirimlerini kendisi gruplar. Telefon, okunan kanalın bildirimlerini bununla bulup kaldırır.
+   */
   tag?: string;
 }
 
@@ -92,16 +100,16 @@ export class PushService {
           body: body.length > BODY_MAX ? `${body.slice(0, BODY_MAX)}…` : body,
           data: { type: 'mention', channelId: message.channelId, messageId: message.id, ...(guildId ? { guildId } : {}) },
           channelId: 'diskort-mentions',
-          // Aynı kanaldaki bildirimler üst üste biner, bildirim çubuğu dolmaz
-          tag: `channel-${message.channelId}`,
+          thread: message.channelId,
+          tag: pushTag(message.channelId, message.id),
         }),
       ),
     );
   }
 
   /**
-   * Direkt mesaj: konuşmanın diğer katılımcılarının telefonlarına, her mesajda. Aynı konuşmanın
-   * bildirimleri üst üste biner (etiket); ayrı Android kanalındadır, kullanıcı ayrıca kapatabilir.
+   * Direkt mesaj: konuşmanın diğer katılımcılarının telefonlarına, her mesajda. Her mesaj ayrı bildirimdir
+   * (iOS konuşmaya göre gruplar); ayrı Android kanalındadır, kullanıcı ayrıca kapatabilir.
    */
   async notifyDm(message: Message, recipientIds: string[], dm: DmChannel): Promise<void> {
     if (!this.enabled || recipientIds.length === 0) return;
@@ -119,7 +127,8 @@ export class PushService {
           body,
           data: { type: 'dm', channelId: message.channelId, messageId: message.id },
           channelId: 'diskort-dm',
-          tag: `dm-${message.channelId}`,
+          thread: message.channelId,
+          tag: pushTag(message.channelId, message.id),
         }),
       ),
     );
@@ -176,7 +185,7 @@ export class PushService {
         title: o.title,
         body: o.body,
         data: o.data,
-        collapseId: o.tag,
+        threadId: o.thread,
       });
       // Uygulama silinmiş ya da jeton yenilenmiş: artık geçersiz jetonu unut
       if (result === 'unregistered') this.store.removePushToken(target.token);
@@ -188,6 +197,7 @@ export class PushService {
       data: o.data,
       android: {
         priority: 'HIGH',
+        // Etiket mesaja özgü: aynı konuşmanın bildirimleri birbirinin yerini almaz, her mesaj ayrı görünür
         notification: { channel_id: o.channelId, ...(o.tag ? { tag: o.tag } : {}), color: '#5865f2' },
       },
     });

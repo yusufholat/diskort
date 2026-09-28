@@ -9,6 +9,7 @@ import { ApnsClient, type ApnsTransport } from '../src/apns.js';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import type { AppContext } from '../src/context.js';
+import { parsePushTag, pushTag } from '@diskort/shared';
 import { joinGuild } from './helpers.js';
 import { PushService } from '../src/push.js';
 
@@ -135,9 +136,10 @@ describe('telefon bildirimleri', () => {
     expect(body.message.notification.body).toBe('@Mehmet bakar mısın?');
     expect(body.message.data).toEqual({ type: 'mention', channelId: text.id, messageId: message.id });
     expect(body.message.android.notification.channel_id).toBe('diskort-mentions');
+    expect(body.message.android.notification.tag).toBe(pushTag(text.id, message.id));
   });
 
-  it('direkt mesaj ayrı Android kanalından, konuşma başına tek bildirim olarak gider', async () => {
+  it('direkt mesaj ayrı Android kanalından, her mesaj ayrı bildirim olarak gider (etiket yok)', async () => {
     const google = fakeGoogle();
     const { admin, member, push } = await start(google);
     ctx.store.savePushToken(member.user.id, 'mehmetin-telefonu', 'android');
@@ -150,7 +152,16 @@ describe('telefon bildirimleri', () => {
     expect(body.message.token).toBe('mehmetin-telefonu');
     expect(body.message.notification).toEqual({ title: 'ayse', body: 'akşam @Mehmet ile görüşelim mi?' });
     expect(body.message.data).toEqual({ type: 'dm', channelId: dm.id, messageId: message.id });
-    expect(body.message.android.notification).toMatchObject({ channel_id: 'diskort-dm', tag: `dm-${dm.id}` });
+    // Etiket mesaja özgü: yeni mesaj öncekinin yerini almaz; telefon okununca kanalı etiketten bulur
+    expect(body.message.android.notification).toEqual({
+      channel_id: 'diskort-dm',
+      tag: pushTag(dm.id, message.id),
+      color: '#5865f2',
+    });
+    expect(parsePushTag(body.message.android.notification.tag)).toEqual({ channelId: dm.id, messageId: message.id });
+    expect(parsePushTag(`dm-${dm.id}`)).toBeNull();
+    expect(parsePushTag('diskort:a:b:12')).toEqual({ channelId: 'a:b', messageId: '12' });
+    expect(parsePushTag('diskort:12')).toBeNull();
 
     // Grup: başlıkta grubun adı; yalnızca dosya içeren mesajda dosya bilgisi
     google.requests.length = 0;
@@ -248,18 +259,46 @@ describe('iOS bildirimleri (APNs)', () => {
     expect(req.path).toBe('/3/device/a1b2c3d4');
     expect(req.headers['apns-topic']).toBe('com.diskort.app');
     expect(req.headers['apns-push-type']).toBe('alert');
-    expect(req.headers['apns-collapse-id']).toBe(`channel-${text.id}`);
+    // Yenisi eskisinin yerini almaz (collapse yok); konuşmaya göre gruplanır (thread-id)
+    expect(req.headers['apns-collapse-id']).toBeUndefined();
     const jwt = req.headers.authorization!.replace(/^bearer /, '');
     expect(decodeProtectedHeader(jwt)).toMatchObject({ alg: 'ES256', kid: 'KEY1234567' });
     expect(decodeJwt(jwt).iss).toBe('TEAM123456');
     const payload = JSON.parse(req.body) as Record<string, any>;
     expect(payload.aps.alert.body).toBe('@Mehmet bakar mısın?');
+    expect(payload.aps['thread-id']).toBe(text.id);
     expect(payload.channelId).toBe(text.id);
     expect(payload.body).toEqual({ type: 'mention', channelId: text.id, messageId: message.id });
 
     const fcm = google.requests.filter((r) => r.url.includes('fcm.googleapis.com'));
     expect(fcm).toHaveLength(1);
     expect(JSON.parse(fcm[0]!.body).message.token).toBe('android-telefon');
+  });
+
+  it('direkt mesajların her biri ayrı bildirimdir, iOS konuşmaya göre gruplar', async () => {
+    const apple = fakeApple();
+    const { admin, member, push, google } = await startIos(apple, true);
+    ctx.store.savePushToken(member.user.id, 'a1b2c3d4', 'ios');
+    ctx.store.savePushToken(member.user.id, 'android-telefon', 'android');
+    const { dm } = ctx.store.openDirectDm(admin.user.id, member.user.id);
+    const first = ctx.store.createMessage(dm.id, admin.user.id, 'selam')!;
+    const second = ctx.store.createMessage(dm.id, admin.user.id, 'orada mısın?')!;
+    await push.notifyDm(first, [member.user.id], ctx.store.getDm(dm.id)!);
+    await push.notifyDm(second, [member.user.id], ctx.store.getDm(dm.id)!);
+
+    expect(apple.requests).toHaveLength(2);
+    for (const [i, req] of apple.requests.entries()) {
+      expect(req.headers['apns-collapse-id']).toBeUndefined();
+      const payload = JSON.parse(req.body) as Record<string, any>;
+      expect(payload.aps['thread-id']).toBe(dm.id);
+      expect(payload.channelId).toBe(dm.id);
+      expect(payload.messageId).toBe([first, second][i]!.id);
+    }
+    const fcm = google.requests.filter((r) => r.url.includes('fcm.googleapis.com'));
+    expect(fcm).toHaveLength(2);
+    const tags = fcm.map((r) => (JSON.parse(r.body).message as Record<string, any>).android.notification.tag);
+    expect(tags).toEqual([pushTag(dm.id, first.id), pushTag(dm.id, second.id)]);
+    for (const r of fcm) expect(JSON.parse(r.body).message.data.channelId).toBe(dm.id);
   });
 
   it('APNs anahtarı varken FCM yoksa Android\'e gitmez; geçersiz iOS jetonu silinir', async () => {
