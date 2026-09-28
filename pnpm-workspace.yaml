@@ -8,6 +8,9 @@ allowBuilds:
   esbuild: true
   uiohook-napi: true
   '@node-rs/argon2': true
+  # Skia'nın hazır yerel kütüphanelerini (react-native-skia-android / -apple-*) paketin libs/ klasörüne kopyalar;
+  # telefon derlemesi (CI) bunlar olmadan bağlanamaz
+  '@shopify/react-native-skia': true
   # Squirrel yükleyicisi kullanılmıyor (NSIS kullanılıyor)
   electron-winstaller: false
   # onnxruntime-web bağımlılığı; kurulum betiği yalnızca sürüm uyarısı basar
