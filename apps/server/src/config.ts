@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { GIF_RATINGS } from './gifs.js';
+import { parseDevicesKey } from './iosDevicesCrypto.js';
 
 export interface Config {
   host: string;
@@ -58,6 +59,15 @@ export interface Config {
   tlsCheckHost: string;
   /** API kapsayıcısının cgroup kökü (CGROUP_ROOT, varsayılan /sys/fs/cgroup; kapsayıcının kendi görünümü) */
   cgroupRoot: string;
+  /**
+   * iPhone cihaz onayında Ad Hoc IPA'yı otomatik derletmek için GitHub ince taneli erişim belirteci
+   * (GITHUB_DISPATCH_TOKEN; yalnızca bu depoda Actions: write). Yoksa panel elle çalıştırılacak komutu gösterir.
+   */
+  githubDispatchToken: string | null;
+  /** Onaylar toplanıp tek derleme başlatılmadan önce beklenen süre (IOS_DISPATCH_DELAY_SEC, varsayılan 180) */
+  iosDispatchDelayMs: number;
+  /** Cihaz listesini iş akışına şifreli göndermek için AES-256-GCM anahtarı (IOS_DEVICES_KEY, 32 bayt base64) */
+  iosDevicesKey: Buffer | null;
   /** Günlük sayaçların ve ses kalitesi dosyalarının günü: UTC'ye göre dakika (STATS_UTC_OFFSET_MIN, varsayılan 180) */
   statsUtcOffsetMin: number;
   isDev: boolean;
@@ -93,6 +103,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const statsOffset = Number(env.STATS_UTC_OFFSET_MIN ?? 180);
   if (!Number.isInteger(statsOffset) || Math.abs(statsOffset) > 14 * 60) {
     throw new Error(`Geçersiz STATS_UTC_OFFSET_MIN: ${env.STATS_UTC_OFFSET_MIN}`);
+  }
+  const iosDispatchDelaySec = Number(env.IOS_DISPATCH_DELAY_SEC ?? 180);
+  if (!Number.isFinite(iosDispatchDelaySec) || iosDispatchDelaySec < 0 || iosDispatchDelaySec > 3600) {
+    throw new Error(`Geçersiz IOS_DISPATCH_DELAY_SEC: ${env.IOS_DISPATCH_DELAY_SEC}`);
   }
   const production = env.NODE_ENV === 'production';
   /** Adres ortam değişkeni: verilmemişse üretimde varsayılan, "0" ya da boş: kapalı */
@@ -155,6 +169,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         : [],
     tlsCheckHost: env.TLS_CHECK_HOST || '127.0.0.1',
     cgroupRoot: env.CGROUP_ROOT || '/sys/fs/cgroup',
+    githubDispatchToken: env.GITHUB_DISPATCH_TOKEN?.trim() || null,
+    iosDispatchDelayMs: Math.round(iosDispatchDelaySec * 1000),
+    iosDevicesKey: parseDevicesKey(env.IOS_DEVICES_KEY),
     statsUtcOffsetMin: statsOffset,
     isDev,
   };

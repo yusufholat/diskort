@@ -77,20 +77,23 @@ openssl req -new -key diskort-ios.key -out diskort-ios.csr -subj "/emailAddress=
 
 ### 5. Cihazları kaydet (UDID)
 
-Her iPhone'un UDID'si gerekir. En kolay yol: iPhone'u bilgisayara bağla, Windows'ta **Apple Devices**
-uygulaması (ya da iTunes) → cihaz → seri numarasına tıklayınca UDID görünür. Alternatif: <https://udid.tech>
-gibi bir sitenin yapılandırma profiliyle iPhone'un kendisinden okunabilir.
+Her iPhone'un UDID'si gerekir. En kolay yol: iPhone'da Safari ile <https://diskort.ziroo.net/udid> →
+profili yükle; cihaz yönetim panelinin **iPhone cihazları** sekmesinde görünür. (Alternatif: Windows'ta
+**Apple Devices** uygulaması → cihaz → seri numarasına tıklayınca UDID görünür.)
 
-**Devices** → **+** → Platform iOS, ad (ör. `Yusuf iPhone`), UDID → Register. Her cihaz için tekrarla.
+Otomatik cihaz ekleme kuruluysa (aşağıda) panelde **Onayla** demek yeter. Değilse elle: **Devices** → **+** →
+Platform iOS, ad (ör. `Yusuf iPhone`), UDID → Register.
 
 ### 6. Ad Hoc dağıtım profili
+
+Otomatik cihaz ekleme kuruluysa bu adım gerekmez (profili iş akışı kendisi hazırlar). Elle:
 
 1. **Profiles** → **+** → **Distribution** altında **Ad Hoc** → App ID: `com.diskort.app` →
    sertifika: 4. adımdaki → cihazlar: hepsini seç → ad: `Diskort Ad Hoc` → Generate → indir
    (`Diskort_Ad_Hoc.mobileprovision`).
 2. Yeni cihaz eklendiğinde: profili **Edit** ile açıp cihazı işaretle, yeniden indir, 7. adımdaki
-   `IOS_PROVISIONING_PROFILE_BASE64`'ü güncelle ve IPA'yı yeniden derlet (yeni sürüm yayınla ya da iş
-   akışını elle çalıştır). Profil 1 yıl geçerli.
+   `IOS_PROVISIONING_PROFILE_BASE64`'ü güncelle ve IPA'yı yeniden derlet (aşağıdaki `attach-latest`
+   komutu ya da yeni sürüm). Profil 1 yıl geçerli.
 
 ### 7. GitHub gizli değişkenleri
 
@@ -101,7 +104,9 @@ Depo → **Settings** → **Secrets and variables** → **Actions** → **New re
 | `APPLE_TEAM_ID` | Team ID (1. adım) |
 | `IOS_CERT_P12_BASE64` | `base64 -w0 diskort-ios.p12` çıktısı |
 | `IOS_CERT_PASSWORD` | `.p12` parolası |
-| `IOS_PROVISIONING_PROFILE_BASE64` | `base64 -w0 Diskort_Ad_Hoc.mobileprovision` çıktısı |
+| `IOS_PROVISIONING_PROFILE_BASE64` | `base64 -w0 Diskort_Ad_Hoc.mobileprovision` çıktısı (ASC anahtarı varsa gerekmez) |
+| `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8` | İsteğe bağlı: otomatik cihaz ekleme (aşağıda) |
+| `IOS_DEVICES_KEY` | İsteğe bağlı: şifreli cihaz listesinin anahtarı (aşağıda; sunucuda da aynısı) |
 
 `OTA_SIGNING_KEY` zaten var (Android ile aynı anahtar, iOS OTA paketini de imzalar).
 
@@ -122,6 +127,145 @@ iPhone'da **Safari** ile `https://diskort.ziroo.net` → **Yükle** (ya da doğr
 - iOS 16+ ilk açılışta **Geliştirici Modu** isteyebilir: Ayarlar → Gizlilik ve Güvenlik → Geliştirici Modu
   → aç, telefon yeniden başlar. (Ad Hoc uygulamalarda genellikle gerekmez; istenirse böyle açılır.)
 - "Bu uygulama yüklenemedi": cihazın UDID'si profilde yok ya da profil/sertifika süresi dolmuş.
+
+## Otomatik cihaz ekleme
+
+Amaç: yeni bir arkadaşın iPhone'u için tek iş yönetim panelinde **Onayla**'ya basmak.
+
+### Akış
+
+1. Arkadaş iPhone'da Safari ile `https://diskort.ziroo.net/udid?ad=Adı` → profili yükler. Sunucu cihazı
+   `/data/udids.jsonl`'e yazar; panelde **iPhone cihazları** sekmesinde **Bekliyor** olarak görünür
+   (sekmedeki kırmızı sayı bekleyenler).
+2. Sen **Onayla** dersin (ya da **Reddet**). Durumlar `/data/udid-status.json`'da tutulur; `udids.jsonl`
+   değişmez, eski kayıtlar "Bekliyor" sayılır.
+3. Sunucu onayları 3 dakika toplar (`IOS_DISPATCH_DELAY_SEC`; aynı anda birkaç onay tek derleme olur), sonra
+   GitHub'da **iOS** iş akışını başlatır: `signed=true`, `attach-latest=true`, `devices=<onaylı cihazlar, şifreli>`.
+   Panelde **Hemen derle** beklemeyi atlar. Depo herkese açık olduğundan `devices` girdisi **AES-256-GCM ile
+   şifrelidir** (`v1.<iv>.<veri>`, anahtar `IOS_DEVICES_KEY`); UDID ve adlar GitHub'da görünmez.
+4. İş akışı (`.github/workflows/ios.yml`):
+   - en son **yayınlanmış** sürümün etiketini alır ve o kodu derler (yeni sürüm gerekmez);
+   - cihaz listesini `scripts/ios-devices-crypto.mjs` ile çözer: her UDID ve ad önce `::add-mask::` ile
+     günlükte gizlenir, açık metin hiçbir yere yazılmaz (betik UDID'nin en çok son 4 karakterini yazar).
+     Anahtar yoksa ya da çözme başarısızsa derleme hemen durur;
+   - `scripts/ios-provisioning.mjs sync` ile App Store Connect API üzerinden cihazları Apple'a kaydeder,
+     p12'deki sertifikayı Apple'daki kaydıyla eşler ve **tüm açık iOS cihazlarını** içeren yeni bir Ad Hoc
+     profili oluşturur (`Diskort Ad Hoc otomatik <tarih>`; eski otomatik profiller silinir, elle
+     oluşturduğun `Diskort Ad Hoc`'a dokunulmaz; cihaz listesi değişmediyse ve profil 30 günden uzun
+     geçerliyse mevcut profil yeniden kullanılır);
+   - profili denetler (App ID, `aps-environment`, **istenen her UDID profilde mi**) ve imzalı IPA'yı derler;
+   - IPA'yı o sürümdeki `Diskort-<sürüm>-ios.ipa`'nın yerine yükler (`--clobber`). Sürümde iOS OTA paketi
+     yoksa onu da üretip yükler; varsa dokunmaz.
+5. Sunucu çalıştırmayı adındaki kimlikten bulur (`run-name: iOS · cihaz ekleme <kimlik>`), dakikada bir
+   GitHub API'sinden durumuna bakar. Başarıyla biterse o derlemedeki cihazlar **Eklendi** olur. Panel son
+   derlemenin durumunu ve GitHub bağlantısını gösterir. Başarısız olursa cihazlar **Onaylandı** kalır;
+   **Hemen derle** ile yeniden denenir.
+6. Arkadaş iPhone'da `https://diskort.ziroo.net` → **Yükle**. Daha önce kurmuş olanlar etkilenmez (eski
+   IPA'ları kendi profilleriyle çalışmaya devam eder); JavaScript güncellemeleri yine OTA ile gelir.
+
+Neden geri bildirim ucu yok: sunucu, başlattığı derlemeyi aynı GitHub belirteciyle zaten izleyebiliyor;
+ikinci bir gizli anahtar (iş akışı → sunucu) gerekmiyor. İş akışı ancak istenen cihazların hepsi profildeyse
+başarılı biter, yani "Eklendi" gerçekten kurulabilir demektir.
+
+**Parçalardan biri yoksa:**
+
+| Eksik | Ne olur |
+| --- | --- |
+| `GITHUB_DISPATCH_TOKEN` (sunucu) | Onay yalnızca durumu değiştirir; panel çalıştırılacak `gh workflow run …` komutunu gösterir. Derleme bitince cihazları panelde **Eklendi say** ile işaretle. |
+| `IOS_DEVICES_KEY` (sunucu) | Belirteç olsa bile derleme **başlatılmaz** (UDID'ler asla açık gönderilmez); panel kırmızı uyarı ve elle komut gösterir. |
+| `IOS_DEVICES_KEY` (GitHub) | Şifreli cihaz listesiyle başlatılan derleme hemen hata verir. |
+| `ASC_*` gizli değişkenleri (GitHub) | İş akışı eskisi gibi `IOS_PROVISIONING_PROFILE_BASE64`'ü kullanır. Cihazı Apple'da elle ekleyip profili güncellemediysen derleme "Cihaz profilde yok" diye durur (boşuna IPA yüklenmez). |
+
+Elle çalıştırma: UDID'leri **açık yazma** (herkese açık depoda görünür). Yollar:
+
+- Panelin gösterdiği komut: sunucuda `IOS_DEVICES_KEY` varsa cihaz listesi komutta şifreli hazırdır.
+- Cihazsız: `gh workflow run ios.yml --repo yusufholat/diskort -f simulator=false -f signed=true -f attach-latest=true`.
+  ASC yalnızca verilen cihazları kaydeder; cihaz verilmezse profil Apple'da zaten kayıtlı ve açık olan tüm
+  cihazlarla yenilenir. Yani önce cihazı Apple Developer → Devices'ta elle ekle.
+- Şifreli değeri kendin üretmek (anahtar dosyası bilgisayardaysa):
+  `node scripts/ios-devices-crypto.mjs encrypt --key-file ios-devices.key UDID1,UDID2`
+
+### Bir kerelik kurulum
+
+**1. App Store Connect API anahtarı** (cihaz kaydı ve profil oluşturma için)
+
+1. <https://appstoreconnect.apple.com/access/integrations/api> → **Users and Access** → **Integrations** →
+   **App Store Connect API** → **Team Keys** sekmesi (ilk kez açılıyorsa "Request Access" onayı gerekir).
+2. **Generate API Key** (ya da **+**) → ad: `Diskort CI` → **Access: Admin**. Apple'ın sertifika/profil
+   (Provisioning) uçları yalnızca **Admin** rolündeki **takım** anahtarlarına açık; "Individual Key" ya da
+   App Manager/Developer rolü işe yaramaz.
+3. **Download** → `AuthKey_XXXXXXXXXX.p8` (**yalnızca bir kez indirilebilir**; güvenli bir yerde sakla, depoya
+   koyma). Sayfada **Key ID** (10 karakter) ve üstte **Issuer ID** (UUID) görünür.
+
+**2. GitHub gizli değişkenleri** — `.p8` dosyasının bulunduğu klasörde. Windows PowerShell 5.1 `<`
+yönlendirmesini desteklemez ve Türkçe karakterleri bozabilir; bu yüzden `cmd /c` ile:
+
+```powershell
+cmd /c 'gh secret set ASC_KEY_P8 --repo yusufholat/diskort < AuthKey_XXXXXXXXXX.p8'
+gh secret set ASC_KEY_ID --repo yusufholat/diskort --body XXXXXXXXXX
+gh secret set ASC_ISSUER_ID --repo yusufholat/diskort --body 00000000-0000-0000-0000-000000000000
+```
+
+(Git Bash'te ilk satır doğrudan `gh secret set ASC_KEY_P8 --repo yusufholat/diskort < AuthKey_XXXXXXXXXX.p8`.)
+Diğer gizli değişkenler (`IOS_CERT_P12_BASE64`, `IOS_CERT_PASSWORD`, `APPLE_TEAM_ID`) aynen kalır;
+`IOS_PROVISIONING_PROFILE_BASE64` artık kullanılmaz ama silmek gerekmez (ASC anahtarı kaldırılırsa yedek).
+
+İsteğe bağlı deneme (hiçbir şey değiştirmez; bilgisayarda, Git Bash):
+
+```sh
+export ASC_KEY_ID=XXXXXXXXXX ASC_ISSUER_ID=00000000-0000-0000-0000-000000000000 ASC_KEY_FILE=AuthKey_XXXXXXXXXX.p8
+node scripts/ios-provisioning.mjs list
+node scripts/ios-provisioning.mjs sync --cert distribution.pem --dry-run
+```
+
+`distribution.pem` 4. adımda `distribution.cer`'den üretilen dosya. `--dry-run` yalnızca okur ve ne yapacağını
+yazar (kayıt, profil oluşturma, silme yok).
+
+**3. GitHub belirteci (sunucunun iş akışını başlatması için)**
+
+1. <https://github.com/settings/personal-access-tokens/new> → **Fine-grained token** → ad: `diskort-ios-dispatch`,
+   süre: 1 yıl, **Repository access: Only select repositories → yusufholat/diskort**.
+2. **Permissions → Repository permissions → Actions: Read and write** (Metadata: Read kendiliğinden gelir).
+   Başka izin verme.
+3. **Generate token** → değeri bilgisayarda bir dosyaya kaydet (ör. `gh-dispatch-token.txt`), sonra Git Bash'te:
+
+```sh
+scp gh-dispatch-token.txt diskort-vps:/tmp/gh-dispatch-token
+ssh diskort-vps 'printf "\nGITHUB_DISPATCH_TOKEN=%s\n" "$(tr -d "\r\n" < /tmp/gh-dispatch-token)" >> /opt/diskort/infra/.env && rm /tmp/gh-dispatch-token && chmod 600 /opt/diskort/infra/.env && cd /opt/diskort/infra && docker compose up -d api'
+rm gh-dispatch-token.txt
+```
+
+(PowerShell 5.1 iç içe tırnakları bozduğu için ikinci satırı Git Bash'te çalıştır.) `docker-compose.yml` bu
+değişkeni api kapsayıcısına geçirir; sunucu bu sürümle güncellenmiş olmalı. Belirteç süresi dolunca
+yenisini aynı şekilde yaz (önce `.env`'deki eski satırı sil).
+
+**4. Cihaz listesi şifre anahtarı (`IOS_DEVICES_KEY`)** — aynı anahtar hem GitHub'a hem sunucuya.
+PowerShell'de:
+
+```powershell
+cd C:\Users\yusuf\diskort-ios
+node -e "require('fs').writeFileSync('ios-devices.key', require('crypto').randomBytes(32).toString('base64'))"
+cmd /c 'gh secret set IOS_DEVICES_KEY --repo yusufholat/diskort < "C:\Users\yusuf\diskort-ios\ios-devices.key"'
+```
+
+Sonra sunucuya, Git Bash'te (`/c/Users/yusuf/diskort-ios` klasöründe):
+
+```sh
+scp ios-devices.key diskort-vps:/tmp/ios-devices-key
+ssh diskort-vps 'printf "\nIOS_DEVICES_KEY=%s\n" "$(tr -d "\r\n" < /tmp/ios-devices-key)" >> /opt/diskort/infra/.env && rm /tmp/ios-devices-key && chmod 600 /opt/diskort/infra/.env && cd /opt/diskort/infra && docker compose up -d api'
+```
+
+`ios-devices.key` dosyasını sakla (elle şifreli komut üretmek için gerekir); depoya koyma. Anahtar kaybolursa
+yenisini üretip iki yere de yeniden yaz (önce `.env`'deki eski satırı sil).
+
+Kontrol: panel → **iPhone cihazları** → "Otomatik derleme: Açık" görünmeli (anahtar eksikse kırmızı uyarı çıkar).
+
+### Bilinen: IPA'daki cihaz listesi
+
+Yayınlanan IPA herkese açık GitHub sürümündedir ve içine gömülü dağıtım profili **kayıtlı tüm cihazların
+UDID'lerini** içerir (Ad Hoc'un doğası; IPA'yı indiren biri profili açıp okuyabilir). Adlar profilde yok.
+Risk düşük (UDID tek başına cihaza erişim sağlamaz). İleride IPA yalnızca kendi sunucumuzdan, kurulum
+bağlantısıyla sunulursa bu da kapanır.
 
 ## Nasıl çalışıyor (teknik)
 

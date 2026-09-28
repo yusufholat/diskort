@@ -1977,3 +1977,37 @@ textarea.adm-input {
     margin-left: 0;
   }
 }
+
+/* ---------- Yönetim: iPhone cihazları ---------- */
+
+.adm-ios-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.adm-ios-actions .adm-more {
+  margin-top: 0;
+}
+.adm-ios-actions .adm-more:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.adm-pre {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+@media (max-width: 640px) {
+  .adm-ios-row {
+    flex-wrap: wrap;
+  }
+  .adm-ios-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+}

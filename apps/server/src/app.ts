@@ -42,6 +42,8 @@ import { registerAuthRoutes } from './routes/auth.js';
 import { registerClientErrorRoutes } from './routes/clientErrors.js';
 import { registerDashboardRoutes } from './routes/dashboard.js';
 import { registerUdidRoutes } from './routes/udid.js';
+import { registerIosDeviceRoutes } from './routes/iosDevices.js';
+import { IosDeviceService } from './iosDevices.js';
 import { registerAvatarRoutes } from './routes/avatars.js';
 import { registerCosmeticRoutes } from './routes/cosmetics.js';
 import { registerDmRoutes } from './routes/dms.js';
@@ -89,6 +91,10 @@ export interface BuildOptions {
   /** Yönetim paneli: hazır LiveKit ölçümü ve altyapı ölçümü (testler ve ekran görüntüsü düzeneği) */
   livekitMetrics?: LiveKitMetrics;
   infraMonitor?: InfraMonitor;
+  /** Testler için sahte GitHub API'si (iPhone cihaz onayında iş akışı başlatma) */
+  githubFetch?: typeof fetch;
+  /** Testler: iPhone derlemesinin yoklama aralığı (ms) */
+  iosPollMs?: number;
   /** Testler: günlüğün yazılacağı akış (verilirse günlük açık olur; hata kayıtları panele de düşer) */
   logStream?: { write(msg: string): void };
 }
@@ -338,6 +344,19 @@ export async function buildApp(
   registerUpdateRoutes(app, ctx);
   registerClientErrorRoutes(app, ctx);
   registerUdidRoutes(app, ctx);
+  const iosDevices = new IosDeviceService({
+    dataDir: config.dataDir,
+    repo: config.githubRepo,
+    token: config.githubDispatchToken,
+    devicesKey: config.iosDevicesKey,
+    delayMs: config.iosDispatchDelayMs,
+    ...(opts.iosPollMs !== undefined ? { pollMs: opts.iosPollMs } : {}),
+    ...(opts.githubFetch ? { fetch: opts.githubFetch } : {}),
+    log: app.log,
+  });
+  iosDevices.start();
+  app.addHook('onClose', async () => iosDevices.stop());
+  registerIosDeviceRoutes(app, ctx, iosDevices);
   registerFeedbackRoutes(
     app,
     ctx,
