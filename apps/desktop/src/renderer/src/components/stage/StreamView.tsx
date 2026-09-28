@@ -104,25 +104,30 @@ export function StreamView({ userId, large, onClick }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         {!isSelf && hasAudio && (
-          <div className="mr-auto flex items-center gap-2 rounded bg-black/50 px-2 py-1">
+          // Görüntünün üstünde okunaklı küçük hap: simge (sessize alır), kaydırıcı, yüzde
+          <div className="mr-auto flex h-8 items-center gap-2 rounded-full bg-black/60 pr-3 pl-1 text-white backdrop-blur-sm">
             <button
-              className="press-icon text-white"
+              className="press-icon flex h-6 w-6 items-center justify-center rounded-full text-white transition-colors hover:bg-white/15"
               onClick={() => setVolume(volume > 0 ? 0 : 1)}
               data-tooltip={volume > 0 ? 'Yayın sesini kapat' : 'Yayın sesini aç'}
               aria-label="Yayın sesi"
             >
               <SwapIcon swapKey={volume > 0 ? 'on' : 'off'} motion="ico-pop">
-                {volume > 0 ? <Volume2 size={18} /> : <VolumeX size={18} />}
+                {volume > 0 ? <Volume2 size={16} /> : <VolumeX size={16} />}
               </SwapIcon>
             </button>
             <Slider
-              className="w-28"
+              className="w-24"
               aria-label="Yayın ses seviyesi"
+              aria-valuetext={`%${Math.round(volume * 100)}`}
               min={0}
               max={200}
               value={Math.round(volume * 100)}
               onValueChange={(v) => setVolume(v / 100)}
             />
+            <span className="w-9 text-right text-xs font-medium text-white/80 tabular-nums">
+              %{Math.round(volume * 100)}
+            </span>
           </div>
         )}
         {isSelf && !paused && (
