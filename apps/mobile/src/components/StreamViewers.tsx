@@ -1,6 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { useGuild, useMemberColor, useStreamViewers } from '@diskort/client-core';
 import { colors, createStyles, font, radius, space } from '../theme';
 import { Avatar } from './Avatar';
@@ -8,9 +7,11 @@ import { BottomSheet } from './BottomSheet';
 
 /** Yığında gösterilen en fazla avatar; fazlası "+N" */
 const STACK_MAX = 3;
+const STACK_SIZE = 20;
 
 /**
- * Yayını izleyenler: küçük üst üste avatarlar ve sayı; dokununca "İZLEYİCİLER — N" listesi alttan açılır.
+ * Yayını izleyenler: yan yana üst üste binen küçük yuvarlak avatarlar (fazlası "+N"); dokununca
+ * "İZLEYİCİLER — N" listesi alttan açılır.
  * İzleyen yoksa hiçbir şey çizilmez. Yayıncı kendisi sayılmaz.
  */
 export function StreamViewers({ userId, style }: { userId: string; style?: StyleProp<ViewStyle> }) {
@@ -35,14 +36,14 @@ export function StreamViewers({ userId, style }: { userId: string; style?: Style
           accessibilityLabel={`${viewers.length} izleyici`}
           accessibilityHint="İzleyenlerin listesini açar"
         >
-          <View style={styles.stack}>
-            {shown.map((id, i) => (
-              <StackAvatar key={id} userId={id} first={i === 0} />
-            ))}
-          </View>
-          {extra > 0 && <Text style={styles.pillText}>+{extra}</Text>}
-          <Ionicons name="eye" size={12} color="#fff" />
-          <Text style={styles.pillText}>{viewers.length}</Text>
+          {shown.map((id, i) => (
+            <StackAvatar key={id} userId={id} first={i === 0} />
+          ))}
+          {extra > 0 && (
+            <View style={[styles.stackItem, styles.more]}>
+              <Text style={styles.moreText}>+{extra}</Text>
+            </View>
+          )}
         </Pressable>
       )}
       <BottomSheet visible={open && viewers.length > 0} onClose={() => setOpen(false)}>
@@ -63,8 +64,8 @@ export function StreamViewers({ userId, style }: { userId: string; style?: Style
 function StackAvatar({ userId, first }: { userId: string; first: boolean }) {
   const user = useGuild((s) => s.users[userId]);
   return (
-    <View style={[styles.stackItem, !first && { marginLeft: -6 }]}>
-      <Avatar user={user} size={16} />
+    <View style={[styles.stackItem, !first && styles.overlap]}>
+      <Avatar user={user} size={STACK_SIZE} />
     </View>
   );
 }
@@ -83,19 +84,19 @@ function ViewerRow({ userId }: { userId: string }) {
 }
 
 const styles = createStyles(() => ({
-  pill: {
-    flexDirection: 'row',
+  // Yan yana, biri diğerinin arkasına binen yuvarlak avatarlar
+  pill: { flexDirection: 'row', alignItems: 'center' },
+  stackItem: { borderRadius: STACK_SIZE, borderWidth: 2, borderColor: 'rgba(0,0,0,0.75)' },
+  overlap: { marginLeft: -7 },
+  more: {
+    marginLeft: -7,
+    width: STACK_SIZE + 4,
+    height: STACK_SIZE + 4,
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: radius.pill,
-    paddingLeft: 3,
-    paddingRight: 7,
-    paddingVertical: 2,
+    justifyContent: 'center',
+    backgroundColor: colors.raised,
   },
-  stack: { flexDirection: 'row', alignItems: 'center' },
-  stackItem: { borderRadius: 10, borderWidth: 1.5, borderColor: '#000' },
-  pillText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  moreText: { color: colors.head, fontSize: 10, fontWeight: '800' },
   title: {
     color: colors.muted,
     fontSize: font.small,

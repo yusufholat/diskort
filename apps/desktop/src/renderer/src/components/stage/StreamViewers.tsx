@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { Eye } from 'lucide-react';
 import { useGuild, useMemberColor, useStreamViewers } from '@diskort/client-core';
 import { useEscapeLayer } from '../../lib/escape';
 import { usePresence } from '../../lib/motion';
@@ -15,8 +14,8 @@ const GAP = 6;
 const MARGIN = 8;
 
 /**
- * Yayını izleyenler: üst üste binen küçük avatarlar ("+N") ve sayı. Üstüne gelince ya da tıklayınca
- * "İZLEYİCİLER — N" listesi açılır. İzleyen yoksa hiçbir şey çizilmez. Yayıncı kendisi sayılmaz.
+ * Yayını izleyenler: yan yana, biri diğerinin arkasına binen küçük yuvarlak avatarlar (en çok 3, fazlası
+ * "+N"). Üstüne gelince (dokunmatik/klavye için tıklayınca da) "İZLEYİCİLER — N" listesi açılır. İzleyen yoksa hiçbir şey çizilmez. Yayıncı kendisi sayılmaz.
  * `variant="panel"`: sol alttaki ses bağlantısı kartında ("N izleyici" yazısıyla, liste yukarı açılır).
  */
 export function StreamViewers({
@@ -64,6 +63,10 @@ export function StreamViewers({
   const shown = viewers.slice(0, STACK_MAX);
   const extra = viewers.length - shown.length;
   const label = `${viewers.length} izleyici`;
+  const overlay = variant === 'overlay';
+  // Yayının üstünde biraz daha büyük (görüntünün önünde okunaklı), kartta küçük
+  const size = overlay ? 24 : 18;
+  const ring = overlay ? 'rgb(0 0 0 / 0.75)' : 'var(--color-bg-active)';
 
   return (
     <>
@@ -74,9 +77,9 @@ export function StreamViewers({
         aria-haspopup="dialog"
         aria-expanded={open}
         className={cn(
-          'press anim-pill-in pointer-events-auto flex shrink-0 items-center gap-1.5 rounded-full transition-colors',
-          variant === 'overlay'
-            ? 'bg-black/60 py-0.5 pr-2 pl-1 text-white hover:bg-black/80'
+          'press anim-pill-in pointer-events-auto flex shrink-0 items-center gap-1.5 rounded-full transition-[filter,background-color,color]',
+          overlay
+            ? 'text-white hover:brightness-110'
             : 'bg-bg-active py-1 pr-2.5 pl-1.5 text-text-normal hover:bg-control hover:text-text-head',
           className,
         )}
@@ -88,20 +91,21 @@ export function StreamViewers({
         }}
         onDoubleClick={(e) => e.stopPropagation()}
       >
+        {/* Yan yana, biri diğerinin arkasına binen yuvarlak avatarlar; fazlası aynı boyda "+N" */}
         <span className="flex items-center">
           {shown.map((id, i) => (
-            <StackAvatar key={id} userId={id} first={i === 0} ring={variant === 'overlay' ? '#000' : undefined} />
+            <StackAvatar key={id} userId={id} first={i === 0} size={size} ring={ring} />
           ))}
+          {extra > 0 && (
+            <span
+              className="-ml-1.5 flex items-center justify-center rounded-full bg-bg-float text-[10px] font-bold text-text-head"
+              style={{ width: size, height: size, boxShadow: `0 0 0 2px ${ring}` }}
+            >
+              +{extra}
+            </span>
+          )}
         </span>
-        {extra > 0 && <span className="text-xs font-semibold">+{extra}</span>}
-        {variant === 'panel' ? (
-          <span className="text-xs font-medium">{label}</span>
-        ) : (
-          <span className="flex items-center gap-0.5 text-xs font-semibold tabular-nums">
-            <Eye size={13} aria-hidden />
-            {viewers.length}
-          </span>
-        )}
+        {!overlay && <span className="text-xs font-medium">{label}</span>}
       </button>
       <ViewerList
         open={open}
@@ -116,14 +120,11 @@ export function StreamViewers({
   );
 }
 
-function StackAvatar({ userId, first, ring }: { userId: string; first: boolean; ring?: string }) {
+function StackAvatar({ userId, first, size, ring }: { userId: string; first: boolean; size: number; ring: string }) {
   const user = useGuild((s) => s.users[userId]);
   return (
-    <span
-      className={cn('rounded-full', !first && '-ml-1.5')}
-      style={{ boxShadow: `0 0 0 2px ${ring ?? 'var(--color-bg-active)'}` }}
-    >
-      <Avatar user={user} size={18} />
+    <span className={cn('rounded-full', !first && '-ml-1.5')} style={{ boxShadow: `0 0 0 2px ${ring}` }}>
+      <Avatar user={user} size={size} />
     </span>
   );
 }
