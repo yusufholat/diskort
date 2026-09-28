@@ -168,8 +168,15 @@ function ViewerList({
       setPos({ left, top: Math.max(MARGIN, top) });
     };
     place();
+    // Tam ekrana geçince (liste tam ekran öğesine taşınır) ve kaydırınca yeniden konumlanır
     window.addEventListener('resize', place);
-    return () => window.removeEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    document.addEventListener('fullscreenchange', place);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+      document.removeEventListener('fullscreenchange', place);
+    };
   }, [shown, anchorRef, prefer]);
 
   // Dışarı tıklayınca kapanır

@@ -90,6 +90,25 @@ describe('yayın izleyicileri (ses durumu)', () => {
     expect(voice.get('u2')?.watching).toEqual(['u1']);
   });
 
+  it('istekler cihaz başına: bayat cihazın boş listesi seste olan cihazınkini silmez', () => {
+    const voice = stage('u2');
+    voice.join('u3', 'c1');
+    voice.setStreaming('u3', 'c1', true);
+    // Telefondan sese girip izliyor; masaüstünün sesi düştü ve boş liste bildirdi
+    voice.setWatching('u2', ['u1'], 'telefon');
+    voice.setWatching('u2', [], 'masaustu');
+    expect(voice.get('u2')?.watching).toEqual(['u1']);
+    // İki cihaz birden bildirirse birleşimi görünür; biri bırakınca yalnızca onunki düşer
+    voice.setWatching('u2', ['u3'], 'masaustu');
+    expect(voice.get('u2')?.watching).toEqual(['u1', 'u3']);
+    voice.setWatching('u2', [], 'telefon');
+    expect(voice.get('u2')?.watching).toEqual(['u3']);
+    // Yayın bitince her cihazın isteğinden silinir
+    voice.setStreaming('u3', 'c1', false);
+    voice.setStreaming('u3', 'c1', true);
+    expect(voice.get('u2')?.watching).toBeUndefined();
+  });
+
   it('en fazla STREAM_WATCH_MAX yayın izlenebilir', () => {
     const voice = new VoiceStateStore();
     voice.join('v', 'c1');
@@ -178,7 +197,31 @@ describe('yayın izleyicileri (gateway)', () => {
     await wait(150);
     expect(s.ctx.voice.viewersOf(s.owner.user.id)).toEqual([ali.user.id]);
 
-    // Geçersiz yük bağlantıyı düşürmez, izlemeyi bırakır
+    // Ses telefona geçti: telefon izlemeyi bildirir, masaüstü (sesi düştü) boş liste gönderir; telefon kalır
+    const phone2 = await connect(ali.token);
+    watch(phone2, [s.owner.user.id]);
+    watch(desktop, []);
+    await desktop.settle();
+    expect(s.ctx.voice.viewersOf(s.owner.user.id)).toEqual([ali.user.id]);
+    // Masaüstünün bağlantısının kapanması telefonun isteğini silmez; telefonunki kapanınca düşer
+    desktop.ws.close();
+    await wait(150);
+    expect(s.ctx.voice.viewersOf(s.owner.user.id)).toEqual([ali.user.id]);
+    phone2.ws.close();
+    await wait(150);
+    expect(s.ctx.voice.viewersOf(s.owner.user.id)).toEqual([]);
+  });
+
+  it('geçersiz yük bağlantıyı düşürmez, izlemeyi bırakır', async () => {
+    const ali = await s.member('ali');
+    const voice = s.channel('voice').id;
+    s.ctx.voice.join(s.owner.user.id, voice);
+    s.ctx.voice.setStreaming(s.owner.user.id, voice, true);
+    s.ctx.voice.join(ali.user.id, voice);
+    const desktop = await connect(ali.token);
+    watch(desktop, [s.owner.user.id]);
+    await desktop.settle();
+    expect(s.ctx.voice.viewersOf(s.owner.user.id)).toEqual([ali.user.id]);
     watch(desktop, 'yanlış');
     await desktop.settle();
     expect(s.ctx.voice.viewersOf(s.owner.user.id)).toEqual([]);

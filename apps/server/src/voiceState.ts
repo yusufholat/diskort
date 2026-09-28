@@ -37,8 +37,14 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
    * kanalında o an yayında olanlar. İstek katılma webhook'undan önce de gelebilir (başka kanaldan geçip hemen
    * yayını açınca); bu yüzden kişi sesten çıkınca silinmez. Silindiği anlar: istemci boş liste bildirince,
    * bildiren gateway bağlantısı kapanınca, yayıncı yayını bitirince ya da sesten çıkınca.
+   *
+   * Kullanıcı → bildiren bağlantı (kaynak) → izlenenler. Her cihaz yalnızca kendi ses bağlantısının durumunu
+   * bildirir: seste olmayan ya da sesi başka cihaza geçmiş (LiveKit'te aynı kimlik eskisini düşürür) cihazın
+   * listesi boştur. Görünen liste kaynakların birleşimidir; böylece bayat bir cihazın boş listesi seste olan
+   * cihazın listesini silmez (eksik izleyici olmaz), boş olmayan liste de yalnızca gerçekten izleyen cihazdan
+   * gelir (hayalet olmaz).
    */
-  private readonly watchRequests = new Map<string, Set<string>>();
+  private readonly watchRequests = new Map<string, Map<string, Set<string>>>();
   /** Kanala katılırken kişinin o kanalın sunucusundaki susturma/sağırlaştırma durumu */
   private flagsOf: ((userId: string, channelId: string) => ServerFlags) | null = null;
 
@@ -137,15 +143,19 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
   /**
    * İzleyicinin izlediği yayınları bildirir (tam liste; boş liste izlemeyi bırakır). Kendisi, yinelenenler ve
    * metin olmayanlar atılır. Görünen liste yalnızca aynı ses kanalında yayında olanları içerir; seste
-   * değilse kimsenin izleyicisi olarak görünmez.
+   * değilse kimsenin izleyicisi olarak görünmez. `source`: bildiren bağlantı (her cihaz kendi listesini ezer;
+   * boş liste ya da bağlantının kapanması yalnızca o cihazın isteğini siler).
    */
-  setWatching(userId: string, userIds: readonly unknown[]): void {
+  setWatching(userId: string, userIds: readonly unknown[], source = ''): void {
     const wanted = new Set<string>();
     for (const id of userIds) {
       if (wanted.size >= STREAM_WATCH_MAX) break;
       if (typeof id === 'string' && id.length > 0 && id.length <= 64 && id !== userId) wanted.add(id);
     }
-    if (wanted.size > 0) this.watchRequests.set(userId, wanted);
+    const sources = this.watchRequests.get(userId) ?? new Map<string, Set<string>>();
+    if (wanted.size > 0) sources.set(source, wanted);
+    else sources.delete(source);
+    if (sources.size > 0) this.watchRequests.set(userId, sources);
     else this.watchRequests.delete(userId);
     this.refreshWatching(userId);
   }
@@ -159,14 +169,17 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
 
   /** İzleme isteğinden görünen liste: aynı kanalda, yayında olanlar (sıralı) */
   private watchingOf(state: VoiceState): string[] {
-    const wanted = this.watchRequests.get(state.userId);
-    if (!wanted) return [];
-    const out: string[] = [];
-    for (const id of wanted) {
-      const target = this.states.get(id);
-      if (target && target.channelId === state.channelId && target.streaming) out.push(id);
+    const sources = this.watchRequests.get(state.userId);
+    if (!sources) return [];
+    const out = new Set<string>();
+    for (const wanted of sources.values()) {
+      for (const id of wanted) {
+        if (out.size >= STREAM_WATCH_MAX) break;
+        const target = this.states.get(id);
+        if (target && target.channelId === state.channelId && target.streaming) out.add(id);
+      }
     }
-    return out.sort();
+    return [...out].sort();
   }
 
   private refreshWatching(userId: string): void {
@@ -188,13 +201,19 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
    */
   private refreshViewersOf(streamerId: string, forget = false): void {
     const viewers: string[] = [];
-    for (const [viewerId, wanted] of this.watchRequests) {
-      if (!wanted.has(streamerId)) continue;
-      viewers.push(viewerId);
-      if (forget) {
-        wanted.delete(streamerId);
-        if (wanted.size === 0) this.watchRequests.delete(viewerId);
+    for (const [viewerId, sources] of this.watchRequests) {
+      let found = false;
+      for (const [source, wanted] of sources) {
+        if (!wanted.has(streamerId)) continue;
+        found = true;
+        if (forget) {
+          wanted.delete(streamerId);
+          if (wanted.size === 0) sources.delete(source);
+        }
       }
+      if (!found) continue;
+      viewers.push(viewerId);
+      if (sources.size === 0) this.watchRequests.delete(viewerId);
     }
     for (const viewerId of viewers) this.refreshWatching(viewerId);
   }

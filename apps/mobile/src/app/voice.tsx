@@ -333,7 +333,8 @@ const MemberTile = memo(function MemberTile({
             <Text style={styles.liveText}>CANLI</Text>
           </View>
         )}
-        {state.streaming && <StreamViewers userId={state.userId} style={styles.viewers} />}
+        {/* Kendi izleyicilerin "Ekranını paylaşıyorsun" şeridinde */}
+        {state.streaming && !self && <StreamViewers userId={state.userId} style={styles.viewers} />}
         <SpeakingRing speaking={speaking} size={avatar}>
           {/* Hareketli dekorasyon hafif modda: yalnızca konuşurken oynar (katılımcı kadar yüzey, sesle yarışır) */}
           <Avatar

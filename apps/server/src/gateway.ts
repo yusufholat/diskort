@@ -114,6 +114,10 @@ interface Session {
   voiceUpdates: Coalescer<{ selfMute: boolean; selfDeaf: boolean }>;
   /** İzlenen yayınlar bildirimi sel koruması */
   watchUpdates: Coalescer<unknown[]>;
+  /** Bağlantının kimliği (izleme istekleri bağlantı başına tutulur) */
+  id: string;
+  /** Bu bağlantı izlediği yayınları bildirdi (kapanınca isteği silinir) */
+  reportsWatching: boolean;
   /** Kanal başına son "yazıyor" bildirimi (sel koruması) */
   lastTyping: Map<string, number>;
   /** İstemci direkt mesajları tanıyor (IDENTIFY'da bildirdi); tanımayana DM verisi ve olayı gitmez */
@@ -168,11 +172,8 @@ export class Gateway {
   };
   /** Hesap → son bağlantısının kapandığı an (yeniden bağlanma sayımı) */
   private readonly lastClosed = new Map<string, number>();
-  /**
-   * Hesap → izlediği yayınları en son bildiren bağlantı. O bağlantı kapanınca (uygulama çöktü, ağ koptu)
-   * izleme silinir; istemci yeniden bağlanınca (seste ise) yeniden bildirir. Hayalet izleyici kalmaz.
-   */
-  private readonly watchReporters = new Map<string, Session>();
+  /** Bağlantılara verilen sıra numarası (izleme isteklerinin kaynağı) */
+  private nextSessionId = 0;
 
   constructor(
     private readonly store: Store,
@@ -533,9 +534,11 @@ export class Gateway {
       }),
       watchUpdates: new Coalescer((userIds) => {
         if (session.closed || !session.userId) return;
-        this.watchReporters.set(session.userId, session);
-        this.voice.setWatching(session.userId, userIds);
+        session.reportsWatching = true;
+        this.voice.setWatching(session.userId, userIds, session.id);
       }),
+      id: String(++this.nextSessionId),
+      reportsWatching: false,
       lastTyping: new Map(),
       dm: false,
       platform: 'desktop',
@@ -592,10 +595,9 @@ export class Gateway {
     this.sessions.delete(session);
     const userId = session.userId;
     if (!userId) return;
-    if (this.watchReporters.get(userId) === session) {
-      this.watchReporters.delete(userId);
-      if (!this.closing) this.voice.setWatching(userId, []);
-    }
+    // Bu bağlantının izleme isteği silinir (uygulama çöktü, ağ koptu); diğer cihazlarınki kalır. İstemci
+    // yeniden bağlanınca (seste ise) yeniden bildirir: hayalet izleyici kalmaz.
+    if (session.reportsWatching && !this.closing) this.voice.setWatching(userId, [], session.id);
     const set = this.byUser.get(userId);
     if (!set?.delete(session)) return;
     if (set.size === 0) {

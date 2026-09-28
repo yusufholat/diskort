@@ -31,6 +31,8 @@ class GatewayClient {
   private idle = false;
   /** Bu cihazın izlediği yayınlar (yayıncı kimlikleri, sıralı) */
   private watching: string[] = [];
+  /** Bu bağlantıda READY geldi (kimlik doğrulandı) */
+  private identified = false;
 
   /**
    * Bağlantıyı başlatır. Zaten bağlıysa ya da bağlanıyorsa bir şey yapmaz: telefonda Android ekranı
@@ -48,6 +50,7 @@ class GatewayClient {
   disconnect(): void {
     this.active = false;
     this.watching = [];
+    this.identified = false;
     this.clearTimers();
     this.ws?.close(1000, 'logout');
     this.ws = null;
@@ -97,7 +100,8 @@ class GatewayClient {
     const next = [...new Set(userIds)].sort();
     if (next.length === this.watching.length && next.every((id, i) => id === this.watching[i])) return;
     this.watching = next;
-    this.send({ t: 'STREAM_WATCH_SET', d: { userIds: next } });
+    // Kimlik doğrulanmadan gönderilen mesaj bağlantıyı kapatır (4003); READY gelince zaten gönderilir
+    if (this.identified) this.send({ t: 'STREAM_WATCH_SET', d: { userIds: next } });
   }
 
   send(msg: GatewayClientMessage): void {
@@ -121,6 +125,7 @@ class GatewayClient {
 
     const ws = new WebSocket(url);
     this.ws = ws;
+    this.identified = false;
 
     ws.onmessage = (ev) => {
       let msg: GatewayServerMessage;
@@ -157,6 +162,7 @@ class GatewayClient {
         break;
       case 'READY':
         this.attempts = 0;
+        this.identified = true;
         useGuild.getState().setReady(msg.d);
         useSession.getState().setUser(msg.d.user);
         // Yeni oturum etkin sayılır; boştaysak hemen bildir

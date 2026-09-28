@@ -140,6 +140,17 @@ describe('izleme bildirimi (gateway)', () => {
     expect(second.watches()).toEqual([['a', 'b'], []]);
   });
 
+  it('READY gelmeden gönderilmez (sunucu kimliksiz mesajda bağlantıyı kapatır); READY ile bir kez gider', () => {
+    gateway.connect();
+    const ws = FakeSocket.opened.at(-1)!;
+    ws.readyState = FakeSocket.OPEN;
+    ws.receive({ t: 'HELLO', d: { heartbeatInterval: 60_000 } });
+    gateway.setWatching(['a']);
+    expect(ws.watches()).toEqual([]);
+    ws.receive({ t: 'READY', d: ready() });
+    expect(ws.watches()).toEqual([['a']]);
+  });
+
   it('izleme yokken yeniden bağlanınca bir şey göndermez (sesteki başka cihazın listesini ezmez)', () => {
     const ws = open();
     expect(ws.watches()).toEqual([]);
