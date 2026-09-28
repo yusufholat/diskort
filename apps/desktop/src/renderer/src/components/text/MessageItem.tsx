@@ -1,5 +1,5 @@
 import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
-import { Pencil, Pin, Reply, SmilePlus, Trash2 } from 'lucide-react';
+import { Pencil, Reply, SmilePlus, Trash2 } from 'lucide-react';
 import {
   isImageAttachment,
   isVideoAttachment,
@@ -38,6 +38,7 @@ import { useMountedRef } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { toast, useUi, type EmojiPickerAnchor } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
+import { PinIcon } from '../ui/PinIcon';
 import { downloadAttachment } from '../../features/messages/files';
 import { openProfile } from '../members/ProfilePopover';
 import { AttachmentList, UploadList } from './Attachments';
@@ -213,7 +214,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
             </span>
             {message.pinned && (
               // Sabitli mesaj: saat görünmezken gutter'da küçük raptiye
-              <Pin
+              <PinIcon
                 size={12}
                 aria-label="Sabitlendi"
                 className="absolute top-[6px] right-2 text-text-faint transition-opacity duration-100 group-hover:opacity-0"
@@ -258,7 +259,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
             </span>
             {message.pinned && (
               <span className="self-center text-text-faint" data-tooltip="Sabitlenmiş mesaj">
-                <Pin size={12} aria-label="Sabitlendi" />
+                <PinIcon size={12} aria-label="Sabitlendi" />
               </span>
             )}
           </div>

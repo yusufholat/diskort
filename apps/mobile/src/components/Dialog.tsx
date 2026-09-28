@@ -1,20 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import Reanimated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { create } from 'zustand';
 import { usePresence } from '../motion';
 import { brandTint, colors, createStyles, font, radius, space, useTheme } from '../theme';
 import { useKeyboardOverlap } from './BottomSheet';
+import { renderIcon, type Icon } from './icons';
 import { Button } from './ui';
 
-type IconName = keyof typeof Ionicons.glyphMap;
 
 interface DialogOptions {
   title: string;
   message?: string;
+  /** Açıklamanın altında gösterilen içerik (ör. sabitlenecek mesajın önizlemesi) */
+  preview?: ReactNode;
   /** Başlığın üstündeki simge (tehlikeli işlemde kırmızı) */
-  icon?: IconName;
+  icon?: Icon;
   confirmLabel?: string;
   cancelLabel?: string;
   /** Geri alınamaz işlem: onay düğmesi kırmızı */
@@ -148,11 +149,16 @@ function DialogView({ request, open }: { request: Request; open: boolean }) {
           >
             {options.icon ? (
               <View style={[styles.icon, danger && { backgroundColor: colors.dangerSoft }]}>
-                <Ionicons name={options.icon} size={26} color={danger ? colors.danger : colors.brandText} />
+                {renderIcon(options.icon, 26, danger ? colors.danger : colors.brandText)}
               </View>
             ) : null}
             <Text style={styles.title}>{options.title}</Text>
             {options.message ? <Text style={styles.message}>{options.message}</Text> : null}
+            {options.preview ? (
+              <View style={styles.preview} accessible={false}>
+                {options.preview}
+              </View>
+            ) : null}
             {showInput ? (
               <DialogInput
                 label={
@@ -259,6 +265,16 @@ const styles = createStyles(() => ({
   },
   title: { color: colors.head, fontSize: font.heading, fontWeight: '800', textAlign: 'center' },
   message: { color: colors.muted, fontSize: font.body - 0.5, lineHeight: 21, textAlign: 'center', marginTop: space.sm },
+  preview: {
+    marginTop: space.lg,
+    maxHeight: 220,
+    overflow: 'hidden',
+    borderRadius: radius.md,
+    backgroundColor: colors.main,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.edge,
+    padding: space.md,
+  },
   field: { marginTop: space.lg },
   label: { color: colors.muted, fontSize: font.caption, fontWeight: '700', marginBottom: space.sm, textTransform: 'uppercase' },
   input: {

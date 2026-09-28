@@ -169,7 +169,7 @@ export const SETTINGS_GROUPS: readonly SettingsGroupInfo[] = [
         keywords: ['hesap yöneticileri', 'hesap davetleri', 'şifre sıfırlama', 'hesap sil'],
         icon: { mobile: 'people', desktop: 'UsersRound' },
         color: '#ed4245',
-        platforms: desktopOnly,
+        platforms: both,
         adminOnly: true,
         kind: 'page',
       },

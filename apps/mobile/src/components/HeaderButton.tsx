@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { colors, createStyles, tint } from '../theme';
+import { renderIcon, type Icon } from './icons';
 import { PressableScale } from './PressableScale';
 
 /** Başlık çubuğundaki simge düğmesi: 40 px dokunma alanı, yuvarlak dalga, basınca küçülme */
@@ -13,7 +13,7 @@ export function HeaderButton({
   size = 23,
   children,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: Icon;
   label: string;
   onPress: () => void;
   color?: string;
@@ -31,7 +31,7 @@ export function HeaderButton({
       accessibilityLabel={label}
       style={styles.button}
     >
-      <Ionicons name={icon} size={size} color={color} />
+      {renderIcon(icon, size, color)}
       {children ? <View style={styles.extra}>{children}</View> : null}
     </PressableScale>
   );

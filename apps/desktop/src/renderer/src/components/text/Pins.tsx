@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { Paperclip, Pin, X } from 'lucide-react';
+import { Paperclip, X } from 'lucide-react';
 import { Permission, type Message, type User } from '@diskort/shared';
 import {
   gifOf,
@@ -21,6 +21,7 @@ import { useEscapeLayer } from '../../lib/escape';
 import { usePresence } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { Avatar } from '../ui/Avatar';
+import { PinIcon } from '../ui/PinIcon';
 import { AttachmentList } from './Attachments';
 import { formatFull, formatStamp } from './format';
 import { GifEmbed } from './GifEmbed';
@@ -139,7 +140,7 @@ export function PinsButton({ channelId }: { channelId: string }) {
         )}
         onClick={() => setOpen((v) => !v)}
       >
-        <Pin size={22} className="ico-pin" />
+        <PinIcon size={22} className="ico-pin" />
         {unseen && !open && (
           <span className="absolute right-0.5 bottom-0.5 h-2.5 w-2.5 rounded-full border-2 border-bg-main bg-danger" />
         )}
@@ -232,7 +233,7 @@ function PinsPopout({
       onClick={(e) => e.stopPropagation()}
     >
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line/60 px-4">
-        <Pin size={18} className="text-text-muted" />
+        <PinIcon size={18} className="text-text-muted" />
         <span className="font-semibold text-text-head">Sabitlenmiş Mesajlar</span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -245,7 +246,7 @@ function PinsPopout({
         ) : pins.items.length === 0 ? (
           <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-bg-main text-text-muted">
-              <Pin size={26} />
+              <PinIcon size={26} />
             </div>
             <div className="font-semibold text-text-head">Burada henüz sabitlenmiş mesaj yok</div>
             <div className="text-sm text-text-muted">

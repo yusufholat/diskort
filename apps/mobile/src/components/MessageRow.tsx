@@ -24,6 +24,7 @@ import { colors, createStyles, font, layout, radius, ripple, space } from '../th
 import { Avatar } from './Avatar';
 import { AttachmentList, UploadList } from './Attachments';
 import { GifEmbed } from './GifEmbed';
+import { PinIcon } from './icons';
 import { LinkEmbeds } from './LinkEmbeds';
 import { Markdown, type MarkdownContext } from './Markdown';
 import { ReactionPill } from './ReactionPill';
@@ -197,7 +198,7 @@ export const MessageRow = memo(function MessageRow({
                     <Avatar user={author} size={40} />
                   ))}
                 {compact && message.pinned ? (
-                  <Ionicons name="pin" size={12} color={colors.faint} accessibilityLabel="Sabitlendi" style={styles.compactPin} />
+                  <PinIcon size={12} color={colors.faint} accessibilityLabel="Sabitlendi" style={styles.compactPin} />
                 ) : null}
               </View>
               <View style={styles.body}>
@@ -215,7 +216,7 @@ export const MessageRow = memo(function MessageRow({
                     </Text>
                     <Text style={styles.time}>{messageStamp(message.createdAt)}</Text>
                     {message.pinned ? (
-                      <Ionicons name="pin" size={12} color={colors.faint} accessibilityLabel="Sabitlendi" style={styles.pin} />
+                      <PinIcon size={12} color={colors.faint} accessibilityLabel="Sabitlendi" style={styles.pin} />
                     ) : null}
                   </View>
                 )}

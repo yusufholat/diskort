@@ -1,9 +1,9 @@
 import { Children, Fragment, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Animated, Keyboard, Modal, PanResponder, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EASE_IN, prefersReducedMotion, timing, usePresence } from '../motion';
 import { colors, createStyles, font, radius, ripple, space } from '../theme';
+import { renderIcon, type Icon } from './icons';
 
 const CLOSE_MS = 200;
 /** Bu kadar aşağı sürüklenirse (ya da hızla fırlatılırsa) kapanır */
@@ -121,7 +121,6 @@ export function useKeyboardOverlap(enabled: boolean): {
 
 // ---------- Sayfanın içindeki ortak parçalar (tüm menüler aynı görünsün) ----------
 
-type IconName = keyof typeof Ionicons.glyphMap;
 
 /** Sayfanın başlığı: isteğe bağlı solda resim (avatar), başlık ve alt satır */
 export function SheetHeader({ title, subtitle, leading }: { title: string; subtitle?: string; leading?: ReactNode }) {
@@ -168,7 +167,7 @@ export function SheetItem({
   disabled,
   trailing,
 }: {
-  icon: IconName;
+  icon: Icon;
   label: string;
   hint?: string;
   onPress: () => void;
@@ -185,7 +184,7 @@ export function SheetItem({
       accessibilityRole="button"
       style={[styles.item, disabled && { opacity: 0.45 }]}
     >
-      <Ionicons name={icon} size={21} color={danger ? colors.danger : colors.muted} />
+      {renderIcon(icon, 21, danger ? colors.danger : colors.muted)}
       <View style={{ flex: 1 }}>
         <Text style={[styles.itemText, { color: danger ? colors.danger : colors.head }]} numberOfLines={2}>
           {label}

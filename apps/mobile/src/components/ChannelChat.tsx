@@ -16,7 +16,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { DM_GROUP_MAX_PARTICIPANTS, Permission, STATUS_LABELS, type DmChannel, type User } from '@diskort/shared';
+import { DM_GROUP_MAX_PARTICIPANTS, isImageAttachment, Permission, STATUS_LABELS, type DmChannel, type User } from '@diskort/shared';
 import {
   ackChannel,
   clearJump,
@@ -28,12 +28,10 @@ import {
   loadInitial,
   loadOlder,
   openDirectMessage,
-  pinMessage,
   QUICK_REACTIONS,
   startReply,
   suppressEmbeds,
   toggleReaction,
-  unpinMessage,
   useCan,
   useCustomStatus,
   useGuild,
@@ -49,7 +47,8 @@ import { CountBadge } from './Badge';
 import { BottomSheet, SheetGroup, SheetItem } from './BottomSheet';
 import { confirmDialog } from './Dialog';
 import { openReactionsSheet, ReactionsSheet } from './ReactionsSheet';
-import { openPinsSheet, PinsSheet } from './PinsSheet';
+import { confirmPin, confirmUnpin, openPinsSheet, PinsSheet } from './PinsSheet';
+import { pinIcon, unpinIcon } from './icons';
 import { Composer } from './Composer';
 import { ConnectionBanner } from './ConnectionBanner';
 import { DmAvatar } from './DmAvatar';
@@ -63,6 +62,7 @@ import { MessageSkeleton } from './Skeleton';
 import { ErrorState } from './States';
 import { TypingDots } from './TypingDots';
 import { VoiceBar } from './VoiceBar';
+import { canSaveToGallery, saveToGallery } from '../attachments';
 import { useKeyboardInset } from '../keyboard';
 import { animateNextLayout, useSpringTo, useTimingTo } from '../motion';
 import { showChat, useNav } from '../stores/nav';
@@ -351,7 +351,7 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
           <ChannelTitle channelId={id} name={channel?.name ?? ''} onPress={() => router.push('/members')} />
         )}
       </View>
-      <HeaderButton icon="pin-outline" label="Sabitlenmiş mesajlar" size={22} onPress={() => openPinsSheet(id)}>
+      <HeaderButton icon={pinIcon} label="Sabitlenmiş mesajlar" size={22} onPress={() => openPinsSheet(id)}>
         <UnseenPins channelId={id} />
       </HeaderButton>
       {dm ? (
@@ -759,6 +759,8 @@ function MessageMenu({
     onClose();
   };
   const mine = (emoji: string): boolean => reactions.some((r) => r.emoji === emoji && r.me);
+  // Galeriye kaydedilebilecek resimler (gönderilmiş mesajda; yeni APK'larda)
+  const images = shown && !shown.status && canSaveToGallery() ? shown.attachments.filter(isImageAttachment) : [];
   const existing = (emoji: string): boolean => reactions.some((r) => r.emoji === emoji);
   // Yetki yoksa yalnızca mesajdaki tepkiler gösterilir
   const quick = canReact ? MENU_REACTIONS : MENU_REACTIONS.filter(existing);
@@ -812,12 +814,13 @@ function MessageMenu({
             {canPin && shown && !shown.status ? (
               <SheetItem
                 key="pin"
-                icon={pinned ? 'pin' : 'pin-outline'}
+                icon={pinned ? unpinIcon : pinIcon}
                 label={pinned ? 'Sabitlemeyi kaldır' : 'Mesajı sabitle'}
                 onPress={() => {
                   const target = shown;
                   close();
-                  void (pinned ? unpinMessage(target) : pinMessage(target)).then((ok) => {
+                  // Önizlemeli onay (masaüstündeki gibi)
+                  void (pinned ? confirmUnpin(target) : confirmPin(target)).then((ok) => {
                     if (ok) toast(pinned ? 'Sabitleme kaldırıldı' : 'Mesaj sabitlendi');
                   });
                 }}
@@ -866,6 +869,17 @@ function MessageMenu({
                 label="Önizlemeyi kaldır"
                 onPress={() => {
                   void suppressEmbeds(shown);
+                  close();
+                }}
+              />
+            ) : null}
+            {images.length > 0 ? (
+              <SheetItem
+                key="save"
+                icon="download-outline"
+                label={images.length === 1 ? 'Resmi galeriye kaydet' : `Resimleri galeriye kaydet (${images.length})`}
+                onPress={() => {
+                  void saveToGallery(images);
                   close();
                 }}
               />

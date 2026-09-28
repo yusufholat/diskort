@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { isImageAttachment, isVideoAttachment, type Attachment } from '@diskort/shared';
 import { attachmentUrl, discardMessage, formatBytes, type LocalMessage } from '@diskort/client-core';
-import { openAttachment } from '../attachments';
+import { canSaveToGallery, openAttachment, saveToGallery } from '../attachments';
 import { colors, createStyles } from '../theme';
 import { VideoAttachment } from './VideoAttachment';
 
@@ -66,8 +66,8 @@ export function AttachmentList({ attachments }: { attachments: Attachment[] }) {
 }
 
 /**
- * Tam ekran resim: sığdırılmış, altında ad ve "Aç" (telefonun galeri uygulamasında). Bağlantı
- * önizlemesindeki resimde `source` asıl sayfadır: "Aç" onu açar.
+ * Tam ekran resim: sığdırılmış, üstte ad, "Galeriye kaydet" (yeni APK'larda) ve "Aç" (telefonun galeri
+ * uygulamasında). Bağlantı önizlemesindeki resimde `source` asıl sayfadır: "Aç" onu açar.
  */
 export function ImageViewer({ attachment, onClose, source }: { attachment: Attachment; onClose: () => void; source?: string }) {
   return (
@@ -77,6 +77,11 @@ export function ImageViewer({ attachment, onClose, source }: { attachment: Attac
           <Text style={styles.viewerName} numberOfLines={1}>
             {attachment.name}
           </Text>
+          {canSaveToGallery() ? (
+            <Pressable hitSlop={10} onPress={() => void saveToGallery([attachment])} accessibilityLabel="Galeriye kaydet">
+              <Ionicons name="download-outline" size={24} color="#fff" />
+            </Pressable>
+          ) : null}
           <Pressable
             hitSlop={10}
             onPress={() => void (source ? Linking.openURL(source) : openAttachment(attachment))}

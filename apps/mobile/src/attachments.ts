@@ -7,6 +7,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { Platform, Share } from 'react-native';
+import { Gallery } from '../modules/gallery';
 import { toast } from './stores/ui';
 
 /** Dosyayı ilerleme bildirerek gönderir (client-core'un platform yüklemesi). */
@@ -90,28 +91,44 @@ export async function pickDocuments(): Promise<LocalFile[]> {
   );
 }
 
-const opening = new Set<string>();
+const busy = new Set<string>();
+
+/** Klasör/dosya adında sorun çıkaracak karakterler (bağlantı önizlemesinin kimliği adres içerir) */
+const safeName = (text: string): string => text.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 100) || 'dosya';
 
 /**
- * Dosyayı önbelleğe indirir (daha önce indirildiyse tekrar indirmez) ve Android'in "Birlikte aç"
- * seçimiyle uygun uygulamada açar.
+ * Dosyayı önbelleğe indirir (daha önce indirildiyse ve boyutu tutuyorsa tekrar indirmez); yerel adresini
+ * döndürür.
  */
+async function downloadToCache(attachment: Attachment): Promise<string> {
+  const dir = `${FileSystem.cacheDirectory}ekler/${safeName(attachment.id)}/`;
+  const target = dir + attachment.name.replace(/[/\\]/g, '_');
+  const existing = await FileSystem.getInfoAsync(target);
+  if (existing.exists && attachment.size > 0 && existing.size === attachment.size) return target;
+  await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => undefined);
+  if (attachment.size > 1024 * 1024) toast('İndiriliyor…');
+  const result = await FileSystem.downloadAsync(attachmentUrl(attachment), target);
+  if (result.status !== 200) {
+    await FileSystem.deleteAsync(target, { idempotent: true });
+    throw new Error(result.status === 404 ? 'Dosya artık yok (mesaj silinmiş olabilir).' : `İndirme başarısız (${result.status}).`);
+  }
+  return target;
+}
+
+/** İndirme hatasını kullanıcıya anlaşılır biçimde söyler */
+function downloadError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return /network|timeout|unable to resolve|failed to connect/i.test(message)
+    ? 'Dosya indirilemedi: internet bağlantısını kontrol et.'
+    : message;
+}
+
+/** Dosyayı önbelleğe indirir ve Android'in "Birlikte aç" seçimiyle uygun uygulamada açar. */
 export async function openAttachment(attachment: Attachment): Promise<void> {
-  if (opening.has(attachment.id)) return;
-  opening.add(attachment.id);
+  if (busy.has(attachment.id)) return;
+  busy.add(attachment.id);
   try {
-    const dir = `${FileSystem.cacheDirectory}ekler/${attachment.id}/`;
-    const target = dir + attachment.name.replace(/[/\\]/g, '_');
-    const existing = await FileSystem.getInfoAsync(target);
-    if (!existing.exists || existing.size !== attachment.size) {
-      await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => undefined);
-      if (attachment.size > 1024 * 1024) toast('İndiriliyor…');
-      const result = await FileSystem.downloadAsync(attachmentUrl(attachment), target);
-      if (result.status !== 200) {
-        await FileSystem.deleteAsync(target, { idempotent: true });
-        throw new Error(result.status === 404 ? 'Dosya artık yok (mesaj silinmiş olabilir).' : `İndirme başarısız (${result.status}).`);
-      }
-    }
+    const target = await downloadToCache(attachment);
     if (Platform.OS === 'ios') {
       // iOS'ta "Birlikte aç" yerine paylaşım sayfası: Dosyalar'a kaydet, önizle ya da başka uygulamada aç
       await Share.share({ url: target });
@@ -125,15 +142,49 @@ export async function openAttachment(attachment: Attachment): Promise<void> {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    toast(
-      /No Activity found|ActivityNotFound/i.test(message)
-        ? 'Bu dosyayı açabilecek bir uygulama yok.'
-        : /network|timeout|unable to resolve|failed to connect/i.test(message)
-          ? 'Dosya indirilemedi: internet bağlantısını kontrol et.'
-          : message,
-      'error',
-    );
+    toast(/No Activity found|ActivityNotFound/i.test(message) ? 'Bu dosyayı açabilecek bir uygulama yok.' : downloadError(err), 'error');
   } finally {
-    opening.delete(attachment.id);
+    busy.delete(attachment.id);
+  }
+}
+
+/** Bu telefonda galeriye kaydedilebilir mi (yeni APK ve Android 10+; iOS'ta henüz yok) */
+export const canSaveToGallery = (): boolean => Gallery?.isSupported() === true;
+
+const EXTENSIONS: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/avif': 'avif',
+  'image/heic': 'heic',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+};
+
+/** Galerideki ad: uzantısı yoksa (ör. bağlantı önizlemesinde site adı) türüne göre eklenir */
+function galleryName(attachment: Attachment): string {
+  const name = attachment.name.replace(/[/\\]/g, '_');
+  const ext = EXTENSIONS[attachment.contentType];
+  return ext && !/\.[a-z0-9]{2,5}$/i.test(name) ? `${name}.${ext}` : name;
+}
+
+/** Resimleri (ve videoları) telefonun galerisine, Pictures/Diskort klasörüne kaydeder */
+export async function saveToGallery(attachments: Attachment[]): Promise<void> {
+  if (!Gallery || attachments.length === 0) return;
+  const key = attachments.map((a) => a.id).join(',');
+  if (busy.has(key)) return;
+  busy.add(key);
+  try {
+    for (const attachment of attachments) {
+      const local = await downloadToCache(attachment);
+      await Gallery.save(local, galleryName(attachment), attachment.contentType || 'image/jpeg');
+    }
+    toast(attachments.length === 1 ? 'Galeriye kaydedildi.' : `${attachments.length} dosya galeriye kaydedildi.`);
+  } catch (err) {
+    toast(downloadError(err), 'error');
+  } finally {
+    busy.delete(key);
   }
 }

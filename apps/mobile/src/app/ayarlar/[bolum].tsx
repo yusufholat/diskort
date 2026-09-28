@@ -2,6 +2,7 @@ import { ScrollView, Text } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { settingsSection, type SettingsSectionId } from '@diskort/client-core';
+import { AccountAdmin } from '../../components/settings/AccountAdmin';
 import { AccountSettings } from '../../components/settings/AccountSettings';
 import { ProfileSettings } from '../../components/settings/ProfileSettings';
 import { ThemePicker } from '../../components/ThemePicker';
@@ -11,7 +12,7 @@ import { soundsAvailable } from '../../sounds';
 import { colors, createStyles, font, space } from '../../theme';
 
 /** Telefonda kendi sayfası olan ayar bölümleri; diğerleri (geri bildirim, yenilikler…) kendi ekranını açar */
-const PAGES: readonly SettingsSectionId[] = ['account', 'profile', 'voice', 'appearance', 'notifications'];
+const PAGES: readonly SettingsSectionId[] = ['account', 'profile', 'voice', 'appearance', 'notifications', 'accountAdmin'];
 
 /** Kullanıcı Ayarları'nın bir bölümü (masaüstündeki bölümle aynı ad ve içerik sırası) */
 export default function SettingsSectionScreen() {
@@ -38,6 +39,7 @@ export default function SettingsSectionScreen() {
         </>
       )}
       {id === 'notifications' && <NotificationsAndSounds />}
+      {id === 'accountAdmin' && <AccountAdmin />}
     </ScrollView>
   );
 }

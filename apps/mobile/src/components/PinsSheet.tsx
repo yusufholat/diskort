@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { create } from 'zustand';
-import { Permission, type PinnedMessage } from '@diskort/shared';
+import { Permission, type Message, type PinnedMessage } from '@diskort/shared';
 import {
   gifOf,
   jumpToPinned,
   openPins,
+  pinMessage,
   unpinMessage,
   useCan,
   useGuild,
@@ -18,6 +19,8 @@ import {
 import { colors, createStyles, font, radius, space, tint } from '../theme';
 import { Avatar } from './Avatar';
 import { BottomSheet, SheetHeader } from './BottomSheet';
+import { confirmDialog } from './Dialog';
+import { PinIcon, pinIcon, unpinIcon } from './icons';
 import { Markdown, type MarkdownContext } from './Markdown';
 import { messageStamp } from './MessageRow';
 
@@ -50,12 +53,7 @@ export function PinsSheet() {
 
   const pins = usePins((s) => (channelId ? s.channels[channelId] : undefined) ?? EMPTY_PINS);
   const canPin = useCan(Permission.PIN_MESSAGES, channelId ?? undefined);
-  const users = useGuild((s) => s.users);
-  const selfId = useSession((s) => s.user?.id);
-  const md: MarkdownContext = useMemo(
-    () => ({ usersByName: Object.fromEntries(Object.values(users).map((u) => [u.username, u])), selfId }),
-    [users, selfId],
-  );
+  const md = useMarkdownContext();
   const { height } = useWindowDimensions();
 
   const jump = (message: PinnedMessage): void => {
@@ -72,7 +70,7 @@ export function PinsSheet() {
       ) : pins.items.length === 0 ? (
         <View style={styles.empty}>
           <View style={styles.emptyIcon}>
-            <Ionicons name="pin-outline" size={28} color={colors.muted} />
+            <PinIcon size={28} color={colors.muted} />
           </View>
           <Text style={styles.emptyTitle}>Burada henüz sabitlenmiş mesaj yok</Text>
           <Text style={styles.emptyText}>Önemli bir mesajı sabitlemek için ona uzun bas ve “Sabitle”yi seç.</Text>
@@ -104,9 +102,6 @@ function PinRow({
   onJump: () => void;
 }) {
   const author = useGuild((s) => (message.authorId ? s.users[message.authorId] : undefined));
-  const color = useMemberColor(message.authorId);
-  const gif = gifOf(message);
-  const files = message.attachments.length;
   return (
     <Pressable
       onPress={onJump}
@@ -115,9 +110,47 @@ function PinRow({
       accessibilityLabel={`${author?.displayName ?? 'Silinmiş Kullanıcı'} kişisinin mesajına git`}
       style={styles.card}
     >
+      <MessageSummary message={message} md={md} inset>
+        <Text style={styles.jump}>Mesaja git</Text>
+      </MessageSummary>
+      {canUnpin && (
+        <Pressable
+          hitSlop={8}
+          onPress={() => void confirmUnpin(message)}
+          accessibilityRole="button"
+          accessibilityLabel="Sabitlemeyi kaldır"
+          android_ripple={{ color: tint(0.15), borderless: true, radius: 18 }}
+          style={styles.unpin}
+        >
+          <Ionicons name="close" size={18} color={colors.muted} />
+        </Pressable>
+      )}
+    </Pressable>
+  );
+}
+
+/** Mesajın özeti (yazar, zaman, metin, GIF/dosya): listede ve sabitleme onayında */
+function MessageSummary({
+  message,
+  md,
+  inset = false,
+  children,
+}: {
+  message: Message;
+  md: MarkdownContext;
+  /** Sağ üstteki kaldırma düğmesine yer bırakır */
+  inset?: boolean;
+  children?: ReactNode;
+}) {
+  const author = useGuild((s) => (message.authorId ? s.users[message.authorId] : undefined));
+  const color = useMemberColor(message.authorId);
+  const gif = gifOf(message);
+  const files = message.attachments.length;
+  return (
+    <>
       <Avatar user={author} size={36} />
       <View style={styles.body}>
-        <View style={styles.header}>
+        <View style={[styles.header, inset && styles.headerInset]}>
           <Text style={[styles.author, !author && styles.deleted, color ? { color } : null]} numberOfLines={1}>
             {author?.displayName ?? 'Silinmiş Kullanıcı'}
           </Text>
@@ -137,22 +170,54 @@ function PinRow({
             </Text>
           </View>
         ) : null}
-        <Text style={styles.jump}>Mesaja git</Text>
+        {children}
       </View>
-      {canUnpin && (
-        <Pressable
-          hitSlop={8}
-          onPress={() => void unpinMessage(message)}
-          accessibilityRole="button"
-          accessibilityLabel="Sabitlemeyi kaldır"
-          android_ripple={{ color: tint(0.15), borderless: true, radius: 18 }}
-          style={styles.unpin}
-        >
-          <Ionicons name="close" size={18} color={colors.muted} />
-        </Pressable>
-      )}
-    </Pressable>
+    </>
   );
+}
+
+function useMarkdownContext(): MarkdownContext {
+  const users = useGuild((s) => s.users);
+  const selfId = useSession((s) => s.user?.id);
+  return useMemo(
+    () => ({ usersByName: Object.fromEntries(Object.values(users).map((u) => [u.username, u])), selfId }),
+    [users, selfId],
+  );
+}
+
+/** Onay penceresindeki mesaj önizlemesi */
+function ConfirmPreview({ message }: { message: Message }) {
+  const md = useMarkdownContext();
+  return (
+    <View style={styles.preview}>
+      <MessageSummary message={message} md={md} />
+    </View>
+  );
+}
+
+/** "Mesajı sabitle": önizlemeli onaydan sonra sabitler (masaüstündeki gibi). Sabitlendiyse true. */
+export async function confirmPin(message: Message): Promise<boolean> {
+  const ok = await confirmDialog({
+    title: 'Mesaj sabitlensin mi?',
+    message: 'Bu mesaj kanalın sabitlenmiş mesajlarına eklenir.',
+    icon: pinIcon,
+    preview: <ConfirmPreview message={message} />,
+    confirmLabel: 'Sabitle',
+  });
+  return ok && pinMessage(message);
+}
+
+/** "Sabitlemeyi kaldır": önizlemeli onaydan sonra kaldırır. Kaldırıldıysa true. */
+export async function confirmUnpin(message: Message): Promise<boolean> {
+  const ok = await confirmDialog({
+    title: 'Sabitleme kaldırılsın mı?',
+    message: 'Mesaj silinmez; yalnızca sabitlenmiş mesajlardan çıkar.',
+    icon: unpinIcon,
+    preview: <ConfirmPreview message={message} />,
+    confirmLabel: 'Kaldır',
+    danger: true,
+  });
+  return ok && unpinMessage(message);
 }
 
 const styles = createStyles(() => ({
@@ -167,7 +232,9 @@ const styles = createStyles(() => ({
     overflow: 'hidden',
   },
   body: { flex: 1, minWidth: 0 },
-  header: { flexDirection: 'row', alignItems: 'baseline', gap: space.sm, marginBottom: 2, paddingRight: 28 },
+  header: { flexDirection: 'row', alignItems: 'baseline', gap: space.sm, marginBottom: 2 },
+  headerInset: { paddingRight: 28 },
+  preview: { flexDirection: 'row', gap: space.md },
   author: { color: colors.head, fontSize: font.row, fontWeight: '600', flexShrink: 1 },
   deleted: { color: colors.muted, fontStyle: 'italic' },
   time: { color: colors.faint, fontSize: font.caption },
