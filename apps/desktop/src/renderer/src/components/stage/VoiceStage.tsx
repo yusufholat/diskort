@@ -123,7 +123,7 @@ function useStageChrome(rootRef: RefObject<HTMLDivElement | null>, enabled: bool
         ui.contextMenu !== null ||
         ui.modal !== null ||
         root.querySelector('[data-stage-chrome] :focus-visible') !== null ||
-        root.querySelector('[data-stage-chrome] [aria-expanded="true"]') !== null
+        root.querySelector('[data-stage-chrome] [aria-haspopup][aria-expanded="true"]') !== null
       );
     };
     const hideAfter = (ms: number): void => {

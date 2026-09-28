@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AppWindow, Monitor } from 'lucide-react';
+import { AppWindow, Eye, Monitor } from 'lucide-react';
 import { create } from 'zustand';
 import type { VoiceState } from '@diskort/shared';
 import { fetchStreamPreview, formatStreamElapsed, useGuild, useSession } from '@diskort/client-core';
@@ -11,12 +11,12 @@ import { watchUserStream } from '../../lib/watchStream';
 import { useVoice } from '../../stores/voice';
 import { StreamViewers } from '../stage/StreamViewers';
 import { Avatar } from '../ui/Avatar';
+import { LiveBadge } from './VoiceMemberRow';
 
 /**
  * "Şimdi Yayın Yapıyor" kartı (Discord gibi): kanal listesinde yayın yapan üyenin üstünde biraz
- * bekleyince sağında açılır; yayının küçük önizlemesi, paylaşılan pencerenin adı, süresi ve "Yayını izle"
- * düğmesi (kendi yayınında "Yayındasın!"). Önizleme resmi henüz yoksa yayıncının avatarıyla çizilen bir yer
- * tutucu görünür. İmleç satırdan karta geçerken kapanmaz; kaydırma, sürükleme ya da tıklama kapatır.
+ * bekleyince sağında açılır; yayının küçük önizlemesi, paylaşılan pencerenin adı ve süresi. Önizlemenin kendisi
+ * düğmedir: tıklayınca yayını izler (kendi yayınında sahnede öne alır). Resim yoksa avatarlı yer tutucu görünür. İmleç satırdan karta geçerken kapanmaz; kaydırma, sürükleme ya da tıklama kapatır.
  */
 
 const OPEN_DELAY_MS = 300;
@@ -200,7 +200,8 @@ export function StreamPreviewCard() {
   if (!shown || !state) return null;
 
   const isSelf = state.userId === selfId;
-  const label = isSelf ? 'Yayındasın!' : watching ? 'İzlemeye dön' : 'Yayını izle';
+  // Önizlemenin üstünde beliren eylem (kendi yayınında sahnede öne alır)
+  const label = isSelf ? 'Yayınına git' : watching ? 'İzlemeye dön' : 'İzle';
   const SourceIcon = state.streamSourceKind === 'screen' ? Monitor : AppWindow;
   const watch = (): void => {
     closeStreamCard();
@@ -223,30 +224,51 @@ export function StreamPreviewCard() {
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-sm font-semibold text-text-head">Şimdi Yayın Yapıyor</span>
-        <span className="rounded bg-danger px-1.5 py-px text-[10px] leading-4 font-bold text-white">YAYINDA</span>
+        <LiveBadge />
       </div>
-      <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-md bg-black">
-        {image ? (
-          <img src={image} alt="Yayın önizlemesi" draggable={false} className="h-full w-full object-contain" />
-        ) : (
-          // Yer tutucu: yayıncının renginde hafif bir ışıma, ortada avatarı
-          <div
-            className="flex h-full w-full flex-col items-center justify-center gap-2"
-            style={{
-              background: `radial-gradient(ellipse at center, color-mix(in srgb, ${user?.avatarColor ?? '#5865f2'} 45%, transparent), transparent 75%)`,
-            }}
-          >
-            <span className="animate-pulse rounded-full shadow-[0_0_0_4px_rgb(255_255_255/0.12)]">
-              <Avatar user={user} size={48} />
+      {/* Önizlemenin kendisi düğme: üstüne gelince karartılır ve ortada "İzle" belirir */}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={watch}
+          aria-label={isSelf ? 'Yayınına git' : 'Yayını izle'}
+          className="group/preview relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-md bg-black ring-1 ring-float-edge transition-[box-shadow,filter] duration-150 hover:ring-text-muted/50 hover:brightness-110"
+        >
+          {image ? (
+            <img
+              src={image}
+              alt="Yayın önizlemesi"
+              draggable={false}
+              className="h-full w-full object-contain transition-transform duration-200 ease-out group-hover/preview:scale-[1.03] motion-reduce:transition-none"
+            />
+          ) : (
+            // Yer tutucu: yayıncının renginde hafif bir ışıma, ortada avatarı
+            <span
+              className="flex h-full w-full flex-col items-center justify-center gap-2"
+              style={{
+                background: `radial-gradient(ellipse at center, color-mix(in srgb, ${user?.avatarColor ?? '#5865f2'} 45%, transparent), transparent 75%)`,
+              }}
+            >
+              <span className="animate-pulse rounded-full shadow-[0_0_0_4px_rgb(255_255_255/0.12)]">
+                <Avatar user={user} size={48} />
+              </span>
+              <span className="text-xs text-white/70">
+                {state.streamPreviewAt ? 'Yükleniyor…' : 'Önizleme hazırlanıyor…'}
+              </span>
             </span>
-            <span className="text-xs text-white/70">
-              {state.streamPreviewAt ? 'Yükleniyor…' : 'Önizleme hazırlanıyor…'}
+          )}
+          <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity duration-150 group-hover/preview:opacity-100 group-focus-visible/preview:opacity-100">
+            <span className="flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-sm font-semibold text-white">
+              <Eye size={16} aria-hidden /> {label}
             </span>
-          </div>
-        )}
+          </span>
+        </button>
         <StreamViewers userId={state.userId} className="absolute top-2 right-2" />
       </div>
-      <div className="mt-2 flex items-center gap-1.5 text-sm text-text-normal">
+      <div
+        className="mt-2 flex cursor-pointer items-center gap-1.5 text-sm text-text-normal transition-colors hover:text-text-head"
+        onClick={watch}
+      >
         <SourceIcon size={14} className="shrink-0 text-text-muted" aria-hidden />
         <span className="min-w-0 flex-1 truncate">{state.streamSourceName ?? 'Ekran paylaşımı'}</span>
         {state.streamStartedAt !== undefined && (
@@ -255,14 +277,6 @@ export function StreamPreviewCard() {
           </span>
         )}
       </div>
-      <button
-        type="button"
-        onClick={watch}
-        disabled={isSelf}
-        className="press mt-3 flex w-full items-center justify-center rounded bg-ok px-3 py-2 text-sm font-medium text-white transition-colors enabled:hover:bg-ok-hover disabled:opacity-60"
-      >
-        {label}
-      </button>
     </div>,
     document.body,
   );
