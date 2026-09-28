@@ -172,6 +172,10 @@ class VoiceClient {
     document.body.appendChild(this.audioSink);
 
     useSettings.subscribe((next, prev) => this.onSettingsChanged(next, prev));
+    // İzlenen yayınlar sunucuya bildirilir (yayıncılar izleyenlerini görür); kanaldan çıkınca liste boşalır
+    useVoice.subscribe((next, prev) => {
+      if (next.watching !== prev.watching) gateway.setWatching(Object.keys(next.watching));
+    });
     // Yönetim paneli için ses kalitesi özetleri (bkz. client-core voiceTelemetry)
     voiceTelemetry.setContext(() => this.telemetryContext());
     gateway.on((msg) => {

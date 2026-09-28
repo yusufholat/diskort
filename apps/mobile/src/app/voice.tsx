@@ -9,6 +9,7 @@ import { MemberSheet } from '../components/MemberSheet';
 import { SpeakingRing } from '../components/SpeakingRing';
 import { EmptyState, Notice } from '../components/States';
 import { StreamViewer } from '../components/StreamViewer';
+import { StreamViewers } from '../components/StreamViewers';
 import { SwapIcon } from '../components/SwapIcon';
 import { VoiceControl } from '../components/VoiceBar';
 import { ConnectionQualityBadge } from '../components/VoiceQuality';
@@ -106,6 +107,7 @@ export default function VoiceScreen() {
           <View style={styles.sharingRow}>
             <View style={styles.liveDot} />
             <Text style={styles.sharingText}>Ekranını paylaşıyorsun</Text>
+            {selfId && <StreamViewers userId={selfId} />}
           </View>
           <ShareStatsLine />
         </View>
@@ -331,6 +333,7 @@ const MemberTile = memo(function MemberTile({
             <Text style={styles.liveText}>CANLI</Text>
           </View>
         )}
+        {state.streaming && <StreamViewers userId={state.userId} style={styles.viewers} />}
         <SpeakingRing speaking={speaking} size={avatar}>
           {/* Hareketli dekorasyon hafif modda: yalnızca konuşurken oynar (katılımcı kadar yüzey, sesle yarışır) */}
           <Avatar
@@ -413,6 +416,7 @@ const styles = createStyles(() => ({
     paddingVertical: 2,
   },
   liveText: { color: '#fff', fontSize: 10.5, fontWeight: '800' },
+  viewers: { position: 'absolute', top: space.sm, right: space.sm },
   watch: {
     flexDirection: 'row',
     alignItems: 'center',

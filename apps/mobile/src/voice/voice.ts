@@ -226,6 +226,10 @@ class MobileVoiceClient {
         if (off !== wasOff) soundCue(off ? 'mute' : 'unmute');
       } else void this.leave().then(() => soundCue('leave'));
     });
+    // İzlenen yayın sunucuya bildirilir (yayıncı izleyenlerini görür); yeniden bağlanınca gateway tekrarlar
+    useVoice.subscribe((next, prev) => {
+      if (next.watching !== prev.watching) gateway.setWatching(next.watching ? [next.watching] : []);
+    });
     // Sunucuya yeniden bağlanınca ses durumunu tekrar bildir
     gateway.on((msg) => {
       if (msg.t === 'READY') this.syncVoiceState();
