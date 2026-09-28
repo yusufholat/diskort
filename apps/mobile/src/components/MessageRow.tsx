@@ -11,6 +11,7 @@ import {
   mentionInComposer,
   retryMessage,
   toggleReaction,
+  useGuild,
   useMemberColor,
   useMessages,
   visibleLinkEmbeds,
@@ -18,6 +19,32 @@ import {
 } from '@diskort/client-core';
 import type { User } from '@diskort/shared';
 import type { MemberUser } from '@diskort/client-core';
+
+/** Satırda kullanılan yazar alanları (hepsi ilkel değer: bkz. useRowAuthor) */
+type RowAuthor = Pick<MemberUser, 'id' | 'displayName' | 'username' | 'avatarColor' | 'avatarUrl' | 'avatarDecoration' | 'removed'>;
+
+/**
+ * Yazarı `users` haritasının tamamı yerine tek tek ilkel alanlarla okur. `users` her profil/üye
+ * değişikliğinde (ör. başka birinin rolü, çevrimiçi durumu değil ama profili) baştan kurulur; satır bu
+ * nesnenin tamamına bağlı olsaydı ilgisiz her güncellemede yeniden çizilirdi (bkz. ChannelChat.renderItem).
+ * İlkel değerler (string/boolean) yalnızca gerçekten değişince referans/değer farkı yaratır.
+ */
+function useRowAuthor(authorId: string | null | undefined): RowAuthor | undefined {
+  const exists = useGuild((s) => (authorId ? authorId in s.users : false));
+  const displayName = useGuild((s) => (authorId ? s.users[authorId]?.displayName : undefined));
+  const username = useGuild((s) => (authorId ? s.users[authorId]?.username : undefined));
+  const avatarColor = useGuild((s) => (authorId ? s.users[authorId]?.avatarColor : undefined));
+  const avatarUrl = useGuild((s) => (authorId ? s.users[authorId]?.avatarUrl : undefined));
+  const avatarDecoration = useGuild((s) => (authorId ? s.users[authorId]?.avatarDecoration : undefined));
+  const removed = useGuild((s) => (authorId ? s.users[authorId]?.removed : undefined));
+  return useMemo(
+    () =>
+      exists && authorId && displayName !== undefined && username !== undefined && avatarColor !== undefined
+        ? { id: authorId, displayName, username, avatarColor, avatarUrl, avatarDecoration, removed: removed ?? false }
+        : undefined,
+    [exists, authorId, displayName, username, avatarColor, avatarUrl, avatarDecoration, removed],
+  );
+}
 import { feedback } from '../haptics';
 import { duration, useAppear } from '../motion';
 import { colors, createStyles, font, layout, radius, ripple, space } from '../theme';
@@ -60,7 +87,8 @@ export function messageStamp(ts: number): string {
 
 interface Props {
   message: LocalMessage;
-  author: MemberUser | undefined;
+  /** Yazarın kimliği (satır kendi ilkel alanlarını useRowAuthor ile okur; bkz. yukarısı) */
+  authorId: string | null | undefined;
   compact: boolean;
   /** Bu mesajın üstünde gün ayracı gösterilsin mi */
   dayBreak: boolean;
@@ -84,7 +112,7 @@ const REPLY_TRIGGER = 64;
 
 export const MessageRow = memo(function MessageRow({
   message,
-  author,
+  authorId,
   compact,
   dayBreak,
   newDivider = false,
@@ -96,6 +124,7 @@ export const MessageRow = memo(function MessageRow({
   onReply,
   onAvatarPress,
 }: Props) {
+  const author = useRowAuthor(authorId);
   const mentioned = isMentioned(message, self);
   // Metni yalnızca GIPHY bağlantısı olan mesaj: bağlantı yerine GIF gösterilir
   const gif = gifOf(message);

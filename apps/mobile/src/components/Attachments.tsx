@@ -40,7 +40,8 @@ export function AttachmentList({ attachments }: { attachments: Attachment[] }) {
       {attachments.map((a) =>
         isImageAttachment(a) ? (
           <Pressable key={a.id} onPress={() => setViewing(a)} style={[styles.image, fit(a, maxWidth)]}>
-            <Image source={{ uri: attachmentUrl(a) }} style={StyleSheet.absoluteFill} resizeMode="contain" />
+            {/* Sohbette küçük gösterilir: Android özgün resmi değil, görüntülenen boyutu çözer (tam ekranda değil) */}
+            <Image source={{ uri: attachmentUrl(a) }} style={StyleSheet.absoluteFill} resizeMode="contain" resizeMethod="resize" />
           </Pressable>
         ) : isVideoAttachment(a) ? (
           <VideoAttachment key={a.id} attachment={a} maxWidth={maxWidth} />

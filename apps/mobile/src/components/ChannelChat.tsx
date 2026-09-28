@@ -195,9 +195,20 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
     }
   }, [loaded, messages, watching, dividerId, lastId, readId, self, guildReady]);
 
+  // Markdown yalnızca mesaj içindeki @bahsetmeleri çözerken kullanıcıya bakar (ad, kimlik); bir üyenin
+  // rolü/çevrimiçiliği/avatarı gibi bahsetmeyle ilgisiz alanları değişince `users` yine de baştan kurulur
+  // (bkz. client-core/guild usersOf). Burada yalnızca gerçekten ilgili alanlar (kullanıcı adı, görünen ad,
+  // kimlik) anahtara girer: onlar değişmediyse `md` aynı nesne kalır, satırlar (memo'lu) yeniden çizilmez.
+  const usersByNameKey = useMemo(
+    () => Object.values(users).map((u) => `${u.username}:${u.id}:${u.displayName}`).join('|'),
+    [users],
+  );
   const md: MarkdownContext = useMemo(
     () => ({ usersByName: Object.fromEntries(Object.values(users).map((u) => [u.username, u])), selfId: self?.id }),
-    [users, self?.id],
+    // usersByNameKey değişmediği sürece `users`'ın içeriği bahsetmeler için aynıdır (yalnızca ilgisiz
+    // alanlar değişmiştir); en güncel `users` yine de kapanışta okunur.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [usersByNameKey, self?.id],
   );
 
   // Ters liste: en yeni mesaj en altta (indeks 0). Gruplama ve ayraçlar burada bir kez hesaplanır;
@@ -325,7 +336,7 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
       <MessageErrorBoundary resetKey={item.message}>
         <MessageRow
           message={item.message}
-          author={item.message.authorId ? users[item.message.authorId] : undefined}
+          authorId={item.message.authorId}
           compact={item.compact}
           dayBreak={item.dayBreak}
           newDivider={item.newDivider}
@@ -339,7 +350,9 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
         />
       </MessageErrorBoundary>
     ),
-    [users, self, md, fresh, flash, canReply],
+    // `md` yalnızca bahsetmeyle ilgili alanlar değişince yeni nesne olur (bkz. yukarısı); yazar artık
+    // satırın kendisinde (useRowAuthor) okunuyor, `users`in tamamına burada gerek yok.
+    [self, md, fresh, flash, canReply],
   );
 
   const canAddPeople = dm?.group === true && dm.participantIds.length < DM_GROUP_MAX_PARTICIPANTS;

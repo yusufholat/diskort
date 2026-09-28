@@ -21,6 +21,7 @@ import {
   useMessages,
   type LocalFile,
   type LocalMessage,
+  type MemberUser,
 } from '@diskort/client-core';
 import { pickDocuments, pickMedia } from '../attachments';
 import { useAppear, useBump, useLayoutAnimationOn, useTimingTo } from '../motion';
@@ -37,8 +38,38 @@ import { ReplyBar } from './ReplyBar';
 /** Kanal değiştirince yarım kalan mesaj kaybolmasın */
 const drafts = new Map<string, string>();
 
+/**
+ * Herhangi bir kanalda gönderilmeyi bekleyen (boşluktan ibaret olmayan) taslak metin var mı. Arka
+ * planda inen arayüz güncellemesi (bkz. app/_layout.tsx) bunlar boşalana kadar ertelenir; aksi hâlde
+ * yeniden başlatma taslağı siler. Artık görülemeyen (sunucudan çıkıldı, DM kapandı) kanalların
+ * taslakları burada süzülür ve haritadan silinir: yoksa yalnızca o kanal yeniden açılıp temizlenene
+ * kadar (belki hiç) güncelleme sonsuza dek ertelenmiş kalırdı.
+ */
+export function hasDraftText(): boolean {
+  if (drafts.size === 0) return false;
+  const guild = useGuild.getState();
+  let found = false;
+  for (const id of [...drafts.keys()]) {
+    if (guild.channelGuild[id] || guild.dms[id]) found = true;
+    else drafts.delete(id);
+  }
+  return found;
+}
+
+/** Şu an düzenleme kipinde açık kutusu olan kanallar (bkz. Composer bileşeni: editing prop'u izler) */
+const openEdits = new Set<string>();
+
+/** Herhangi bir kanalda açık bir mesaj düzenlemesi var mı: OTA güncellemesi bunu da bölmesin. */
+export function hasOpenEdit(): boolean {
+  return openEdits.size > 0;
+}
+
 const MENTION_QUERY = /(?:^|[\s(])@([a-z0-9_.]{0,32})$/i;
 const NO_FILES: LocalFile[] = [];
+// Bahsetme yazılmıyorken (çoğu zaman) kullanıcı/çevrimiçi listesine hiç ihtiyaç yok: sabit boş nesneler
+// döndürülünce zustand aboneliği tetiklemez, yazma kutusu her üye/çevrimiçi güncellemesinde yeniden çizilmez.
+const EMPTY_USERS: Record<string, MemberUser> = {};
+const EMPTY_ONLINE: Record<string, true> = {};
 
 interface Props {
   /** Metin kanalı ya da direkt mesaj konuşması (kimlik ve görünen ad) */
@@ -64,28 +95,31 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
   const [attachMenu, setAttachMenu] = useState(false);
   const [expressions, setExpressions] = useState<ExpressionTab | null>(null);
   const gifsEnabled = useFeatures((s) => s.gifs);
-  const users = useGuild((s) => s.users);
-  const online = useGuild((s) => s.online);
+  // Düzenleme kipine geçince mesaj metniyle başla
+  const text = editing ? (editText ?? editing.content) : value;
+  const query = MENTION_QUERY.exec(text.slice(0, selection.start))?.[1];
+  // Yalnızca bahsetme yazılırken gerçek listeler abone olunur (bkz. EMPTY_USERS/EMPTY_ONLINE yukarısı)
+  const users = useGuild((s) => (query !== undefined ? s.users : EMPTY_USERS));
+  const online = useGuild((s) => (query !== undefined ? s.online : EMPTY_ONLINE));
   const files = useMessages((s) => s.pendingFiles[channel.id] ?? NO_FILES);
   const canSend = useCan(Permission.SEND_MESSAGES, channel.id);
   const canAttach = useCan(Permission.ATTACH_FILES, channel.id);
   // @everyone / @here yalnızca yetkisi olana önerilir (direkt mesajda bu yetki yoktur)
   const canMentionEveryone = useCan(Permission.MENTION_EVERYONE, channel.id);
 
-  // Düzenleme kipine geçince mesaj metniyle başla
-  const text = editing ? (editText ?? editing.content) : value;
   const setText = (next: string): void => {
     if (editing) {
       setEditText(next);
       return;
     }
     setValue(next);
-    if (next) drafts.set(channel.id, next);
+    // Yalnızca boşluktan ibaret metin taslak sayılmaz: yoksa OTA güncellemesi bomboş bir kutu yüzünden
+    // sonsuza dek ertelenirdi (bkz. hasDraftText, app/_layout.tsx)
+    if (next.trim()) drafts.set(channel.id, next);
     else drafts.delete(channel.id);
     if (next.trim()) notifyTyping(channel.id);
   };
 
-  const query = MENTION_QUERY.exec(text.slice(0, selection.start))?.[1];
   const suggestions = useMemo(() => {
     if (query === undefined) return [];
     const q = query.toLocaleLowerCase('tr');
@@ -104,6 +138,17 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
   // sıçramak yerine yumuşakça kayar
   const replying = useMessages((s) => Boolean(s.replies[channel.id]));
   useLayoutAnimationOn(`${files.length}:${replying}:${Boolean(editing)}:${suggestions.length > 0}`, 180, false);
+
+  // Düzenleme kipindeyken kanal açık düzenleme olarak işaretlenir (bkz. hasOpenEdit, app/_layout.tsx):
+  // OTA güncellemesi yarım kalan bir düzenlemeyi bölmesin. ChannelChat, editing değişince Composer'ı
+  // `key` ile yeniden kurduğundan (bkz. ChannelChat.tsx) bu efekt her düzenleme oturumu için bir kez çalışır.
+  useEffect(() => {
+    if (!editing) return;
+    openEdits.add(channel.id);
+    return () => {
+      openEdits.delete(channel.id);
+    };
+  }, [editing, channel.id]);
 
   const pick = (user: Pick<User, 'username'>): void => {
     const before = text.slice(0, selection.start).replace(/@[a-z0-9_.]*$/i, `@${user.username} `);
