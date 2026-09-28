@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Camera, Check } from 'lucide-react';
 import {
   animatedDecoration,
@@ -6,12 +6,12 @@ import {
   COSMETIC_SET_LABELS,
   COSMETIC_SETS,
   HEX_COLOR,
-  LEGACY_PROFILE_EFFECTS,
   NAMEPLATE_LABELS,
   NAMEPLATES,
   PROFILE_EFFECT_LABELS,
-  profileEffectFields,
+  PROFILE_EFFECTS,
   userProfileEffect,
+  type AnimatedDecoration,
   type CosmeticSet,
   type Nameplate,
   type ProfileTheme,
@@ -20,17 +20,14 @@ import {
 import {
   COSMETIC_SET_INFO,
   errorMessage,
-  loadCosmetics,
   formatBytes,
   PROFILE_THEME_PRESETS,
   profileGradient,
   removeBanner,
   updateProfileLook,
   uploadBanner,
-  useCosmetics,
   useCustomStatus,
   useStatus,
-  type CosmeticKind,
 } from '@diskort/client-core';
 import { confirmDialog } from '../../lib/dialog';
 import { PresenceProvider, usePresence } from '../../lib/motion';
@@ -40,16 +37,7 @@ import { NameplateCanvas, SetThumbCanvas } from '../cosmetics/Cosmetics';
 import { Avatar } from '../ui/Avatar';
 import { Button, SectionTitle } from '../ui/controls';
 import { AvatarCropper } from './AvatarCropper';
-import {
-  ProfileBanner,
-  ProfileCardTop,
-  ProfileEffectLayer,
-  framedPadding,
-  ProfileFrameLayer,
-  StatusBubble,
-  themedCardStyle,
-  useProfileFramed,
-} from '../profile/ProfileLook';
+import { ProfileBanner, ProfileCardTop, ProfileEffectLayer, StatusBubble, themedCardStyle } from '../profile/ProfileLook';
 
 const ACCEPT = 'image/png,image/jpeg,image/webp,image/gif';
 /** Tarayıcıda açılıp kırpılacak resmin en büyük boyutu (sunucuya kırpılmış küçük kopya gider) */
@@ -117,14 +105,13 @@ export function ProfileLookSettings({ user }: { user: User }) {
     if (HEX_COLOR.test(color)) pickTheme({ ...(theme ?? fallback), [key]: color }, SAVE_DELAY);
   };
 
-  const { effect, decoration, frame, nameplate, pick } = useLook(user);
+  const { effect, decoration, nameplate, pick } = useLook(user);
 
   const preview: User = {
     ...user,
     profileTheme: theme,
-    ...profileEffectFields(effect),
+    animatedEffect: effect,
     avatarDecoration: decoration,
-    profileFrame: frame,
     nameplate,
   };
   // Setin üç parçası birden seçili mi
@@ -191,9 +178,8 @@ export function ProfileLookSettings({ user }: { user: User }) {
         <SectionTitle>Profil Efekti</SectionTitle>
         <p className="mb-3 text-sm text-text-muted">Profil kartında oynayan süs.</p>
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Profil efekti">
-          {([null, ...LEGACY_PROFILE_EFFECTS, ...COSMETIC_SETS] as const).map((value) => {
+          {([null, ...PROFILE_EFFECTS] as const).map((value) => {
             const selected = effect === value;
-            const set = value && (COSMETIC_SETS as readonly string[]).includes(value) ? (value as CosmeticSet) : null;
             return (
               <button
                 key={value ?? 'none'}
@@ -206,10 +192,10 @@ export function ProfileLookSettings({ user }: { user: User }) {
                   selected ? 'bg-brand text-white' : 'bg-bg-side text-text-normal hover:bg-bg-hover hover:text-text-head',
                 )}
               >
-                {set && (
+                {value && (
                   <span
                     className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ background: COSMETIC_SET_INFO[set].accent, boxShadow: `0 0 6px ${COSMETIC_SET_INFO[set].accent}` }}
+                    style={{ background: COSMETIC_SET_INFO[value].accent, boxShadow: `0 0 6px ${COSMETIC_SET_INFO[value].accent}` }}
                   />
                 )}
                 {value ? PROFILE_EFFECT_LABELS[value] : 'Yok'}
@@ -223,30 +209,11 @@ export function ProfileLookSettings({ user }: { user: User }) {
           Avatarının çevresindeki süs; mesajlarda ve üye listesinde de görünür (hareketli olanlar küçük avatarda sabit bir
           halka olur).
         </p>
-        <CosmeticPicker
-          kind="decorations"
-          label="Avatar dekorasyonu"
-          value={decoration}
-          onPick={(id) => void pick({ avatarDecoration: id })}
-          extra={COSMETIC_SETS.map((set) => ({ id: animatedDecoration(set), name: COSMETIC_SET_LABELS[set] }))}
-        >
-          {(id) => <Avatar user={user} size={44} decoration={id} animateDecoration />}
-        </CosmeticPicker>
+        <DecorationPicker user={user} value={decoration} onPick={(id) => void pick({ avatarDecoration: id })} />
 
         <SectionTitle>İsim Plakası</SectionTitle>
         <p className="mb-3 text-sm text-text-muted">Üye listesinde adının arkasında oynayan zemin.</p>
         <NameplatePicker user={user} value={nameplate} onPick={(id) => void pick({ nameplate: id })} />
-
-        <SectionTitle>Profil Çerçevesi</SectionTitle>
-        <p className="mb-3 text-sm text-text-muted">Profil kartının kenarlarındaki süs.</p>
-        <CosmeticPicker kind="frames" label="Profil çerçevesi" value={frame} onPick={(id) => void pick({ profileFrame: id })}>
-          {(id) => (
-            <div className="relative h-[68px] w-[52px] overflow-hidden rounded-md bg-bg-float" style={themedCardStyle(theme)}>
-              <div className="h-4" style={{ background: theme?.primary ?? user.avatarColor }} />
-              <ProfileFrameLayer frame={id} border={16} />
-            </div>
-          )}
-        </CosmeticPicker>
       </div>
 
       {/* Önizleme seçicilerin yanında kaydırılırken görünür kalır */}
@@ -274,16 +241,16 @@ const setPatch = (set: CosmeticSet): LookPatch => ({
 });
 
 /**
- * Tek seçimli süsler (efekt, dekorasyon, çerçeve, isim plakası): seçim önizlemede hemen görünür ve
- * kaydedilir; kaydedilemezse eskisine döner ve hata gösterilir. Setin tamamı tek istekle kaydedilir.
+ * Tek seçimli süsler (efekt, dekorasyon, isim plakası): seçim önizlemede hemen görünür ve kaydedilir;
+ * kaydedilemezse eskisine döner ve hata gösterilir. Setin tamamı tek istekle kaydedilir.
  */
 function useLook(user: User) {
   const [draft, setDraft] = useState<LookPatch>({});
   const effect = 'profileEffect' in draft ? (draft.profileEffect ?? null) : userProfileEffect(user);
-  const decoration = 'avatarDecoration' in draft ? (draft.avatarDecoration ?? null) : (user.avatarDecoration ?? null);
-  const frame = 'profileFrame' in draft ? (draft.profileFrame ?? null) : (user.profileFrame ?? null);
+  const saved = animatedDecorationSet(user.avatarDecoration);
+  const decoration = 'avatarDecoration' in draft ? (draft.avatarDecoration ?? null) : saved && animatedDecoration(saved);
   const nameplate = 'nameplate' in draft ? (draft.nameplate ?? null) : (user.nameplate ?? null);
-  const current: Required<LookPatch> = { profileEffect: effect, avatarDecoration: decoration, profileFrame: frame, nameplate };
+  const current: Required<LookPatch> = { profileEffect: effect, avatarDecoration: decoration, nameplate };
 
   const pick = async (patch: LookPatch): Promise<void> => {
     const keys = (Object.keys(patch) as (keyof LookPatch)[]).filter((k) => patch[k] !== current[k]);
@@ -303,7 +270,7 @@ function useLook(user: User) {
       });
     }
   };
-  return { effect, decoration, frame, nameplate, pick };
+  return { effect, decoration, nameplate, pick };
 }
 
 /** Hareketli setler: canlı küçük resimli kutular; tıklayınca setin üç parçası birden uygulanır */
@@ -408,30 +375,22 @@ function MemberRowPreview({ user, label }: { user: User; label?: string }) {
   );
 }
 
-/** Katalogdaki tasarımlar (ve varsa kodla çizilen ek seçenekler) ile "Yok": küçük önizlemeli kutular */
-function CosmeticPicker({
-  kind,
-  label,
+/** Hareketli avatar dekorasyonları ve "Yok": avatarın canlı önizlemesiyle küçük kutular */
+function DecorationPicker({
+  user,
   value,
   onPick,
-  extra = [],
-  children,
 }: {
-  kind: CosmeticKind;
-  label: string;
-  value: string | null;
-  onPick: (id: string | null) => void;
-  /** Katalogdan önce gösterilen seçenekler (ör. hareketli dekorasyonlar) */
-  extra?: { id: string; name: string }[];
-  /** Kutunun içindeki önizleme (null: süs yok) */
-  children: (id: string | null) => ReactNode;
+  user: User;
+  value: AnimatedDecoration | null;
+  onPick: (id: AnimatedDecoration | null) => void;
 }) {
-  const catalog = useCosmetics((s) => s.catalog);
-  useEffect(() => void loadCosmetics(), []);
-  if (!catalog && extra.length === 0) return <p className="text-sm text-text-muted">Tasarımlar yükleniyor…</p>;
-  const options = [{ id: null, name: 'Yok' }, ...extra, ...(catalog?.[kind] ?? [])];
+  const options: { id: AnimatedDecoration | null; name: string }[] = [
+    { id: null, name: 'Yok' },
+    ...COSMETIC_SETS.map((set) => ({ id: animatedDecoration(set), name: COSMETIC_SET_LABELS[set] })),
+  ];
   return (
-    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={label}>
+    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Avatar dekorasyonu">
       {options.map((o) => {
         const selected = value === o.id;
         return (
@@ -448,7 +407,7 @@ function CosmeticPicker({
               selected ? 'border-brand' : 'border-transparent hover:border-edge-strong hover:bg-bg-hover',
             )}
           >
-            {children(o.id)}
+            <Avatar user={user} size={44} decoration={o.id} animateDecoration />
           </button>
         );
       })}
@@ -460,21 +419,14 @@ function CosmeticPicker({
 function ProfilePreviewCard({ user }: { user: User }) {
   const status = useStatus(user.id);
   const custom = useCustomStatus(user.id);
-  const framed = useProfileFramed(user.profileFrame);
   return (
     <div
       className="relative w-[300px] overflow-hidden rounded-lg border border-edge bg-bg-float pb-4 shadow-[0_8px_24px_rgb(0_0_0/0.25)]"
-      style={{ ...themedCardStyle(user.profileTheme), ...framedPadding(framed) }}
+      style={themedCardStyle(user.profileTheme)}
       aria-label="Profil kartı önizlemesi"
     >
-      <ProfileCardTop
-        user={user}
-        status={status}
-        aside={custom && <StatusBubble custom={custom} />}
-        bannerClassName={framed ? 'rounded-md' : undefined}
-      />
+      <ProfileCardTop user={user} status={status} aside={custom && <StatusBubble custom={custom} />} />
       <ProfileEffectLayer effect={userProfileEffect(user)} />
-      <ProfileFrameLayer frame={user.profileFrame} />
     </div>
   );
 }

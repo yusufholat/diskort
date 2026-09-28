@@ -28,8 +28,5 @@ RUN npm install --no-save --no-package-lock @node-rs/argon2@2.2.1 sharp@0.35.4 &
 # dist: sunucu (index.js), geri bildirim aracı (feedback-cli.js) ve hesap yöneticisi aracı (admin-cli.js;
 # ortak parçalar chunk-*.js)
 COPY --from=build /repo/apps/server/dist ./dist
-# Kozmetik tasarımları (avatar dekorasyonları, profil çerçeveleri): SVG'ler, sunucu açılınca okunur ve
-# istendiğinde WebP'ye çevrilir (dist/index.js'e göre ../cosmetics)
-COPY apps/server/cosmetics ./cosmetics
 VOLUME /data
 CMD ["node", "--enable-source-maps", "dist/index.js"]
