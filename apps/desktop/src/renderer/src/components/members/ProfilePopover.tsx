@@ -13,7 +13,15 @@ import { useEscapeLayer } from '../../lib/escape';
 import { usePresence } from '../../lib/motion';
 import { watchUserStream } from '../../lib/watchStream';
 import { cn } from '../../lib/utils';
-import { Avatar } from '../ui/Avatar';
+import {
+  framedPadding,
+  ProfileCardTop,
+  ProfileEffectLayer,
+  ProfileFrameLayer,
+  StatusBubble,
+  themedCardStyle,
+  useProfileFramed,
+} from '../profile/ProfileLook';
 
 const MARGIN = 8;
 const GAP = 8;
@@ -53,7 +61,7 @@ export function closeProfile(): void {
   useProfilePopover.setState({ target: null });
 }
 
-/** Profil kartı: renkli şerit, büyük avatar, ad, roller ve "Mesaj gönder". App'te bir kez çizilir. */
+/** Profil kartı: afiş, büyük avatar, ad, roller ve "Mesaj gönder". App'te bir kez çizilir. */
 export function ProfilePopover() {
   const target = useProfilePopover((s) => s.target);
   const { value: shown, closing } = usePresence(target, 100);
@@ -68,6 +76,7 @@ export function ProfilePopover() {
     const v = shown ? s.voiceStates[shown.userId] : undefined;
     return v?.streaming ? v.channelId : null;
   });
+  const framed = useProfileFramed(user?.profileFrame);
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number; origin: string } | null>(null);
 
@@ -134,33 +143,21 @@ export function ProfilePopover() {
         'fixed z-50 w-[300px] overflow-hidden rounded-lg border border-edge bg-bg-float shadow-[0_8px_24px_rgb(0_0_0/0.45)]',
         closing ? 'anim-pop-out pointer-events-none' : 'anim-pop-in',
       )}
-      style={pos ? { left: pos.x, top: pos.y, transformOrigin: pos.origin } : { left: -9999, top: -9999 }}
+      style={{
+        ...(pos ? { left: pos.x, top: pos.y, transformOrigin: pos.origin } : { left: -9999, top: -9999 }),
+        ...themedCardStyle(user.profileTheme),
+        ...framedPadding(framed),
+      }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <div className="h-[60px]" style={{ background: user.avatarColor }} />
+      <ProfileCardTop
+        user={user}
+        status={status}
+        bannerClassName={framed ? 'rounded-md' : undefined}
+        aside={custom && <StatusBubble custom={custom} />}
+        badge={owner && <Crown size={16} aria-label="Sunucunun sahibi" className="shrink-0 text-warn" />}
+      />
       <div className="px-4 pb-4">
-        <div className="-mt-10 mb-2 flex items-start gap-2">
-          <div className="w-fit shrink-0 rounded-full border-[6px] border-bg-float">
-            <Avatar user={user} size={80} status={status} ringClassName="bg-bg-float" />
-          </div>
-          {custom && (
-            // Özel durum: avatarın yanında konuşma balonu
-            <div className="relative mt-12 min-w-0 flex-1" title={[custom.emoji, custom.text].filter(Boolean).join(' ')}>
-              <span className="absolute top-1 -left-1 h-3 w-3 rounded-full bg-bg-side" />
-              <span className="absolute top-3.5 -left-2.5 h-1.5 w-1.5 rounded-full bg-bg-side" />
-              <span className="relative line-clamp-3 rounded-2xl bg-bg-side px-3 py-2 text-sm break-words text-text-normal">
-                {custom.emoji && <span className="mr-1">{custom.emoji}</span>}
-                {custom.text}
-              </span>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="truncate text-xl leading-tight font-bold text-text-head">{user.displayName}</span>
-          {owner && <Crown size={16} aria-label="Sunucunun sahibi" className="shrink-0 text-warn" />}
-        </div>
-        <div className="text-sm text-text-normal">{user.username}</div>
-
         {roles.length > 0 && (
           <div className="mt-3">
             <div className="mb-1.5 text-xs font-bold text-text-muted uppercase">Roller</div>
@@ -205,6 +202,8 @@ export function ProfilePopover() {
           )
         )}
       </div>
+      <ProfileEffectLayer effect={user.profileEffect} />
+      <ProfileFrameLayer frame={user.profileFrame} />
     </div>
   );
 }

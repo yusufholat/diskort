@@ -1,17 +1,27 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { ZoomIn, ZoomOut } from 'lucide-react';
-import { clamp } from '../../lib/utils';
+import { BANNER_HEIGHT, BANNER_WIDTH } from '@diskort/shared';
+import { clamp, cn } from '../../lib/utils';
 import { Button } from '../ui/controls';
 import { Modal } from '../ui/Modal';
 import { Slider } from '../ui/Slider';
 
-/** Kırpma alanının kenarı (ekranda, piksel) */
-const VIEW = 280;
-/** Sunucuya gönderilen kare resmin kenarı; sunucu 256×256'ya küçültür */
-const OUTPUT = 512;
 const MAX_ZOOM = 5;
-const PREVIEWS = [80, 40];
+
+/**
+ * Kırpma biçimleri: kırpma alanının ekrandaki boyu (piksel), sunucuya gönderilen resmin boyu ve
+ * önizlemeler. Kare: profil fotoğrafı ve sunucu simgesi (sunucu 256×256'ya küçültür). Afiş: 17:6,
+ * sunucunun boyutunda (1020×360).
+ */
+const SHAPES = {
+  circle: { view: { w: 280, h: 280 }, output: { w: 512, h: 512, type: 'image/png' }, previews: [{ w: 80, h: 80 }, { w: 40, h: 40 }] },
+  banner: {
+    view: { w: 408, h: 144 },
+    output: { w: BANNER_WIDTH, h: BANNER_HEIGHT, type: 'image/webp' },
+    previews: [{ w: 204, h: 72 }],
+  },
+} as const;
 
 interface Loaded {
   url: string;
@@ -23,17 +33,21 @@ interface Loaded {
 interface Props {
   file: File;
   onCancel: () => void;
-  /** Kırpılmış kare resim (PNG); kaydedilirken pencere açık kalır */
+  /** Kırpılmış resim (kare PNG ya da afişte WebP); kaydedilirken pencere açık kalır */
   onSave: (image: Blob) => Promise<void>;
   /** Pencerenin başlığı (sunucu simgesinde de kullanılır) */
   title?: string;
+  /** Kırpma biçimi: yuvarlak kare (varsayılan) ya da 17:6 afiş */
+  shape?: keyof typeof SHAPES;
 }
 
 /**
- * Profil fotoğrafı kırpma penceresi: resim sürüklenerek konumlandırılır, kaydırıcı ya da fare
- * tekerleğiyle yakınlaştırılır. Yuvarlak alan fotoğrafın görüneceği kısmı gösterir.
+ * Profil fotoğrafı (ve afiş) kırpma penceresi: resim sürüklenerek konumlandırılır, kaydırıcı ya da fare
+ * tekerleğiyle yakınlaştırılır. Yuvarlak (ya da afişte dikdörtgen) alan resmin görüneceği kısmı gösterir.
  */
-export function AvatarCropper({ file, onCancel, onSave, title = 'Profil fotoğrafını düzenle' }: Props) {
+export function AvatarCropper({ file, onCancel, onSave, title = 'Profil fotoğrafını düzenle', shape = 'circle' }: Props) {
+  const { view, output, previews } = SHAPES[shape];
+  const banner = shape === 'banner';
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failed, setFailed] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -51,26 +65,26 @@ export function AvatarCropper({ file, onCancel, onSave, title = 'Profil fotoğra
       .decode()
       .then(() => {
         if (!alive) return;
-        const base = VIEW / Math.min(img.naturalWidth, img.naturalHeight);
+        const base = Math.max(view.w / img.naturalWidth, view.h / img.naturalHeight);
         setLoaded({ url, img, base });
-        setOffset({ x: (VIEW - img.naturalWidth * base) / 2, y: (VIEW - img.naturalHeight * base) / 2 });
+        setOffset({ x: (view.w - img.naturalWidth * base) / 2, y: (view.h - img.naturalHeight * base) / 2 });
       })
       .catch(() => alive && setFailed(true));
     return () => {
       alive = false;
       URL.revokeObjectURL(url);
     };
-  }, [file]);
+  }, [file, view]);
 
   // Esc yalnızca bu pencereyi kapatır: Modal en üstteki Esc katmanı olur (bkz. lib/escape.ts)
 
   const scale = loaded ? loaded.base * zoom : 1;
-  const width = loaded ? loaded.img.naturalWidth * scale : VIEW;
-  const height = loaded ? loaded.img.naturalHeight * scale : VIEW;
+  const width = loaded ? loaded.img.naturalWidth * scale : view.w;
+  const height = loaded ? loaded.img.naturalHeight * scale : view.h;
 
   const place = (x: number, y: number, w = width, h = height): { x: number; y: number } => ({
-    x: clamp(x, VIEW - w, 0),
-    y: clamp(y, VIEW - h, 0),
+    x: clamp(x, view.w - w, 0),
+    y: clamp(y, view.h - h, 0),
   });
 
   /** Kırpma alanının ortası sabit kalacak şekilde yakınlaştırır. */
@@ -78,10 +92,10 @@ export function AvatarCropper({ file, onCancel, onSave, title = 'Profil fotoğra
     if (!loaded) return;
     const z = clamp(next, 1, MAX_ZOOM);
     const s = loaded.base * z;
-    const cx = (VIEW / 2 - offset.x) / scale;
-    const cy = (VIEW / 2 - offset.y) / scale;
+    const cx = (view.w / 2 - offset.x) / scale;
+    const cy = (view.h / 2 - offset.y) / scale;
     setZoom(z);
-    setOffset(place(VIEW / 2 - cx * s, VIEW / 2 - cy * s, loaded.img.naturalWidth * s, loaded.img.naturalHeight * s));
+    setOffset(place(view.w / 2 - cx * s, view.h / 2 - cy * s, loaded.img.naturalWidth * s, loaded.img.naturalHeight * s));
   };
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
@@ -100,13 +114,13 @@ export function AvatarCropper({ file, onCancel, onSave, title = 'Profil fotoğra
   const save = async (): Promise<void> => {
     if (!loaded || saving) return;
     const canvas = document.createElement('canvas');
-    canvas.width = OUTPUT;
-    canvas.height = OUTPUT;
+    canvas.width = output.w;
+    canvas.height = output.h;
     const g = canvas.getContext('2d');
     if (!g) return;
     g.imageSmoothingQuality = 'high';
-    g.drawImage(loaded.img, -offset.x / scale, -offset.y / scale, VIEW / scale, VIEW / scale, 0, 0, OUTPUT, OUTPUT);
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+    g.drawImage(loaded.img, -offset.x / scale, -offset.y / scale, view.w / scale, view.h / scale, 0, 0, output.w, output.h);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, output.type, 0.92));
     if (!blob) return;
     setSaving(true);
     try {
@@ -134,7 +148,7 @@ export function AvatarCropper({ file, onCancel, onSave, title = 'Profil fotoğra
         title={title}
         subtitle="Sürükleyerek konumlandır, kaydırıcıyla yakınlaştır."
         onClose={() => !saving && onCancel()}
-        className="w-[460px]"
+        className={banner ? 'w-[480px]' : 'w-[460px]'}
         footer={
           <>
             <Button variant="ghost" disabled={saving} onClick={onCancel}>
@@ -149,10 +163,10 @@ export function AvatarCropper({ file, onCancel, onSave, title = 'Profil fotoğra
         {failed ? (
           <p className="py-10 text-center text-sm text-danger-text">Bu resim açılamadı. Başka bir dosya dene.</p>
         ) : (
-          <div className="flex items-center justify-center gap-6">
+          <div className={cn('flex items-center justify-center', banner ? 'flex-col gap-3' : 'gap-6')}>
             <div
               className="relative shrink-0 cursor-grab touch-none overflow-hidden rounded-md bg-bg-deep active:cursor-grabbing"
-              style={{ width: VIEW, height: VIEW }}
+              style={{ width: view.w, height: view.h }}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={endDrag}
@@ -160,16 +174,20 @@ export function AvatarCropper({ file, onCancel, onSave, title = 'Profil fotoğra
               onWheel={(e) => zoomTo(zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1))}
             >
               {picture(1)}
-              {/* Yuvarlak alanın dışı karartılır */}
+              {/* Yuvarlak alanın dışı karartılır (afişte alanın tamamı görünür) */}
               <div
-                className="pointer-events-none absolute inset-0 rounded-full border-2 border-white/80"
+                className={cn('pointer-events-none absolute inset-0 border-2 border-white/80', banner ? 'rounded-md' : 'rounded-full')}
                 style={{ boxShadow: '0 0 0 9999px rgb(0 0 0 / 0.6)' }}
               />
             </div>
-            <div className="flex flex-col items-center gap-3">
-              {PREVIEWS.map((size) => (
-                <div key={size} className="relative overflow-hidden rounded-full bg-bg-deep" style={{ width: size, height: size }}>
-                  {picture(size / VIEW)}
+            <div className={cn('flex items-center gap-3', !banner && 'flex-col')}>
+              {previews.map((p) => (
+                <div
+                  key={p.w}
+                  className={cn('relative overflow-hidden bg-bg-deep', banner ? 'rounded-md' : 'rounded-full')}
+                  style={{ width: p.w, height: p.h }}
+                >
+                  {picture(p.w / view.w)}
                 </div>
               ))}
               <span className="text-xs text-text-muted">Önizleme</span>

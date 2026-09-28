@@ -19,12 +19,15 @@ export function DmAvatar({
   size = 40,
   status = false,
   surfaceColor,
+  decorated = false,
 }: {
   dm: DmChannel;
   size?: number;
   status?: boolean;
   /** Çevrimiçi noktasının halkası: avatarın durduğu yüzeyin rengi */
   surfaceColor?: string;
+  /** Bire bir konuşmada karşı tarafın avatar dekorasyonu da çizilsin (konuşma listesi) */
+  decorated?: boolean;
 }) {
   const selfId = useSession((s) => s.user?.id);
   const partner = useGuild((s) => dmPartner(dm, s.users, selfId));
@@ -37,6 +40,7 @@ export function DmAvatar({
         size={size}
         status={status && partner && reachable ? shown : undefined}
         surface={surfaceColor}
+        decoration={decorated ? partner?.avatarDecoration : undefined}
       />
     );
   }

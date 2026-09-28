@@ -41,7 +41,7 @@ function MessageCard({ message, md, full = false }: { message: Message; md: Mark
   const gif = gifOf(message);
   return (
     <div className="flex min-w-0 gap-3">
-      <Avatar user={author} size={32} className="mt-0.5" />
+      <Avatar user={author} size={32} className="mt-0.5" decoration={author?.avatarDecoration} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2 leading-snug">
           <span

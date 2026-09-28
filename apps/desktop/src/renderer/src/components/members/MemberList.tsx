@@ -79,7 +79,7 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
         }
       }}
     >
-      <Avatar user={user} size={32} status={status} ringClassName="bg-bg-side" />
+      <Avatar user={user} size={32} status={status} ringClassName="bg-bg-side" decoration={user.avatarDecoration} />
       <div className="min-w-0 flex-1 leading-tight">
         <div className="flex items-center gap-1">
           <span className="truncate font-medium text-text-normal" style={color ? { color } : undefined}>

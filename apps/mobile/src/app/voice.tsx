@@ -332,7 +332,7 @@ const MemberTile = memo(function MemberTile({
           </View>
         )}
         <SpeakingRing speaking={speaking} size={avatar}>
-          <Avatar user={user} size={avatar} />
+          <Avatar user={user} size={avatar} decoration={user?.avatarDecoration} />
         </SpeakingRing>
         <View style={styles.nameRow}>
           <VoiceStateIcon state={state} size={14} />

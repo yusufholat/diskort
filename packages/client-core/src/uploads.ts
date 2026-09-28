@@ -1,4 +1,4 @@
-import { AVATAR_MAX_BYTES, type ApiErrorBody, type Attachment, type User } from '@diskort/shared';
+import { AVATAR_MAX_BYTES, type ApiErrorBody, type Attachment, type ProfileEffect, type ProfileTheme, type User } from '@diskort/shared';
 import { api, ApiError, normalizeServerUrl } from './api';
 import { env, type LocalFile, type UploadRequest, type UploadResponse } from './env';
 import { useGuild } from './guild';
@@ -11,6 +11,10 @@ export const attachmentUrl = (attachment: Pick<Attachment, 'url'>): string =>
 /** Profil fotoğrafının tam adresi; fotoğraf yoksa (ya da sunucu bu özelliği bilmiyorsa) null. */
 export const avatarUrl = (user: Pick<User, 'avatarUrl'> | null | undefined): string | null =>
   user?.avatarUrl ? normalizeServerUrl(env().serverUrl()) + user.avatarUrl : null;
+
+/** Profil afişinin tam adresi; yoksa null. */
+export const bannerUrl = (user: Pick<User, 'bannerUrl'> | null | undefined): string | null =>
+  user?.bannerUrl ? normalizeServerUrl(env().serverUrl()) + user.bannerUrl : null;
 
 const decimal = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 });
 
@@ -107,6 +111,38 @@ export async function uploadAvatar(file: LocalFile, signal: AbortSignal = new Ab
     throw new ApiError(413, 'too_large', `Resim çok büyük (en fazla ${formatBytes(AVATAR_MAX_BYTES)}).`);
   }
   const user = await sendFile<User>('/api/me/avatar', file, 200, 'Profil fotoğrafı yüklenemedi', () => undefined, signal);
+  applyOwnUser(user);
+  return user;
+}
+
+/** Profil afişini yükler (sunucu 1020×360'a kırpar) ve güncellenen kullanıcıyı oturuma yazar. */
+export async function uploadBanner(file: LocalFile, signal: AbortSignal = new AbortController().signal): Promise<User> {
+  if (file.size > AVATAR_MAX_BYTES) {
+    throw new ApiError(413, 'too_large', `Resim çok büyük (en fazla ${formatBytes(AVATAR_MAX_BYTES)}).`);
+  }
+  const user = await sendFile<User>('/api/me/banner', file, 200, 'Afiş yüklenemedi', () => undefined, signal);
+  applyOwnUser(user);
+  return user;
+}
+
+/** Profil afişini kaldırır. */
+export async function removeBanner(): Promise<User> {
+  const user = await api.removeBanner();
+  applyOwnUser(user);
+  return user;
+}
+
+/**
+ * Profil süsleri: tema, efekt, avatar dekorasyonu ve profil çerçevesi (null: kaldır); verilmeyen alan
+ * değişmez.
+ */
+export async function updateProfileLook(patch: {
+  profileTheme?: ProfileTheme | null;
+  profileEffect?: ProfileEffect | null;
+  avatarDecoration?: string | null;
+  profileFrame?: string | null;
+}): Promise<User> {
+  const user = await api.updateMe(patch);
   applyOwnUser(user);
   return user;
 }

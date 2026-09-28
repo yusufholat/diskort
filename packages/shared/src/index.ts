@@ -24,6 +24,22 @@ export interface User {
    */
   avatarUrl?: string | null;
   /**
+   * Profil afişi: sunucu köküne göre adres (/api/banners/<kullanıcı>/<özet>.webp; 1020×360
+   * WebP). Profil kartının üstünde; yoksa null (tema rengi ya da profil rengi gösterilir). Eski sunucularda yok.
+   */
+  bannerUrl?: string | null;
+  /** Profil teması: kartın iki rengi (üstten alta degrade). Yoksa null: varsayılan kart */
+  profileTheme?: ProfileTheme | null;
+  /** Profil kartında oynayan efekt (bkz. PROFILE_EFFECTS). Yoksa null */
+  profileEffect?: ProfileEffect | null;
+  /**
+   * Avatar dekorasyonunun kimliği (sunucunun kozmetik kataloğunda, bkz. CosmeticsCatalog). Yoksa null;
+   * istemci katalogda bulamadığı kimliği göstermez.
+   */
+  avatarDecoration?: string | null;
+  /** Profil kartının çerçevesinin kimliği (kozmetik kataloğunda). Yoksa null */
+  profileFrame?: string | null;
+  /**
    * Hesap yöneticisi: ana sunucunun (ilk kurulan sunucu) sahibi ya da orada Yönetici yetkili bir rolü var.
    * Hesaplarla ilgili işleri yapar (şifre sıfırlama kodu, hesap silme, hesap daveti, geri bildirimler).
    * Sunuculardaki yetkiler rollerden gelir (bkz. GuildMember).
@@ -445,7 +461,72 @@ export interface DeleteAccountRequest {
 export interface UpdateMeRequest {
   displayName?: string;
   avatarColor?: string;
+  /** null: temayı kaldırır */
+  profileTheme?: ProfileTheme | null;
+  /** null: efekti kaldırır */
+  profileEffect?: ProfileEffect | null;
+  /** Katalogdaki bir dekorasyon; null: kaldırır */
+  avatarDecoration?: string | null;
+  /** Katalogdaki bir çerçeve; null: kaldırır */
+  profileFrame?: string | null;
 }
+
+/** Profil kartının iki rengi ("#rrggbb"): üstte primary, altta accent */
+export interface ProfileTheme {
+  primary: string;
+  accent: string;
+}
+
+/** Profil efektleri: kodla çizilir (dosya yok); istemci tanımadığı efekti göstermez */
+export const PROFILE_EFFECTS = ['snow', 'sparkles', 'petals'] as const;
+export type ProfileEffect = (typeof PROFILE_EFFECTS)[number];
+export const PROFILE_EFFECT_LABELS: Record<ProfileEffect, string> = {
+  snow: 'Kar',
+  sparkles: 'Işıltı',
+  petals: 'Yapraklar',
+};
+
+/** "#rrggbb" */
+export const HEX_COLOR = /^#[0-9a-f]{6}$/;
+
+/**
+ * Kozmetik kataloğu (GET /api/cosmetics): avatar dekorasyonları ve profil çerçeveleri. Tasarımlar
+ * sunucuda SVG olarak durur, sunucu saydam WebP'ye çevirip sunar (uygulamalar büyümez); adres içeriğin
+ * özetini taşır, süresiz önbelleklenebilir.
+ */
+export interface CosmeticsCatalog {
+  decorations: CosmeticItem[];
+  frames: CosmeticItem[];
+}
+
+export interface CosmeticItem {
+  id: string;
+  name: string;
+  /** Resmin sunucu köküne göre adresi (/api/cosmetics/<tür>/<kimlik>.webp?v=<özet>) */
+  url: string;
+}
+
+/** Kozmetik kimliği: küçük harf, rakam, tire */
+export const COSMETIC_ID = /^[a-z0-9-]{1,32}$/;
+
+/**
+ * Dekorasyon avatarın üstüne, ortalanarak bu kat büyüklükte çizilir (avatar resmin ortadaki %80'i);
+ * yerleşimi değiştirmez.
+ */
+export const AVATAR_DECORATION_SCALE = 1.25;
+
+/**
+ * Profil çerçevesi dokuz dilimli kare resimdir: her kenardan resmin üçte biri köşedir (olduğu gibi
+ * çizilir), aradaki şeritler kart boyunca esnetilir, orta boştur. Kartta köşeler bu kadar piksel çizilir.
+ */
+export const PROFILE_FRAME_SLICE = 1 / 3;
+export const PROFILE_FRAME_BORDER = 48;
+/** Çerçeveli kartta içerik kenardan bu kadar içeride (piksel): süsler yazılara ve düğmelere binmez */
+export const PROFILE_FRAME_PADDING = 14;
+
+/** Afiş boyutu (piksel, 17:6); istemciler kartın genişliğine göre sığdırır */
+export const BANNER_WIDTH = 1020;
+export const BANNER_HEIGHT = 360;
 
 export interface ChangePasswordRequest {
   currentPassword: string;

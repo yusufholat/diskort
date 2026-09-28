@@ -2,6 +2,9 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   AVATAR_COLORS,
+  COSMETIC_ID,
+  HEX_COLOR,
+  PROFILE_EFFECTS,
   DISPLAY_NAME_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
   RESERVED_USERNAMES,
@@ -58,9 +61,19 @@ const pushTokenSchema = z.object({
 });
 const removePushTokenSchema = z.object({ token: z.string().min(10).max(4096) });
 
+const themeColor = z
+  .string()
+  .transform((v) => v.toLowerCase())
+  .pipe(z.string().regex(HEX_COLOR, 'Geçersiz renk.'));
+
 const updateMeSchema = z.object({
   displayName: displayName.optional(),
   avatarColor: z.enum(AVATAR_COLORS, { message: 'Geçersiz renk.' }).optional(),
+  profileTheme: z.object({ primary: themeColor, accent: themeColor }).nullable().optional(),
+  profileEffect: z.enum(PROFILE_EFFECTS, { message: 'Geçersiz efekt.' }).nullable().optional(),
+  // Katalogda olup olmadığı aşağıda denetlenir
+  avatarDecoration: z.string().regex(COSMETIC_ID, 'Geçersiz dekorasyon.').nullable().optional(),
+  profileFrame: z.string().regex(COSMETIC_ID, 'Geçersiz çerçeve.').nullable().optional(),
 });
 
 /** Basit bellek içi deneme sınırlayıcı (kaba kuvvet girişimlerine karşı). */
@@ -249,6 +262,12 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.patch('/api/me', { preHandler: auth.requireUser }, async (req, reply) => {
     const body = parseBody(updateMeSchema, req.body, reply);
     if (!body) return reply;
+    if (body.avatarDecoration && !ctx.cosmetics.has('decorations', body.avatarDecoration)) {
+      return sendError(reply, 400, 'invalid_body', 'Geçersiz dekorasyon.');
+    }
+    if (body.profileFrame && !ctx.cosmetics.has('frames', body.profileFrame)) {
+      return sendError(reply, 400, 'invalid_body', 'Geçersiz çerçeve.');
+    }
     const user = store.updateUser(req.user.id, body)!;
     gateway.sendUserUpdate(user);
     return user;

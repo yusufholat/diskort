@@ -439,7 +439,17 @@ describe('göç 14: çoklu sunucu', () => {
       // yöneticilerine (ana sunucunun sahibi u1 ve Yönetici rolündeki u5) göre yazar.
       const admins = new Set(['u1', 'u5']);
       expect(db.prepare('SELECT * FROM users ORDER BY id').all()).toEqual(
-        (legacyUsers as { id: string }[]).map((u) => ({ ...u, is_admin: admins.has(u.id) ? 1 : 0 })),
+        (legacyUsers as { id: string }[]).map((u) => ({
+          ...u,
+          is_admin: admins.has(u.id) ? 1 : 0,
+          // göç 21: profil süsleri boş başlar
+          banner_hash: null,
+          theme_primary: null,
+          theme_accent: null,
+          profile_effect: null,
+          avatar_decoration: null,
+          profile_frame: null,
+        })),
       );
 
       // Üyelikler: herkes ana sunucuda; atılan ve yasaklanan eski üye
@@ -567,8 +577,7 @@ describe('göç 20: ses geçmişi ve davet kullanımları', () => {
     const store = new Store(file);
     try {
       const db = store.db;
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 20 });
-      expect(MIGRATIONS).toHaveLength(20);
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
       expect(Object.fromEntries(tables.map((t) => [t, count(db, t)]))).toEqual(counts);
       const indexes = (
         db
@@ -612,7 +621,36 @@ describe('göç 20: ses geçmişi ve davet kullanımları', () => {
     new Store(file).close();
     const store = new Store(file);
     try {
-      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 20 });
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe('göç 21: profil süsleri', () => {
+  it('şema 20 veritabanı 21 ile göçer; kullanıcılar korunur, süsler boş başlar', () => {
+    const file = schema19Database();
+    // Önce 20'ye getirilir (göç 20), sonra sürüm 20'ye çekilip 21 yeniden uygulanmış gibi denenir
+    new Store(file).close();
+    const db = new DatabaseSync(file);
+    const users = db.prepare('SELECT id, username, avatar_hash FROM users ORDER BY id').all();
+    for (const column of ['banner_hash', 'theme_primary', 'theme_accent', 'profile_effect', 'avatar_decoration', 'profile_frame']) {
+      expect(db.prepare(`SELECT COUNT(*) AS n FROM users WHERE ${column} IS NOT NULL`).get()).toEqual({ n: 0 });
+    }
+    db.close();
+    const store = new Store(file);
+    try {
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
+      expect(store.db.prepare('SELECT id, username, avatar_hash FROM users ORDER BY id').all()).toEqual(users);
+      const user = store.listUsers()[0]!;
+      expect(user).toMatchObject({
+        bannerUrl: null,
+        profileTheme: null,
+        profileEffect: null,
+        avatarDecoration: null,
+        profileFrame: null,
+      });
     } finally {
       store.close();
     }

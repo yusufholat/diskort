@@ -82,6 +82,21 @@ export async function pickAvatar(): Promise<LocalFile | null> {
   return withSize({ name: a.fileName ?? baseName(a.uri), type: a.mimeType ?? 'image/jpeg', uri: a.uri });
 }
 
+/**
+ * Profil afişi için galeriden tek resim seçtirir ve 17:6 kırptırır. Küçültmeyi sunucu yapar (1020×360).
+ */
+export async function pickBanner(): Promise<LocalFile | null> {
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsEditing: true,
+    aspect: [17, 6],
+    quality: 0.9,
+  });
+  if (result.canceled || !result.assets[0]) return null;
+  const a = result.assets[0];
+  return withSize({ name: a.fileName ?? baseName(a.uri), type: a.mimeType ?? 'image/jpeg', uri: a.uri });
+}
+
 /** Herhangi bir dosya seçer (sistemin dosya seçicisi). */
 export async function pickDocuments(): Promise<LocalFile[]> {
   const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true });

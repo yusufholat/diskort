@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Image, Text, View } from 'react-native';
-import type { User } from '@diskort/shared';
-import { avatarUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
+import { AVATAR_DECORATION_SCALE, type User } from '@diskort/shared';
+import { avatarUrl, useCosmeticUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
 import { colors, createStyles } from '../theme';
 import { StatusDot } from './StatusDot';
 
@@ -22,9 +22,11 @@ interface Props {
   status?: DisplayStatus;
   /** Çevrimiçi noktasının çevresindeki halka: avatarın durduğu yüzeyin rengi */
   surface?: string;
+  /** Avatar dekorasyonunun kimliği (user.avatarDecoration): avatarın üstüne, yerleşimi değiştirmeden çizilir */
+  decoration?: string | null;
 }
 
-export function Avatar({ user, size = 40, speaking, online, status, surface = colors.side }: Props) {
+export function Avatar({ user, size = 40, speaking, online, status, surface = colors.side, decoration }: Props) {
   const shown: DisplayStatus | undefined = status ?? (online === undefined ? undefined : online ? 'online' : 'offline');
   const border = size >= 32 ? 3 : 2;
   const dot = Math.round(size * 0.36) - 2 * border;
@@ -32,6 +34,8 @@ export function Avatar({ user, size = 40, speaking, online, status, surface = co
   const src = avatarUrl(user);
   // Yüklenemeyen fotoğrafın yerine baş harfler (adres değişince yeniden denenir)
   const [failed, setFailed] = useState<string | null>(null);
+  const decorationSrc = useCosmeticUrl('decorations', decoration);
+  const over = (size * (AVATAR_DECORATION_SCALE - 1)) / 2;
   return (
     <View style={{ width: size, height: size }}>
       <View
@@ -58,6 +62,13 @@ export function Avatar({ user, size = 40, speaking, online, status, surface = co
           <Text style={[styles.text, { fontSize: Math.max(10, size * 0.38) }]}>{initials(user?.displayName ?? '?')}</Text>
         )}
       </View>
+      {decorationSrc ? (
+        <Image
+          source={{ uri: decorationSrc }}
+          style={{ position: 'absolute', left: -over, top: -over, width: size + 2 * over, height: size + 2 * over }}
+          accessibilityIgnoresInvertColors
+        />
+      ) : null}
       {shown !== undefined && (
         <View style={[styles.dot, { padding: border, borderRadius: size, backgroundColor: surface }]}>
           <StatusDot status={shown} size={dot} surface={surface} />

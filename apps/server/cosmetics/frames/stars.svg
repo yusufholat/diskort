@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 240 240" width="240" height="240">
+<defs>
+  <radialGradient id="m" cx="0.3" cy="0.35" r="0.85">
+    <stop offset="0" stop-color="#fffbeb"/><stop offset="0.6" stop-color="#fde68a"/><stop offset="1" stop-color="#fbbf24"/>
+  </radialGradient>
+  <mask id="cut"><rect width="80" height="80" fill="#fff"/><circle cx="29.5" cy="14" r="13.5" fill="#000"/></mask>
+  
+  <filter id="soft" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="3.4"/></filter>
+  
+  <filter id="gl" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="1.8" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  
+  <filter id="sh" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
+    <feGaussianBlur in="SourceAlpha" stdDeviation="1.4"/>
+    <feOffset dy="1.2" result="b"/>
+    <feFlood flood-color="#1e1b4b" flood-opacity="0.45"/>
+    <feComposite in2="b" operator="in"/>
+    <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <g id="k">
+    <circle cx="22" cy="22" r="18" fill="#fde68a" filter="url(#soft)" opacity="0.5"/>
+    <g mask="url(#cut)" filter="url(#sh)"><circle cx="22" cy="22" r="16" fill="url(#m)"/></g>
+    <g filter="url(#gl)">
+      <path d="M52,6.4 C52.92,10.89 54.11,12.08 58.6,13 C54.11,13.92 52.92,15.11 52,19.6 C51.08,15.11 49.89,13.92 45.4,13 C49.89,12.08 51.08,10.89 52,6.4Z" fill="#fff7d1"/>
+      <path d="M13,45.4 C13.92,49.89 15.11,51.08 19.6,52 C15.11,52.92 13.92,54.11 13,58.6 C12.08,54.11 10.89,52.92 6.4,52 C10.89,51.08 12.08,49.89 13,45.4Z" fill="#fff7d1"/>
+      <path d="M40,34.4 C40.5,36.85 41.15,37.5 43.6,38 C41.15,38.5 40.5,39.15 40,41.6 C39.5,39.15 38.85,38.5 36.4,38 C38.85,37.5 39.5,36.85 40,34.4Z" fill="#e0e7ff"/>
+      <circle cx="68" cy="14" r="1.8" fill="#ffffff"/><circle cx="14" cy="68" r="1.8" fill="#ffffff"/>
+    </g>
+  </g>
+</defs>
+<rect x="7" y="7" width="226" height="226" rx="13" fill="none" stroke="#818cf8" stroke-width="9" filter="url(#soft)" opacity="0.7"/>
+<rect x="7" y="7" width="226" height="226" rx="13" fill="none" stroke="#a5b4fc" stroke-width="3.2"/>
+<rect x="7" y="7" width="226" height="226" rx="13" fill="none" stroke="#eef2ff" stroke-width="1.1" opacity="0.8"/>
+<use href="#k" xlink:href="#k"/><use href="#k" xlink:href="#k" transform="translate(240,0) scale(-1,1)"/><use href="#k" xlink:href="#k" transform="translate(0,240) scale(1,-1)"/><use href="#k" xlink:href="#k" transform="translate(240,240) scale(-1,-1)"/>
+</svg>

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 import sharp from 'sharp';
-import { AVATAR_MAX_BYTES, type Guild, type User } from '@diskort/shared';
+import { AVATAR_MAX_BYTES, BANNER_HEIGHT, BANNER_WIDTH, type Guild, type User } from '@diskort/shared';
 import { UploadError } from './attachments.js';
 import type { Store } from './db.js';
 import { inspectImage } from './fileInfo.js';
@@ -24,8 +24,8 @@ sharp.cache(false);
  * Profil fotoğrafları: yüklenen resim (PNG, JPEG, WebP, GIF; içeriğinden anlaşılır) EXIF yönüne göre
  * döndürülür, ortasından kare kırpılır ve 256×256 WebP olarak <dir>/<özet>.webp'ye yazılır. Yeniden
  * kodlandığı için konum (EXIF/GPS) dahil hiçbir üst veri kalmaz; hareketli resimlerin ilk karesi alınır.
- * Eski dosya fotoğraf değişince, kaldırılınca ve hesap silinince silinir. Sunucu simgeleri de aynı
- * yoldan işlenir ve aynı klasörde durur (özet sunucu kimliğini içerir).
+ * Eski dosya fotoğraf değişince, kaldırılınca ve hesap silinince silinir. Sunucu simgeleri ve profil
+ * afişleri (1020×360, ortadan kırpılır) de aynı yoldan işlenir ve aynı klasörde durur (özet sahibini içerir).
  */
 export class AvatarService {
   /** İşlemler sırayla: aynı anda tek resim çözülür (bellek) ve dosya/veritabanı güncellemeleri çakışmaz */
@@ -47,6 +47,24 @@ export class AvatarService {
       const result = this.store.setAvatar(userId, hash);
       return result ? { value: result.user, previous: result.previous } : null;
     }, 'Kullanıcı bulunamadı.');
+  }
+
+  /** Profil afişi: 1020×360'a kırpılır; eskisi silinir. */
+  async uploadBanner(userId: string, body: Readable, declaredSize: number | null): Promise<User> {
+    return this.save(`banner:${userId}`, body, declaredSize, (hash) => {
+      const result = this.store.setBanner(userId, hash);
+      return result ? { value: result.user, previous: result.previous } : null;
+    }, 'Kullanıcı bulunamadı.', BANNER_SIZE);
+  }
+
+  /** Afişi kaldırır; kullanıcı yoksa null. */
+  removeBanner(userId: string): Promise<User | null> {
+    return this.serial(async () => {
+      const result = this.store.setBanner(userId, null);
+      if (!result) return null;
+      if (result.previous) await this.removeFile(result.previous);
+      return result.user;
+    });
   }
 
   /** Sunucu simgesi: fotoğraf gibi işlenir; eskisi silinir. */
@@ -78,6 +96,7 @@ export class AvatarService {
     declaredSize: number | null,
     apply: (hash: string) => { value: T; previous: string | null } | null,
     missing: string,
+    size: Size = AVATAR_BOX,
   ): Promise<T> {
     const input = await readLimited(body, declaredSize, AVATAR_MAX_BYTES);
     const image = inspectImage(input);
@@ -88,7 +107,7 @@ export class AvatarService {
       throw new UploadError(400, 'invalid_image', 'Resmin çözünürlüğü çok yüksek.');
     }
     return this.serial(async () => {
-      const output = await normalize(input);
+      const output = await normalize(input, size);
       const hash = createHash('sha256').update(owner).update('\0').update(output).digest('hex').slice(0, 32);
       await fs.promises.mkdir(this.dir, { recursive: true });
       const temp = path.join(this.dir, `${randomBytes(8).toString('hex')}.tmp`);
@@ -158,8 +177,16 @@ export class AvatarService {
   }
 }
 
-/** Resmi çözer ve 256×256 WebP'ye çevirir; çözülemezse 400. */
-async function normalize(input: Buffer): Promise<Buffer> {
+interface Size {
+  width: number;
+  height: number;
+}
+
+const AVATAR_BOX: Size = { width: AVATAR_SIZE, height: AVATAR_SIZE };
+const BANNER_SIZE: Size = { width: BANNER_WIDTH, height: BANNER_HEIGHT };
+
+/** Resmi çözer ve verilen boyutta (ortadan kırpılmış) WebP'ye çevirir; çözülemezse 400. */
+async function normalize(input: Buffer, size: Size): Promise<Buffer> {
   try {
     const image = sharp(input, {
       autoOrient: true,
@@ -172,7 +199,7 @@ async function normalize(input: Buffer): Promise<Buffer> {
     // İçerik denetimi zaten yapıldı; libvips'in başka bir çözücü seçmediğinden emin olunur
     if (format !== 'png' && format !== 'jpeg' && format !== 'webp' && format !== 'gif') throw new Error(format);
     return await image
-      .resize(AVATAR_SIZE, AVATAR_SIZE, { fit: 'cover', position: 'centre' })
+      .resize(size.width, size.height, { fit: 'cover', position: 'centre' })
       .webp({ quality: 82, effort: 4 })
       .toBuffer();
   } catch {

@@ -230,7 +230,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
             onClick={(e) => showProfile(e.currentTarget)}
             onContextMenu={openAuthorMenu}
           >
-            <Avatar user={author} size={40} />
+            <Avatar user={author} size={40} decoration={author.avatarDecoration} />
           </button>
         ) : (
           <Avatar user={author} size={40} className={isReply ? 'mt-6' : 'mt-0.5'} />

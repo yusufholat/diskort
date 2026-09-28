@@ -96,7 +96,7 @@ const MemberRow = memo(function MemberRow({
         accessibilityLabel={`${user.displayName}${offline ? ', çevrimdışı' : ''}${inVoice ? ', sesli sohbette' : ''}`}
       >
         <View style={offline && styles.offline}>
-          <Avatar user={user} size={38} status={status} surface={colors.main} />
+          <Avatar user={user} size={38} status={status} surface={colors.main} decoration={user.avatarDecoration} />
         </View>
         <View style={[{ flex: 1 }, offline && styles.offline]}>
           <View style={styles.nameRow}>

@@ -15,7 +15,14 @@ import { useEscapeLayer } from '../../lib/escape';
 import { usePresence } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
-import { Avatar } from '../ui/Avatar';
+import {
+  framedPadding,
+  ProfileCardTop,
+  ProfileEffectLayer,
+  ProfileFrameLayer,
+  themedCardStyle,
+  useProfileFramed,
+} from '../profile/ProfileLook';
 import { StatusIcon } from '../ui/StatusIcon';
 
 const MARGIN = 8;
@@ -48,6 +55,7 @@ export function SelfProfilePopout() {
   const user = useSession((s) => s.user);
   const self = useSelfStatus();
   const status = useStatus(user?.id);
+  const framed = useProfileFramed(user?.profileFrame);
   const custom = useCustomStatus(user?.id);
   const openModal = useUi((s) => s.openModal);
   const ref = useRef<HTMLDivElement>(null);
@@ -95,15 +103,16 @@ export function SelfProfilePopout() {
         left: Math.max(MARGIN, shown.left),
         bottom: Math.max(MARGIN, window.innerHeight - shown.top + MARGIN),
         transformOrigin: 'bottom left',
+        ...themedCardStyle(user.profileTheme),
+        ...framedPadding(framed),
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <div className="h-[60px] rounded-t-lg" style={{ background: user.avatarColor }} />
-      <div className="px-4 pb-3">
-        <div className="-mt-10 mb-2 flex items-start gap-2">
-          <div className="w-fit shrink-0 rounded-full border-[6px] border-bg-float">
-            <Avatar user={user} size={80} status={status} ringClassName="bg-bg-float" />
-          </div>
+      <ProfileCardTop
+        user={user}
+        status={status}
+        bannerClassName={framed ? 'rounded-md' : 'rounded-t-lg'}
+        aside={
           <SpeechBubble onClick={editCustom}>
             {custom ? (
               <>
@@ -117,10 +126,9 @@ export function SelfProfilePopout() {
               </span>
             )}
           </SpeechBubble>
-        </div>
-        <div className="truncate text-xl leading-tight font-bold text-text-head">{user.displayName}</div>
-        <div className="truncate text-sm text-text-normal">{user.username}</div>
-
+        }
+      />
+      <div className="px-4 pb-3">
         <div className="mt-3 rounded-lg bg-bg-side p-1.5">
           <Row
             icon={<Pencil size={16} className="ico-scribble" />}
@@ -182,6 +190,8 @@ export function SelfProfilePopout() {
           />
         </div>
       </div>
+      <ProfileEffectLayer effect={user.profileEffect} className="rounded-lg" />
+      <ProfileFrameLayer frame={user.profileFrame} />
     </div>
   );
 }

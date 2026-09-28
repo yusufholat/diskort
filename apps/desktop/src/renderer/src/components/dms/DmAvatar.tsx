@@ -19,6 +19,7 @@ export function DmAvatar({
   size = 32,
   status = false,
   ringClassName,
+  decorated = false,
   className,
 }: {
   dm: DmChannel;
@@ -26,6 +27,8 @@ export function DmAvatar({
   /** Bire bir konuşmada çevrimiçi noktası gösterilsin */
   status?: boolean;
   ringClassName?: string;
+  /** Bire bir konuşmada karşı tarafın avatar dekorasyonu da çizilsin (konuşma listesi) */
+  decorated?: boolean;
   className?: string;
 }) {
   const selfId = useSession((s) => s.user?.id);
@@ -39,6 +42,7 @@ export function DmAvatar({
         size={size}
         status={status && partner && reachable ? shown : undefined}
         ringClassName={ringClassName}
+        decoration={decorated ? partner?.avatarDecoration : undefined}
         className={className}
       />
     );

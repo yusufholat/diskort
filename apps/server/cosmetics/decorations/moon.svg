@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 120 120" width="120" height="120">
+<defs>
+  <linearGradient id="orbit" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#a5b4fc"/><stop offset="1" stop-color="#c4b5fd"/>
+  </linearGradient>
+  <radialGradient id="m" cx="0.3" cy="0.35" r="0.85">
+    <stop offset="0" stop-color="#fffbeb"/><stop offset="0.6" stop-color="#fde68a"/><stop offset="1" stop-color="#fbbf24"/>
+  </radialGradient>
+  <linearGradient id="cloud" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#dbe2ff"/>
+  </linearGradient>
+  <mask id="cut"><rect width="120" height="120" fill="#fff"/><circle cx="105" cy="12.5" r="12.5" fill="#000"/></mask>
+  
+  <filter id="soft" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="3"/></filter>
+  
+  <filter id="gl" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="1.4" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  
+  <filter id="sh" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
+    <feGaussianBlur in="SourceAlpha" stdDeviation="1.2"/>
+    <feOffset dy="1" result="b"/>
+    <feFlood flood-color="#1e1b4b" flood-opacity="0.35"/>
+    <feComposite in2="b" operator="in"/>
+    <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+</defs>
+<circle cx="60" cy="60" r="51.5" fill="none" stroke="url(#orbit)" stroke-width="2.6" opacity="0.95"/>
+<circle cx="60" cy="60" r="51.5" fill="none" stroke="#ffffff" stroke-width="0.8" opacity="0.5"/>
+<circle cx="97" cy="21" r="17" fill="#fde68a" filter="url(#soft)" opacity="0.65"/>
+<g mask="url(#cut)" filter="url(#sh)">
+  <circle cx="97" cy="21" r="15" fill="url(#m)"/>
+  <circle cx="91" cy="26" r="1.8" fill="#fbbf24" opacity="0.45"/><circle cx="95.5" cy="31" r="1.2" fill="#fbbf24" opacity="0.4"/>
+</g>
+<g filter="url(#sh)">
+  <path d="M10,104 C6.5,104 5,101 6.4,98.6 C7.6,96.6 10,96 11.8,96.8 C12.8,93.4 16.4,92 19.4,93.4 C21.2,94.2 22.4,95.8 22.6,97.6 C25.4,97.2 27.6,99.2 27.4,101.6 C27.2,103.2 26,104 24.6,104Z" fill="url(#cloud)"/>
+</g>
+<g filter="url(#gl)">
+  <path d="M19,16.6 C19.76,20.27 20.73,21.24 24.4,22 C20.73,22.76 19.76,23.73 19,27.4 C18.24,23.73 17.27,22.76 13.6,22 C17.27,21.24 18.24,20.27 19,16.6Z" fill="#fff7d1"/>
+  <path d="M106,89.6 C106.62,92.59 107.41,93.38 110.4,94 C107.41,94.62 106.62,95.41 106,98.4 C105.38,95.41 104.59,94.62 101.6,94 C104.59,93.38 105.38,92.59 106,89.6Z" fill="#fff7d1"/>
+  <path d="M8,63.2 C8.39,65.1 8.9,65.61 10.8,66 C8.9,66.39 8.39,66.9 8,68.8 C7.61,66.9 7.1,66.39 5.2,66 C7.1,65.61 7.61,65.1 8,63.2Z" fill="#e0e7ff"/>
+  <path d="M113,55.6 C113.34,57.23 113.77,57.66 115.4,58 C113.77,58.34 113.34,58.77 113,60.4 C112.66,58.77 112.23,58.34 110.6,58 C112.23,57.66 112.66,57.23 113,55.6Z" fill="#e0e7ff"/>
+  <circle cx="30" cy="10" r="1.2" fill="#ffffff"/><circle cx="36" cy="112" r="1.1" fill="#ffffff"/><circle cx="84" cy="112" r="1" fill="#e0e7ff"/>
+</g>
+</svg>
