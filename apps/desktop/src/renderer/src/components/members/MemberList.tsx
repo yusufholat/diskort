@@ -8,7 +8,7 @@ import { currentView } from '../../lib/mainView';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
-import { NameplateCanvas } from '../cosmetics/Cosmetics';
+import { nameplateNameColor, NameplateCanvas } from '../cosmetics/Cosmetics';
 import { Avatar } from '../ui/Avatar';
 import { openProfile } from './ProfilePopover';
 
@@ -66,7 +66,8 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
       className={cn(
         'group flex h-[42px] cursor-pointer items-center gap-3 rounded px-2 hover:bg-bg-hover',
         plate && 'relative isolate overflow-hidden',
-        offline && 'opacity-40 hover:opacity-100',
+        // Plakalı satırda plaka solmaz (açık temada zemine karışmasın), yalnızca avatar ve yazılar
+        offline && !plate && 'opacity-40 hover:opacity-100',
       )}
       onClick={(e) => showProfile(e.currentTarget)}
       onKeyDown={(e) => {
@@ -91,12 +92,15 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
         ringClassName="bg-bg-side"
         ringColor={plate ? '#0a0a0a' : undefined}
         decoration={user.avatarDecoration}
+        className={cn(offline && plate && 'opacity-40 group-hover:opacity-100')}
       />
-      <div className="min-w-0 flex-1 leading-tight">
+      <div
+        className={cn('min-w-0 flex-1 leading-tight', offline && plate && 'opacity-50 group-hover:opacity-100')}
+      >
         <div className="flex items-center gap-1">
           <span
             className={cn('truncate font-medium', plate ? 'nameplate-text' : 'text-text-normal')}
-            style={color ? { color } : undefined}
+            style={color ? { color: plate ? nameplateNameColor(color) : color } : undefined}
           >
             {user.displayName}
           </span>

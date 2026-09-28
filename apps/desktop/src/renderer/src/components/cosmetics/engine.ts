@@ -32,6 +32,8 @@ export interface ViewOptions {
   glScale?: number;
   /** Saniyedeki en fazla kare (isim plakası, seçici kutuları 30); verilmezse 60 */
   fps?: number;
+  /** Durdurulmuş: son kare sabit kalır (ör. sesli sahnede konuşmayan katılımcı) */
+  paused?: boolean;
   /** Kartın ölçüleri (yalnızca kart): boyut değişince yeniden ölçülür */
   measure?: () => CardGeo | null;
 }
@@ -50,6 +52,7 @@ interface View extends LayerView {
   visible: boolean;
   glScale: number;
   fps: number;
+  paused: boolean;
   /** Son çizimin zamanı (ms) */
   last: number;
   /** Sabit kare modunda yeniden çizilmeli */
@@ -338,7 +341,8 @@ function frame(now: number): void {
   const due: View[] = [];
   for (const v of views) {
     if (!v.visible || isCovered(v)) continue;
-    if (reduced) {
+    // Hareketi azalt açıkken ya da durdurulmuş görünümde yalnızca değişince tek kare çizilir
+    if (reduced || v.paused) {
       if (v.dirty) due.push(v);
       v.dirty = false;
       continue;
@@ -406,6 +410,7 @@ export function attachView(canvas: HTMLCanvasElement, options: ViewOptions): Vie
     R: options.R ?? 46,
     glScale: options.glScale ?? 1,
     fps: options.fps ?? MAX_FPS,
+    paused: options.paused ?? false,
     last: 0,
     dirty: true,
     measure: options.measure,
@@ -429,12 +434,15 @@ export function attachView(canvas: HTMLCanvasElement, options: ViewOptions): Vie
       }
       if (next.glScale !== undefined) v.glScale = next.glScale;
       v.fps = next.fps ?? v.fps;
+      v.paused = next.paused ?? v.paused;
       if (next.measure !== undefined) v.measure = next.measure;
       v.dirty = true;
       kick();
     },
     remeasure() {
       if (v.measure) v.geo = v.measure() ?? v.geo;
+      // Katmanların hazır listeleri kartın ölçülerine göre kurulur
+      v.cache.clear();
       v.dirty = true;
       kick();
     },

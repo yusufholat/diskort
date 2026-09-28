@@ -5,7 +5,7 @@ import { useGuild, useMemberColor, useSession } from '@diskort/client-core';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
-import { NameplateCanvas } from '../cosmetics/Cosmetics';
+import { nameplateNameColor, NameplateCanvas } from '../cosmetics/Cosmetics';
 import { Avatar, PresenceAvatar } from '../ui/Avatar';
 
 /** Konuşmanın sağındaki katılımcı listesi (metin kanalındaki üye listesinin karşılığı) */
@@ -38,9 +38,10 @@ const Participant = memo(function Participant({ userId, owner }: { userId: strin
   return (
     <div
       className={cn(
-        'flex h-[42px] items-center gap-3 rounded px-2 hover:bg-bg-hover',
+        'group flex h-[42px] items-center gap-3 rounded px-2 hover:bg-bg-hover',
         plate && 'relative isolate overflow-hidden',
-        (!online || !reachable) && 'opacity-40 hover:opacity-100',
+        // Plakalı satırda plaka solmaz, yalnızca avatar ve yazılar
+        (!online || !reachable) && !plate && 'opacity-40 hover:opacity-100',
       )}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -59,15 +60,18 @@ const Participant = memo(function Participant({ userId, owner }: { userId: strin
           ringClassName="bg-bg-side"
           ringColor={plate ? '#0a0a0a' : undefined}
           decoration={user?.avatarDecoration}
+          className={cn(plate && (!online || !reachable) && 'opacity-40 group-hover:opacity-100')}
         />
       ) : (
         <Avatar user={user} size={32} />
       )}
-      <div className="min-w-0 flex-1 leading-tight">
+      <div
+        className={cn('min-w-0 flex-1 leading-tight', plate && (!online || !reachable) && 'opacity-50 group-hover:opacity-100')}
+      >
         <div className="flex items-center gap-1">
           <span
             className={cn('truncate font-medium', plate ? 'nameplate-text' : 'text-text-normal')}
-            style={color ? { color } : undefined}
+            style={color ? { color: plate ? nameplateNameColor(color) : color } : undefined}
           >
             {user.displayName}
           </span>

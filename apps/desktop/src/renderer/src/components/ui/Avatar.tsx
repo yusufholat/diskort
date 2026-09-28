@@ -24,6 +24,11 @@ interface Props {
   decoration?: string | null;
   /** Hareketli dekorasyon küçük avatarda da oynasın (ayarlardaki seçici) */
   animateDecoration?: boolean;
+  /**
+   * Hareketli dekorasyonu hafif çiz (sesli sahne: düşük kare hızı; yalnızca konuşurken oynar, değilse sabit
+   * kare)
+   */
+  liteDecoration?: boolean;
   className?: string;
 }
 
@@ -37,6 +42,7 @@ export function Avatar({
   ringColor,
   decoration,
   animateDecoration,
+  liteDecoration,
   className,
 }: Props) {
   // 32 piksellik avatarda 10 piksellik nokta, 3 piksellik halka; büyük avatarda (profil) orantılı daha küçük
@@ -82,7 +88,14 @@ export function Avatar({
           style={{ left: -over, top: -over, width: size + 2 * over, height: size + 2 * over }}
         />
       )}
-      {animatedSet && <AnimatedDecoration set={animatedSet} size={size} animate={animateDecoration} />}
+      {animatedSet && (
+        <AnimatedDecoration
+          set={animatedSet}
+          size={size}
+          animate={animateDecoration}
+          lite={liteDecoration ? (speaking ? 'on' : 'paused') : undefined}
+        />
+      )}
       {shown !== undefined && (
         <span
           className={cn('absolute flex items-center justify-center rounded-full', ringClassName)}

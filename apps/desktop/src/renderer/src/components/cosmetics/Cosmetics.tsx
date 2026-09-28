@@ -17,6 +17,7 @@ function CosmeticCanvas({
   set,
   R,
   fps,
+  paused,
   glScale,
   measure,
   className,
@@ -26,6 +27,7 @@ function CosmeticCanvas({
   set: CosmeticSet;
   R?: number;
   fps?: number;
+  paused?: boolean;
   glScale?: number;
   measure?: (canvas: HTMLCanvasElement) => CardGeo | null;
   className?: string;
@@ -43,6 +45,7 @@ function CosmeticCanvas({
       set,
       R,
       fps,
+      paused,
       glScale,
       measure: measureRef.current ? () => measureRef.current?.(canvas) ?? null : undefined,
     });
@@ -54,8 +57,8 @@ function CosmeticCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind]);
   useEffect(() => {
-    handle.current?.update({ set, R, fps, glScale });
-  }, [set, R, fps, glScale]);
+    handle.current?.update({ set, R, fps, paused, glScale });
+  }, [set, R, fps, paused, glScale]);
   return (
     <canvas
       ref={ref}
@@ -106,7 +109,21 @@ export function CardEffectCanvas({ set, className }: { set: CosmeticSet; classNa
  * Hareketli avatar dekorasyonu. Profil boyundaki avatarda (≥ 64 piksel) ya da `animate` ile canlı tuval;
  * küçük avatarda (mesajlar, üye listesi) sabit, yalnızca CSS'ten bir halka: onlarca satır tuval açmasın.
  */
-export function AnimatedDecoration({ set, size, animate }: { set: CosmeticSet; size: number; animate?: boolean }) {
+export function AnimatedDecoration({
+  set,
+  size,
+  animate,
+  lite,
+}: {
+  set: CosmeticSet;
+  size: number;
+  animate?: boolean;
+  /**
+   * Hafif mod (sesli sahne: katılımcı sayısı kadar tuval, LiveKit ile yarışır): 24 kare/sn, düşük gölgelendirici
+   * çözünürlüğü; 'paused' ise son kare sabit kalır (konuşmuyor)
+   */
+  lite?: 'on' | 'paused';
+}) {
   if (!animate && size < ANIMATED_DECORATION_MIN_SIZE) return <StaticDecorationRing set={set} size={size} />;
   // Avatarın dış yarıçapı (profil kartında 80 piksellik avatar + 6 piksellik halka = 46)
   const R = (size / 2) * 1.15;
@@ -117,7 +134,9 @@ export function AnimatedDecoration({ set, size, animate }: { set: CosmeticSet; s
       kind="deco"
       set={set}
       R={R}
-      fps={animate && size < ANIMATED_DECORATION_MIN_SIZE ? 30 : undefined}
+      fps={lite ? 24 : animate && size < ANIMATED_DECORATION_MIN_SIZE ? 30 : undefined}
+      paused={lite === 'paused'}
+      glScale={lite ? 0.75 : undefined}
       className="absolute max-w-none"
       style={{ left: off, top: off, width: box, height: box }}
     />
@@ -149,6 +168,13 @@ function StaticDecorationRing({ set, size }: { set: CosmeticSet; size: number })
 export function NameplateCanvas({ set, className }: { set: CosmeticSet; className?: string }) {
   return <CosmeticCanvas kind="plate" set={set} fps={30} className={cn('absolute inset-0 -z-10 h-full w-full', className)} />;
 }
+
+/**
+ * İsim plakalı satırda rol renginin yazısı: plaka koyu olduğundan renk beyaza doğru açılır (koyu rol renkleri
+ * okunur kalsın, ton korunur). Renk yoksa undefined: .nameplate-text beyazı.
+ */
+export const nameplateNameColor = (color: string | null | undefined): string | undefined =>
+  color ? `color-mix(in srgb, ${color} 60%, #fff)` : undefined;
 
 /** Seçici kutusundaki küçük resim (30 kare/sn yeter) */
 export function SetThumbCanvas({ set, className }: { set: CosmeticSet; className?: string }) {
