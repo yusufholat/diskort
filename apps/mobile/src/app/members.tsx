@@ -54,6 +54,8 @@ export default function MembersScreen() {
           sections={sections}
           keyExtractor={(u) => u.id}
           stickySectionHeadersEnabled={false}
+          // Varsayılan 21 ekranlık pencere yerine 11: pencerenin dışında kurulan satır (isim plakası yüzeyi) azalır
+          windowSize={11}
           contentContainerStyle={{ paddingBottom: space.lg, flexGrow: 1 }}
           renderSectionHeader={({ section }) => (
             <Text style={styles.section}>

@@ -93,6 +93,8 @@ export function ProfileSettings() {
     <View>
       <ProfileHeader
         user={preview}
+        // Ayarlar sayfasında seçicilerle birlikte çizilir: önizleme 30 kare/sn
+        effectFps={30}
         centered
         avatar={(ring) => (
           <PressableScale
@@ -249,7 +251,8 @@ export function ProfileSettings() {
           onPick={look.setDecoration}
           extra={animated ? ANIMATED_DECORATION_OPTIONS : undefined}
         >
-          {(id) => <Avatar user={user} size={42} decoration={id} animateDecoration />}
+          {/* Yalnızca seçili dekorasyon oynar; diğerleri tek sabit kare (sayfada onlarca yüzey olmasın) */}
+          {(id) => <Avatar user={user} size={42} decoration={id} animateDecoration decorationStill={id !== look.decoration} />}
         </CosmeticChoices>
       </Card>
 
@@ -312,7 +315,7 @@ function SetPicker({ applied, onApply }: { applied: CosmeticSet | null; onApply:
             accessibilityLabel={`${COSMETIC_SET_LABELS[set]} setini uygula`}
             accessibilityHint={info.description}
           >
-            <SetThumb set={set} style={styles.setThumb} />
+            <SetThumb set={set} still={!on} style={styles.setThumb} />
             <View style={styles.setLabel}>
               <Text style={styles.setName} numberOfLines={1}>
                 {COSMETIC_SET_LABELS[set]}
@@ -354,7 +357,7 @@ function NameplatePicker({
             accessibilityLabel={o.name}
           >
             <View style={styles.plateRow}>
-              {o.id && <NameplateBackground set={o.id} />}
+              {o.id && <NameplateBackground set={o.id} still={!selected} />}
               <Avatar user={user} size={30} status="online" surface={o.id ? '#0a0a0a' : colors.main} decoration={user.avatarDecoration} />
               <Text
                 style={[styles.plateName, o.id ? [{ color: nameplateNameColor(null) }, NAMEPLATE_TEXT_SHADOW] : null]}

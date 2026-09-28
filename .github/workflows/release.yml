@@ -72,7 +72,8 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      # Masaüstü paketi telefon uygulamasını gerektirmez: Skia'nın yerel kütüphaneleri (~1,4 GB) indirilmesin
+      - run: pnpm install --frozen-lockfile --filter "!@diskort/mobile"
 
       - name: Derle
         run: pnpm --filter @diskort/desktop exec electron-vite build
@@ -133,7 +134,8 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      # Telefon uygulaması hariç (bkz. üstteki iş)
+      - run: pnpm install --frozen-lockfile --filter "!@diskort/mobile"
 
       - name: Derle
         run: pnpm --filter @diskort/desktop exec electron-vite build

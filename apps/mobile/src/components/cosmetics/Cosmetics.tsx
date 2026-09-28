@@ -34,6 +34,8 @@ interface SurfaceProps {
   R?: number;
   fps?: number;
   paused?: boolean;
+  /** Sabit tek kare (seçicide seçili olmayan seçenek) */
+  still?: boolean;
   lite?: boolean;
   /** En fazla piksel yoğunluğu (verilmezse DENSITY_CAP) */
   density?: number;
@@ -67,7 +69,7 @@ class SurfaceBoundary extends Component<{ children: ReactNode }, { failed: boole
   }
 }
 
-function SkiaSurface({ kind, set, R, fps, paused, lite, density, geo, style }: SurfaceProps) {
+function SkiaSurface({ kind, set, R, fps, paused, still, lite, density, geo, style }: SurfaceProps) {
   const { SkiaPictureView } = skia()!;
   const box = useRef<View>(null);
   const picture = useRef<InstanceType<typeof SkiaPictureView>>(null);
@@ -86,6 +88,7 @@ function SkiaSurface({ kind, set, R, fps, paused, lite, density, geo, style }: S
       R,
       fps,
       paused,
+      still,
       lite,
       scale: k,
       focused,
@@ -100,8 +103,8 @@ function SkiaSurface({ kind, set, R, fps, paused, lite, density, geo, style }: S
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind]);
   useEffect(() => {
-    handle.current?.update({ set, R, fps, paused, lite, scale: k, focused, geo, w: size.w, h: size.h });
-  }, [set, R, fps, paused, lite, k, focused, geo, size]);
+    handle.current?.update({ set, R, fps, paused, still, lite, scale: k, focused, geo, w: size.w, h: size.h });
+  }, [set, R, fps, paused, still, lite, k, focused, geo, size]);
 
   return (
     <View
@@ -135,10 +138,10 @@ function SkiaSurface({ kind, set, R, fps, paused, lite, density, geo, style }: S
 }
 
 /** Profil kartının tamamını saran set efekti (kartın en üstünde, dokunmaları engellemez) */
-export function CardEffect({ set, geo }: { set: CosmeticSet; geo: CardGeo | null }) {
+export function CardEffect({ set, geo, fps }: { set: CosmeticSet; geo: CardGeo | null; /** ör. ayarlardaki önizlemede 30 */ fps?: number }) {
   if (!geo) return null;
   // Karadelik kartı en ağır gölgelendirici: telefonda gürültünün bir katmanı atlanır
-  return <CosmeticSurface kind="card" set={set} geo={geo} density={CARD_DENSITY_CAP} lite={set === 'karadelik'} style={StyleSheet.absoluteFill} />;
+  return <CosmeticSurface kind="card" set={set} geo={geo} fps={fps} density={CARD_DENSITY_CAP} lite={set === 'karadelik'} style={StyleSheet.absoluteFill} />;
 }
 
 /**
@@ -150,6 +153,7 @@ export function AnimatedDecoration({
   size,
   animate,
   lite,
+  still,
 }: {
   set: CosmeticSet;
   size: number;
@@ -159,6 +163,8 @@ export function AnimatedDecoration({
    * 'paused' ise son kare sabit kalır (konuşmuyor)
    */
   lite?: 'on' | 'paused';
+  /** Sabit tek kare (seçicide seçili olmayan seçenek) */
+  still?: boolean;
 }) {
   if (!hasSkia() || (!animate && size < ANIMATED_DECORATION_MIN_SIZE)) return <StaticDecorationRing set={set} size={size} />;
   // Avatarın dış yarıçapı (profil kartında 80 piksellik avatar + 6 piksellik halka = 46)
@@ -172,6 +178,7 @@ export function AnimatedDecoration({
       R={R}
       fps={lite ? 24 : animate && size < ANIMATED_DECORATION_MIN_SIZE ? 30 : undefined}
       paused={lite === 'paused'}
+      still={still}
       density={lite ? DENSITY_CAP * 0.75 : undefined}
       style={{ left: off, top: off, width: box, height: box }}
     />
@@ -204,16 +211,16 @@ export function StaticDecorationRing({ set, size }: { set: CosmeticSet; size: nu
  * Üye listesi satırının arkasındaki isim plakası (satırın ilk çocuğu olmalı: yazılar üstünde kalır).
  * Satır başına bir yüzey olduğundan 30 kare/sn: yavaş hareketli zeminde fark edilmez, yük yarıya iner.
  */
-export function NameplateBackground({ set }: { set: CosmeticSet }) {
-  return <CosmeticSurface kind="plate" set={set} fps={30} style={StyleSheet.absoluteFill} />;
+export function NameplateBackground({ set, still }: { set: CosmeticSet; still?: boolean }) {
+  return <CosmeticSurface kind="plate" set={set} fps={30} still={still} style={StyleSheet.absoluteFill} />;
 }
 
 /** Seçici kutusundaki küçük resim (30 kare/sn yeter) */
-export function SetThumb({ set, style }: { set: CosmeticSet; style?: StyleProp<ViewStyle> }) {
+export function SetThumb({ set, still, style }: { set: CosmeticSet; still?: boolean; style?: StyleProp<ViewStyle> }) {
   const info = COSMETIC_SET_INFO[set];
   return (
     <View style={[{ experimental_backgroundImage: `linear-gradient(135deg, ${info.from}, ${info.to})` }, style]}>
-      <CosmeticSurface kind="thumb" set={set} fps={30} style={StyleSheet.absoluteFill} />
+      <CosmeticSurface kind="thumb" set={set} fps={30} still={still} style={StyleSheet.absoluteFill} />
     </View>
   );
 }

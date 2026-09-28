@@ -29,6 +29,8 @@ interface Props {
   animateDecoration?: boolean;
   /** Hareketli dekorasyonun hafif modu (sesli sahne): 'paused' ise son kare sabit kalır */
   decorationLite?: 'on' | 'paused';
+  /** Hareketli dekorasyon tek sabit kare (seçicide seçili olmayan seçenek) */
+  decorationStill?: boolean;
 }
 
 export function Avatar({
@@ -41,6 +43,7 @@ export function Avatar({
   decoration,
   animateDecoration,
   decorationLite,
+  decorationStill,
 }: Props) {
   const shown: DisplayStatus | undefined = status ?? (online === undefined ? undefined : online ? 'online' : 'offline');
   const border = size >= 32 ? 3 : 2;
@@ -80,7 +83,7 @@ export function Avatar({
         )}
       </View>
       {animated ? (
-        <AnimatedDecoration set={animated} size={size} animate={animateDecoration} lite={decorationLite} />
+        <AnimatedDecoration set={animated} size={size} animate={animateDecoration} lite={decorationLite} still={decorationStill} />
       ) : decorationSrc ? (
         <Image
           source={{ uri: decorationSrc }}

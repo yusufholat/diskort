@@ -57,6 +57,7 @@ export function ProfileHeader({
   surface = colors.side,
   children,
   style,
+  effectFps,
 }: {
   user: ProfileUser;
   status?: DisplayStatus;
@@ -75,6 +76,8 @@ export function ProfileHeader({
   surface?: string;
   children?: ReactNode;
   style?: StyleProp<ViewStyle>;
+  /** Hareketli set efektinin en fazla kare hızı (ayarlardaki önizlemede düşük) */
+  effectFps?: number;
 }) {
   const theme = user.profileTheme ?? null;
   const src = bannerUrl(user);
@@ -145,7 +148,7 @@ export function ProfileHeader({
         {children}
       </View>
       {isCosmeticSet(effect) ? (
-        <CardEffect set={effect} geo={geo.value} />
+        <CardEffect set={effect} geo={geo.value} fps={effectFps} />
       ) : (
         <ProfileEffect effect={isLegacyProfileEffect(effect) ? effect : null} />
       )}

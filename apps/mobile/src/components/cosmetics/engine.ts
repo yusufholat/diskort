@@ -11,7 +11,7 @@ import type { CosmeticSet } from '@diskort/shared';
 import type { ShaderViewKind } from '@diskort/client-core';
 import type { SkPicture } from '@shopify/react-native-skia';
 import { compileCosmetic, drawCosmetic, type CosmeticProgram } from './draw';
-import type { CardGeo, LayerView } from './layers';
+import { releaseCache, type CardGeo, type LayerView } from './layers';
 import { skia } from './skia';
 
 /** "Hareketi azalt" açıkken gösterilen anın zamanı (her set için dolu, güzel bir kare) */
@@ -32,6 +32,8 @@ export interface ViewOptions {
   fps?: number;
   /** Durdurulmuş: son kare sabit kalır (ör. sesli sahnede konuşmayan katılımcı) */
   paused?: boolean;
+  /** Sabit: tek kare, her set için dolu bir an (STATIC_T); seçicide seçili olmayan seçenekler */
+  still?: boolean;
   /** Karadelik kartı gibi ağır görünümler: gürültünün katmanı azaltılır */
   lite?: boolean;
   /** Görünümün bulunduğu ekran odakta mı (başka bir ekranın altında kalan çizilmez) */
@@ -54,6 +56,7 @@ interface View extends LayerView {
   scale: number;
   fps: number;
   paused: boolean;
+  still: boolean;
   lite: boolean;
   focused: boolean;
   visible: boolean;
@@ -158,8 +161,8 @@ function frame(now: number): void {
   const due: View[] = [];
   for (const v of views) {
     if (!v.visible || !v.focused || v.broken || v.w < 2 || v.h < 2) continue;
-    // Hareketi azalt açıkken ya da durdurulmuş görünümde yalnızca değişince tek kare çizilir
-    if (reduced || v.paused) {
+    // Hareketi azalt açıkken, durdurulmuş ya da sabit görünümde yalnızca değişince tek kare çizilir
+    if (reduced || v.paused || v.still) {
       if (v.dirty) due.push(v);
       v.dirty = false;
       continue;
@@ -173,7 +176,7 @@ function frame(now: number): void {
   }
   for (const v of due) {
     try {
-      render(v, T);
+      render(v, v.still ? STATIC_T : T);
     } catch (err) {
       v.broken = true;
       console.warn(`[kozmetik:${v.set}] çizilemedi:`, err);
@@ -202,17 +205,18 @@ function measureAll(): void {
     stop();
     return;
   }
-  for (const v of views) {
-    if (!v.measure || !v.focused) continue;
-    v.measure((visible) => {
-      if (visible === v.visible || !views.has(v)) return;
-      v.visible = visible;
-      if (visible) {
-        v.dirty = true;
-        kick();
-      }
-    });
-  }
+  for (const v of views) if (v.focused) measureOne(v);
+}
+
+function measureOne(v: View): void {
+  v.measure?.((visible) => {
+    if (visible === v.visible || !views.has(v)) return;
+    v.visible = visible;
+    if (visible) {
+      v.dirty = true;
+      kick();
+    }
+  });
 }
 
 /** Ölçülen dikdörtgen pencerede görünür mü (biraz pay bırakılır: kaydırırken geç kalmasın) */
@@ -238,8 +242,10 @@ export function attachView(nativeId: number, options: ViewOptions): ViewHandle {
     fps: options.fps ?? MAX_FPS,
     paused: options.paused ?? false,
     lite: options.lite ?? false,
+    still: options.still ?? false,
     focused: options.focused ?? true,
-    visible: true,
+    // Ölçülebilen görünüm ekranda olduğu ölçülene kadar çizilmez (listede pencerenin dışında kurulan satırlar)
+    visible: !options.measure,
     measure: options.measure,
     last: 0,
     dirty: true,
@@ -248,6 +254,10 @@ export function attachView(nativeId: number, options: ViewOptions): ViewHandle {
   };
   views.add(v);
   kick();
+  // İlk ölçüm yerleşimden sonraki karede (ayrıca boyut gelince yeniden), 500 ms'lik aralığı beklemeden
+  requestAnimationFrame(() => {
+    if (views.has(v)) measureOne(v);
+  });
   return {
     update(next) {
       let reset = false;
@@ -259,10 +269,12 @@ export function attachView(nativeId: number, options: ViewOptions): ViewHandle {
         v.R = next.R;
         reset = true;
       }
+      let resized = false;
       if (next.w !== undefined && next.h !== undefined && (next.w !== v.w || next.h !== v.h)) {
         v.w = next.w;
         v.h = next.h;
         reset = true;
+        resized = true;
       }
       if (next.geo && (next.geo.bh !== v.geo.bh || next.geo.ax !== v.geo.ax || next.geo.ay !== v.geo.ay || next.geo.ar !== v.geo.ar)) {
         v.geo = next.geo;
@@ -270,20 +282,23 @@ export function attachView(nativeId: number, options: ViewOptions): ViewHandle {
       }
       // Katmanların hazır listeleri (parçacıklar, dendritler) boyuta ve kartın ölçülerine göre kurulur
       if (reset) {
-        v.cache.clear();
+        releaseCache(v.cache);
         v.broken = false;
       }
       if (next.scale !== undefined) v.scale = next.scale;
       if (next.fps !== undefined) v.fps = next.fps;
       if (next.paused !== undefined) v.paused = next.paused;
+      if (next.still !== undefined) v.still = next.still;
       if (next.lite !== undefined) v.lite = next.lite;
       if (next.focused !== undefined) v.focused = next.focused;
       if (next.measure !== undefined) v.measure = next.measure;
       v.dirty = true;
       kick();
+      if (resized) measureOne(v);
     },
     dispose() {
       views.delete(v);
+      releaseCache(v.cache);
       v.pic?.dispose();
       v.pic = null;
       if (views.size === 0) stop();

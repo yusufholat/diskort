@@ -1072,6 +1072,37 @@ function drawNeon(g: Pen, v: LayerView, t: number): void {
 // ---------- Gölgelendirici derlenemezse: sade 2B zeminler ----------
 
 export function drawFallback(g: Pen, v: LayerView, set: CosmeticSet): void {
+  // Zemin sabit: bir kez resme kaydedilir, her karede yalnızca o resim çizilir
+  const pic = cached(v, `fb|${set}`, () => {
+    const S = g.S;
+    const rec = S.PictureRecorder();
+    const canvas = rec.beginRecording(S.XYWHRect(0, 0, v.w, v.h));
+    paintFallback(new Pen(S, canvas), v, set);
+    const p = rec.finishRecordingAsPicture();
+    rec.dispose();
+    return p;
+  });
+  g.c.drawPicture(pic);
+}
+
+/**
+ * Görünümün hazır listelerini bırakır (boyut ya da set değişti, görünüm kalktı): içlerindeki Skia nesneleri
+ * (resimler, degradeler, dendrit yolları) hemen serbest kalır, çöp toplayıcıyı beklemez.
+ */
+export function releaseCache(cache: Map<string, unknown>): void {
+  for (const value of cache.values()) {
+    if (!value || typeof value !== 'object') continue;
+    if ('dispose' in value && typeof value.dispose === 'function') (value as { dispose(): void }).dispose();
+    else if ('arms' in value) {
+      const D = value as Dendrites;
+      for (const a of D.arms) a.path?.dispose();
+      D.full?.forEach((p) => p.dispose());
+    }
+  }
+  cache.clear();
+}
+
+function paintFallback(g: Pen, v: LayerView, set: CosmeticSet): void {
   const S = g.S;
   const W = v.w;
   const H = v.h;
