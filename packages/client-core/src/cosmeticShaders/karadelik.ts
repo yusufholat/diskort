@@ -65,6 +65,6 @@ vec4 effect(vec2 p){
     float voidA=smoothstep(RS*6.,RS*1.3,r);
     col*=mix(.2,1.,hole)*mix(.5,1.,bm);
     alpha=max(max(voidA*.95,bm*.7)*hole,shadow);
-  } else if(m<2.5){alpha=1.;col*=plateFade(p);}
+  } else if(m<2.5){alpha=1.;col=plateGrade(col,p);}
   return vec4(col,alpha);
 }`;

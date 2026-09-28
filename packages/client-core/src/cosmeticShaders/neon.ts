@@ -66,7 +66,7 @@ vec4 effect(vec2 p){
     c+=(tc*exp(-dt/5.)*.55+mix(tc,vec3(1.),.6)*exp(-sq(dt/.9)))*xs*fl;
     c+=signs(vec2(p.x/u_res.x*.8+.2,p.y/u_res.y*.3),t)*.55;
     c+=rain(p,t)*.6;
-    return vec4(c*plateFade(p),1.);
+    return vec4(plateGrade(c,p),1.);
   }
   float bm=bannerMask(p); float hole=avatarHole(p);
   vec3 c=signs(vec2(p.x/u_res.x,p.y/u_a.x*.9+.04),t)*bm*.9;

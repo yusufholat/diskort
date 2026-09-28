@@ -45,7 +45,20 @@ vec3 starLayer(vec2 p,float cell,float dens,float t,float seed){
 vec3 stars(vec2 p,float t){return starLayer(p,11.,.3,t,0.)+starLayer(p,23.,.4,t,7.3)*1.25;}
 float avatarHole(vec2 p){return smoothstep(u_a.w+1.,u_a.w+7.,length(p-u_a.yz));}
 float bannerMask(vec2 p){return smoothstep(u_a.x+1.,u_a.x-26.,p.y);}
-float plateFade(vec2 p){return mix(.33,1.,smoothstep(u_res.x*.06,u_res.x*.62,p.x));}
+// İsim plakası: avatar, ad ve durumun durduğu sol taraf sakin ve koyu, sahne sağda. Solda ~%30'a kadar
+// parlaklığın beşte biri kalır, ~%74'te tam olur. Üstüne 2B katmanlardan sonra setin koyu renginde soldan
+// sağa açılan bir perde çizilir (masaüstünde layers.ts drawPlateScrim; telefon da aynısını yapmalı)
+float plateFade(vec2 p){return mix(.2,1.,smoothstep(u_res.x*.26,u_res.x*.74,p.x));}
+// Plakanın ortak renk ayarı: biraz doygunluk düşer, en parlak kanal yumuşakça sınırlanır (sınır sağa doğru
+// artar: en parlak noktalar yazıların altında değil en sağda), sonra soldan sağa açılan solma
+vec3 plateGrade(vec3 c,vec2 p){
+  float x=p.x/u_res.x;
+  c=mix(vec3(luma(c)),c,.84);
+  float cap=mix(.32,.9,smoothstep(.3,.95,x));
+  float m=max(max(c.r,c.g),c.b);
+  c*=cap*(1.-exp(-m/cap))/max(m,1e-4);
+  return c*plateFade(p);
+}
 `;
 
 /** Giriş noktası: GL koordinatını css pikseline çevirir, dekorasyonun kare kenarını gizler, bantlaşmayı kırar */

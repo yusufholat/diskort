@@ -36,14 +36,14 @@ vec4 effect(vec2 p){
   if(m<.5||m>1.5){
     vec2 uv=p/u_res; float asp=u_res.x/u_res.y;
     vec2 q=m>1.5?vec2(p.x/150.,uv.y*.95):vec2(uv.x*asp,uv.y);
-    vec3 a=aurora(q,t);
+    vec3 a=aurora(q,t)*(m>1.5?1.6:1.); // plakada solma ve parlaklık sınırından sonra da perde seçilsin
     vec3 sky=mix(vec3(.01,.02,.06),vec3(.02,.1,.13),uv.y);
     vec3 c=sky+st*(1.-clamp(luma(a)*2.,0.,1.))+a;
     if(m<.5){
       float ridge=.8+.09*fbm3(vec2(p.x/38.,1.))-.05*abs(sin(p.x/47.));
       float mtn=smoothstep(ridge,ridge+.008,uv.y);
       c=mix(c,vec3(.005,.012,.02)+a*.06,mtn);
-    } else c*=plateFade(p);
+    } else c=plateGrade(c,p);
     return vec4(c,1.);
   }
   float bh=u_a.x; float bm=bannerMask(p); float hole=avatarHole(p);

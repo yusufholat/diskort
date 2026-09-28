@@ -166,15 +166,51 @@ function StaticDecorationRing({ set, size }: { set: CosmeticSet; size: number })
  * Satır başına bir tuval olduğundan 30 kare/sn: yavaş hareketli zeminde fark edilmez, yük yarıya iner.
  */
 export function NameplateCanvas({ set, className }: { set: CosmeticSet; className?: string }) {
-  return <CosmeticCanvas kind="plate" set={set} fps={30} className={cn('absolute inset-0 -z-10 h-full w-full', className)} />;
+  // Üstte ve altta 1 piksel boşluk, yuvarlak köşe: art arda plakalı satırlar birbirine yapışmaz
+  return (
+    <CosmeticCanvas
+      kind="plate"
+      set={set}
+      fps={30}
+      className={cn('absolute top-px left-0 -z-10 h-[calc(100%-2px)] w-full rounded-md', className)}
+    />
+  );
+}
+
+/** Plakanın solu (yazıların altı) çok koyu: bu bağıl parlaklıktaki renk orada ~4.5:1 karşıtlıkla okunur */
+const NAMEPLATE_MIN_LUMINANCE = 0.22;
+
+/** #rgb / #rrggbb rengin sRGB kanalları (0-1); çözülemezse null */
+function parseHex(hex: string): [number, number, number] | null {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const s = m[1]!.length === 3 ? [...m[1]!].map((c) => c + c).join('') : m[1]!;
+  return [0, 2, 4].map((i) => parseInt(s.slice(i, i + 2), 16) / 255) as [number, number, number];
+}
+
+/** sRGB rengin beyazla `white` oranında karışımının bağıl parlaklığı (WCAG) */
+function mixedLuminance(rgb: [number, number, number], white: number): number {
+  const lin = (c: number): number => {
+    c += (1 - c) * white;
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
 }
 
 /**
- * İsim plakalı satırda rol renginin yazısı: plaka koyu olduğundan renk beyaza doğru açılır (koyu rol renkleri
- * okunur kalsın, ton korunur). Renk yoksa undefined: .nameplate-text beyazı.
+ * İsim plakalı satırda rol renginin yazısı. Plakanın solu koyu olduğundan açık ve orta renkler olduğu gibi
+ * kalır; koyu rol renkleri (lacivert, bordo) okunur olana kadar beyaza doğru açılır, ton korunur. Renk yoksa
+ * undefined: .nameplate-text beyazı.
  */
-export const nameplateNameColor = (color: string | null | undefined): string | undefined =>
-  color ? `color-mix(in srgb, ${color} 60%, #fff)` : undefined;
+export function nameplateNameColor(color: string | null | undefined): string | undefined {
+  if (!color) return undefined;
+  const rgb = parseHex(color);
+  if (!rgb) return `color-mix(in srgb, ${color} 75%, #fff)`;
+  // En az beyaz payı (%5 adımlarla, en çok %70): ton olabildiğince korunur
+  let white = 0;
+  while (white < 70 && mixedLuminance(rgb, white / 100) < NAMEPLATE_MIN_LUMINANCE) white += 5;
+  return white === 0 ? color : `color-mix(in srgb, ${color} ${100 - white}%, #fff)`;
+}
 
 /** Seçici kutusundaki küçük resim (30 kare/sn yeter) */
 export function SetThumbCanvas({ set, className }: { set: CosmeticSet; className?: string }) {
