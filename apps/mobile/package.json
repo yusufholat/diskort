@@ -8,7 +8,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "prebuild": "expo prebuild --platform android --clean",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^15.0.2",

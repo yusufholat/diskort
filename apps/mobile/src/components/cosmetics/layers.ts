@@ -43,6 +43,8 @@ const STYLE_FILL = 0;
 const STYLE_STROKE = 1;
 const CAP_ROUND = 1;
 const TILE_CLAMP = 0;
+/** Çift-tek doldurma: iç içe iki çemberde içteki delik olur */
+const FILL_EVEN_ODD = 1;
 
 const TAU = Math.PI * 2;
 const DEG = 180 / Math.PI;
@@ -127,11 +129,11 @@ function resources(S: Skia): Res {
   const w = 0.13;
   const sparkle = svg(`M-1 0 L0 ${-w} L1 0 L0 ${w} Z M0 -0.8 L${w} 0 L0 0.8 L${-w} 0 Z`);
   const curve = (pts: Pt[]): SkPath => {
-    const p = S.Path.Make();
+    const p = S.PathBuilder.Make();
     p.moveTo(pts[0]![0], pts[0]![1]);
     if (pts.length === 4) p.cubicTo(pts[1]![0], pts[1]![1], pts[2]![0], pts[2]![1], pts[3]![0], pts[3]![1]);
     else p.quadTo(pts[1]![0], pts[1]![1], pts[2]![0], pts[2]![1]);
-    return p;
+    return p.detach();
   };
   const paint = S.Paint();
   paint.setAntiAlias(true);
@@ -508,6 +510,8 @@ function drawPetals(g: Pen, v: LayerView, t: number, list: Petal[], dimBody: boo
     const size = (5 + 6 * o.z) * o.sc;
     let al = 0.4 + 0.55 * o.z;
     if (dimBody && Y > v.geo.bh) al *= 0.75;
+    if (v.kind === 'plate') al *= PLATE.sakura.petalAlpha(X, W);
+    if (al < 0.01) continue;
     petal3D(
       g,
       X,
@@ -801,7 +805,7 @@ function drawForest(g: Pen, v: LayerView, t: number): void {
       const b = blinkOf(o, t);
       let dim = 1;
       if (v.kind === 'card' && y > v.geo.bh) dim = 0.7;
-      if (plate) dim = mix(PL.dim.from, 1, smooth(W * PL.dim.x0, W * PL.dim.x1, x));
+      if (plate) dim = PL.dim(x, W);
       const sz = (plate ? PL.size : 1) * (8 + 22 * o.z * o.z) * (0.6 + 0.4 * b);
       if (o.z > 0.85 && !plate) g.glow('ffb', x, y, sz * 2.2, b * 0.5 * dim);
       g.glow('ff', x, y, sz, b * (0.35 + 0.65 * o.z) * dim);
@@ -937,23 +941,23 @@ function drawIce(g: Pen, v: LayerView, t: number): void {
   const D = cached(v, 'ice', () => buildDendrites(iceRoots(v), 7, v.kind === 'deco' ? 1 : 2));
   // Yollar bir kez kurulur: her kol ayrı yol, ayrıca derinlik başına hepsi bir arada
   if (!D.full) {
-    const full = [S.Path.Make(), S.Path.Make(), S.Path.Make()];
+    const full = [S.PathBuilder.Make(), S.PathBuilder.Make(), S.PathBuilder.Make()];
+    const p = S.PathBuilder.Make();
     for (const a of D.arms) {
-      const p = S.Path.Make();
       p.moveTo(a.pts[0]![0], a.pts[0]![1]);
       full[a.d]!.moveTo(a.pts[0]![0], a.pts[0]![1]);
       for (let i = 1; i < a.pts.length; i++) {
         p.lineTo(a.pts[i]![0], a.pts[i]![1]);
         full[a.d]!.lineTo(a.pts[i]![0], a.pts[i]![1]);
       }
-      a.path = p;
+      a.path = p.detach();
     }
-    D.full = full;
+    D.full = full.map((b) => b.detach());
   }
   const G = iceG(t) * D.maxB;
   if (G <= 0) return;
   g.add = true;
-  const dim = v.kind === 'card' ? 0.75 : 1;
+  const dim = v.kind === 'card' ? 0.75 : v.kind === 'plate' ? PLATE.buz.dim : 1;
   const stroke = (p: SkPath, d: number): void => {
     g.c.drawPath(p, g.stroke('#8fdcff', ICE_A1[d]! * dim, ICE_W1[d]!));
     g.c.drawPath(p, g.stroke('#effbff', ICE_A2[d]! * dim, ICE_W2[d]!));
@@ -1084,10 +1088,7 @@ export function drawFallback(g: Pen, v: LayerView, set: CosmeticSet): void {
       g.c.drawRect(rect, g.shade(radial(L.cx, L.cy, L.RS * 6, [[0, 'rgba(3,2,8,.95)'], [1, 'rgba(3,2,8,0)']]), 1));
     }
     const ro = v.kind === 'deco' ? W * 0.49 : L.RS * 3.6;
-    const ring = S.Path.Make();
-    ring.addCircle(0, 0, ro);
-    ring.addCircle(0, 0, L.RS * 1.1);
-    ring.setFillType(1); // çift-tek: iç çember delik
+    const ring = S.PathBuilder.Make().addCircle(0, 0, ro).addCircle(0, 0, L.RS * 1.1).setFillType(FILL_EVEN_ODD).detach();
     g.c.save();
     g.c.translate(L.cx, L.cy);
     g.c.rotate(0.12 * DEG, 0, 0);
@@ -1106,22 +1107,49 @@ export function drawFallback(g: Pen, v: LayerView, set: CosmeticSet): void {
     g.circle(L.cx, L.cy, L.RS * 1.03, g.stroke('rgba(255,225,180,.9)', 1, 1.2));
     return;
   }
-  if (v.kind === 'thumb' || v.kind === 'plate') {
+  if (v.kind === 'plate') {
+    // plaka: koyu zemin, setin rengi ve parıltısı yalnızca sağda (solu drawPlateScrim de koyulaştırır)
+    g.c.drawRect(rect, g.fill(P[0], 1));
+    g.c.drawRect(rect, g.shade(linear(W * 0.3, 0, W, 0, [[0, 'rgba(0,0,0,0)'], [1, P[1]]]), 0.75));
+    g.c.drawRect(rect, g.shade(radial(W * 0.9, H * 0.35, W * 0.35, [[0, P[2]], [1, 'rgba(0,0,0,0)']]), 1));
+  } else if (v.kind === 'thumb') {
     g.c.drawRect(rect, g.shade(linear(0, 0, W * 0.3, H, [[0, P[0]], [1, P[1]]]), 1));
     g.c.drawRect(rect, g.shade(radial(W * 0.78, H * 0.25, Math.max(W, H) * 0.6, [[0, P[2]], [1, 'rgba(0,0,0,0)']]), 1));
-    if (v.kind === 'plate') g.c.drawRect(rect, g.shade(linear(0, 0, W, 0, [[0, 'rgba(0,0,0,.6)'], [0.6, 'rgba(0,0,0,0)']]), 1));
   } else if (v.kind === 'card') {
     const bh = v.geo.bh;
     g.c.drawRect(S.XYWHRect(0, 0, W, bh * 1.6), g.shade(radial(W * 0.75, bh * 0.3, bh * 1.6, [[0, P[2]], [1, 'rgba(0,0,0,0)']]), 1));
   } else {
     const R = v.R;
-    const ring = S.Path.Make();
-    ring.addCircle(W / 2, H / 2, W / 2);
-    ring.addCircle(W / 2, H / 2, R);
-    ring.setFillType(1);
+    const ring = S.PathBuilder.Make().addCircle(W / 2, H / 2, W / 2).addCircle(W / 2, H / 2, R).setFillType(FILL_EVEN_ODD).detach();
     const inner = R / (W / 2);
     g.c.drawPath(ring, g.shade(radial(W / 2, H / 2, W / 2, [[0, 'rgba(0,0,0,0)'], [inner * 0.95, P[2]], [1, 'rgba(0,0,0,0)']]), 1));
   }
+}
+
+/**
+ * İsim plakasının son adımı (gölgelendirici ya da yedek zemin ve 2B katman çizildikten sonra): soldan sağa
+ * açılan, setin koyu renginde bir perde (masaüstündeki drawPlateScrim). Avatar, ad ve durumun altı her karede
+ * sakin ve koyu kalır; sahne sağda tam görünür.
+ */
+export function drawPlateScrim(g: Pen, v: LayerView, set: CosmeticSet): void {
+  const S = g.S;
+  // Degrade bir kez kurulur (0–1 birim uzayda, çizerken satırın boyuna ölçeklenir)
+  const shader = cached(v, `scrim|${set}`, () => {
+    const n = parseInt(COSMETIC_SET_INFO[set].fallback[0].slice(1), 16);
+    const rgb = `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+    return S.Shader.MakeLinearGradient(
+      S.Point(0, 0),
+      S.Point(1, 0),
+      PLATE.scrim.map(([, a]) => S.Color(`rgba(${rgb},${a})`)),
+      PLATE.scrim.map(([at]) => at),
+      TILE_CLAMP,
+    );
+  });
+  g.add = false;
+  g.c.save();
+  g.c.scale(v.w, v.h);
+  g.c.drawRect(S.XYWHRect(0, 0, 1, 1), g.shade(shader, 1));
+  g.c.restore();
 }
 
 /** Setlerin 2B katmanları (gölgelendiricinin üstüne; gölgelendirici yokken yedek zeminin üstüne) */

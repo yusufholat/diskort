@@ -5,7 +5,7 @@
 import type { CosmeticSet } from '@diskort/shared';
 import { SHADER_MODE } from '@diskort/client-core';
 import type { Skia as SkiaApi, SkCanvas, SkRuntimeEffect } from '@shopify/react-native-skia';
-import { drawFallback, LAYERS, Pen, type LayerView } from './layers';
+import { drawFallback, drawPlateScrim, LAYERS, Pen, type LayerView } from './layers';
 import { cosmeticSksl, packUniforms, uniformLayout, type CosmeticUniforms } from './sksl';
 
 type Skia = typeof SkiaApi;
@@ -43,4 +43,6 @@ export function drawCosmetic(S: Skia, canvas: SkCanvas, v: LayerView & { set: Co
     shader.dispose();
   } else drawFallback(g, v, v.set);
   LAYERS[v.set](g, v, t);
+  // isim plakası: yazıların altı koyu ve sakin (masaüstündeki gibi en son)
+  if (v.kind === 'plate') drawPlateScrim(g, v, v.set);
 }

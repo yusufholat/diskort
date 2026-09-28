@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { PixelRatio, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useIsFocused } from 'expo-router';
 import type { CosmeticSet } from '@diskort/shared';
@@ -43,7 +43,28 @@ interface SurfaceProps {
 
 /** Skia yoksa hiçbir şey; varsa motora bağlı yüzey */
 function CosmeticSurface(props: SurfaceProps) {
-  return hasSkia() ? <SkiaSurface {...props} /> : null;
+  return hasSkia() ? (
+    <SurfaceBoundary>
+      <SkiaSurface {...props} />
+    </SurfaceBoundary>
+  ) : null;
+}
+
+/** Süs çizilemezse (beklenmeyen bir hata) yalnızca süs kaybolur: kart, satır ve ekran çalışmaya devam eder */
+class SurfaceBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(err: unknown): void {
+    console.warn('[kozmetik] yüzey çizilemedi:', err);
+  }
+
+  render(): ReactNode {
+    return this.state.failed ? null : this.props.children;
+  }
 }
 
 function SkiaSurface({ kind, set, R, fps, paused, lite, density, geo, style }: SurfaceProps) {
