@@ -29,6 +29,8 @@ class GatewayClient {
   private listeners = new Set<Listener>();
   /** Bu cihaz boşta mı (masaüstünde girdi yok / ekran kilitli, telefonda uygulama arka planda) */
   private idle = false;
+  /** Bu cihazın izlediği yayınlar (yayıncı kimlikleri, sıralı) */
+  private watching: string[] = [];
 
   /**
    * Bağlantıyı başlatır. Zaten bağlıysa ya da bağlanıyorsa bir şey yapmaz: telefonda Android ekranı
@@ -45,6 +47,7 @@ class GatewayClient {
 
   disconnect(): void {
     this.active = false;
+    this.watching = [];
     this.clearTimers();
     this.ws?.close(1000, 'logout');
     this.ws = null;
@@ -83,6 +86,18 @@ class GatewayClient {
     if (this.idle === idle) return;
     this.idle = idle;
     this.send({ t: 'IDLE_SET', d: { idle } });
+  }
+
+  /**
+   * İzlenen yayınların tam listesini bildirir (yayıncı kimlikleri; boş liste izlemeyi bırakır). Yalnızca
+   * değişince gönderilir; yeniden bağlanınca liste boş değilse yeniden bildirilir (sunucu kopan bağlantının
+   * izlemesini siler). Seste olmayan cihaz hiç çağırmaz, böylece sesteki cihazın listesini ezmez.
+   */
+  setWatching(userIds: readonly string[]): void {
+    const next = [...new Set(userIds)].sort();
+    if (next.length === this.watching.length && next.every((id, i) => id === this.watching[i])) return;
+    this.watching = next;
+    this.send({ t: 'STREAM_WATCH_SET', d: { userIds: next } });
   }
 
   send(msg: GatewayClientMessage): void {
@@ -146,6 +161,7 @@ class GatewayClient {
         useSession.getState().setUser(msg.d.user);
         // Yeni oturum etkin sayılır; boştaysak hemen bildir
         if (this.idle) this.send({ t: 'IDLE_SET', d: { idle: true } });
+        if (this.watching.length > 0) this.send({ t: 'STREAM_WATCH_SET', d: { userIds: this.watching } });
         break;
       case 'HEARTBEAT_ACK':
         this.awaitingAck = false;

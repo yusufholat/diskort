@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { StreamSourceKind, VoiceState } from '@diskort/shared';
+import { STREAM_WATCH_MAX, type StreamSourceKind, type VoiceState } from '@diskort/shared';
 
 type SelfFlags = { selfMute: boolean; selfDeaf: boolean };
 export type StreamSource = { name: string; kind: StreamSourceKind };
@@ -32,6 +32,13 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
   private readonly sessions = new Map<string, string>();
   /** Yayıncının bildirdiği kaynak (yayın webhook'u gelmeden önce de bildirilebilir) */
   private readonly streamSources = new Map<string, StreamSource>();
+  /**
+   * İzleyicinin bildirdiği izlenen yayınlar (istek). Durumdaki `watching` bundan türetilir: yalnızca aynı ses
+   * kanalında o an yayında olanlar. İstek katılma webhook'undan önce de gelebilir (başka kanaldan geçip hemen
+   * yayını açınca); bu yüzden kişi sesten çıkınca silinmez. Silindiği anlar: istemci boş liste bildirince,
+   * bildiren gateway bağlantısı kapanınca, yayıncı yayını bitirince ya da sesten çıkınca.
+   */
+  private readonly watchRequests = new Map<string, Set<string>>();
   /** Kanala katılırken kişinin o kanalın sunucusundaki susturma/sağırlaştırma durumu */
   private flagsOf: ((userId: string, channelId: string) => ServerFlags) | null = null;
 
@@ -60,8 +67,11 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
     }
     const state: VoiceState = { userId, channelId, ...flags, ...server, streaming, joinedAt: Date.now() };
     if (streaming) Object.assign(state, this.streamFields(userId));
+    const watching = this.watchingOf(state);
+    if (watching.length > 0) state.watching = watching;
     this.states.set(userId, state);
     this.emit('update', state);
+    this.refreshViewersOf(userId);
     return state;
   }
 
@@ -120,6 +130,73 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
     }
     this.states.set(userId, next);
     this.emit('update', next);
+    // Yayın bittiyse izleme istekleri de biter (yeniden başlarsa izleyenler yeniden bildirir)
+    this.refreshViewersOf(userId, !streaming);
+  }
+
+  /**
+   * İzleyicinin izlediği yayınları bildirir (tam liste; boş liste izlemeyi bırakır). Kendisi, yinelenenler ve
+   * metin olmayanlar atılır. Görünen liste yalnızca aynı ses kanalında yayında olanları içerir; seste
+   * değilse kimsenin izleyicisi olarak görünmez.
+   */
+  setWatching(userId: string, userIds: readonly unknown[]): void {
+    const wanted = new Set<string>();
+    for (const id of userIds) {
+      if (wanted.size >= STREAM_WATCH_MAX) break;
+      if (typeof id === 'string' && id.length > 0 && id.length <= 64 && id !== userId) wanted.add(id);
+    }
+    if (wanted.size > 0) this.watchRequests.set(userId, wanted);
+    else this.watchRequests.delete(userId);
+    this.refreshWatching(userId);
+  }
+
+  /** Yayıncıyı izleyenler (durumlardaki `watching` listelerinden) */
+  viewersOf(streamerId: string): string[] {
+    return this.list()
+      .filter((v) => v.watching?.includes(streamerId))
+      .map((v) => v.userId);
+  }
+
+  /** İzleme isteğinden görünen liste: aynı kanalda, yayında olanlar (sıralı) */
+  private watchingOf(state: VoiceState): string[] {
+    const wanted = this.watchRequests.get(state.userId);
+    if (!wanted) return [];
+    const out: string[] = [];
+    for (const id of wanted) {
+      const target = this.states.get(id);
+      if (target && target.channelId === state.channelId && target.streaming) out.push(id);
+    }
+    return out.sort();
+  }
+
+  private refreshWatching(userId: string): void {
+    const prev = this.states.get(userId);
+    if (!prev) return;
+    const watching = this.watchingOf(prev);
+    const before = prev.watching ?? [];
+    if (watching.length === before.length && watching.every((id, i) => id === before[i])) return;
+    const next: VoiceState = { ...prev };
+    if (watching.length > 0) next.watching = watching;
+    else delete next.watching;
+    this.states.set(userId, next);
+    this.emit('update', next);
+  }
+
+  /**
+   * Yayıncının durumu değişti (katıldı, ayrıldı, yayın başladı/bitti): onu izlemek isteyenlerin listesini
+   * günceller. `forget`: yayın bitti ya da yayıncı ayrıldı; istekler de silinir.
+   */
+  private refreshViewersOf(streamerId: string, forget = false): void {
+    const viewers: string[] = [];
+    for (const [viewerId, wanted] of this.watchRequests) {
+      if (!wanted.has(streamerId)) continue;
+      viewers.push(viewerId);
+      if (forget) {
+        wanted.delete(streamerId);
+        if (wanted.size === 0) this.watchRequests.delete(viewerId);
+      }
+    }
+    for (const viewerId of viewers) this.refreshWatching(viewerId);
   }
 
   /**
@@ -180,6 +257,8 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
     this.sessions.delete(userId);
     this.streamSources.delete(userId);
     this.emit('delete', { userId, channelId: prev.channelId });
+    // Ayrılan yayıncının izleyicileri düşer; ayrılanın kendi isteği kalır (bkz. watchRequests)
+    this.refreshViewersOf(userId, true);
   }
 }
 

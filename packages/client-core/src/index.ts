@@ -41,6 +41,7 @@ export {
   streamPreviewUrl,
   uploadStreamPreview,
 } from './streamPreview';
+export { streamViewers, useStreamViewers } from './streamViewers';
 export {
   isStreamMuted,
   setStreamVolume,
