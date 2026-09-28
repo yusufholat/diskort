@@ -6,7 +6,8 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { flushAcks, gateway, reportClientError, useSession } from '@diskort/client-core';
+import { flushAcks, gateway, reportClientError, useMessages, useSession } from '@diskort/client-core';
+import { hasDraftText } from '../components/Composer';
 import { DialogHost } from '../components/Dialog';
 import { GuildMenuHost } from '../components/GuildMenu';
 import { StatusPickerHost } from '../components/StatusPicker';
@@ -25,6 +26,20 @@ void SplashScreen.preventAutoHideAsync();
 
 /** İşlenmiş bildirim dokunuşları (bileşenden uzun yaşar: Android ekranı yeniden kurunca da hatırlanır) */
 const handledNotificationResponses = new Set<string>();
+
+/** Yarım kalan taslak ya da gönderilmeyi bekleyen dosya var mı: varsa arka plandaki OTA yeniden başlatması ertelenir */
+function hasPendingComposerState(): boolean {
+  if (hasDraftText()) return true;
+  return Object.values(useMessages.getState().pendingFiles).some((files) => files.length > 0);
+}
+
+/** İndirilmiş arayüz güncellemesini uygular; sesli sohbet sürüyorsa ya da yarım kalan taslak/dosya varsa bekler. */
+function tryApplyOta(): void {
+  if (useAppUpdate.getState().ota.kind !== 'downloaded') return;
+  if (useVoice.getState().status !== 'idle') return;
+  if (hasPendingComposerState()) return;
+  void applyOta();
+}
 
 /**
  * Ekran çizilirken bir hata olursa (ör. bir ekranın kodunda hata) uygulama kapanmak yerine bunu gösterir
@@ -84,12 +99,22 @@ export default function RootLayout() {
     void cleanupDownloads();
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
-      // Arka planda inen arayüz güncellemesi uygulamaya dönünce uygulanır (sesli sohbet bölünmez)
-      if (useAppUpdate.getState().ota.kind === 'downloaded' && useVoice.getState().status === 'idle') void applyOta();
+      // Arka planda inen arayüz güncellemesi uygulamaya dönünce uygulanır (sesli sohbet bölünmez,
+      // yarım kalan taslak/dosya da bölünmez: bkz. tryApplyOta aşağıda)
+      if (useAppUpdate.getState().ota.kind === 'downloaded' && useVoice.getState().status === 'idle') tryApplyOta();
       else void checkForUpdate();
     });
     return () => sub.remove();
   }, []);
+
+  // İndirilmiş güncelleme taslak/dosya yüzünden ertelendiyse (yukarıdaki AppState dinleyicisi yalnızca
+  // öne gelince tetiklenir; taslak uygulama önde kalırken de boşalabilir) birkaç saniyede bir denenir.
+  // Güncelleme asla düşürülmez, yalnızca boşalana kadar geciktirilir.
+  useEffect(() => {
+    if (!ready) return;
+    const timer = setInterval(() => tryApplyOta(), 4000);
+    return () => clearInterval(timer);
+  }, [ready]);
 
   useEffect(() => {
     if (ready || launchUpdating) void SplashScreen.hideAsync();

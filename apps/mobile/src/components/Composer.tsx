@@ -37,6 +37,15 @@ import { ReplyBar } from './ReplyBar';
 /** Kanal değiştirince yarım kalan mesaj kaybolmasın */
 const drafts = new Map<string, string>();
 
+/**
+ * Herhangi bir kanalda gönderilmeyi bekleyen taslak metin var mı. Arka planda inen arayüz
+ * güncellemesi (bkz. app/_layout.tsx) bunlar boşalana kadar ertelenir; aksi hâlde yeniden başlatma
+ * taslağı siler.
+ */
+export function hasDraftText(): boolean {
+  return drafts.size > 0;
+}
+
 const MENTION_QUERY = /(?:^|[\s(])@([a-z0-9_.]{0,32})$/i;
 const NO_FILES: LocalFile[] = [];
 
