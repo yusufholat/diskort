@@ -13,7 +13,6 @@ import { registerAdminStatsRoutes } from './routes/adminStats.js';
 import { registerTelemetryRoutes } from './routes/telemetry.js';
 import { AttachmentService } from './attachments.js';
 import { AvatarService } from './avatars.js';
-import { CosmeticsService } from './cosmetics.js';
 import { AuthService } from './auth.js';
 import { ClientVersionPolicy } from './clientVersion.js';
 import type { Config } from './config.js';
@@ -72,8 +71,6 @@ export interface BuildOptions {
   attachmentsDir?: string;
   /** Profil fotoğraflarının klasörü (varsayılan: <DATA_DIR>/avatars) */
   avatarsDir?: string;
-  /** Kozmetik tasarımlarının klasörü (varsayılan: sunucu paketinin cosmetics/ klasörü) */
-  cosmeticsDir?: string;
   /** Testler için sahte GIPHY */
   gifFetch?: typeof fetch;
   /** Geri bildirim ekran görüntülerinin klasörü (varsayılan: <DATA_DIR>/feedback) */
@@ -152,7 +149,6 @@ export async function buildApp(
     app.log,
   );
   const avatars = new AvatarService(store, opts.avatarsDir ?? path.join(config.dataDir, 'avatars'), app.log);
-  const cosmetics = new CosmeticsService(opts.cosmeticsDir, app.log);
   const embedMedia = new EmbedMediaService(
     opts.embedMediaDir ?? path.join(config.dataDir, 'embed-media'),
     config.jwtSecret,
@@ -184,7 +180,6 @@ export async function buildApp(
     push,
     attachments,
     avatars,
-    cosmetics,
     gifs,
     linkPreviews,
     embedMedia,
@@ -339,7 +334,7 @@ export async function buildApp(
   registerAttachmentRoutes(app, ctx);
   registerEmbedRoutes(app, ctx);
   registerAvatarRoutes(app, ctx);
-  registerCosmeticRoutes(app, ctx);
+  registerCosmeticRoutes(app);
   registerGifRoutes(app, ctx);
   registerUpdateRoutes(app, ctx);
   registerClientErrorRoutes(app, ctx);

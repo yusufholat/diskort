@@ -3,7 +3,6 @@ import { z } from 'zod';
 import {
   animatedDecorationSet,
   AVATAR_COLORS,
-  COSMETIC_ID,
   HEX_COLOR,
   NAMEPLATES,
   PROFILE_EFFECTS,
@@ -11,6 +10,7 @@ import {
   PASSWORD_MIN_LENGTH,
   RESERVED_USERNAMES,
   USERNAME_PATTERN,
+  type AnimatedDecoration,
   type AuthResponse,
 } from '@diskort/shared';
 import { removeAccount } from '../accounts.js';
@@ -70,19 +70,36 @@ const themeColor = z
   .transform((v) => v.toLowerCase())
   .pipe(z.string().regex(HEX_COLOR, 'Geçersiz renk.'));
 
+/** Kaldırılan parçacıklı profil efektleri (0.8.x istemcilerin seçicisinde hâlâ var) */
+const RETIRED_PROFILE_EFFECTS = ['snow', 'sparkles', 'petals'] as const;
+/** Kaldırılan kozmetik kataloğunun kimlik biçimi (dekorasyon ve çerçeve; iki nokta yok, anim: ile çakışmaz) */
+const RETIRED_COSMETIC_ID = /^[a-z0-9-]{1,32}$/;
+
 const updateMeSchema = z.object({
   displayName: displayName.optional(),
   avatarColor: z.enum(AVATAR_COLORS, { message: 'Geçersiz renk.' }).optional(),
   profileTheme: z.object({ primary: themeColor, accent: themeColor }).nullable().optional(),
-  profileEffect: z.enum(PROFILE_EFFECTS, { message: 'Geçersiz efekt.' }).nullable().optional(),
-  // Katalog dekorasyonunun katalogda olup olmadığı aşağıda denetlenir; hareketli dekorasyon (anim:<set>)
-  // istemcide çizilir, listede olması yeter
-  avatarDecoration: z
-    .string()
-    .refine((v) => COSMETIC_ID.test(v) || animatedDecorationSet(v) !== null, 'Geçersiz dekorasyon.')
+  // Kaldırılan eski kozmetikler (parçacıklı efektler, katalog dekorasyonları, profil çerçeveleri): 0.8.x
+  // istemciler hâlâ gönderebilir. İstek reddedilmez (aynı istekteki diğer alanlar kaydedilir), eski değer
+  // hiç yazılmaz: alan gönderilmemiş sayılır, kullanıcının bugünkü seçimi olduğu gibi kalır.
+  profileEffect: z
+    .union([z.enum(PROFILE_EFFECTS), z.enum(RETIRED_PROFILE_EFFECTS).transform(() => undefined)], {
+      message: 'Geçersiz efekt.',
+    })
     .nullable()
     .optional(),
-  profileFrame: z.string().regex(COSMETIC_ID, 'Geçersiz çerçeve.').nullable().optional(),
+  avatarDecoration: z
+    .string()
+    .refine((v) => RETIRED_COSMETIC_ID.test(v) || animatedDecorationSet(v) !== null, 'Geçersiz dekorasyon.')
+    .transform((v) => (animatedDecorationSet(v) ? (v as AnimatedDecoration) : undefined))
+    .nullable()
+    .optional(),
+  profileFrame: z
+    .string()
+    .regex(RETIRED_COSMETIC_ID, 'Geçersiz çerçeve.')
+    .nullable()
+    .optional()
+    .transform(() => undefined),
   nameplate: z.enum(NAMEPLATES, { message: 'Geçersiz isim plakası.' }).nullable().optional(),
 });
 
@@ -285,16 +302,6 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.patch('/api/me', { preHandler: auth.requireUser }, async (req, reply) => {
     const body = parseBody(updateMeSchema, req.body, reply);
     if (!body) return reply;
-    if (
-      body.avatarDecoration &&
-      animatedDecorationSet(body.avatarDecoration) === null &&
-      !ctx.cosmetics.has('decorations', body.avatarDecoration)
-    ) {
-      return sendError(reply, 400, 'invalid_body', 'Geçersiz dekorasyon.');
-    }
-    if (body.profileFrame && !ctx.cosmetics.has('frames', body.profileFrame)) {
-      return sendError(reply, 400, 'invalid_body', 'Geçersiz çerçeve.');
-    }
     const user = store.updateUser(req.user.id, body)!;
     gateway.sendUserUpdate(user);
     return user;

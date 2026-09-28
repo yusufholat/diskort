@@ -7,7 +7,6 @@ import type { AuthLog } from './authLog.js';
 import type { DailyCounters } from './counters.js';
 import type { AttachmentService } from './attachments.js';
 import type { AvatarService } from './avatars.js';
-import type { CosmeticsService } from './cosmetics.js';
 import type { AuthService } from './auth.js';
 import type { ClientVersionPolicy } from './clientVersion.js';
 import type { Config } from './config.js';
@@ -39,8 +38,6 @@ export interface AppContext {
   push: PushService;
   attachments: AttachmentService;
   avatars: AvatarService;
-  /** Avatar dekorasyonları ve profil çerçeveleri */
-  cosmetics: CosmeticsService;
   /** GIF araması (GIPHY) ve mesajlara GIF gömme */
   gifs: GifService;
   /** Bağlantı önizlemeleri; LINK_PREVIEWS=0 ise null */

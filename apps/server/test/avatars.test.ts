@@ -436,18 +436,18 @@ describe('profil afişi, tema ve efekt', () => {
     const patch = (payload: unknown) =>
       app.inject({ method: 'PATCH', url: '/api/me', headers: auth(member.token), payload: payload as object });
 
-    const ok = await patch({ profileTheme: { primary: '#FF0000', accent: '#00ff00' }, profileEffect: 'snow' });
+    const ok = await patch({ profileTheme: { primary: '#FF0000', accent: '#00ff00' }, profileEffect: 'kuzey' });
     expect(ok.statusCode).toBe(200);
-    expect(ok.json()).toMatchObject({ profileTheme: { primary: '#ff0000', accent: '#00ff00' }, profileEffect: 'snow' });
+    expect(ok.json()).toMatchObject({ profileTheme: { primary: '#ff0000', accent: '#00ff00' }, animatedEffect: 'kuzey' });
 
     expect((await patch({ profileTheme: { primary: 'red', accent: '#00ff00' } })).statusCode).toBe(400);
     expect((await patch({ profileTheme: { primary: '#ff0000' } })).statusCode).toBe(400);
     expect((await patch({ profileEffect: 'fireworks' })).statusCode).toBe(400);
 
     // Yalnızca verilen alan değişir
-    expect((await patch({ displayName: 'Üye' })).json()).toMatchObject({ profileEffect: 'snow' });
+    expect((await patch({ displayName: 'Üye' })).json()).toMatchObject({ animatedEffect: 'kuzey' });
     const cleared = (await patch({ profileTheme: null, profileEffect: null })).json() as User;
     expect(cleared.profileTheme).toBeNull();
-    expect(cleared.profileEffect).toBeNull();
+    expect(cleared.animatedEffect).toBeNull();
   });
 });

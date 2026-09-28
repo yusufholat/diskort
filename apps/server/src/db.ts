@@ -36,9 +36,10 @@ import {
   type SearchHas,
 } from '@diskort/shared';
 import {
+  animatedDecorationSet,
   AVATAR_COLORS,
+  type AnimatedDecoration,
   isCosmeticSet,
-  isLegacyProfileEffect,
   type Nameplate,
   type ProfileEffect,
   type ProfileTheme,
@@ -409,7 +410,8 @@ export const MIGRATIONS: string[] = [
   // 21: profil süsleri. banner_hash: afiş (<DATA_DIR>/avatars/<özet>.webp, profil fotoğraflarıyla aynı
   // klasör); theme_primary/theme_accent: profil kartının iki rengi ("#rrggbb", ikisi birlikte ya da hiç);
   // profile_effect: kartta oynayan efektin kimliği (bkz. PROFILE_EFFECTS); avatar_decoration ve
-  // profile_frame: kozmetik kataloğundaki dekorasyon ve çerçeve (bkz. cosmetics.ts). Hepsi boş başlar.
+  // profile_frame: kozmetik kataloğundaki dekorasyon ve çerçeve (katalog göç 23 ile kaldırıldı). Hepsi boş
+  // başlar.
   `
   ALTER TABLE users ADD COLUMN banner_hash TEXT;
   ALTER TABLE users ADD COLUMN theme_primary TEXT;
@@ -422,6 +424,15 @@ export const MIGRATIONS: string[] = [
   // Set efektleri profile_effect'e, hareketli dekorasyonlar (anim:<set>) avatar_decoration'a yazılır.
   `
   ALTER TABLE users ADD COLUMN nameplate TEXT;
+  `,
+  // 23: eski kozmetikler kaldırıldı (parçacıklı efektler, katalog dekorasyonları, profil çerçeveleri).
+  // Saklanan eski değerler silinir; yalnızca set efektleri ve hareketli dekorasyonlar (anim:<set>) kalır.
+  // profile_frame sütunu artık okunmaz ve yazılmaz, boş durur (eski sürüme dönülürse diye silinmez).
+  // Tekrar çalışsa da zararsızdır.
+  `
+  UPDATE users SET profile_effect = NULL WHERE profile_effect IN ('snow', 'sparkles', 'petals');
+  UPDATE users SET avatar_decoration = NULL WHERE avatar_decoration NOT LIKE 'anim:%';
+  UPDATE users SET profile_frame = NULL WHERE profile_frame IS NOT NULL;
   `,
 ];
 
@@ -452,7 +463,6 @@ interface UserRow {
   theme_accent: string | null;
   profile_effect: string | null;
   avatar_decoration: string | null;
-  profile_frame: string | null;
   nameplate: string | null;
 }
 
@@ -769,11 +779,13 @@ export class Store {
       avatarUrl: r.avatar_hash ? `/api/avatars/${r.id}/${r.avatar_hash}.webp` : null,
       bannerUrl: r.banner_hash ? `/api/banners/${r.id}/${r.banner_hash}.webp` : null,
       profileTheme: r.theme_primary && r.theme_accent ? { primary: r.theme_primary, accent: r.theme_accent } : null,
-      // Tek efekt saklanır; eski istemciler yeni kimlikte çöktüğünden set efekti ayrı alanda gider
-      profileEffect: isLegacyProfileEffect(r.profile_effect) ? r.profile_effect : null,
+      // Eski kozmetiklerin alanları (0.8.x istemciler okur) her zaman null: eski istemciler tanımadıkları
+      // efekt kimliğinde çöker, set efekti bu yüzden ayrı alanda gider. Alanlar gönderilmeseydi de aynı
+      // sonuç çıkardı (USER_UPDATE profili bütünüyle değiştirir); açıkça null olmaları daha güvenli.
+      profileEffect: null,
       animatedEffect: isCosmeticSet(r.profile_effect) ? r.profile_effect : null,
-      avatarDecoration: r.avatar_decoration,
-      profileFrame: r.profile_frame,
+      avatarDecoration: animatedDecorationSet(r.avatar_decoration) ? r.avatar_decoration : null,
+      profileFrame: null,
       nameplate: isCosmeticSet(r.nameplate) ? r.nameplate : null,
       isAdmin: r.is_admin === 1,
     };
@@ -947,8 +959,7 @@ export class Store {
       avatarColor?: string;
       profileTheme?: ProfileTheme | null;
       profileEffect?: ProfileEffect | null;
-      avatarDecoration?: string | null;
-      profileFrame?: string | null;
+      avatarDecoration?: AnimatedDecoration | null;
       nameplate?: Nameplate | null;
     },
   ): User | null {
@@ -966,7 +977,6 @@ export class Store {
     if (patch.avatarDecoration !== undefined) {
       this.run('UPDATE users SET avatar_decoration = ? WHERE id = ?', patch.avatarDecoration, id);
     }
-    if (patch.profileFrame !== undefined) this.run('UPDATE users SET profile_frame = ? WHERE id = ?', patch.profileFrame, id);
     if (patch.nameplate !== undefined) this.run('UPDATE users SET nameplate = ? WHERE id = ?', patch.nameplate, id);
     return this.getUser(id);
   }

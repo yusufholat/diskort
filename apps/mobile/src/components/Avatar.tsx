@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Image, Text, View } from 'react-native';
-import { animatedDecorationSet, AVATAR_DECORATION_SCALE, type User } from '@diskort/shared';
-import { avatarUrl, useCosmeticUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
+import { animatedDecorationSet, type User } from '@diskort/shared';
+import { avatarUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
 import { colors, createStyles } from '../theme';
 import { AnimatedDecoration } from './cosmetics/Cosmetics';
 import { StatusDot } from './StatusDot';
@@ -52,10 +52,8 @@ export function Avatar({
   const src = avatarUrl(user);
   // Yüklenemeyen fotoğrafın yerine baş harfler (adres değişince yeniden denenir)
   const [failed, setFailed] = useState<string | null>(null);
-  // Hareketli dekorasyon (anim:<set>) kodla çizilir; diğerleri sunucunun kataloğundaki resim
+  // Hareketli dekorasyon (anim:<set>) kodla çizilir; tanınmayan kimlik çizilmez
   const animated = animatedDecorationSet(decoration);
-  const decorationSrc = useCosmeticUrl('decorations', animated ? null : decoration);
-  const over = (size * (AVATAR_DECORATION_SCALE - 1)) / 2;
   return (
     <View style={{ width: size, height: size }}>
       <View
@@ -82,15 +80,9 @@ export function Avatar({
           <Text style={[styles.text, { fontSize: Math.max(10, size * 0.38) }]}>{initials(user?.displayName ?? '?')}</Text>
         )}
       </View>
-      {animated ? (
+      {animated && (
         <AnimatedDecoration set={animated} size={size} animate={animateDecoration} lite={decorationLite} still={decorationStill} />
-      ) : decorationSrc ? (
-        <Image
-          source={{ uri: decorationSrc }}
-          style={{ position: 'absolute', left: -over, top: -over, width: size + 2 * over, height: size + 2 * over }}
-          accessibilityIgnoresInvertColors
-        />
-      ) : null}
+      )}
       {shown !== undefined && (
         <View style={[styles.dot, { padding: border, borderRadius: size, backgroundColor: surface }]}>
           <StatusDot status={shown} size={dot} surface={surface} />

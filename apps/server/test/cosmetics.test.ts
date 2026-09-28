@@ -1,14 +1,9 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import type { CosmeticsCatalog, User } from '@diskort/shared';
+import type { User } from '@diskort/shared';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import type { AppContext } from '../src/context.js';
-import { CosmeticsService, defaultCosmeticsDir } from '../src/cosmetics.js';
 
 const config = loadConfig({ NODE_ENV: 'test', DATA_DIR: '.' });
 
@@ -36,104 +31,51 @@ async function member(): Promise<{ token: string; user: User }> {
   ).json() as { token: string; user: User };
 }
 
-describe('kozmetik kataloğu', () => {
-  it('depodaki tasarımlar katalogda: kimlik, Türkçe ad, sürümlü adres', async () => {
+describe('eski kozmetik kataloğu (0.8.x istemciler için)', () => {
+  it('katalog boş ama iki anahtar da var; eski resim adresleri 404', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/cosmetics' });
     expect(res.statusCode).toBe(200);
-    const catalog = res.json() as CosmeticsCatalog;
-    expect(catalog.decorations.length).toBeGreaterThanOrEqual(8);
-    expect(catalog.frames.length).toBeGreaterThanOrEqual(4);
-    for (const item of [...catalog.decorations, ...catalog.frames]) {
-      expect(item.id).toMatch(/^[a-z0-9-]+$/);
-      expect(item.name.length).toBeGreaterThan(0);
-      expect(item.url).toMatch(/^\/api\/cosmetics\/(decorations|frames)\/[a-z0-9-]+\.webp\?v=[0-9a-f]{12}$/);
-    }
-    // Her SVG manifestte (unutulan dosya kalmasın)
-    const dir = defaultCosmeticsDir();
-    for (const kind of ['decorations', 'frames'] as const) {
-      const files = fs.readdirSync(path.join(dir, kind)).map((f) => f.replace(/\.svg$/, '')).sort();
-      expect(catalog[kind].map((i) => i.id).sort()).toEqual(files);
+    expect(res.json()).toEqual({ decorations: [], frames: [] });
+
+    for (const url of [
+      '/api/cosmetics/decorations/crown.webp?v=0123456789ab',
+      '/api/cosmetics/frames/gold.webp?v=0123456789ab',
+      '/api/cosmetics/decorations/yok.png',
+      '/api/cosmetics/decorations/..%2Fmanifest.webp',
+    ]) {
+      const image = await app.inject({ method: 'GET', url });
+      expect(image.statusCode, url).toBe(404);
+      expect(image.json()).toMatchObject({ error: 'not_found' });
     }
   });
 
-  it('resimler saydam, kare WebP (dekorasyon 240, çerçeve 480); önbellek başlıkları ve 304', async () => {
-    const catalog = (await app.inject({ method: 'GET', url: '/api/cosmetics' })).json() as CosmeticsCatalog;
-    for (const [items, size] of [
-      [catalog.decorations, 240],
-      [catalog.frames, 480],
-    ] as const) {
-      for (const item of items) {
-        const res = await app.inject({ method: 'GET', url: item.url });
-        expect(res.statusCode, item.url).toBe(200);
-        expect(res.headers['content-type']).toBe('image/webp');
-        expect(res.headers['cache-control']).toContain('immutable');
-        const meta = await sharp(res.rawPayload).metadata();
-        expect(meta).toMatchObject({ format: 'webp', width: size, height: size, hasAlpha: true });
-        // Orta saydam: avatarın ve kartın içeriği görünür
-        const { data, info } = await sharp(res.rawPayload).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-        const center = ((info.height / 2) * info.width + info.width / 2) * 4 + 3;
-        expect(data[center], item.id).toBe(0);
-
-        const again = await app.inject({ method: 'GET', url: item.url, headers: { 'if-none-match': res.headers.etag as string } });
-        expect(again.statusCode).toBe(304);
-      }
-    }
+  it('kullanıcıda eski kozmetik alanları her zaman null gider', async () => {
+    const { user } = await member();
+    expect(user).toMatchObject({ profileEffect: null, profileFrame: null, animatedEffect: null, avatarDecoration: null });
   });
+});
 
-  it('bilinmeyen tasarım 404', async () => {
-    expect((await app.inject({ method: 'GET', url: '/api/cosmetics/decorations/yok.webp' })).statusCode).toBe(404);
-    expect((await app.inject({ method: 'GET', url: '/api/cosmetics/frames/neon.png' })).statusCode).toBe(404);
-    expect((await app.inject({ method: 'GET', url: '/api/cosmetics/decorations/..%2Fmanifest.webp' })).statusCode).toBe(404);
-  });
-
-  it('klasör yoksa katalog boş, sunucu açılır', () => {
-    const empty = new CosmeticsService(path.join(os.tmpdir(), 'diskort-kozmetik-yok'));
-    expect(empty.catalog).toEqual({ decorations: [], frames: [] });
-    expect(empty.has('decorations', 'neon')).toBe(false);
-  });
-
-  it('dekorasyon ve çerçeve kaydedilir; katalogda olmayan reddedilir, null kaldırır', async () => {
-    const { token } = await member();
-    const patch = (payload: object) => app.inject({ method: 'PATCH', url: '/api/me', headers: auth(token), payload });
-    const [decoration] = ctx.cosmetics.catalog.decorations;
-    const [frame] = ctx.cosmetics.catalog.frames;
-
-    const ok = await patch({ avatarDecoration: decoration!.id, profileFrame: frame!.id });
-    expect(ok.statusCode).toBe(200);
-    expect(ok.json()).toMatchObject({ avatarDecoration: decoration!.id, profileFrame: frame!.id });
-
-    expect((await patch({ avatarDecoration: 'olmayan' })).statusCode).toBe(400);
-    expect((await patch({ profileFrame: 'olmayan' })).statusCode).toBe(400);
-    expect((await patch({ avatarDecoration: 'Büyük Harf' })).statusCode).toBe(400);
-    // Dekorasyon kimliği çerçeve olarak geçmez (yalnızca ikisinde de varsa)
-    const onlyDecoration = ctx.cosmetics.catalog.decorations.find((d) => !ctx.cosmetics.has('frames', d.id));
-    if (onlyDecoration) expect((await patch({ profileFrame: onlyDecoration.id })).statusCode).toBe(400);
-
-    // Yalnızca verilen alan değişir
-    expect((await patch({ displayName: 'Üye' })).json()).toMatchObject({ avatarDecoration: decoration!.id });
-    const cleared = (await patch({ avatarDecoration: null, profileFrame: null })).json() as User;
-    expect(cleared.avatarDecoration).toBeNull();
-    expect(cleared.profileFrame).toBeNull();
-  });
-
-  it('hareketli set parçaları: efekt ayrı alanda döner, anim: dekorasyonu ve isim plakası kaydedilir', async () => {
+describe('hareketli setler ve eski değerler (PATCH /api/me)', () => {
+  it('hareketli set parçaları: efekt animatedEffect\'te döner, anim: dekorasyonu ve isim plakası kaydedilir', async () => {
     const { token } = await member();
     const patch = (payload: object) => app.inject({ method: 'PATCH', url: '/api/me', headers: auth(token), payload });
 
     const ok = await patch({ profileEffect: 'karadelik', avatarDecoration: 'anim:sakura', nameplate: 'neon' });
     expect(ok.statusCode).toBe(200);
-    // Eski istemciler tanımadıkları efekt kimliğinde çöker: set efekti profileEffect'te hiç gönderilmez
+    // Eski istemciler tanımadıkları efekt kimliğinde çöker: profileEffect hep null
     expect(ok.json()).toMatchObject({
       profileEffect: null,
       animatedEffect: 'karadelik',
       avatarDecoration: 'anim:sakura',
       nameplate: 'neon',
+      profileFrame: null,
     });
-    // Eski efekt seçilince set efektinin yerine geçer (tek efekt)
-    expect((await patch({ profileEffect: 'snow' })).json()).toMatchObject({ profileEffect: 'snow', animatedEffect: null });
 
+    expect((await patch({ profileEffect: 'fireworks' })).statusCode).toBe(400);
     expect((await patch({ avatarDecoration: 'anim:olmayan' })).statusCode).toBe(400);
     expect((await patch({ avatarDecoration: 'anim:' })).statusCode).toBe(400);
+    expect((await patch({ avatarDecoration: 'Büyük Harf' })).statusCode).toBe(400);
+    expect((await patch({ profileFrame: 'Büyük Harf' })).statusCode).toBe(400);
     expect((await patch({ nameplate: 'olmayan' })).statusCode).toBe(400);
     expect((await patch({ nameplate: 'anim:neon' })).statusCode).toBe(400);
 
@@ -141,5 +83,31 @@ describe('kozmetik kataloğu', () => {
     expect((await patch({ displayName: 'Üye' })).json()).toMatchObject({ nameplate: 'neon', avatarDecoration: 'anim:sakura' });
     const cleared = (await patch({ nameplate: null, avatarDecoration: null, profileEffect: null })).json() as User;
     expect(cleared).toMatchObject({ nameplate: null, avatarDecoration: null, profileEffect: null, animatedEffect: null });
+  });
+
+  it('eski istemcilerin gönderdiği kaldırılmış değerler kabul edilir ama yazılmaz; diğer alanlar kaydedilir', async () => {
+    const { token, user } = await member();
+    const patch = (payload: object) => app.inject({ method: 'PATCH', url: '/api/me', headers: auth(token), payload });
+    await patch({ profileEffect: 'buz', avatarDecoration: 'anim:neon' });
+
+    for (const effect of ['snow', 'sparkles', 'petals']) {
+      const res = await patch({ profileEffect: effect, avatarDecoration: 'crown', profileFrame: 'gold', displayName: `Üye ${effect}` });
+      expect(res.statusCode, effect).toBe(200);
+      // Bugünkü seçim olduğu gibi kalır
+      expect(res.json()).toMatchObject({
+        displayName: `Üye ${effect}`,
+        profileEffect: null,
+        animatedEffect: 'buz',
+        avatarDecoration: 'anim:neon',
+        profileFrame: null,
+      });
+    }
+    // Çerçeveyi kaldırmak (null) da zararsız
+    expect((await patch({ profileFrame: null })).statusCode).toBe(200);
+
+    const row = ctx.store.db
+      .prepare('SELECT profile_effect, avatar_decoration, profile_frame FROM users WHERE id = ?')
+      .get(user.id);
+    expect(row).toEqual({ profile_effect: 'buz', avatar_decoration: 'anim:neon', profile_frame: null });
   });
 });

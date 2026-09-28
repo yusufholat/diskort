@@ -666,18 +666,17 @@ describe('göç 22: isim plakası', () => {
     for (let v = 19; v < 21; v++) db.exec(MIGRATIONS[v]!);
     db.exec('PRAGMA user_version = 21');
     const [first, second] = db.prepare('SELECT id FROM users ORDER BY id').all() as { id: string }[];
-    db.prepare(`UPDATE users SET profile_effect = 'snow', avatar_decoration = 'halka' WHERE id = ?`).run(first!.id);
+    db.prepare(`UPDATE users SET profile_effect = 'kuzey' WHERE id = ?`).run(first!.id);
     db.prepare(`UPDATE users SET profile_effect = 'karadelik', avatar_decoration = 'anim:buz' WHERE id = ?`).run(second!.id);
     db.close();
 
     const store = new Store(file);
     try {
       expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
-      expect(MIGRATIONS.length).toBe(22);
       expect(store.getUser(first!.id)).toMatchObject({
-        profileEffect: 'snow',
-        animatedEffect: null,
-        avatarDecoration: 'halka',
+        profileEffect: null,
+        animatedEffect: 'kuzey',
+        avatarDecoration: null,
         nameplate: null,
       });
       // Eski istemciler tanımadıkları efekt kimliğinde çöker: set efekti profileEffect'te hiç görünmez
@@ -691,6 +690,60 @@ describe('göç 22: isim plakası', () => {
       store.db.prepare(`UPDATE users SET nameplate = 'eski-set' WHERE id = ?`).run(first!.id);
       expect(store.getUser(first!.id)!.nameplate).toBeNull();
       expect(store.updateUser(first!.id, { nameplate: 'sakura' })!.nameplate).toBe('sakura');
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe('göç 23: eski kozmetikler kaldırıldı', () => {
+  it('şema 22 veritabanında eski efekt, katalog dekorasyonu ve çerçeve silinir; set parçaları korunur', () => {
+    const file = schema19Database();
+    const db = new DatabaseSync(file);
+    for (let v = 19; v < 22; v++) db.exec(MIGRATIONS[v]!);
+    db.exec('PRAGMA user_version = 22');
+    const ids = (db.prepare('SELECT id FROM users ORDER BY id').all() as { id: string }[]).map((u) => u.id);
+    expect(ids.length).toBeGreaterThanOrEqual(4);
+    const [first, second, third, fourth] = ids as [string, string, string, string];
+    const set = db.prepare(
+      'UPDATE users SET profile_effect = ?, avatar_decoration = ?, profile_frame = ?, nameplate = ? WHERE id = ?',
+    );
+    set.run('snow', 'crown', 'gold', 'neon', first);
+    set.run('karadelik', 'anim:buz', 'floral', null, second);
+    set.run('sparkles', 'anim:olmayan', null, null, third);
+    set.run('petals', null, 'gold', 'sakura', fourth);
+    const others = db.prepare('SELECT id, username, display_name, avatar_color, theme_primary FROM users ORDER BY id').all();
+    db.close();
+
+    const store = new Store(file);
+    try {
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
+      expect(MIGRATIONS.length).toBe(23);
+      expect(
+        store.db.prepare('SELECT id, profile_effect, avatar_decoration, profile_frame, nameplate FROM users ORDER BY id').all(),
+      ).toEqual(
+        ids.map((id) => ({
+          id,
+          profile_effect: id === second ? 'karadelik' : null,
+          // anim: ile başlayan kalır; bilinmeyen set (ör. ileride kaldırılmış) okunurken gösterilmez
+          avatar_decoration: id === second ? 'anim:buz' : id === third ? 'anim:olmayan' : null,
+          profile_frame: null,
+          nameplate: id === first ? 'neon' : id === fourth ? 'sakura' : null,
+        })),
+      );
+      // Diğer alanlara dokunulmaz
+      expect(
+        store.db.prepare('SELECT id, username, display_name, avatar_color, theme_primary FROM users ORDER BY id').all(),
+      ).toEqual(others);
+
+      const legacy = { profileEffect: null, profileFrame: null };
+      expect(store.getUser(first)).toMatchObject({ ...legacy, animatedEffect: null, avatarDecoration: null, nameplate: 'neon' });
+      expect(store.getUser(second)).toMatchObject({ ...legacy, animatedEffect: 'karadelik', avatarDecoration: 'anim:buz' });
+      expect(store.getUser(third)).toMatchObject({ ...legacy, animatedEffect: null, avatarDecoration: null });
+
+      // Göç tekrar çalışsa da zararsızdır
+      expect(() => store.db.exec(MIGRATIONS[22]!)).not.toThrow();
+      expect(store.getUser(second)).toMatchObject({ animatedEffect: 'karadelik', avatarDecoration: 'anim:buz' });
     } finally {
       store.close();
     }

@@ -1,22 +1,6 @@
 import { memo, type CSSProperties, type ReactNode } from 'react';
-import {
-  PROFILE_FRAME_BORDER,
-  PROFILE_FRAME_PADDING,
-  PROFILE_FRAME_SLICE,
-  isCosmeticSet,
-  type CustomStatus,
-  type ProfileEffect,
-  type ProfileTheme,
-  type User,
-} from '@diskort/shared';
-import {
-  bannerUrl,
-  COSMETIC_SET_INFO,
-  effectParticles,
-  profileGradient,
-  useCosmeticUrl,
-  type DisplayStatus,
-} from '@diskort/client-core';
+import { isCosmeticSet, type CustomStatus, type ProfileEffect, type ProfileTheme, type User } from '@diskort/shared';
+import { bannerUrl, COSMETIC_SET_INFO, profileGradient, type DisplayStatus } from '@diskort/client-core';
 import { cn } from '../../lib/utils';
 import { CardEffectCanvas } from '../cosmetics/Cosmetics';
 import { Avatar } from '../ui/Avatar';
@@ -151,49 +135,8 @@ export function StatusBubble({ custom }: { custom: CustomStatus }) {
 }
 
 /**
- * Kartın çerçevesi gerçekten çizilecek mi (katalogda var). Çizilecekse kart içeriği PROFILE_FRAME_PADDING
- * kadar içeri alınır (süsler yazılara ve düğmelere binmez), afişin köşeleri yuvarlanır; çerçevesiz kart
- * eskisi gibi sıkı kalır.
- */
-export function useProfileFramed(frame: string | null | undefined): boolean {
-  return useCosmeticUrl('frames', frame) !== null;
-}
-
-/** Çerçeveli kartın iç boşluğu (style olarak) */
-export const framedPadding = (framed: boolean): CSSProperties | undefined =>
-  framed ? { padding: PROFILE_FRAME_PADDING } : undefined;
-
-/**
- * Profil çerçevesi: kartın kenarlarına dokuz dilimli resim (köşeler olduğu gibi, kenarlar esnetilerek).
- * Kartın en üstündedir, tıklamaları engellemez; kart taşanı kırpmalıdır (köşeler yuvarlak).
- */
-export function ProfileFrameLayer({
-  frame,
-  border = PROFILE_FRAME_BORDER,
-}: {
-  frame: string | null | undefined;
-  /** Köşelerin boyu (piksel); ayarlardaki küçük önizlemede daha küçük */
-  border?: number;
-}) {
-  const src = useCosmeticUrl('frames', frame);
-  if (!src) return null;
-  return (
-    <div
-      className="pointer-events-none absolute inset-0 z-[2]"
-      style={{
-        borderStyle: 'solid',
-        borderColor: 'transparent',
-        borderWidth: border,
-        borderImage: `url("${src}") ${PROFILE_FRAME_SLICE * 100}% / ${border}px stretch`,
-      }}
-      aria-hidden
-    />
-  );
-}
-
-/**
- * Kartın üstünde oynayan efekt (tıklamaları engellemez). Eski parçacıklı efektler "hareketi azalt" açıkken
- * görünmez; hareketli set efekti o zaman sabit bir kare olarak çizilir.
+ * Kartın üstünde oynayan hareketli set efekti (tıklamaları engellemez); "hareketi azalt" açıkken sabit bir
+ * kare olarak çizilir.
  */
 export const ProfileEffectLayer = memo(function ProfileEffectLayer({
   effect,
@@ -203,62 +146,7 @@ export const ProfileEffectLayer = memo(function ProfileEffectLayer({
   /** Kart taşanı kırpmıyorsa katmanın köşeleri (ör. rounded-lg) */
   className?: string;
 }) {
-  if (!effect) return null;
-  if (isCosmeticSet(effect)) return <CardEffectCanvas set={effect} className={className} />;
-  return (
-    <div className={cn('fx-layer', className)} aria-hidden>
-      {effectParticles(effect).map((p, i) =>
-        p.kind === 'twinkle' ? (
-          <span
-            key={i}
-            className="fx-star"
-            style={
-              {
-                left: `${p.x}%`,
-                top: `${p.y}%`,
-                fontSize: p.size,
-                color: p.color,
-                animationDuration: `${p.duration}s`,
-                animationDelay: `${p.delay}s`,
-                '--spin': `${p.spin}deg`,
-              } as CSSProperties
-            }
-          >
-            ✦
-          </span>
-        ) : (
-          <span
-            key={i}
-            className="fx-fall"
-            style={{ left: `${p.x}%`, animationDuration: `${p.duration}s`, animationDelay: `${p.delay}s` }}
-          >
-            <span
-              className="fx-sway"
-              style={
-                {
-                  '--drift': `${p.drift}px`,
-                  animationDuration: `${p.duration / 3}s`,
-                  animationDelay: `${p.delay}s`,
-                } as CSSProperties
-              }
-            >
-              <span
-                className={p.shape === 'petal' ? 'fx-petal' : 'fx-dot'}
-                style={
-                  {
-                    width: p.size,
-                    height: p.shape === 'petal' ? p.size * 0.7 : p.size,
-                    background: p.color,
-                    opacity: p.opacity,
-                    animationDuration: `${p.duration / 2}s`,
-                    '--spin': `${p.spin}deg`,
-                  } as CSSProperties
-                }
-              />
-            </span>
-          </span>
-        ),
-      )}
-    </div>
-  );
+  if (!isCosmeticSet(effect)) return null;
+  return <CardEffectCanvas set={effect} className={className} />;
 });
+

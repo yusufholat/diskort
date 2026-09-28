@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { animatedDecorationSet, AVATAR_DECORATION_SCALE, STATUS_LABELS, type User } from '@diskort/shared';
-import { avatarUrl, useCosmeticUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
+import { animatedDecorationSet, STATUS_LABELS, type User } from '@diskort/shared';
+import { avatarUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
 import { cn, initials } from '../../lib/utils';
 import { AnimatedDecoration } from '../cosmetics/Cosmetics';
 import { StatusIcon } from './StatusIcon';
@@ -54,8 +54,6 @@ export function Avatar({
   // Yüklenemeyen fotoğrafın yerine baş harfler (adres değişince yeniden denenir)
   const [failed, setFailed] = useState<string | null>(null);
   const animatedSet = animatedDecorationSet(decoration);
-  const decorationSrc = useCosmeticUrl('decorations', animatedSet ? null : decoration);
-  const over = (size * (AVATAR_DECORATION_SCALE - 1)) / 2;
   return (
     <div className={cn('relative shrink-0', className)} style={{ width: size, height: size }}>
       <div
@@ -78,16 +76,6 @@ export function Avatar({
           initials(name)
         )}
       </div>
-      {decorationSrc && (
-        <img
-          src={decorationSrc}
-          alt=""
-          draggable={false}
-          decoding="async"
-          className="pointer-events-none absolute max-w-none select-none"
-          style={{ left: -over, top: -over, width: size + 2 * over, height: size + 2 * over }}
-        />
-      )}
       {animatedSet && (
         <AnimatedDecoration
           set={animatedSet}
