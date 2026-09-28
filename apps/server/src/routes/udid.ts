@@ -14,7 +14,8 @@ import { createRateLimiter } from './messages.js';
  * Profil hiçbir şey kurmaz; iOS onu bilgiler gönderildikten sonra kendisi atar.
  *
  * Kayıtlar veritabanına değil `<dataDir>/udids.jsonl` dosyasına yazılır:
- * `docker compose exec api cat /data/udids.jsonl`.
+ * `docker compose exec api cat /data/udids.jsonl`. Onay durumları (yönetim paneli → iPhone cihazları) ayrı
+ * dosyadadır: `udid-status.json`, bkz. iosDevices.ts.
  */
 
 /** Dosyaya en çok bu kadar kayıt yazılır (herkese açık uç; kötüye kullanım sınırı) */

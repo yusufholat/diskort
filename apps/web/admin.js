@@ -50,7 +50,7 @@ let inflight = false;
 let lastData = null;
 let failures = 0;
 
-const TABS = ['genel', 'ses', 'ses-gecmisi', 'makine', 'api', 'istemciler', 'guvenlik', 'sunucular', 'geri-bildirim', 'hatalar'];
+const TABS = ['genel', 'ses', 'ses-gecmisi', 'makine', 'api', 'istemciler', 'guvenlik', 'sunucular', 'geri-bildirim', 'iphone', 'hatalar'];
 /** Eski bağlantılar (#sunucu) yeni sekmelere */
 const TAB_ALIASES = { sunucu: 'makine' };
 
@@ -281,6 +281,7 @@ const LOADERS = {
     every: 60_000,
     render: (x) => draw('adm-feedback-list', () => feedbackList(x)),
   },
+  iphone: { url: () => '/api/admin/ios-devices', every: 20_000, render: (x) => draw('adm-iphone', () => iosDevices(x)) },
   hatalar: { url: () => '/api/admin/api-stats', every: 15_000, render: (x) => draw('adm-logs', () => serverLogs(x)) },
 };
 
@@ -327,6 +328,7 @@ function placeholder(tab, text) {
     guvenlik: ['adm-security'],
     sunucular: ['adm-guilds'],
     'geri-bildirim': ['adm-feedback-list'],
+    iphone: ['adm-iphone'],
     hatalar: ['adm-logs'],
   }[tab];
   for (const id of target ?? []) $(id).replaceChildren(h('article', 'adm-card adm-wide adm-empty', text));
@@ -2512,6 +2514,177 @@ function openFeedback(f) {
     ),
   );
   $('adm-sheet-body').replaceChildren(...body);
+}
+
+// ---------- iPhone cihazları (Ad Hoc onayı) ----------
+
+const IOS_STATUS = {
+  bekliyor: ['Bekliyor', 'live'],
+  onaylandi: ['Onaylandı', 'warn'],
+  eklendi: ['Eklendi', 'ok'],
+  reddedildi: ['Reddedildi', 'muted'],
+};
+const CI_STATUS = {
+  queued: ['Sırada', 'warn'],
+  requested: ['Sırada', 'warn'],
+  waiting: ['Bekliyor', 'warn'],
+  pending: ['Sırada', 'warn'],
+  in_progress: ['Derleniyor', 'warn'],
+  bulunamadi: ["GitHub'da bulunamadı", 'bad'],
+  hata: ['Başlatılamadı', 'bad'],
+};
+const CI_CONCLUSION = { success: ['Başarılı', 'ok'], failure: ['Başarısız', 'bad'], cancelled: ['İptal edildi', 'muted'], timed_out: ['Zaman aşımı', 'bad'] };
+
+/** Durumu değiştirip listeyi yeniden ister */
+async function setIosStatus(udid, status, button) {
+  button.disabled = true;
+  try {
+    await apiSend('PATCH', `/api/admin/ios-devices/${encodeURIComponent(udid)}`, { status });
+    delete extra.data.iphone;
+    if (ui.tab === 'iphone') void loadExtra(true);
+  } catch (err) {
+    if (!(err instanceof AccessError)) {
+      button.disabled = false;
+      window.alert(`Kaydedilemedi: ${err.message}`);
+    }
+  }
+}
+
+function iosDevices(x) {
+  const now = x.generatedAt;
+  const waiting = x.devices.filter((d) => d.status === 'bekliyor').length;
+  const count = $('adm-ios-count');
+  count.hidden = waiting === 0;
+  count.textContent = num(waiting);
+  const out = [];
+
+  // Otomatik derleme durumu
+  const auto = x.automation;
+  const ci = x.ci;
+  const running = ci && !['completed', 'bulunamadi', 'hata'].includes(ci.status);
+  // Sürmekte olan derlemeye girmemiş onaylı cihazlar
+  const waitingBuild = x.devices.filter((d) => d.status === 'onaylandi' && !(running && ci.udids.includes(d.udid))).length;
+  if (auto.enabled) {
+    const message = h('p', 'adm-sub', '');
+    const now_ = h('button', { type: 'button', class: 'adm-more' }, 'Hemen derle');
+    now_.addEventListener('click', async () => {
+      now_.disabled = true;
+      message.textContent = 'Başlatılıyor…';
+      try {
+        await apiSend('POST', '/api/admin/ios-devices/dispatch', {});
+        message.textContent = 'Derleme başlatıldı.';
+        delete extra.data.iphone;
+        void loadExtra(true);
+      } catch (err) {
+        if (!(err instanceof AccessError)) message.textContent = err.message;
+        now_.disabled = false;
+      }
+    });
+    out.push(
+      card({
+        label: 'Otomatik derleme',
+        value: 'Açık',
+        wide: true,
+        tone: 'ok',
+        sub: [
+          auto.pendingDispatchAt
+            ? `Onaylar toplanıyor; derleme ${clock(Date.parse(auto.pendingDispatchAt), true)} civarı başlayacak.`
+            : waitingBuild > 0
+              ? `${num(waitingBuild)} onaylı cihaz derleme bekliyor.`
+              : running
+                ? 'Derleme sürüyor; bitince cihazlar "Eklendi" olur (yaklaşık 30-40 dk).'
+                : 'Onaylanan cihazlar birkaç dakika içinde tek derlemede Apple\'a eklenir ve IPA yenilenir.',
+        ],
+        children: waitingBuild > 0 ? h('div', 'adm-fb-actions', now_, message) : null,
+      }),
+    );
+  } else {
+    out.push(
+      h(
+        'article',
+        'adm-card adm-wide adm-tone-accent',
+        h('div', 'adm-label', 'Otomatik derleme kapalı'),
+        h(
+          'div',
+          'adm-sub',
+          "Sunucuda GITHUB_DISPATCH_TOKEN yok (bkz. docs/ios.md). Onayladığın cihazlar için şu komutu çalıştır; derleme bitince cihazları \"Eklendi\" olarak işaretle.",
+        ),
+        x.manualCommand
+          ? h('pre', 'adm-mono adm-pre', x.manualCommand)
+          : h('div', 'adm-sub', 'Şu an onaylı cihaz yok.'),
+      ),
+    );
+  }
+
+  if (ci) {
+    const [label, tone] = ci.status === 'completed' ? (CI_CONCLUSION[ci.conclusion] ?? [ci.conclusion ?? 'Bitti', 'muted']) : (CI_STATUS[ci.status] ?? [ci.status, 'warn']);
+    out.push(
+      h(
+        'article',
+        'adm-card adm-wide',
+        h('div', 'adm-label', 'Son derleme'),
+        h(
+          'div',
+          'adm-badges',
+          badge(label, tone),
+          badge(`${num(ci.udids.length)} cihaz`, 'muted'),
+          badge(`başladı ${ago(Date.parse(ci.dispatchedAt), now)}`, 'muted'),
+          ci.checkedAt && badge(`denetlendi ${clock(Date.parse(ci.checkedAt), true)}`, 'muted'),
+        ),
+        ci.url && h('div', 'adm-sub', h('a', { href: ci.url, target: '_blank', rel: 'noopener noreferrer' }, "GitHub'da aç")),
+        ci.error && h('div', 'adm-sub', ci.error),
+      ),
+    );
+  }
+
+  const action = (udid, status, text) => {
+    const btn = h('button', { type: 'button', class: 'adm-more' }, text);
+    btn.addEventListener('click', () => setIosStatus(udid, status, btn));
+    return btn;
+  };
+  const ACTIONS = {
+    bekliyor: (d) => [action(d.udid, 'onaylandi', 'Onayla'), action(d.udid, 'reddedildi', 'Reddet')],
+    onaylandi: (d) => [action(d.udid, 'bekliyor', 'Geri al'), !auto.enabled && action(d.udid, 'eklendi', 'Eklendi say')],
+    eklendi: (d) => [action(d.udid, 'bekliyor', 'Bekliyor yap')],
+    reddedildi: (d) => [action(d.udid, 'onaylandi', 'Onayla')],
+  };
+
+  out.push(
+    panel(
+      `Kayıtlı cihazlar (${num(x.devices.length)}) · /udid sayfasından`,
+      x.devices.length === 0
+        ? h('div', 'adm-sub', 'Henüz kayıt yok. Arkadaşların iPhone\'da Safari ile /udid sayfasını açıp profili yükleyince burada görünür.')
+        : h(
+            'ul',
+            'adm-rows',
+            x.devices.map((d) => {
+              const [label, tone] = IOS_STATUS[d.status] ?? [d.status, 'muted'];
+              return h(
+                'li',
+                'adm-row adm-row-top adm-ios-row',
+                h(
+                  'div',
+                  'adm-row-main',
+                  h('div', 'adm-row-title', d.name || d.deviceName || 'Adsız'),
+                  h(
+                    'div',
+                    'adm-badges',
+                    badge(label, tone),
+                    d.name && d.deviceName && badge(d.deviceName, 'muted'),
+                    d.product && badge(d.product, 'muted'),
+                    d.version && badge(`iOS ${d.version}`, 'muted'),
+                    badge(`kayıt ${dateTime(Date.parse(d.at))}`, 'muted'),
+                    d.statusAt && badge(`${label.toLowerCase()} ${ago(Date.parse(d.statusAt), now)}`, 'muted'),
+                  ),
+                  h('div', 'adm-sub adm-mono', d.udid),
+                ),
+                h('div', 'adm-ios-actions', ACTIONS[d.status]?.(d)),
+              );
+            }),
+          ),
+    ),
+  );
+  return out;
 }
 
 // ---------- Başlangıç ----------

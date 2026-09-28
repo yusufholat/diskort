@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import WebSocket from 'ws';
 import type { Channel, GatewayServerMessage, ReadyPayload, Role, User } from '@diskort/shared';
 import { buildApp, type BuildOptions } from '../src/app.js';
-import { loadConfig } from '../src/config.js';
+import { loadConfig, type Config } from '../src/config.js';
 import type { AppContext } from '../src/context.js';
 import { LiveKitService, type PublishSources } from '../src/livekit.js';
 
@@ -83,9 +83,9 @@ export async function joinGuild(app: FastifyInstance, guildId: string, inviterTo
   if (res.statusCode !== 200) throw new Error(`sunucuya katılamadı: ${res.body}`);
 }
 
-export async function startServer(opts: BuildOptions = {}): Promise<TestServer> {
+export async function startServer(opts: BuildOptions = {}, cfg: Config = config): Promise<TestServer> {
   const livekit = new FakeLiveKit();
-  const { app, ctx } = await buildApp(config, { dbFile: ':memory:', logger: false, livekit, ...opts });
+  const { app, ctx } = await buildApp(cfg, { dbFile: ':memory:', logger: false, livekit, ...opts });
   const register = async (inviteCode: string, username: string, password = 'sifre12345'): Promise<Account> => {
     const res = await app.inject({ method: 'POST', url: '/api/auth/register', payload: { inviteCode, username, password } });
     if (res.statusCode !== 201) throw new Error(`kayıt başarısız: ${res.body}`);

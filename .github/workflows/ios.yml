@@ -10,7 +10,16 @@
 #     güncelleme paketi (Diskort-<sürüm>-ota-ios.json + dosyaları). Yerel kısım (parmak izi) değişmediyse
 #     IPA yeniden derlenmez, önceki sürümünki taşınır (Android'deki APK gibi).
 #   Sunucu, sürümde IPA görünce indirme sayfasında iPhone kartını açar ve /download/ios/manifest.plist'i üretir.
+# - Dağıtım profili: App Store Connect API anahtarı varsa (ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8) her
+#   derlemede scripts/ios-provisioning.mjs ile hazırlanır (verilen cihazlar Apple'a kaydedilir, profil tüm
+#   açık iOS cihazlarını içerir). Yoksa eskisi gibi IOS_PROVISIONING_PROFILE_BASE64 kullanılır.
+# - Yeni cihaz (attach-latest): IPA en son yayınlanmış sürümün etiketinden yeniden derlenir ve o sürümdeki
+#   IPA'nın yerine yüklenir; yeni sürüm gerekmez. Yönetim panelinde "Onayla" deyince sunucu bunu kendisi
+#   başlatır (GITHUB_DISPATCH_TOKEN; bkz. apps/server/src/iosDevices.ts). Elle:
+#     gh workflow run ios.yml -f simulator=false -f signed=true -f attach-latest=true -f devices=UDID1,UDID2
 name: iOS
+# Sunucu çalıştırmayı bu adla (request-id) bulur
+run-name: iOS${{ inputs.request-id && format(' · cihaz ekleme {0}', inputs.request-id) || '' }}
 
 on:
   workflow_dispatch:
@@ -23,6 +32,18 @@ on:
         description: İmzalı Ad Hoc IPA da derle (gizli değişkenler varsa)
         type: boolean
         default: true
+      attach-latest:
+        description: IPA'yı en son yayınlanmış sürümün etiketinden derleyip o sürümdeki IPA'nın yerine yükle
+        type: boolean
+        default: false
+      devices:
+        description: "Apple'a kaydedilecek cihazlar (ASC anahtarı gerekir): UDID1,UDID2 ya da JSON dizisi"
+        type: string
+        default: ''
+      request-id:
+        description: Yönetim panelinin çalıştırmayı tanıması için (elle boş bırak)
+        type: string
+        default: ''
   workflow_call:
     inputs:
       release-tag:
@@ -136,6 +157,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       available: ${{ steps.check.outputs.available }}
+      asc: ${{ steps.check.outputs.asc }}
+      attach-tag: ${{ steps.attach.outputs.tag }}
     steps:
       - id: check
         env:
@@ -143,26 +166,70 @@ jobs:
           P12_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
           PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
           TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          DEVICES: ${{ inputs.devices }}
         run: |
-          if [ -n "$P12" ] && [ -n "$P12_PASSWORD" ] && [ -n "$PROFILE" ] && [ -n "$TEAM" ]; then
+          asc=false
+          if [ -n "$ASC_KEY_ID" ] && [ -n "$ASC_ISSUER_ID" ] && [ -n "$ASC_KEY_P8" ]; then asc=true; fi
+          echo "asc=$asc" >> "$GITHUB_OUTPUT"
+          if [ -n "$P12" ] && [ -n "$P12_PASSWORD" ] && [ -n "$TEAM" ] && { [ -n "$PROFILE" ] || [ "$asc" = true ]; }; then
             echo "available=true" >> "$GITHUB_OUTPUT"
-            echo "İmza anahtarları var: IPA derlenecek."
+            if [ "$asc" = true ]; then
+              echo "İmza anahtarları var: IPA derlenecek, profil App Store Connect API ile hazırlanacak."
+            else
+              echo "İmza anahtarları var: IPA derlenecek (profil IOS_PROVISIONING_PROFILE_BASE64'ten)."
+            fi
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
             echo "::notice::iOS imza anahtarları yok (bkz. docs/ios.md); IPA derlenmeyecek."
           fi
+          if [ -n "$DEVICES" ] && [ "$asc" != true ]; then
+            echo "::warning::App Store Connect anahtarı yok: cihazlar Apple'a kaydedilemez. Cihazları Apple Developer'da elle ekleyip IOS_PROVISIONING_PROFILE_BASE64'ü güncellemediysen derleme, cihaz profilde olmadığı için durur."
+          fi
+
+      # Yeni cihaz: IPA en son yayınlanmış sürüm için derlenir (o sürümün etiketinden)
+      - id: attach
+        if: inputs.attach-latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)
+          if [ -z "$tag" ]; then
+            echo "::error::Yayınlanmış sürüm yok; attach-latest kullanılamaz"
+            exit 1
+          fi
+          echo "En son sürüm: $tag (IPA'sı yenilenecek)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
   ipa:
     name: iOS Ad Hoc IPA
     needs: signing
-    if: needs.signing.outputs.available == 'true' && (inputs.release-tag != '' || inputs.signed)
+    if: needs.signing.outputs.available == 'true' && (inputs.release-tag != '' || inputs.signed || inputs.attach-latest)
     runs-on: macos-latest
     timeout-minutes: 90
+    # Aynı sürüme iki yükleme aynı anda olmasın (sıradaki bekler)
+    concurrency:
+      group: ios-ipa-${{ inputs.release-tag || needs.signing.outputs.attach-tag || github.run_id }}
+      cancel-in-progress: false
     env:
-      RELEASE_TAG: ${{ inputs.release-tag }}
+      RELEASE_TAG: ${{ inputs.release-tag || needs.signing.outputs.attach-tag }}
+      ATTACH_TAG: ${{ needs.signing.outputs.attach-tag }}
+      ASC: ${{ needs.signing.outputs.asc }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Yeni cihaz: yayınlanmış sürümün kodu (boşsa iş akışının kendi commit'i)
+          ref: ${{ needs.signing.outputs.attach-tag }}
+
+      # Profil betiği iş akışının kendi commit'inden alınır (eski sürüm etiketlerinde betik yok)
+      - uses: actions/checkout@v4
+        if: needs.signing.outputs.asc == 'true'
+        with:
+          path: .ios-ci
+          sparse-checkout: scripts
 
       - uses: pnpm/action-setup@v4
 
@@ -193,7 +260,7 @@ jobs:
 
       - name: Önceki sürümün IPA'sı kullanılabilir mi?
         id: reuse
-        if: env.RELEASE_TAG != ''
+        if: env.RELEASE_TAG != '' && env.ATTACH_TAG == ''
         env:
           RUNTIME: ${{ steps.runtime.outputs.runtime }}
         run: |
@@ -246,11 +313,14 @@ jobs:
           P12: ${{ secrets.IOS_CERT_P12_BASE64 }}
           P12_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
           PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          DEVICES: ${{ inputs.devices }}
         run: |
           keychain="$RUNNER_TEMP/diskort.keychain-db"
           kc_password=$(openssl rand -hex 16)
           echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          echo "$PROFILE" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
           security create-keychain -p "$kc_password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$kc_password" "$keychain"
@@ -258,6 +328,16 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -k "$kc_password" "$keychain" >/dev/null
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/cert.p12"
+
+          if [ "$ASC" = "true" ]; then
+            # p12'deki sertifika (Apple'daki kaydını bulmak için) → cihazları kaydet → güncel Ad Hoc profil
+            security find-certificate -a -c "Apple Distribution" -p "$keychain" > "$RUNNER_TEMP/dist-cert.pem"
+            node .ios-ci/scripts/ios-provisioning.mjs sync --cert "$RUNNER_TEMP/dist-cert.pem" \
+              --devices "$DEVICES" --out "$RUNNER_TEMP/profile.mobileprovision"
+            rm "$RUNNER_TEMP/dist-cert.pem"
+          else
+            echo "$PROFILE" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
+          fi
 
           security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" > "$RUNNER_TEMP/profile.plist"
           uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")
@@ -273,6 +353,19 @@ jobs:
           if [ "$aps" = "yok" ]; then
             echo "::error::Profilde bildirim yetkisi (aps-environment) yok: App ID'de Push Notifications açılıp profil yeniden oluşturulmalı"
             exit 1
+          fi
+          # İstenen cihazların hepsi profilde olmalı (yoksa IPA onlara kurulamaz; derleme boşa gitmesin)
+          if [ -n "$DEVICES" ]; then
+            /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$RUNNER_TEMP/profile.plist" | tr '[:lower:]' '[:upper:]' > "$RUNNER_TEMP/provisioned.txt"
+            missing=0
+            for udid in $(printf '%s' "$DEVICES" | grep -oiE '[0-9a-f]{8}-[0-9a-f]{16}|[0-9a-f]{40}' | tr '[:lower:]' '[:upper:]' | sort -u); do
+              if ! grep -q "$udid" "$RUNNER_TEMP/provisioned.txt"; then
+                echo "::error::Cihaz profilde yok: ${udid:0:8}…${udid: -4}"
+                missing=1
+              fi
+            done
+            [ "$missing" = 0 ] || exit 1
+            echo "İstenen cihazların hepsi profilde."
           fi
           for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
             mkdir -p "$dir"
@@ -404,9 +497,19 @@ jobs:
           path: dist/*
           retention-days: 14
 
+      # Yeni cihaz: sürümde iOS OTA paketi zaten varsa yeniden üretilmez (yalnızca IPA değişir)
+      - name: Sürümde iOS OTA paketi var mı?
+        id: ota
+        if: env.ATTACH_TAG != ''
+        run: |
+          if gh release view "$ATTACH_TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -q -- '-ota-ios\.json$'; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "iOS OTA paketi sürümde var; yalnızca IPA yenilenecek."
+          fi
+
       # Kablosuz güncelleme paketi (iOS): yalnızca IPA'yla aynı parmak izli uygulamalara gider
       - name: iOS OTA paketini hazırla
-        if: env.RELEASE_TAG != ''
+        if: env.RELEASE_TAG != '' && steps.ota.outputs.exists != 'true'
         working-directory: apps/mobile
         env:
           DISKORT_RUNTIME_VERSION: ${{ steps.runtime.outputs.runtime }}
@@ -420,6 +523,10 @@ jobs:
             --config "$RUNNER_TEMP/expo-config.json" --base-url "$UPDATES_BASE_URL"
           du -sh ../../dist-ota
 
-      - name: Taslak sürüme yükle
+      # Sürüm iş akışında taslağa; yeni cihazda yayınlanmış sürüme (aynı adlı IPA'nın yerine, --clobber)
+      - name: Sürüme yükle
         if: env.RELEASE_TAG != ''
-        run: gh release upload "$RELEASE_TAG" dist/*.ipa dist-ota/* --clobber -R "$GITHUB_REPOSITORY"
+        run: |
+          files=(dist/*.ipa)
+          if [ -d dist-ota ]; then files+=(dist-ota/*); fi
+          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber -R "$GITHUB_REPOSITORY"
