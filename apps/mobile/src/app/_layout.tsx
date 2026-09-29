@@ -9,6 +9,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { flushAcks, gateway, reportClientError, useSession } from '@diskort/client-core';
 import { UpdateBanner } from '../components/UpdateBanner';
 import { DialogHost } from '../components/Dialog';
+import { initSkia } from '../components/cosmetics/skia';
 import { GuildMenuHost } from '../components/GuildMenu';
 import { StatusPickerHost } from '../components/StatusPicker';
 import { Toast } from '../components/Toast';
@@ -81,7 +82,11 @@ export default function RootLayout() {
     void clientReady
       .catch(() => undefined)
       .then(() => (useVoice.getState().status === 'idle' ? updateOnLaunch() : undefined))
-      .finally(() => setReady(true));
+      .finally(() => {
+        // Skia (hareketli kozmetikler) bir kez, çizimin dışında kurulur; kurulamazsa ölümcül değil (bkz. skia.ts)
+        initSkia();
+        setReady(true);
+      });
     void cleanupDownloads();
     const sub = AppState.addEventListener('change', (state) => {
       // Arka planda inen arayüz güncellemesi kendiliğinden uygulanmaz: üstteki şeritten (UpdateBanner)
