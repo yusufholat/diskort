@@ -176,18 +176,24 @@ export function StreamPreviewCard() {
   // Kaydırma, sürükleme, pencereden çıkma ya da yayının bitmesi kartı kapatır
   useEffect(() => {
     if (!target) return;
+    // Kartın ve kartın izleyici listesinin (ayrı katmanda) içindeki kaydırma kapatmaz
+    const inside = (t: EventTarget | null): boolean =>
+      Boolean(ref.current?.contains(t as Node) || (t instanceof Element && t.closest('[role="dialog"][aria-label="İzleyiciler"]')));
     const onWheel = (e: WheelEvent): void => {
-      if (!ref.current?.contains(e.target as Node)) closeStreamCard();
+      if (!inside(e.target)) closeStreamCard();
+    };
+    const onScroll = (e: Event): void => {
+      if (!inside(e.target)) closeStreamCard();
     };
     document.addEventListener('wheel', onWheel, { capture: true, passive: true });
-    document.addEventListener('scroll', closeStreamCard, true);
+    document.addEventListener('scroll', onScroll, true);
     window.addEventListener('blur', closeStreamCard);
     const unsubscribe = useSidebarDrag.subscribe((s) => {
       if (s.item) closeStreamCard();
     });
     return () => {
       document.removeEventListener('wheel', onWheel, { capture: true });
-      document.removeEventListener('scroll', closeStreamCard, true);
+      document.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('blur', closeStreamCard);
       unsubscribe();
     };
@@ -265,10 +271,7 @@ export function StreamPreviewCard() {
         </button>
         <StreamViewers userId={state.userId} className="absolute top-2 right-2" />
       </div>
-      <div
-        className="mt-2 flex cursor-pointer items-center gap-1.5 text-sm text-text-normal transition-colors hover:text-text-head"
-        onClick={watch}
-      >
+      <div className="mt-2 flex items-center gap-1.5 text-sm text-text-normal">
         <SourceIcon size={14} className="shrink-0 text-text-muted" aria-hidden />
         <span className="min-w-0 flex-1 truncate">{state.streamSourceName ?? 'Ekran paylaşımı'}</span>
         {state.streamStartedAt !== undefined && (

@@ -101,6 +101,14 @@ const RESET_ROOM_STATE = {
   pttActive: false,
 };
 
+/** Yayının gerçek çözünürlüğü ve kare hızı (ör. "1080p 60 FPS"); tarayıcı bildirmezse seçilen kalite */
+function qualityLabel(track: MediaStreamTrack, preset: { height: number; fps: number }): string {
+  const s = track.getSettings();
+  const height = Math.round(s.height ?? preset.height);
+  const fps = Math.round(s.frameRate ?? preset.fps);
+  return `${height}p ${fps} FPS`;
+}
+
 /** Paylaşılan kaynağın adı; sistem seçicisinde (macOS/tarayıcı) ad bilinmez, türü yazılır */
 function sourceOf(opts: ScreenShareOptions, track: MediaStreamTrack): { name: string; kind: 'screen' | 'window' } {
   if (opts.sourceName && opts.sourceKind) return { name: opts.sourceName, kind: opts.sourceKind };
@@ -974,7 +982,7 @@ class VoiceClient {
       sharing: true,
       selfPreview: false,
       shareHasAudio: audio !== null,
-      shareQuality: `${preset.height}p ${preset.fps} FPS`,
+      shareQuality: qualityLabel(videoTrack, preset),
       shareIcon: opts.sourceIcon ?? null,
     });
     this.bumpTracks();

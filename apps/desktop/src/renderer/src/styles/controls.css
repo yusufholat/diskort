@@ -146,6 +146,11 @@ input[type='range'].range-tick:hover::-webkit-slider-thumb {
 input[type='range'].range-tick:active::-webkit-slider-thumb {
   transform: scale(1.25, 1.15);
 }
+input[type='range'].range-tick:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 3px var(--color-bg-float),
+    0 0 0 5px var(--color-brand);
+}
 
 /* ---------- Onay kutusu ve seçenek düğmesi ---------- */
 input[type='checkbox'],

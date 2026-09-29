@@ -70,7 +70,8 @@ export function VoiceStage() {
     <div
       ref={rootRef}
       data-idle={chromeIdle ? '' : undefined}
-      className="group/stage flex h-full min-w-0 flex-1 flex-col bg-bg-deep"
+      // Boştayken imleç de gizlenir (fare hareket edince geri gelir)
+      className="group/stage flex h-full min-w-0 flex-1 flex-col bg-bg-deep data-[idle]:cursor-none data-[idle]:[&_*]:cursor-none"
     >
       <header data-stage-chrome className={cn('flex h-12 shrink-0 items-center gap-2 border-b border-edge px-4', CHROME)}>
         <Volume2 size={22} className="text-text-muted" />
@@ -108,8 +109,8 @@ const CHROME_LEAVE_MS = 400;
 
 /**
  * Sahnenin "boşta" durumu (Discord gibi): fare sahnede hareket edince ya da klavye kullanılınca öğeler
- * belirir, hareketsiz kalınca veya fare sahneden çıkınca kaybolur. Kontrollerde klavye odağı varken ya da
- * bir menü/pencere açıkken gizlenmez.
+ * belirir, hareketsiz kalınca veya fare sahneden çıkınca kaybolur. Fare bir kontrolün üstünde dururken,
+ * kontrollerde klavye odağı varken ya da bir menü/pencere açıkken gizlenmez (gizliyken tıklama boşa gider).
  */
 function useStageChrome(rootRef: RefObject<HTMLDivElement | null>, enabled: boolean): boolean {
   const [idle, setIdle] = useState(false);
@@ -122,6 +123,7 @@ function useStageChrome(rootRef: RefObject<HTMLDivElement | null>, enabled: bool
       return (
         ui.contextMenu !== null ||
         ui.modal !== null ||
+        root.querySelector('[data-stage-chrome] :hover') !== null ||
         root.querySelector('[data-stage-chrome] :focus-visible') !== null ||
         root.querySelector('[data-stage-chrome] [aria-haspopup][aria-expanded="true"]') !== null
       );
@@ -228,18 +230,22 @@ function FocusedStage({ focused, entries }: { focused: string; entries: Presence
     return ids;
   }, [stripEntries]);
   const order = useStripOrder(userIds, focused, selfId, stripRef, !collapsed);
+  // Son çizimdeki yerler: ayrılanın kutucuğu kapanırken tam eski yerinde kalır
+  const lastIndex = useRef(new Map<string, number>());
   const sorted = useMemo(() => {
     const rank = new Map(order.map((id, i) => [id, i]));
-    // Aynı kişinin yayını ve kutucuğu yan yana kalır (sıralama kararlı). Ayrılanın kutucuğu kapanırken
-    // listede önündeki kutucuğun hemen arkasında kalır.
-    let prevRank = -1;
-    const ranked = stripEntries.map((e) => {
-      const r = rank.get(tileUser(e.item)) ?? prevRank + 0.5;
-      prevRank = r;
-      return { e, r };
-    });
-    return ranked.sort((a, b) => a.r - b.r).map(({ e }) => e);
+    const live: PresenceEntry<Tile>[] = [];
+    const gone: PresenceEntry<Tile>[] = [];
+    for (const e of stripEntries) (rank.has(tileUser(e.item)) ? live : gone).push(e);
+    // Aynı kişinin yayını ve kutucuğu yan yana kalır (sıralama kararlı)
+    live.sort((a, b) => rank.get(tileUser(a.item))! - rank.get(tileUser(b.item))!);
+    const at = (e: PresenceEntry<Tile>): number => lastIndex.current.get(e.key) ?? Infinity;
+    for (const e of gone.sort((a, b) => at(a) - at(b))) live.splice(Math.min(at(e), live.length), 0, e);
+    return live;
   }, [stripEntries, order]);
+  useLayoutEffect(() => {
+    lastIndex.current = new Map(sorted.map((e, i) => [e.key, i]));
+  }, [sorted]);
   useStripFlip(stripRef);
 
   const label = collapsed ? 'Katılımcıları göster' : 'Katılımcıları gizle';
@@ -350,10 +356,14 @@ function useStripOrder(
         if (el.dataset.stripUser && shown >= r.width * 0.6) visible.add(el.dataset.stripUser);
       }
       const current = orderRef.current;
-      const promote = recent.filter((id) => current.includes(id) && !visible.has(id));
+      const promote = recent.filter(
+        (id) => id !== pinned && id !== selfId && current.includes(id) && !visible.has(id),
+      );
       if (promote.length === 0) return;
       const firstVisible = Math.max(0, current.findIndex((id) => visible.has(id)));
-      setBase(orderStrip(current, current, { pinned, selfId, promote, firstVisible }));
+      const next = orderStrip(current, current, { pinned, selfId, promote, firstVisible });
+      // Sıra değişmediyse yeniden çizim yok
+      if (next.join() !== current.join()) setBase(next);
     }, STRIP_SORT_MS);
     return () => window.clearInterval(timer);
   }, [active, pinned, selfId, stripRef]);
@@ -470,6 +480,7 @@ function ParticipantTile({ state, compact }: { state: VoiceState; compact?: bool
         liteDecoration
       />
       <div
+        data-stage-chrome
         className={cn(
           'absolute bottom-2 left-2 flex max-w-[85%] items-center gap-1.5 rounded bg-black/50 px-2 py-0.5 text-sm text-white',
           CHROME,
