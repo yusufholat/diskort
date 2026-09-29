@@ -18,6 +18,13 @@ export { hasSkia } from './skia';
 export const ANIMATED_DECORATION_MIN_SIZE = 64;
 /** Dekorasyon yüzeyi avatarın dış yarıçapının bu katı (vitrin: 46 piksellik yarıçapa 132 piksel) */
 const DECORATION_CANVAS_SCALE = 132 / 46;
+
+/**
+ * Bu boydaki avatarın hareketli dekorasyon yüzeyinin kenarı (avatarla aynı merkezde, ondan büyük). Küçük
+ * avatarda sabit halka avatarın içinde kaldığından avatarın kendisi. Yerleşimde dekorasyona yer ayırmak için.
+ */
+export const decorationCanvasSize = (size: number): number =>
+  size >= ANIMATED_DECORATION_MIN_SIZE ? Math.round((size / 2) * 1.15 * DECORATION_CANVAS_SCALE) : size;
 /**
  * Yüzeyin en fazla piksel yoğunluğu (css pikseli başına): telefonların 3× ekranında tam çözünürlük
  * gereksiz yük (masaüstünde de 2× ile sınırlı). Profil kartı büyük: gölgelendiricisi daha düşük yoğunlukta

@@ -20,6 +20,7 @@ import { spring, timing } from '../motion';
 import { useSettings } from '../stores/settings';
 import { colors, createStyles } from '../theme';
 import { useVoice, voice } from '../voice/voice';
+import { StreamViewers } from './StreamViewers';
 import { SwapIcon, type SwapMotion } from './SwapIcon';
 import { VolumeControl } from './VolumeControl';
 
@@ -183,6 +184,7 @@ export function StreamViewer({
               {name}
             </Text>
             <View style={{ flex: 1 }} />
+            <StreamViewers userId={userId} />
             {!fullscreen && <RoundButton icon="close" label="İzlemeyi bırak" onPress={() => voice.watch(null)} small />}
           </View>
 
