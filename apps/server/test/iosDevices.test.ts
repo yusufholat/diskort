@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { loadConfig } from '../src/config.js';
 import { decryptDevices } from '../src/iosDevicesCrypto.js';
@@ -169,6 +169,30 @@ describe('iPhone cihazları (yönetim)', () => {
     // Yeni onay yoksa yeni derleme de yok
     expect(github.dispatches()).toHaveLength(1);
     expect((await t!.req(t!.owner.token, 'POST', '/api/admin/ios-devices/dispatch')).statusCode).toBe(409);
+  });
+
+  it('başarısız biten derleme GitHub\'da yeniden denenip başarılı olursa cihazlar yine "eklendi" olur', async () => {
+    const github = await setup({ GITHUB_DISPATCH_TOKEN: 'gizli-belirtec', IOS_DISPATCH_DELAY_SEC: '2', ...KEY_ENV });
+    await t!.req(t!.owner.token, 'PATCH', `/api/admin/ios-devices/${U1}`, { status: 'onaylandi' });
+    await waitFor(() => github.dispatches().length > 0);
+    const requestId = github.dispatches()[0]!.body.inputs['request-id'] as string;
+    const run = { id: 9, html_url: 'https://github.com/yusufholat/diskort/actions/runs/9', status: 'completed', conclusion: 'failure', display_title: `iOS · cihaz ekleme ${requestId}` };
+    github.runs.push(run);
+    const get = async () => (await t!.req(t!.owner.token, 'GET', '/api/admin/ios-devices')).json();
+    await waitFor(async () => (await get()).ci?.conclusion === 'failure');
+    expect((await get()).devices.find((x: { udid: string }) => x.udid === U1).status).toBe('onaylandi');
+
+    // Aynı çalıştırma yeniden denendi ve başarıyla bitti; panel açılınca (20 sn sınırından sonra) görülür
+    run.conclusion = 'success';
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(Date.now() + 21_000);
+      const body = await get();
+      expect(body.ci).toMatchObject({ status: 'completed', conclusion: 'success' });
+      expect(body.devices.find((x: { udid: string }) => x.udid === U1).status).toBe('eklendi');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('elle "hemen derle" beklemeyi atlar; GitHub hatası panelde görünür, cihaz onaylı kalır', async () => {

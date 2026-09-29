@@ -548,6 +548,18 @@ jobs:
       - name: Sürüme yükle
         if: env.RELEASE_TAG != ''
         run: |
+          # Yeni cihaz: IPA sürümdeki IPA'nın adıyla yüklenir (onun yerine geçer). Yerel kısım değişmediyse
+          # sürümdeki IPA önceki bir sürümden taşınmıştır, adı o sürümü taşır; yeni adla yüklenirse sürümde iki
+          # IPA olur, indirme sayfası eskisini (yeni cihazın olmadığı) verir ve iPhone'lara boş yere yeni sürüm görünür
+          if [ -n "$ATTACH_TAG" ]; then
+            existing=$(gh release view "$ATTACH_TAG" -R "$GITHUB_REPOSITORY" --json assets \
+              --jq '[.assets[].name | select(endswith("-ios.ipa"))][0] // ""')
+            built=$(ls dist/*.ipa | head -1)
+            if [ -n "$existing" ] && [ "$(basename "$built")" != "$existing" ]; then
+              mv "$built" "dist/$existing"
+              echo "IPA sürümdeki adıyla yüklenecek: $existing"
+            fi
+          fi
           files=(dist/*.ipa)
           if [ -d dist-ota ]; then files+=(dist-ota/*); fi
           gh release upload "$RELEASE_TAG" "${files[@]}" --clobber -R "$GITHUB_REPOSITORY"

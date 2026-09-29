@@ -317,11 +317,16 @@ export class IosDeviceService {
 
   /**
    * Son çalıştırmanın durumunu GitHub'dan okur (etkinse). `force` değilse en çok 20 sn'de bir.
-   * Başarıyla bittiyse çalıştırmadaki, hâlâ "onaylandi" olan cihazlar "eklendi" olur.
+   * Başarıyla bittiyse çalıştırmadaki, hâlâ "onaylandi" olan cihazlar "eklendi" olur. Başarısız biten çalıştırma
+   * GitHub'da yeniden denenebilir (aynı çalıştırma, yeni deneme): gönderimden sonraki takip süresince okunmaya devam
+   * eder (yönetim paneli açıldıkça), başarıyla biterse cihazlar yine "eklendi" olur.
    */
   async refreshCi(force = false): Promise<IosCiRun | null> {
     const ci = this.state.ci;
-    if (!ci || FINAL.has(ci.status) || !this.automationEnabled) return ci;
+    if (!ci || !this.automationEnabled) return ci;
+    const retriable =
+      ci.status === 'completed' && ci.conclusion !== 'success' && Date.now() - Date.parse(ci.dispatchedAt) < MAX_POLL_MS;
+    if (FINAL.has(ci.status) && !retriable) return ci;
     if (!force && ci.checkedAt && Date.now() - Date.parse(ci.checkedAt) < 20_000) return ci;
     const res = await this.github('GET', `/actions/workflows/${this.workflow}/runs?event=workflow_dispatch&per_page=30`);
     if (!res.ok) throw new Error(`GitHub ${res.status}`);
@@ -345,6 +350,8 @@ export class IosDeviceService {
       ci.status = 'bulunamadi';
     }
     await this.save();
+    // Yeniden denenen çalıştırma sürüyor: bitene kadar yine kendiliğinden izlenir
+    if (!FINAL.has(ci.status)) this.armPoll();
     return ci;
   }
 }
