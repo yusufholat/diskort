@@ -16,17 +16,8 @@ const MARGIN = 8;
 /**
  * Yayını izleyenler: yan yana, biri diğerinin arkasına binen küçük yuvarlak avatarlar (en çok 3, fazlası
  * "+N"). Üstüne gelince (dokunmatik/klavye için tıklayınca da) "İZLEYİCİLER — N" listesi açılır. İzleyen yoksa hiçbir şey çizilmez. Yayıncı kendisi sayılmaz.
- * `variant="panel"`: sol alttaki ses bağlantısı kartında ("N izleyici" yazısıyla, liste yukarı açılır).
  */
-export function StreamViewers({
-  userId,
-  variant = 'overlay',
-  className,
-}: {
-  userId: string;
-  variant?: 'overlay' | 'panel';
-  className?: string;
-}) {
+export function StreamViewers({ userId, className }: { userId: string; className?: string }) {
   const viewers = useStreamViewers(userId);
   const [hover, setHover] = useState(false);
   const [pinned, setPinned] = useState(false);
@@ -62,11 +53,9 @@ export function StreamViewers({
   if (viewers.length === 0) return null;
   const shown = viewers.slice(0, STACK_MAX);
   const extra = viewers.length - shown.length;
-  const label = `${viewers.length} izleyici`;
-  const overlay = variant === 'overlay';
-  // Yayının üstünde biraz daha büyük (görüntünün önünde okunaklı), kartta küçük
-  const size = overlay ? 24 : 18;
-  const ring = overlay ? 'rgb(0 0 0 / 0.75)' : 'var(--color-bg-active)';
+  // Yayının üstünde görüntünün önünde okunaklı
+  const size = 24;
+  const ring = 'rgb(0 0 0 / 0.75)';
 
   return (
     <>
@@ -77,10 +66,7 @@ export function StreamViewers({
         aria-haspopup="dialog"
         aria-expanded={open}
         className={cn(
-          'press anim-pill-in pointer-events-auto flex shrink-0 items-center gap-1.5 rounded-full transition-[filter,background-color,color]',
-          overlay
-            ? 'text-white hover:brightness-110'
-            : 'bg-bg-active py-1 pr-2.5 pl-1.5 text-text-normal hover:bg-control hover:text-text-head',
+          'press anim-pill-in pointer-events-auto flex shrink-0 items-center gap-1.5 rounded-full text-white transition-[filter,background-color,color] hover:brightness-110',
           className,
         )}
         onMouseEnter={enter}
@@ -105,13 +91,12 @@ export function StreamViewers({
             </span>
           )}
         </span>
-        {!overlay && <span className="text-xs font-medium">{label}</span>}
       </button>
       <ViewerList
         open={open}
         viewers={viewers}
         anchorRef={anchorRef}
-        prefer={variant === 'panel' ? 'top' : 'bottom'}
+        prefer="bottom"
         onEnter={enter}
         onLeave={leave}
         onClose={close}

@@ -16,7 +16,6 @@ import { voice } from '../../features/voice/voiceClient';
 import { cn } from '../../lib/utils';
 import { Permission } from '@diskort/shared';
 import { channelById, useCan, useGuild, useSession } from '@diskort/client-core';
-import { StreamViewers } from '../stage/StreamViewers';
 import { useSettings } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
@@ -177,8 +176,6 @@ export function VoiceConnectionPanel() {
           <MonitorCog size={20} className="ico-tilt" />
         </ActionButton>
       </div>
-      {/* Yayındayken seni izleyenler (kimse izlemiyorsa çizilmez) */}
-      {sharing && selfId && <StreamViewers userId={selfId} variant="panel" className="mt-2" />}
       <ConnectionInfoPopover open={infoOpen} anchorRef={labelRef} onClose={closeInfo} />
       <NoiseMenu open={noiseOpen} anchorRef={noiseRef} onClose={closeNoise} />
     </div>
