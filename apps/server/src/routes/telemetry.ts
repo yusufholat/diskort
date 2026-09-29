@@ -4,11 +4,13 @@ import type { VoiceTelemetryReport } from '@diskort/shared';
 import { parseBody, sendError, type AppContext } from '../context.js';
 import { createRateLimiter } from './messages.js';
 
-const num = (max: number) => z.number().finite().min(0).max(max).nullable();
+/** Aralık dışı ölçüm tüm özeti düşürmez: 0–max'a sıkıştırılır (gövde zaten 8 KB ile sınırlı) */
+const clamp = (max: number) => (v: number): number => Math.min(max, Math.max(0, v));
+const num = (max: number) => z.number().finite().transform(clamp(max)).nullable();
+/** Uzun metin reddedilmez, kısaltılır */
 const text = (max: number) =>
   z
     .string()
-    .max(200)
     .transform((s) => s.slice(0, max))
     .nullable();
 
@@ -84,8 +86,8 @@ const reportSchema = z.object({
       view: z
         .object({
           mode: z.enum(['fullscreen', 'inline']),
-          width: z.number().finite().min(0).max(20_000),
-          height: z.number().finite().min(0).max(20_000),
+          width: z.number().finite().transform(clamp(20_000)),
+          height: z.number().finite().transform(clamp(20_000)),
         })
         .nullable(),
     })

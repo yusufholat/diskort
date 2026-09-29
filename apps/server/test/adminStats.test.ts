@@ -143,7 +143,6 @@ describe('ses kalitesi ölçümleri', () => {
 
     expect((await send(report({ channelId: voice.id }))).statusCode).toBe(204);
     // Geçersiz gövde
-    expect((await send({ ...report(), lossInPct: 900 } as VoiceTelemetryReport)).statusCode).toBe(400);
     expect((await send({ ...report(), v: 2 } as unknown as VoiceTelemetryReport)).statusCode).toBe(400);
 
     const d = (await s.req(s.owner.token, 'GET', '/api/admin/dashboard')).json() as AdminDashboard;
@@ -237,9 +236,11 @@ describe('ses kalitesi ölçümleri', () => {
     // Eski istemci (yeni alanlar yok) ve boş izleme
     expect((await send(report({ channelId: voice.id }))).statusCode).toBe(204);
     expect((await send({ ...report(), watch: null, device: null })).statusCode).toBe(204);
-    // Geçersiz değerler reddedilir
-    expect((await send({ ...report(), watch: { ...watch, decodeMs: -1 } })).statusCode).toBe(400);
+    // Aralık dışı sayılar sıkıştırılır, uzun metin kısaltılır (özet düşmez); geçersiz tür/değer reddedilir
+    const long = 'x'.repeat(500);
+    expect((await send({ ...report(), lossInPct: 900, watch: { ...watch, decodeMs: -1, width: 99_999, decoder: long } })).statusCode).toBe(204);
     expect((await send({ ...report(), watch: { ...watch, view: { mode: 'yan', width: 1, height: 1 } } })).statusCode).toBe(400);
+    expect((await send({ ...report(), watch: { ...watch, decodeMs: 'yavaş' } })).statusCode).toBe(400);
 
     const hist = (await s.req(s.owner.token, 'GET', `/api/admin/telemetry?user=${member.user.id}`)).json();
     const first = hist.entries[0] as TelemetryEntry;
@@ -249,6 +250,10 @@ describe('ses kalitesi ölçümleri', () => {
     expect(first.screen).toMatchObject({ encodeMs: 9.5, hardware: false });
     expect(JSON.stringify(first)).not.toContain('gelecek');
     expect(hist.entries[1].watch).toBeNull();
+    const clamped = hist.entries[3] as TelemetryEntry;
+    expect(clamped.lossIn).toBe(100);
+    expect(clamped.watch).toMatchObject({ decodeMs: 0, width: 20_000 });
+    expect(clamped.watch!.decoder).toHaveLength(80);
 
     // Günlük JSONL dosyasında da
     await s.ctx.telemetry.flush();

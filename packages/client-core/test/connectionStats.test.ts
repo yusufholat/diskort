@@ -98,13 +98,29 @@ describe('görüntü çözme / kodlama', () => {
     expect(isHardwareCodec('c2.qti.vp9.decoder', null)).toBe(true);
     expect(isHardwareCodec('OMX.qcom.video.decoder.vp9', null)).toBe(true);
     expect(isHardwareCodec('MediaCodecVideoDecoder', null)).toBe(true);
-    expect(isHardwareCodec('ExternalDecoder', null)).toBe(true);
+    expect(isHardwareCodec('MediaCodec', null)).toBe(true);
     expect(isHardwareCodec('D3D11VideoDecoder', null)).toBe(true);
     expect(isHardwareCodec('NvEnc', null)).toBe(true);
     expect(isHardwareCodec('MediaFoundationVideoEncodeAccelerator', null)).toBe(true);
     expect(isHardwareCodec('bilinmeyen', false)).toBe(false);
     expect(isHardwareCodec(null, true)).toBe(true);
     expect(isHardwareCodec(null, null)).toBeNull();
+  });
+
+  it('genel sarmalayıcı adı (ExternalDecoder/Encoder) donanım saymaz: powerEfficient, yoksa bilinmiyor', () => {
+    expect(isHardwareCodec('ExternalDecoder', false)).toBe(false);
+    expect(isHardwareCodec('ExternalDecoder', true)).toBe(true);
+    expect(isHardwareCodec('ExternalDecoder', null)).toBeNull();
+    expect(isHardwareCodec('ExternalEncoder', null)).toBeNull();
+  });
+
+  it('sarmalayıcı içindeki adlar: biri donanımsa donanım, hepsi yazılımsa yazılım', () => {
+    expect(isHardwareCodec('SimulcastEncoderAdapter (libvpx, c2.qti.vp9.encoder)', null)).toBe(true);
+    expect(isHardwareCodec('SimulcastEncoderAdapter (libvpx, libvpx)', true)).toBe(false);
+    expect(isHardwareCodec('MediaCodec (c2.android.avc.decoder)', null)).toBe(false);
+    expect(isHardwareCodec('MediaCodec (OMX.google.h264.decoder)', true)).toBe(false);
+    expect(isHardwareCodec('SimulcastEncoderAdapter (ExternalEncoder, ExternalEncoder)', true)).toBe(true);
+    expect(isHardwareCodec('SimulcastEncoderAdapter (ExternalEncoder)', null)).toBeNull();
   });
 
   it('eksik alanlar (eski sürüm / başka tarayıcı): sayaçlar null, oranlar hesaplanmaz', () => {

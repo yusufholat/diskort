@@ -900,7 +900,7 @@ function screenText(s) {
 /** İzlenen yayın: kodek, çözücü (donanım/yazılım), çözünürlük, çözme süresi */
 function watchText(w) {
   if (!w) return null;
-  const kind = w.hardware === true ? 'Donanım' : w.hardware === false ? 'Yazılım' : '?';
+  const kind = w.hardware === true ? 'Donanım' : w.hardware === false ? 'Yazılım' : 'Bilinmiyor';
   const codec = w.codec ? (w.codec.split('/')[1] ?? w.codec) : '';
   const size = w.width && w.height ? `${w.width}×${w.height}${w.fps !== null ? `@${dec(w.fps, 0)}` : ''}` : '';
   const decode = w.decodeMs !== null ? `${dec(w.decodeMs)} ms/kare${w.decodeMsMax !== null ? ` (en çok ${dec(w.decodeMsMax)})` : ''}` : '';
@@ -909,6 +909,9 @@ function watchText(w) {
     .filter(Boolean)
     .join(' · ');
 }
+
+/** Yazılım çözücü yalnızca telefonda uyarı (ısınma ve pil); masaüstünde olağan */
+const watchTone = (e) => (e.watch?.hardware === false && (e.platform === 'android' || e.platform === 'ios') ? 'warn' : undefined);
 
 const LIMIT = { cpu: 'işlemci', bandwidth: 'bant genişliği', other: 'diğer' };
 
@@ -928,7 +931,7 @@ function metricsOf(q) {
     q.screen &&
       q.screen.limitation !== 'none' &&
       metric('Yayın kısıtı', `${LIMIT[q.screen.limitation] ?? q.screen.limitation} · ${percent(q.screen.limitedRatio)}`, toneOf(q.screen.limitedRatio, 0.3, 0.5)),
-    q.watch && metric('İzlenen yayın', watchText(q.watch), q.watch.hardware === false ? 'warn' : undefined),
+    q.watch && metric('İzlenen yayın', watchText(q.watch), watchTone(q)),
     q.reconnects > 0 && metric('Yeniden bağlanma', num(q.reconnects), 'bad'),
     metric('Cihaz', `${PLATFORM[q.platform] ?? q.platform} ${q.version}`),
   );
@@ -1567,7 +1570,7 @@ function telemetryDetail(x, state, reload) {
                   badge(`kayıp ${pct(e.lossOut, 1)} / ${pct(e.lossIn, 1)}`),
                   e.concealed ? badge(`kesilme ${pct(e.concealed)}`) : null,
                   e.screen && badge(`yayın ${screenText(e.screen)}`, 'live'),
-                  e.watch && badge(`izliyor ${watchText(e.watch)}`, e.watch.hardware === false ? 'warn' : undefined),
+                  e.watch && badge(`izliyor ${watchText(e.watch)}`, watchTone(e)),
                   e.channelId && x.channels[e.channelId] && badge(`🔊 ${x.channels[e.channelId].name}`, 'muted'),
                 ),
                 e.causes.length > 0 && h('div', 'adm-sub', e.causes.join(' · ')),

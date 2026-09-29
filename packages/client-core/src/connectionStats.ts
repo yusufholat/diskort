@@ -362,22 +362,40 @@ export function jitterBufferMs(curr: VideoCounters | null, prev: VideoCounters |
 }
 
 /** Yazılım kodlayıcı/çözücü adları (libwebrtc'nin yerleşikleri, Android'in Google yazılım kodekleri, yedeğe düşme) */
-const SOFTWARE_CODEC = /fallback|libvpx|ffmpeg|libaom|dav1d|openh264|^c2\.android\.|^omx\.google\.|software/i;
+const SOFTWARE_CODEC = /libvpx|ffmpeg|libaom|dav1d|openh264|\bc2\.android\.|\bomx\.google\.|software/i;
 /** Donanım kodlayıcı/çözücü adları (Android MediaCodec, Windows, macOS/iOS, Linux, NVIDIA/AMD/Intel) */
 const HARDWARE_CODEC =
-  /mediacodec|^c2\.|^omx\.|externaldecoder|externalencoder|d3d11|dxva|mediafoundation|videotoolbox|vaapi|v4l2|nvenc|nvdec|quicksync|hardware|accelerat/i;
+  /mediacodec|\bc2\.|\bomx\.|d3d11|dxva|mediafoundation|videotoolbox|vaapi|v4l2|nvenc|nvdec|quicksync|hardware|accelerat/i;
+/** Chromium/Electron'un genel sarmalayıcı adları: donanım da yazılım da olabilir */
+const GENERIC_CODEC = /^external(decoder|encoder)$/i;
+
+/** Tek adın türü: true donanım, false yazılım, null bilinmiyor */
+function classifyCodec(name: string): boolean | null {
+  const n = name.trim();
+  // Yedeğe düşmüş: şu an yazılım çalışıyor ("libvpx (fallback from: c2.qti.vp9.decoder)")
+  if (/fallback/i.test(n)) return false;
+  // Sarmalayıcı ve içindekiler: "SimulcastEncoderAdapter (libvpx, c2.qti.vp9.encoder)", "MediaCodec (c2.android.avc.decoder)"
+  const inner = /\(([^()]*)\)\s*$/.exec(n);
+  if (inner) {
+    const kinds = inner[1]!.split(',').map((x) => classifyCodec(x));
+    // İçlerinden biri donanımdaysa donanım; hepsi yazılımsa yazılım
+    if (kinds.includes(true)) return true;
+    if (kinds.length > 0 && kinds.every((k) => k === false)) return false;
+    return null;
+  }
+  if (GENERIC_CODEC.test(n)) return null;
+  if (SOFTWARE_CODEC.test(n)) return false;
+  if (HARDWARE_CODEC.test(n)) return true;
+  return null;
+}
 
 /**
  * Kodlayıcı/çözücü donanımda mı çalışıyor: önce uygulamanın adına (ör. "c2.qti.vp9.decoder" donanım,
- * "libvpx" ya da "c2.android.vp9.decoder" yazılım), ad bir şey söylemiyorsa powerEfficient işaretine bakar.
- * Bilinemiyorsa null.
+ * "libvpx" ya da "c2.android.vp9.decoder" yazılım), ad bir şey söylemiyorsa (ör. "ExternalDecoder")
+ * powerEfficient işaretine bakar. Bilinemiyorsa null.
  */
 export function isHardwareCodec(implementation: string | null, powerEfficient: boolean | null): boolean | null {
-  if (implementation) {
-    if (SOFTWARE_CODEC.test(implementation)) return false;
-    if (HARDWARE_CODEC.test(implementation)) return true;
-  }
-  return powerEfficient;
+  return (implementation ? classifyCodec(implementation) : null) ?? powerEfficient;
 }
 
 /** İzlenen görüntü: gelen görüntü akışları arasında en büyük kare (eşitse en çok bayt alan) */
