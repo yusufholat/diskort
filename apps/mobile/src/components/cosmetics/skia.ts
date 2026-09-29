@@ -14,12 +14,13 @@
 // (src/skia/NativeSetup.ts) global.SkiaApi yoksa yerel install()'ı çağırır ve false dönerse hata fırlatır;
 // Android'de install() yeniden başlatma sırasında (React örneği kaldırılmışken) false dönebilir
 // (RNSkiaModule.java: JavaScriptContextHolder yoksa SkiaManager kurulamaz). Bu yüzden:
-//  1. install()'ı paketten önce biz çağırırız; false dönerse ya da fırlatırsa paket hiç require edilmez.
+//  1. install()'ı paketten önce biz çağırırız; false dönerse ya da fırlatırsa paket hiç require edilmez
+//     (bir kez, birkaç saniye sonra yeniden denenir: geçici bir durum olabilir).
 //  2. Kurulum başarılıysa global.SkiaApi vardır: paket install()'ı yeniden çağırmaz, fırlatacak bir şey kalmaz.
 //  3. Yine de require geçici bir küresel hata işleyicisiyle yapılır: beklenmeyen bir açılış hatası ölümcül
-//     değil, "Skia yok" olur.
-//  4. Kurulum React çizimi içinde hiç yapılmaz: uygulama açılışında bir kez (initSkia, _layout.tsx); çizimdeki
-//     skia() / hasSkia() yalnızca sonucu okur.
+//     değil, "Skia yok" olur (paket yarım yüklendiğinden yeniden denenmez).
+//  4. Kurulum React çizimi içinde hiç yapılmaz: uygulama açıldıktan sonra bir kez (initSkia, _layout.tsx);
+//     çizimdeki skia() / hasSkia() / useHasSkia() yalnızca sonucu okur.
 
 import { useSyncExternalStore } from 'react';
 import { TurboModuleRegistry } from 'react-native';
@@ -40,17 +41,19 @@ export interface SkiaEnv {
   global: { SkiaApi?: unknown };
   /** require('@shopify/react-native-skia'); açılış hatası fırlatabilir ya da (Metro'da) undefined dönebilir */
   requireSkia: () => SkiaModule | undefined;
-  /** Kurulamadıysa bir kez, ölümcül olmayan bildirim */
-  report: (error: Error) => void;
 }
 
-export type SkiaLoadResult = { module: SkiaModule } | { module: null; error?: Error };
+/**
+ * Kurulumun sonucu. `retryable`: yalnızca yerel kurulum başarısız oldu, paket hiç require edilmedi (yeniden
+ * denenebilir); paketin kendisi yüklenemediyse yeniden denenmez.
+ */
+export type SkiaLoadResult = { module: SkiaModule } | { module: null; error?: Error; retryable?: boolean };
 
 const errorOf = (err: unknown): Error => (err instanceof Error ? err : new Error(String(err)));
 
 /**
- * Skia'yı kurar ve paketi yükler; hiçbir durumda fırlatmaz. Yerel modül yoksa (eski APK) sessizce null;
- * yerel modül var ama kurulamadıysa null ve bir bildirim.
+ * Skia'yı kurar ve paketi yükler; hiçbir durumda fırlatmaz. Yerel modül yoksa (eski APK) hatasız null;
+ * yerel modül var ama kurulamadıysa null ve hata.
  */
 export function loadSkia(env: SkiaEnv): SkiaLoadResult {
   let native: NativeSkiaModule | null | undefined;
@@ -62,36 +65,31 @@ export function loadSkia(env: SkiaEnv): SkiaLoadResult {
   // Yerel modülü olmayan uygulama: beklenen durum, bildirilmez
   if (native == null) return { module: null };
 
-  const fail = (error: Error): SkiaLoadResult => {
-    try {
-      env.report(error);
-    } catch {
-      // bildirim hatası: yapılacak bir şey yok
-    }
-    return { module: null, error };
-  };
-
   if (env.global.SkiaApi == null) {
-    if (typeof native.install !== 'function') return fail(new Error('Skia: yerel modülde install() yok'));
+    if (typeof native.install !== 'function') return { module: null, error: new Error('Skia: yerel modülde install() yok') };
     let result: unknown;
     try {
       result = native.install();
     } catch (err) {
-      return fail(new Error(`Skia: install() hata verdi: ${errorOf(err).message}`));
+      return { module: null, retryable: true, error: new Error(`Skia: install() hata verdi: ${errorOf(err).message}`) };
     }
-    if (result !== true) return fail(new Error(`Skia: install() başarısız (sonuç: ${String(result)})`));
+    if (result !== true) {
+      return { module: null, retryable: true, error: new Error(`Skia: install() başarısız (sonuç: ${String(result)})`) };
+    }
     // install() true dönüp küreseli kurmadıysa paket yeniden install() çağırır ve bozuk bir Skia nesnesi kurar
-    if (env.global.SkiaApi == null) return fail(new Error('Skia: install() sonrası SkiaApi yok'));
+    if (env.global.SkiaApi == null) {
+      return { module: null, retryable: true, error: new Error('Skia: install() sonrası SkiaApi yok') };
+    }
   }
 
   let mod: SkiaModule | undefined;
   try {
     mod = env.requireSkia();
   } catch (err) {
-    return fail(new Error(`Skia: paket yüklenemedi: ${errorOf(err).message}`));
+    return { module: null, error: new Error(`Skia: paket yüklenemedi: ${errorOf(err).message}`) };
   }
   if (!mod || !mod.Skia || typeof mod.Skia.PictureRecorder !== 'function') {
-    return fail(new Error('Skia: paket yüklendi ama Skia nesnesi eksik'));
+    return { module: null, error: new Error('Skia: paket yüklendi ama Skia nesnesi eksik') };
   }
   return { module: mod };
 }
@@ -120,6 +118,76 @@ export function requireGuarded(load: () => SkiaModule): SkiaModule | undefined {
   return mod;
 }
 
+/** Yerel kurulum başarısızsa yeniden deneme (bir kez) bu kadar sonra */
+export const SKIA_RETRY_MS = 5000;
+
+export interface SkiaStore {
+  /** Kurulumu bir kez yapar (başarısızsa ve yeniden denenebilirse bir kez daha zamanlar); fırlatmaz */
+  init(): void;
+  get(): SkiaModule | null;
+  subscribe(fn: () => void): () => void;
+}
+
+/**
+ * Kurulumun durumu: sonuç, dinleyiciler, tek yeniden deneme, oturumda tek bildirim. Testlerde sahte ortamla
+ * ayrı bir örnek kurulur.
+ */
+export function createSkiaStore(opts: {
+  env: () => SkiaEnv;
+  report: (error: Error, willRetry: boolean) => void;
+  schedule?: (fn: () => void, ms: number) => void;
+  retryMs?: number;
+}): SkiaStore {
+  const schedule = opts.schedule ?? ((fn, ms) => void setTimeout(fn, ms));
+  let loaded: SkiaModule | null = null;
+  /** Kesin sonuç var mı (başarılı ya da artık denenmeyecek) */
+  let settled = false;
+  let attempts = 0;
+  let reported = false;
+  const listeners = new Set<() => void>();
+
+  const init = (): void => {
+    if (settled || attempts > 0) return;
+    attempt();
+  };
+
+  const attempt = (): void => {
+    attempts++;
+    let result: SkiaLoadResult;
+    try {
+      result = loadSkia(opts.env());
+    } catch (err) {
+      result = { module: null, error: errorOf(err) };
+    }
+    if (result.module) {
+      loaded = result.module;
+      settled = true;
+      for (const fn of listeners) fn();
+      return;
+    }
+    const willRetry = 'retryable' in result && result.retryable === true && attempts < 2;
+    if ('error' in result && result.error && !reported) {
+      reported = true;
+      try {
+        opts.report(result.error, willRetry);
+      } catch {
+        // bildirim hatası: yapılacak bir şey yok
+      }
+    }
+    if (willRetry) schedule(attempt, opts.retryMs ?? SKIA_RETRY_MS);
+    else settled = true;
+  };
+
+  return {
+    init,
+    get: () => loaded,
+    subscribe: (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+  };
+}
+
 /** Bu çalıştırma bir OTA güncellemesiyle mi açıldı (yeniden başlatma sonrası mı): bildirime eklenir */
 function launchInfo(): string {
   try {
@@ -131,45 +199,36 @@ function launchInfo(): string {
   }
 }
 
-let loaded: SkiaModule | null | undefined;
-const listeners = new Set<() => void>();
-
-/**
- * Skia'yı bir kez kurar (uygulama açılışında, React çiziminin dışında çağrılır; bkz. _layout.tsx).
- * Hiçbir durumda fırlatmaz; ikinci çağrı bir şey yapmaz.
- */
-export function initSkia(): void {
-  if (loaded !== undefined) return;
-  const result = loadSkia({
+const store = createSkiaStore({
+  env: () => ({
     nativeModule: () => TurboModuleRegistry.get('RNSkiaModule') as NativeSkiaModule | null,
     global: globalThis as { SkiaApi?: unknown },
     // Koşullu ve geç yükleme: import ile değil require ile (bkz. dosyanın başı)
     requireSkia: () => requireGuarded(() => require('@shopify/react-native-skia') as SkiaModule),
-    report: (error) => {
-      console.warn('[kozmetik] Skia kurulamadı, hareketli kozmetikler kapalı:', error);
-      reportClientError(new Error(`${error.message} (${launchInfo()})`), 'skia');
-    },
-  });
-  loaded = result.module;
-  for (const fn of listeners) fn();
-}
+  }),
+  report: (error, willRetry) => {
+    console.warn('[kozmetik] Skia kurulamadı, hareketli kozmetikler kapalı:', error);
+    reportClientError(new Error(`${error.message} (${launchInfo()}${willRetry ? ', yeniden denenecek' : ''})`), 'skia');
+  },
+});
+
+/**
+ * Skia'yı kurar (uygulama açıldıktan sonra, React çiziminin dışında çağrılır; bkz. _layout.tsx).
+ * Hiçbir durumda fırlatmaz; ikinci çağrı bir şey yapmaz.
+ */
+export const initSkia = (): void => store.init();
 
 /** Skia paketi (kurulduysa); kurulmadıysa, kurulamadıysa ya da henüz kurulmadıysa null. Kurulum yapmaz. */
 export function skia(): SkiaModule | null {
-  return loaded ?? null;
+  return store.get();
 }
 
 /** Bu uygulama hareketli kozmetikleri çizebilir mi (Skia kuruldu mu). Kurulum yapmaz. */
 export function hasSkia(): boolean {
-  return skia() !== null;
+  return store.get() !== null;
 }
 
-const subscribe = (fn: () => void): (() => void) => {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
-};
-
-/** hasSkia() bileşen içinde: Skia açılışta kurulunca bileşen yeniden çizilir */
+/** hasSkia() bileşen içinde: Skia kurulunca bileşen yeniden çizilir */
 export function useHasSkia(): boolean {
-  return useSyncExternalStore(subscribe, hasSkia);
+  return useSyncExternalStore(store.subscribe, hasSkia);
 }

@@ -82,11 +82,7 @@ export default function RootLayout() {
     void clientReady
       .catch(() => undefined)
       .then(() => (useVoice.getState().status === 'idle' ? updateOnLaunch() : undefined))
-      .finally(() => {
-        // Skia (hareketli kozmetikler) bir kez, çizimin dışında kurulur; kurulamazsa ölümcül değil (bkz. skia.ts)
-        initSkia();
-        setReady(true);
-      });
+      .finally(() => setReady(true));
     void cleanupDownloads();
     const sub = AppState.addEventListener('change', (state) => {
       // Arka planda inen arayüz güncellemesi kendiliğinden uygulanmaz: üstteki şeritten (UpdateBanner)
@@ -99,6 +95,14 @@ export default function RootLayout() {
   useEffect(() => {
     if (ready || launchUpdating) void SplashScreen.hideAsync();
   }, [ready, launchUpdating]);
+
+  // Skia (hareketli kozmetikler) açılış ekranını geciktirmesin: uygulama çizildikten sonra, çizimin dışında
+  // bir kez kurulur; kurulamazsa ölümcül değil (bkz. skia.ts). Hazır olunca kozmetikler kendiliğinden belirir.
+  useEffect(() => {
+    if (!ready) return;
+    const timer = setTimeout(initSkia, 0);
+    return () => clearTimeout(timer);
+  }, [ready]);
 
   // Oturum açılınca bu telefonu bildirimler için kaydet
   useEffect(() => {
