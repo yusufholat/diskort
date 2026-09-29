@@ -34,12 +34,19 @@ import { brandTint, colors, createStyles, font, radius, ripple, space, text as t
  */
 export default function SearchScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ guildId?: string; dmId?: string }>();
+  const params = useLocalSearchParams<{ guildId?: string; dmId?: string; channelId?: string }>();
   const scope = useMemo<SearchScope>(
-    () => (params.dmId ? { dmId: params.dmId } : { guildId: params.guildId ?? '' }),
-    [params.dmId, params.guildId],
+    () =>
+      params.dmId
+        ? { dmId: params.dmId }
+        : params.channelId
+          ? { guildId: params.guildId ?? '', channelId: params.channelId }
+          : { guildId: params.guildId ?? '' },
+    [params.dmId, params.guildId, params.channelId],
   );
   const dm = 'dmId' in scope;
+  // Tek kanalda aranıyorsa (kanal panelinden) "Kanal" işleci gösterilmez
+  const inChannel = !dm && Boolean(scope.channelId);
   const key = searchScopeKey(scope);
   const current = useSearch((s) => (searchScopeKey(s.scope) === key ? s.query : ''));
   const status = useSearch((s) => (searchScopeKey(s.scope) === key ? s.status : 'idle'));
@@ -53,6 +60,10 @@ export default function SearchScreen() {
     if ('dmId' in scope) {
       const conv = s.dms[scope.dmId];
       return conv ? dmTitle(conv, s.users, selfId) : '';
+    }
+    if (scope.channelId) {
+      const channel = s.channels.find((c) => c.id === scope.channelId);
+      if (channel) return `#${channel.name}`;
     }
     return s.guilds[scope.guildId]?.guild.name ?? '';
   });
@@ -115,7 +126,7 @@ export default function SearchScreen() {
           keyboardShouldPersistTaps="always"
           contentContainerStyle={styles.chips}
         >
-          {SEARCH_OPTIONS.filter((o) => !dm || o.dm).map((o) => (
+          {SEARCH_OPTIONS.filter((o) => (!dm || o.dm) && !(inChannel && o.op === 'in:')).map((o) => (
             <Pressable
               key={o.op}
               onPress={() => addOperator(o.op)}
@@ -158,7 +169,7 @@ export default function SearchScreen() {
       ) : status === 'idle' ? (
         <ScrollView keyboardShouldPersistTaps="always" contentContainerStyle={{ paddingBottom: space.lg }}>
           <Text style={[textStyles.section, styles.sectionTitle]}>Arama seçenekleri</Text>
-          {SEARCH_OPTIONS.filter((o) => !dm || o.dm).map((o) => (
+          {SEARCH_OPTIONS.filter((o) => (!dm || o.dm) && !(inChannel && o.op === 'in:')).map((o) => (
             <Pressable key={o.op} style={styles.option} android_ripple={ripple.row} onPress={() => addOperator(o.op)}>
               <Text style={styles.optionOp}>{o.op}</Text>
               <Text style={styles.optionHint} numberOfLines={1}>

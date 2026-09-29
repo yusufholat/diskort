@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ActivityIndicator, FlatList, Pressable, Text, View, useWindowDimensions } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  Text,
+  View,
+  useWindowDimensions,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { create } from 'zustand';
 import { Permission, type Message, type PinnedMessage } from '@diskort/shared';
@@ -51,9 +61,6 @@ export function PinsSheet() {
     return openPins(open);
   }, [open]);
 
-  const pins = usePins((s) => (channelId ? s.channels[channelId] : undefined) ?? EMPTY_PINS);
-  const canPin = useCan(Permission.PIN_MESSAGES, channelId ?? undefined);
-  const md = useMarkdownContext();
   const { height } = useWindowDimensions();
 
   const jump = (message: PinnedMessage): void => {
@@ -65,28 +72,58 @@ export function PinsSheet() {
   return (
     <BottomSheet visible={open !== null} onClose={closeSheet}>
       <SheetHeader title="Sabitlenmiş mesajlar" />
-      {!pins.loaded ? (
-        <ActivityIndicator color={colors.muted} style={styles.loading} />
-      ) : pins.items.length === 0 ? (
-        <View style={styles.empty}>
-          <View style={styles.emptyIcon}>
-            <PinIcon size={28} color={colors.muted} />
-          </View>
-          <Text style={styles.emptyTitle}>Burada henüz sabitlenmiş mesaj yok</Text>
-          <Text style={styles.emptyText}>Önemli bir mesajı sabitlemek için ona uzun bas ve “Sabitle”yi seç.</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={pins.items}
-          keyExtractor={(m) => m.id}
-          style={{ maxHeight: height * 0.65 }}
-          contentContainerStyle={styles.list}
-          renderItem={({ item }) => (
-            <PinRow message={item} md={md} canUnpin={canPin} onJump={() => jump(item)} />
-          )}
-        />
-      )}
+      {channelId ? <PinList channelId={channelId} onJump={jump} style={{ maxHeight: height * 0.65 }} /> : null}
     </BottomSheet>
+  );
+}
+
+/**
+ * Kanalın sabitlenmiş mesajlarının listesi (yükleniyor / boş / liste): sabitlemeler sayfasında ve kanal
+ * panelinin "Sabitlemeler" sekmesinde. Listeyi açık tutmak (openPins) çağıranın işidir. `onRefresh`
+ * verilirse aşağı çekerek yenilenir.
+ */
+export function PinList({
+  channelId,
+  onJump,
+  style,
+  onRefresh,
+  refreshing = false,
+}: {
+  channelId: string;
+  onJump: (message: PinnedMessage) => void;
+  style?: StyleProp<ViewStyle>;
+  onRefresh?: () => void;
+  refreshing?: boolean;
+}) {
+  const pins = usePins((s) => s.channels[channelId] ?? EMPTY_PINS);
+  const canPin = useCan(Permission.PIN_MESSAGES, channelId);
+  const md = useMarkdownContext();
+
+  if (!pins.loaded) return <ActivityIndicator color={colors.muted} style={styles.loading} />;
+  if (pins.items.length === 0) {
+    return (
+      <View style={styles.empty}>
+        <View style={styles.emptyIcon}>
+          <PinIcon size={28} color={colors.muted} />
+        </View>
+        <Text style={styles.emptyTitle}>Burada henüz sabitlenmiş mesaj yok</Text>
+        <Text style={styles.emptyText}>Önemli bir mesajı sabitlemek için ona uzun bas ve “Sabitle”yi seç.</Text>
+      </View>
+    );
+  }
+  return (
+    <FlatList
+      data={pins.items}
+      keyExtractor={(m) => m.id}
+      style={style}
+      contentContainerStyle={styles.list}
+      refreshControl={
+        onRefresh ? (
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.muted} colors={[colors.brand]} />
+        ) : undefined
+      }
+      renderItem={({ item }) => <PinRow message={item} md={md} canUnpin={canPin} onJump={() => onJump(item)} />}
+    />
   );
 }
 

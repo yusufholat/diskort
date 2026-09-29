@@ -198,6 +198,7 @@ export default function RootLayout() {
                   }}
                 />
                 <Stack.Screen name="members" options={{ title: 'Üyeler' }} />
+                <Stack.Screen name="channel-panel" options={{ headerShown: false }} />
                 <Stack.Screen name="search" options={{ headerShown: false, animation: 'fade_from_bottom' }} />
                 <Stack.Screen name="dms" options={{ title: 'Direkt Mesajlar' }} />
                 <Stack.Screen name="dm-new" options={{ title: 'Yeni mesaj', animation: 'fade_from_bottom' }} />
