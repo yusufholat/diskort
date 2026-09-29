@@ -24,7 +24,12 @@ describe('iOS cihaz listesi şifreleme', () => {
     const payload = encryptDevices(devices, key);
     expect(payload).toMatch(/^v1\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]+$/);
     expect(payload).not.toContain('00008110');
-    expect(payload).not.toContain('Ay');
+    // base64 metninde kısa dizgiler (ör. "Ay") rastgele çıkabilir; düz metni şifreli baytlarda ara
+    const cipherBytes = Buffer.from(payload.split('.')[2]!, 'base64url');
+    for (const d of devices) {
+      expect(cipherBytes.includes(Buffer.from(d.udid))).toBe(false);
+      expect(cipherBytes.includes(Buffer.from(d.name))).toBe(false);
+    }
     expect(script.decryptDevices(payload, script.parseKey(keyB64))).toEqual(devices);
     expect(decryptDevices(script.encryptDevices(devices, key), parseDevicesKey(keyB64)!)).toEqual(devices);
     // Her şifreleme farklı (rastgele iv)
@@ -50,6 +55,7 @@ describe('iOS cihaz listesi şifreleme', () => {
     expect(() => script.parseKey('kısa')).toThrow(/32/);
   });
 
+  // Alt süreç başlatır; yüklü makinede varsayılan 5 sn'yi aşabilir
   it('iş akışı komutu: önce gizler, dosyaya yazar, açık metni başka yerde basmaz; anahtar yoksa açık hata', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'ios-cihaz-sifre-'));
     try {
@@ -57,6 +63,7 @@ describe('iOS cihaz listesi şifreleme', () => {
       const stdout = execFileSync(process.execPath, [SCRIPT, 'decrypt', '--out', out], {
         env: { ...process.env, IOS_DEVICES_KEY: keyB64, IOS_DEVICES_PAYLOAD: encryptDevices(devices, key) },
         encoding: 'utf8',
+        timeout: 30_000,
       });
       const lines = stdout.trim().split('\n');
       expect(lines.slice(0, 4)).toEqual([
@@ -74,6 +81,7 @@ describe('iOS cihaz listesi şifreleme', () => {
           env: { ...process.env, IOS_DEVICES_KEY: '', IOS_DEVICES_PAYLOAD: 'v1.x.y' },
           encoding: 'utf8',
           stdio: 'pipe',
+          timeout: 30_000,
         });
       } catch (err) {
         failed = err as { status: number; stderr: string };
@@ -83,5 +91,5 @@ describe('iOS cihaz listesi şifreleme', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 60_000);
 });
