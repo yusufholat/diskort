@@ -19,12 +19,12 @@ export function LiveBadge({ className }: { className?: string }) {
     <span
       className={cn('anim-pill-in rounded-full bg-danger px-1.5 py-px text-[10px] leading-4 font-bold text-white', className)}
     >
-      CANLI
+      YAYINDA
     </span>
   );
 }
 
-/** Tıklanabilir "CANLI" rozeti: yayını doğrudan izlemeye başlar (gerekirse kanala katılır) */
+/** Tıklanabilir "YAYINDA" rozeti: yayını doğrudan izlemeye başlar (gerekirse kanala katılır) */
 export function WatchLiveBadge({
   userId,
   channelId,

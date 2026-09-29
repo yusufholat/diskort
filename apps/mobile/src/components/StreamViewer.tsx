@@ -177,7 +177,7 @@ export function StreamViewer({
               <RoundButton icon="chevron-down" label="Tam ekrandan çık" onPress={() => onFullscreen(false)} />
             )}
             <View style={styles.live}>
-              <Text style={styles.liveText}>CANLI</Text>
+              <Text style={styles.liveText}>YAYINDA</Text>
             </View>
             <Text style={[styles.name, !fullscreen && styles.nameSmall]} numberOfLines={1}>
               {name}

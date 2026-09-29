@@ -5,7 +5,7 @@ import { toast, useUi } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 
 /**
- * Üyenin yayınını izlemeye başlar (Discord'da "CANLI"ya tıklamak gibi): o ses kanalında değilsen önce
+ * Üyenin yayınını izlemeye başlar (Discord'da "YAYINDA"ya tıklamak gibi): o ses kanalında değilsen önce
  * kanala katılır, sonra yayını açar ve ses sahnesine geçer. Kendi yayınınsa yalnızca onu öne alır.
  */
 export async function watchUserStream(userId: string, channelId: string): Promise<void> {
