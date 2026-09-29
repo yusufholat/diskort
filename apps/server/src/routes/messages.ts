@@ -1,6 +1,10 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import {
+  CHANNEL_LINKS_MAX_PAGE_SIZE,
+  CHANNEL_LINKS_PAGE_SIZE,
+  CHANNEL_MEDIA_MAX_PAGE_SIZE,
+  CHANNEL_MEDIA_PAGE_SIZE,
   extractEmbedUrls,
   hasPermission,
   linkEmbedsOf,
@@ -15,6 +19,9 @@ import {
   REACTION_USERS_MAX_PAGE_SIZE,
   REACTION_USERS_PAGE_SIZE,
   type Channel,
+  type ChannelLinkItem,
+  type ChannelMediaItem,
+  type ChannelPanelPage,
   type Embed,
   type LinkEmbed,
   type Message,
@@ -53,6 +60,17 @@ const ackSchema = z.object({ messageId: z.string().regex(/^\d+$/) });
 const listQuery = z.object({
   before: z.string().regex(/^\d+$/).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+
+/** Kanal panelinin "Medya" sayfası: before = önceki sayfanın son öğesi (<mesaj kimliği>_<dosya sırası>) */
+const mediaQuery = z.object({
+  before: z.string().regex(/^\d{1,15}_\d{1,3}$/).optional(),
+  limit: z.coerce.number().int().min(1).max(CHANNEL_MEDIA_MAX_PAGE_SIZE).optional(),
+});
+/** Kanal panelinin "Bağlantılar" sayfası: before = taranan en eski mesajın kimliği */
+const linksQuery = z.object({
+  before: z.string().regex(/^\d{1,15}$/).optional(),
+  limit: z.coerce.number().int().min(1).max(CHANNEL_LINKS_MAX_PAGE_SIZE).optional(),
 });
 
 const reactionUsersQuery = z.object({
@@ -359,6 +377,50 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
     if (!textChannel(req.params.id, req.user.id, reply)) return reply;
     return store.listPins(req.params.id, req.user.id);
   });
+
+  // Kanal paneli (telefon): kanalda paylaşılan resim/videolar ve bağlantılar. Mesajları okuyabilen herkes
+  // (metin kanalını görebilen ya da konuşmanın katılımcısı) görür; ses kanalında yok (404).
+  app.get<{ Params: { id: string }; Querystring: Record<string, string> }>(
+    '/api/channels/:id/media',
+    { preHandler: auth.requireUser },
+    async (req, reply) => {
+      if (!textChannel(req.params.id, req.user.id, reply)) return reply;
+      const query = mediaQuery.safeParse(req.query);
+      if (!query.success) return sendError(reply, 400, 'invalid_query', 'Geçersiz sorgu.');
+      const cursor = query.data.before?.split('_').map(Number);
+      const page = store.listChannelMedia(
+        req.params.id,
+        cursor ? { messageId: cursor[0]!, position: cursor[1]! } : null,
+        query.data.limit ?? CHANNEL_MEDIA_PAGE_SIZE,
+      );
+      const last = page.items[page.items.length - 1];
+      const result: ChannelPanelPage<ChannelMediaItem> = {
+        items: page.items.map(({ position: _position, ...item }) => item),
+        nextCursor: page.more && last ? `${last.messageId}_${last.position}` : null,
+      };
+      return result;
+    },
+  );
+
+  app.get<{ Params: { id: string }; Querystring: Record<string, string> }>(
+    '/api/channels/:id/links',
+    { preHandler: auth.requireUser },
+    async (req, reply) => {
+      if (!textChannel(req.params.id, req.user.id, reply)) return reply;
+      const query = linksQuery.safeParse(req.query);
+      if (!query.success) return sendError(reply, 400, 'invalid_query', 'Geçersiz sorgu.');
+      const page = store.listChannelLinks(
+        req.params.id,
+        query.data.before ? Number(query.data.before) : null,
+        query.data.limit ?? CHANNEL_LINKS_PAGE_SIZE,
+      );
+      const result: ChannelPanelPage<ChannelLinkItem> = {
+        items: page.items,
+        nextCursor: page.more && page.last !== null ? String(page.last) : null,
+      };
+      return result;
+    },
+  );
 
   app.put<{ Params: { id: string; messageId: string } }>(
     '/api/channels/:id/pins/:messageId',

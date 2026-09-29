@@ -366,9 +366,18 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
       </HeaderButton>
       <View style={styles.headerTitle}>
         {dm ? (
-          <DmTitle dm={dm} name={dmName} onPress={setProfileOf} />
+          <DmTitle
+            dm={dm}
+            name={dmName}
+            onPress={setProfileOf}
+            onOpenPanel={() => router.push({ pathname: '/channel-panel', params: { id: dm.id } })}
+          />
         ) : (
-          <ChannelTitle channelId={id} name={channel?.name ?? ''} onPress={() => router.push('/members')} />
+          <ChannelTitle
+            channelId={id}
+            name={channel?.name ?? ''}
+            onPress={() => router.push({ pathname: '/channel-panel', params: { id } })}
+          />
         )}
       </View>
       <HeaderButton icon={pinIcon} label="Sabitlenmiş mesajlar" size={22} onPress={() => openPinsSheet(id)}>
@@ -546,7 +555,7 @@ function ChannelTitle({ channelId, name, onPress }: { channelId: string; name: s
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${name} kanalı, ${online} çevrim içi. Üyeleri göster`}
+      accessibilityLabel={`${name} kanalı, ${online} çevrim içi. Kanal panelini göster`}
       style={({ pressed }) => [styles.channelTitle, pressed && { opacity: 0.6 }]}
       hitSlop={6}
     >
@@ -571,7 +580,18 @@ function ChannelTitle({ channelId, name, onPress }: { channelId: string; name: s
  * Başlık: konuşmanın resmi, adı ve bire bir konuşmada karşı tarafın durumu. Bire bir konuşmada resme ya
  * da ada dokununca karşı tarafın profil kartı (DM bağlamında) açılır.
  */
-function DmTitle({ dm, name, onPress }: { dm: DmChannel; name: string; onPress: (userId: string) => void }) {
+function DmTitle({
+  dm,
+  name,
+  onPress,
+  onOpenPanel,
+}: {
+  dm: DmChannel;
+  name: string;
+  onPress: (userId: string) => void;
+  /** Grup konuşmasında başlığa dokununca: konuşmanın paneli (katılımcılar, medya, sabitlemeler, bağlantılar) */
+  onOpenPanel: () => void;
+}) {
   const selfId = useSession((s) => s.user?.id);
   const partner = useGuild((s) => dmPartner(dm, s.users, selfId));
   const status = useStatus(partner?.id);
@@ -596,7 +616,20 @@ function DmTitle({ dm, name, onPress }: { dm: DmChannel; name: string; onPress: 
       </View>
     </View>
   );
-  if (dm.group || !partner) return content;
+  if (dm.group) {
+    return (
+      <Pressable
+        onPress={onOpenPanel}
+        accessibilityRole="button"
+        accessibilityLabel={`${name}. Katılımcıları, medyayı ve bağlantıları göster`}
+        style={({ pressed }) => [styles.channelTitle, pressed && { opacity: 0.6 }]}
+        hitSlop={6}
+      >
+        {content}
+      </Pressable>
+    );
+  }
+  if (!partner) return content;
   return (
     <Pressable
       onPress={() => onPress(partner.id)}

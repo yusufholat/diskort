@@ -20,6 +20,7 @@ import {
   memberActions,
   memberColorOf,
   memberGroups,
+  channelMemberGroups,
   moveTargets,
   overwriteState,
   reorderedIds,
@@ -166,6 +167,23 @@ describe('görünüm', () => {
     ]);
     expect(memberColorOf(useGuild.getState(), 'ali')).toBe('#2ecc71');
     expect(memberColorOf(useGuild.getState(), 'veli')).toBeNull();
+  });
+
+  it('kanal panelinde yalnızca kanalı görebilen üyeler listelenir', () => {
+    receive({
+      t: 'CHANNEL_UPDATE',
+      d: channel('duyuru', 'text', [
+        { roleId: 'g', allow: 0, deny: P.VIEW_CHANNEL },
+        { roleId: 'mod', allow: P.VIEW_CHANNEL, deny: 0 },
+      ]),
+    });
+    const s = useGuild.getState();
+    // Yönetici (sahip) her kanalı görür; ali ve veli göremez
+    expect(channelMemberGroups(s, 'duyuru').map((g) => [g.title, g.members.map((m) => m.id)])).toEqual([
+      ['admin', ['sahip']],
+      ['mod', ['mod']],
+    ]);
+    expect(channelMemberGroups(s, 'genel')).toEqual(memberGroups(s));
   });
 
   it('@everyone bahsetmesi herkesi, kendi mesajı kimseyi ilgilendirmez', () => {
