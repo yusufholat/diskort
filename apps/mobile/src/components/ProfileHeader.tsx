@@ -83,7 +83,8 @@ export function ProfileHeader({
     <View style={[styles.card, { backgroundColor: surface }, style]}>
       {theme && (
         <>
-          {/* Tema değişince degrade yerinde güncellenmesin, görünüm yeniden kurulsun (Android'de deneysel özellik; #28) */}
+          {/* Tema değişince degrade yerinde güncellenmesin, görünüm yeniden kurulsun (Android'de deneysel özellik; #28).
+              Degradeli görünüme kenarlık verilmemeli: kaldırılınca Android çöker (bkz. ProfileSettings, #29) */}
           <View key={profileGradient(theme)} style={[StyleSheet.absoluteFill, { experimental_backgroundImage: profileGradient(theme) }]} />
           <View style={[StyleSheet.absoluteFill, { backgroundColor: surface, opacity: VEIL }]} />
         </>

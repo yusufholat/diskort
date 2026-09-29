@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   animatedDecoration,
@@ -188,11 +188,18 @@ export function ProfileSettings() {
               <Pressable
                 key={preset.name}
                 onPress={() => look.setTheme({ primary: preset.primary, accent: preset.accent })}
-                style={[styles.swatch, { experimental_backgroundImage: profileGradient(preset) }, selected && styles.swatchOn]}
+                style={[styles.swatch, selected && styles.swatchOn]}
                 accessibilityRole="radio"
                 accessibilityState={{ selected }}
                 accessibilityLabel={preset.name}
               >
+                {/* Degrade kenarlığı hiç olmayan ayrı görünümde (#28, #29): Android'de (RN 0.86) kenarlık kaldırılınca
+                    genişlik NaN gelir, degradeli görünümde LinearGradient NaN noktalarla kurulur ve uygulama çöker
+                    (IllegalArgumentException, BackgroundImageDrawable.draw) */}
+                <View
+                  pointerEvents="none"
+                  style={[StyleSheet.absoluteFill, { experimental_backgroundImage: profileGradient(preset) }]}
+                />
                 {selected ? <Ionicons name="checkmark" size={20} color="#fff" /> : null}
               </Pressable>
             );
