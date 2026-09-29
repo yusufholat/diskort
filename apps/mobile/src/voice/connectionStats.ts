@@ -18,7 +18,7 @@ import { Track, type Room } from 'livekit-client';
 import { AppState } from 'react-native';
 import { create } from 'zustand';
 import { getSettings } from '../stores/settings';
-import { deviceSoc, effectiveNoiseMode, noiseFilterStats } from './noiseFilter';
+import { deviceSoc, deviceThermal, effectiveNoiseMode, noiseFallbackReason, noiseFilterStats } from './noiseFilter';
 import { voiceSettingsTelemetry } from './telemetrySettings';
 import { useVoice, voice } from './voice';
 
@@ -160,9 +160,11 @@ function telemetryContext(): TelemetryContext {
       // Isınma belirtisi: aynı çekirdekte kare süresi uzarsa işlemci kısılıyordur
       modelFrameMs: ns?.modelMs ?? null,
       core: ns?.audioCore ?? null,
+      // DPDFNet seçili ama çalışmıyorsa nedeni (yetişemedi, ısındı…)
+      noiseFallback: noiseFallbackReason(ns),
     },
     view: v.watching ? streamView : null,
-    device: { appState: AppState.currentState ?? null, soc: deviceSoc() },
+    device: { appState: AppState.currentState ?? null, soc: deviceSoc(), ...deviceThermal() },
     settings: voiceSettingsTelemetry(s),
   };
 }

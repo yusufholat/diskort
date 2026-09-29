@@ -16,19 +16,23 @@ import kotlin.concurrent.withLock
  * ses yakalama iş parçacığında çağrılır; model de doğrudan orada çalışır (kare 10 ms, model birkaç ms).
  *
  * Android 12+'da iş parçacığı için başarım ipucu (PerfHint, ADPF) açılır: sistem kare sürelerini görüp
- * frekansı hedefe (5 ms) göre ayarlar.
+ * frekansı hedefe göre ayarlar.
  *
- * Güvenlik: kare başına ortalama süre gerçek zamanın %60'ını iki ölçüm penceresi üst üste aşarsa ya da
- * hata olursa işlemci kendini devre dışı bırakır (ses olduğu gibi geçer) ve JS'e bildirir; JS de o zaman
- * WebRTC'nin kendi gürültü engellemesini açar. 48 kHz dışındaki hızlarda ses işlenmeden geçer.
+ * Güvenlik (eşikler: DpdfnetBudget): 2 saniyelik bir ölçüm penceresinde ortalama kare süresi bütçeyi aşarsa
+ * ya da kareler gerçek zamanı (10 ms) kaçırırsa, hata olursa ya da telefon çok ısınırsa işlemci kendini
+ * devre dışı bırakır (ses olduğu gibi geçer) ve bildirir; modül motoru kapatır, JS de WebRTC'nin kendi
+ * gürültü engellemesini açar. Açılıştaki ilk pencere karar vermez (iş parçacığı ve ipucu yeni başlıyor).
+ * 48 kHz dışındaki hızlarda ses işlenmeden geçer.
  */
 object DpdfnetProcessor : AudioProcessorInterface {
-  /** Kare bütçesi: 10 ms'nin %60'ı */
-  const val BUDGET_MS = 6.0
   private const val WINDOW_MS = 2000L
   private const val SCALE = 32768f
 
+  /** Bu kadar kare gelmezse (mikrofon kapalıydı) ölçüm baştan başlar */
+  private const val PAUSE_MS = 1000L
+
   private val lock = ReentrantLock()
+  private val bypassLock = Any()
   private var engine: DpdfnetEngine? = null
 
   @Volatile
@@ -37,7 +41,7 @@ object DpdfnetProcessor : AudioProcessorInterface {
   @Volatile
   private var needsReset = false
 
-  /** Devre dışı kalma nedeni (null: çalışıyor); süreç boyunca kalıcı, yalnızca yeni yüklemede silinir */
+  /** Devre dışı kalma nedeni (null: çalışıyor); yalnızca yeni yüklemede ya da kapatınca silinir */
   @Volatile
   var bypassReason: String? = null
     private set
@@ -73,9 +77,26 @@ object DpdfnetProcessor : AudioProcessorInterface {
   var hintActive = false
     private set
 
-  /** Devre dışı kalınca çağrılır (neden) */
+  enum class Kind {
+    /** Telefon genel olarak yavaş (ortalama bütçeyi aşıyor) */
+    SLOW,
+
+    /** Ani takılmalar: kareler 10 ms'yi aştı */
+    SPIKE,
+
+    /** Model hata verdi */
+    ERROR,
+
+    /** Telefon çok ısındı (yalnızca bu oturum) */
+    THERMAL,
+  }
+
+  /** Devre dışı kalma: neden, türü ve o anki motor (modül ses iş parçacığı dışında kapatır) */
+  class Bypass(val reason: String, val kind: Kind, val engine: DpdfnetEngine?)
+
+  /** Devre dışı kalınca çağrılır; ses iş parçacığında (kilit tutulurken) olabilir: uzun iş yapmamalı */
   @Volatile
-  var onBypass: ((String) -> Unit)? = null
+  var onBypass: ((Bypass) -> Unit)? = null
 
   private val hop = FloatArray(Dpdfnet.HOP)
   private val out = FloatArray(Dpdfnet.HOP)
@@ -87,7 +108,14 @@ object DpdfnetProcessor : AudioProcessorInterface {
   private var winModelNs = 0L
   private var winMaxNs = 0L
   private var winOverHop = 0
-  private var strikes = 0
+
+  /** Açılıştan (ya da aradan) beri biten pencereler: ilki karar vermez */
+  private var windows = 0
+
+  /** Bu motorla yetişilen (karar veren) pencereler: oturum sağlıklı geçti mi (SlowMemory.clearStrikes) */
+  @Volatile
+  var healthyWindows = 0
+    private set
   private var totalFrames = 0L
   private var lastFrameAt = 0L
 
@@ -107,19 +135,24 @@ object DpdfnetProcessor : AudioProcessorInterface {
   )
 
   /**
-   * Isınma ölçümü (ms/kare). avgMs ikinci yarının ortalaması (karar buna göre); firstMs ilk yarınınki
-   * (ikisi çok farklıysa işlemci frekansı ısınma sırasında yükseliyordu); modelMs ikinci yarıda modelin payı.
+   * Isınma ölçümü (ms/kare). avgMs ikinci yarının ortalaması, maxMs / spikeMs ikinci yarının en uzun ve ikinci
+   * en uzun karesi; firstMs ilk yarınınki (ilk kare hariç; ikinci yarıdan çok yüksekse işlemci frekansı ısınma
+   * sırasında yükseliyordu); modelMs ikinci yarıda modelin payı. Karar: DpdfnetBudget.judgeWarmUp.
    */
   data class WarmUp(
     val avgMs: Double,
     val modelMs: Double,
     val firstMs: Double,
+    val maxMs: Double,
+    val spikeMs: Double,
     val provider: String,
     /** Isınmanın bittiği çekirdek, ör. "7 (2600 MHz)" */
     val core: String?,
     /** Başarım ipucu (ADPF) kullanıldı mı */
     val hint: Boolean,
-  )
+  ) {
+    fun judge(): DpdfnetBudget.Miss? = DpdfnetBudget.judgeWarmUp(avgMs, spikeMs, firstMs)
+  }
 
   /** Motoru takar (öncekini kapatır). Yeni motorla ölçümler ve bypass durumu sıfırlanır. */
   fun install(next: DpdfnetEngine?) {
@@ -129,12 +162,32 @@ object DpdfnetProcessor : AudioProcessorInterface {
       if (next != null) provider = next.provider
       needsReset = true
       bypassReason = null
-      strikes = 0
       winStart = 0
+      windows = 0
+      healthyWindows = 0
       stats = null
       old
     }
     previous?.close()
+  }
+
+  /**
+   * Devre dışı kaldıktan sonra (ses iş parçacığı dışında): motor kapatılır ve bellekten atılır; neden ve son
+   * ölçümler durum için kalır. Bu arada motor değiştiyse (ayrılıp yeniden katılındı) dokunulmaz: false döner
+   * (eski oturumun bildirimi yeni oturumu standart engellemeye geçirmemeli).
+   */
+  fun unload(expected: DpdfnetEngine): Boolean {
+    lock.withLock {
+      if (engine !== expected || bypassReason == null) return false
+      enabled = false
+      engine = null
+    }
+    try {
+      expected.close()
+    } catch (_: Throwable) {
+      // bellekten atılamadıysa da devre dışı: ses olduğu gibi geçer
+    }
+    return true
   }
 
   fun hasEngine(): Boolean = lock.withLock { engine != null }
@@ -153,6 +206,13 @@ object DpdfnetProcessor : AudioProcessorInterface {
     lock.withLock { engine?.setAttenLimit(db) }
   }
 
+  /** Telefon çok ısındı: çalışıyorsa bu oturum için devre dışı kalır (kalıcı kaydedilmez) */
+  fun bypassThermal(reason: String) {
+    if (!enabled || bypassReason != null) return
+    val e = lock.withLock { engine } ?: return
+    bypass(Bypass(reason, Kind.THERMAL, e))
+  }
+
   override fun isEnabled(): Boolean = enabled
 
   override fun getName(): String = "diskort_dpdfnet"
@@ -168,7 +228,16 @@ object DpdfnetProcessor : AudioProcessorInterface {
   }
 
   override fun processAudio(numBands: Int, numFrames: Int, buffer: ByteBuffer) {
-    if (!enabled || bypassReason != null) return
+    if (!enabled || bypassReason != null) {
+      // Devre dışı: ses iş parçacığının başarım ipucu kapatılır (sistem frekansı boşuna yüksek tutmasın)
+      if (hintTid != 0) {
+        hint.close()
+        hint = PerfHint.NONE
+        hintTid = 0
+        hintActive = false
+      }
+      return
+    }
     // Model yalnızca 48 kHz (10 ms = 480 örnek); diğer hızlarda ses olduğu gibi geçer
     if (numFrames != Dpdfnet.HOP) return
     // Motor değiştiriliyorsa bu kare işlenmeden geçer (ses iş parçacığı beklemez)
@@ -178,6 +247,8 @@ object DpdfnetProcessor : AudioProcessorInterface {
       if (needsReset) {
         e.reset()
         needsReset = false
+        winStart = 0
+        windows = 0
       }
       val fb = buffer.order(ByteOrder.nativeOrder()).asFloatBuffer()
       if (fb.capacity() < Dpdfnet.HOP) return
@@ -192,22 +263,32 @@ object DpdfnetProcessor : AudioProcessorInterface {
         hintActive = hint.active
       }
       val start = System.nanoTime()
-      e.processHop(hop, out)
+      try {
+        e.processHop(hop, out)
+      } catch (t: Throwable) {
+        bypass(Bypass("hata: ${t.message ?: t.javaClass.simpleName}", Kind.ERROR, e))
+        return
+      }
       val took = System.nanoTime() - start
       hint.report(took)
       for (i in 0 until Dpdfnet.HOP) out[i] *= SCALE
       fb.position(0)
       fb.put(out, 0, Dpdfnet.HOP)
-      measure(took, e.lastModelNs)
+      measure(took, e.lastModelNs, e)
     } catch (t: Throwable) {
-      bypass("hata: ${t.message ?: t.javaClass.simpleName}")
+      bypass(Bypass("hata: ${t.message ?: t.javaClass.simpleName}", Kind.ERROR, engine))
     } finally {
       lock.unlock()
     }
   }
 
-  private fun measure(tookNs: Long, modelNs: Long) {
+  private fun measure(tookNs: Long, modelNs: Long, e: DpdfnetEngine) {
     val now = SystemClock.elapsedRealtime()
+    // Uzun ara (mikrofon kapalıydı): ölçüm baştan başlar, ilk pencere yine karar vermez
+    if (lastFrameAt != 0L && now - lastFrameAt > PAUSE_MS) {
+      winStart = 0
+      windows = 0
+    }
     lastFrameAt = now
     totalFrames++
     if (winStart == 0L) {
@@ -235,22 +316,26 @@ object DpdfnetProcessor : AudioProcessorInterface {
       frames = totalFrames,
       overHop = winOverHop,
     )
-    // Yetişemiyor: ortalama bütçeyi aşıyor ya da karelerin %5'inden fazlası 10 ms'yi geçiyor
-    val slow = avgMs > BUDGET_MS || winOverHop * 20 > winFrames
-    strikes = if (slow) strikes + 1 else 0
     winStart = 0
-    if (strikes >= 2) {
-      val reason = String.format("yavaş: kare başına %.1f ms", avgMs)
-      slowReason = reason
-      bypass(reason)
+    windows++
+    // İlk pencere (iş parçacığının ilk kareleri, ipucu oturumu yeni) karar vermez; sonrakilerde tek pencere yeter
+    if (windows < 2) return
+    val miss = DpdfnetBudget.judgeWindow(avgMs, winOverHop, winFrames)
+    if (miss == null) {
+      healthyWindows++
+      return
     }
+    slowReason = miss.reason
+    bypass(Bypass(miss.reason, if (miss.systematic) Kind.SLOW else Kind.SPIKE, e))
   }
 
-  private fun bypass(reason: String) {
-    if (bypassReason != null) return
-    bypassReason = reason
+  private fun bypass(b: Bypass) {
+    synchronized(bypassLock) {
+      if (bypassReason != null) return
+      bypassReason = b.reason
+    }
     try {
-      onBypass?.invoke(reason)
+      onBypass?.invoke(b)
     } catch (_: Throwable) {
       // bildirim başarısızsa ses yine de olduğu gibi geçer
     }
@@ -258,7 +343,7 @@ object DpdfnetProcessor : AudioProcessorInterface {
 
   /**
    * Isınma ve hız ölçümü: canlı sesten önce çok kısık rastgele gürültüyle 40 kare çalıştırır; karar ikinci
-   * yarının ortalamasına göre verilir (ilk yarı JIT/önbellek ısınması). Motor ardından temiz duruma alınır.
+   * yarıya göre verilir (ilk yarı JIT/önbellek ısınması). Motor ardından temiz duruma alınır.
    */
   fun warmUp(e: DpdfnetEngine): WarmUp {
     val h = FloatArray(Dpdfnet.HOP)
@@ -268,7 +353,10 @@ object DpdfnetProcessor : AudioProcessorInterface {
     var first = 0L
     var total = 0L
     var model = 0L
+    var max = 0L
+    var second = 0L
     val frames = 40
+    val half = frames / 2
     for (f in 0 until frames) {
       for (i in h.indices) {
         seed = (seed * 1664525L + 1013904223L) and 0xffffffffL
@@ -278,17 +366,32 @@ object DpdfnetProcessor : AudioProcessorInterface {
       e.processHop(h, o)
       val took = System.nanoTime() - s
       warmHint.report(took)
-      if (f >= frames / 2) {
+      if (f >= half) {
         total += took
         model += e.lastModelNs
-      } else {
+        if (took > max) {
+          second = max
+          max = took
+        } else if (took > second) {
+          second = took
+        }
+      } else if (f > 0) {
+        // İlk kare (bellek ayırma, ilk çalıştırma) sayılmaz
         first += took
       }
     }
     warmHint.close()
     e.reset()
-    val half = frames / 2
     val core = CpuInfo.describe(android.os.Process.myTid())
-    return WarmUp(total / 1e6 / half, model / 1e6 / half, first / 1e6 / half, e.provider, core, warmHint.active)
+    return WarmUp(
+      avgMs = total / 1e6 / half,
+      modelMs = model / 1e6 / half,
+      firstMs = first / 1e6 / (half - 1),
+      maxMs = max / 1e6,
+      spikeMs = second / 1e6,
+      provider = e.provider,
+      core = core,
+      hint = warmHint.active,
+    )
   }
 }

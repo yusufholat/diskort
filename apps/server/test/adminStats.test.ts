@@ -225,10 +225,10 @@ describe('ses kalitesi ölçümleri', () => {
     };
     const res = await send({
       ...report({ channelId: voice.id, platform: 'android' }),
-      mic: { ...report().mic!, modelFrameMs: 5.123, core: '7 (4320 MHz)' },
+      mic: { ...report().mic!, modelFrameMs: 5.123, core: '7 (4320 MHz)', noiseFallback: 'yavaş: kare başına 6,3 ms' },
       screen: { width: 1920, height: 1080, fps: 60, bitrate: 8e6, encoder: 'libvpx', codec: 'video/VP9', limitation: 'cpu', limitedRatio: 0.4, encodeMs: 9.5, hardware: false },
       watch,
-      device: { appState: 'active', soc: 'QTI SM8850' },
+      device: { appState: 'active', soc: 'QTI SM8850', thermal: 'moderate', thermalHeadroom: 0.82 },
       // Sunucunun bilmediği alan yok sayılır
       gelecek: { x: 1 },
     });
@@ -245,8 +245,8 @@ describe('ses kalitesi ölçümleri', () => {
     const hist = (await s.req(s.owner.token, 'GET', `/api/admin/telemetry?user=${member.user.id}`)).json();
     const first = hist.entries[0] as TelemetryEntry;
     expect(first.watch).toMatchObject({ decoder: 'libvpx', hardware: false, fps: 58.4, decodeMs: 6.91, bitrate: 11_800_000, freezeSec: 0.4, jitterBufferMs: 48.3, view: { mode: 'inline' } });
-    expect(first.device).toEqual({ appState: 'active', soc: 'QTI SM8850' });
-    expect(first.mic).toMatchObject({ modelFrameMs: 5.123, core: '7 (4320 MHz)' });
+    expect(first.device).toEqual({ appState: 'active', soc: 'QTI SM8850', thermal: 'moderate', thermalHeadroom: 0.82 });
+    expect(first.mic).toMatchObject({ modelFrameMs: 5.123, core: '7 (4320 MHz)', noiseFallback: 'yavaş: kare başına 6,3 ms' });
     expect(first.screen).toMatchObject({ encodeMs: 9.5, hardware: false });
     expect(JSON.stringify(first)).not.toContain('gelecek');
     expect(hist.entries[1].watch).toBeNull();

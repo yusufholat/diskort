@@ -2,6 +2,7 @@ import { reportClientError } from '@diskort/client-core';
 import { create } from 'zustand';
 import { NoiseFilter, type NoiseFilterStatus } from '../../modules/noise-filter';
 import { getSettings, useSettings, type NoiseMode } from '../stores/settings';
+import { readThermal, type DeviceThermal } from './thermal';
 
 /**
  * DPDFNet gürültü engelleme (modules/noise-filter): masaüstündeki modelin aynısı telefonda, WebRTC'nin ses
@@ -39,19 +40,26 @@ export function webrtcNoiseSuppression(): boolean {
   return mode === 'standard' || (mode === 'dpdfnet' && !running);
 }
 
+/** Bu açılışta bildirilen nedenler: kaydedilmiş yavaşlık her katılışta yeniden bildirilmesin */
+const reported = new Set<string>();
+
 /**
  * Sunucuya bildirir. İleti kısa kalır (aynı nedenler gruplansın); ölçüm ayrıntıları (yürütücü, model/STFT
- * payı, çekirdek, yonga) yığın alanına yazılır: saha raporundan telefonun neden yetişemediği anlaşılsın.
+ * payı, çekirdek, yonga, ısı durumu) yığın alanına yazılır: saha raporundan telefonun neden yetişemediği anlaşılsın.
  */
 function report(reason: string, status: NoiseFilterStatus | null = null): void {
+  if (reported.has(reason)) return;
+  reported.add(reason);
   const err = new Error(`DPDFNet çalışmıyor: ${reason}`);
   const s = status ?? safeStats();
   if (s) {
     const n = (v: number | null | undefined): string => (v == null ? '-' : v.toFixed(2));
+    const t = deviceThermal();
     err.stack = [
       err.message,
       `yürütücü: ${s.provider ?? '-'}; başarım ipucu: ${s.hint == null ? '-' : s.hint ? 'açık' : 'yok'}`,
-      `ısınma: ${n(s.warmupMs)} ms (model ${n(s.warmupModelMs)}, ilk yarı ${n(s.warmupFirstMs)}, çekirdek ${s.warmupCore ?? '-'})`,
+      `ısınma: ${n(s.warmupMs)} ms (model ${n(s.warmupModelMs)}, en uzun ${n(s.warmupMaxMs)}, ilk yarı ${n(s.warmupFirstMs)}, çekirdek ${s.warmupCore ?? '-'})`,
+      `ısı durumu: ${t.thermal ?? '-'}; ısınma payı: ${n(t.thermalHeadroom)}`,
       `canlı: ort ${n(s.avgMs)} ms (model ${n(s.modelMs)}), en uzun ${n(s.maxMs)}, >10 ms: ${s.overHop}, kare: ${s.frames}`,
       `ses çekirdeği: ${s.audioCore ?? '-'}; işlemci: ${s.soc ?? '-'} · ${s.cpu ?? '-'}`,
     ].join('\n');
@@ -72,6 +80,32 @@ let soc: string | null | undefined;
 export function deviceSoc(): string | null {
   if (soc === undefined) soc = safeStats()?.soc ?? null;
   return soc;
+}
+
+/** Telefonun ısı durumu (ses kalitesi özeti); eski APK'da (yerel işlev yok) alanlar null */
+export function deviceThermal(): DeviceThermal {
+  const module = NoiseFilter;
+  return readThermal(module && typeof module.getThermal === 'function' ? () => module.getThermal!() : undefined);
+}
+
+/**
+ * Yayın izleniyor ya da paylaşılıyor: görüntü de işlemciyi yorar, o sırada DPDFNet yetişemezse telefon kalıcı
+ * olarak "yavaş" kaydedilmez (yalnızca o oturumda kapanır). Eski APK'da yerel işlev yoktur.
+ */
+export function noteVideoActivity(active: boolean): void {
+  const module = NoiseFilter;
+  if (!module || typeof module.setVideoActive !== 'function') return;
+  try {
+    module.setVideoActive(active);
+  } catch {
+    // yalnızca kayıt kararını etkiler
+  }
+}
+
+/** DPDFNet seçili ama çalışmıyorsa nedeni (ses kalitesi özeti); çalışıyorsa ya da seçili değilse null */
+export function noiseFallbackReason(status: NoiseFilterStatus | null): string | null {
+  if (effectiveNoiseMode() !== 'dpdfnet') return null;
+  return status && !status.active ? (status.reason ?? null) : null;
 }
 
 /**
@@ -115,8 +149,9 @@ export function noiseFilterStats(): NoiseFilterStatus | null {
 }
 
 /**
- * DPDFNet sesli sohbet sırasında kendini devre dışı bıraktığında (telefon yetişemedi ya da hata) çağrılır.
- * Çağrıldığında webrtcNoiseSuppression() artık true döner; mikrofon standart engellemeyle yeniden açılmalı.
+ * DPDFNet sesli sohbet sırasında kendini devre dışı bıraktığında (telefon yetişemedi, çok ısındı ya da hata)
+ * çağrılır; yerel modül motoru o sırada kapatır. Çağrıldığında webrtcNoiseSuppression() artık true döner;
+ * mikrofon standart engellemeyle yeniden açılmalı.
  */
 export function onNoiseFilterBypass(listener: (reason: string) => void): void {
   NoiseFilter?.addListener('onBypass', ({ reason }) => {

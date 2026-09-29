@@ -37,6 +37,8 @@ export interface TelemetryMic {
   modelFrameMs?: number | null;
   /** Ses iş parçacığının çalıştığı çekirdek ve en yüksek frekansı, ör. "7 (4320 MHz)" */
   core?: string | null;
+  /** Seçili model çalışmıyorsa nedeni (ör. telefonda DPDFNet yetişemedi → standart engelleme) */
+  noiseFallback?: string | null;
 }
 
 /** İzlenen ekran yayınının görünümü (telefon): tam ekran ya da ses ekranındaki küçük görünüm */
@@ -132,6 +134,11 @@ export interface TelemetryDevice {
   appState: string | null;
   /** Yonga, ör. "QTI SM8850" */
   soc: string | null;
+  // "?" alanlar yeni APK'larda vardır (eskiler göndermez)
+  /** Android ısı durumu: none, light, moderate, severe, critical, emergency, shutdown (bilinmiyorsa null) */
+  thermal?: string | null;
+  /** Isınma payı (Android 11+; 1,0 = "ciddi" eşiği) */
+  thermalHeadroom?: number | null;
 }
 
 /** Ekran paylaşımı (yalnızca yayındayken) */
