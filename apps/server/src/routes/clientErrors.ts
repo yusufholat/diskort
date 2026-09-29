@@ -12,6 +12,18 @@ const clientErrorSchema = z.object({
 });
 
 /**
+ * Beklenen, zararsız gürültü: eski istemcilerden gelenler de kaydedilmez (yeniler zaten göndermez).
+ * - DUPLICATE_IDENTITY: kullanıcı aynı ses kanalına başka cihazdan girdi
+ * - createOffer uyarısı: bağlantı kapandıktan sonraki LiveKit yan gürültüsü
+ * - unpublish uyarısı: ekran paylaşımı kendiliğinden bitince çift yayın kaldırma
+ */
+const IGNORED_MESSAGES = [
+  'ses bağlantısı kapandı: DUPLICATE_IDENTITY',
+  'could not createOffer with closed peer connection',
+  'track was not unpublished because no publication was found',
+];
+
+/**
  * İstemcilerin beklenmedik hataları (özellikle telefonda hata ayıklama aracı yok). Veritabanına yazılmaz:
  * sunucu kayıtlarına düşer (`docker compose logs api | grep "istemci hatası"`) ve son 200'ü bellekte
  * yönetim panelinde görünür. Giriş yapmadan önceki hatalar da gelebilsin diye oturum zorunlu değildir;
@@ -24,6 +36,7 @@ export function registerClientErrorRoutes(app: FastifyInstance, ctx: AppContext)
     if (!allow(req.ip)) return sendError(reply, 429, 'rate_limited', 'Çok fazla hata bildirimi.');
     const body = parseBody(clientErrorSchema, req.body, reply);
     if (!body) return reply;
+    if (IGNORED_MESSAGES.some((m) => body.message.includes(m))) return reply.code(204).send();
     const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
     const user = token ? await ctx.auth.userFromToken(token).catch(() => null) : null;
     req.log.warn({ clientError: { ...body, user: user?.username ?? null } }, 'istemci hatası');
