@@ -149,19 +149,31 @@ describe('sürüm notları', () => {
   it('notlar en son sürüm bilgisinin önüne geçmez: yeni sürümün notu, sürüm görülünce çıkar', async () => {
     const gh = githubFake({ latest: '0.8.9', notes: ['0.8.10', '0.8.9'] });
     const service = new ReleaseService('x/y', gh.fn);
-    expect((await service.latest())?.version).toBe('0.8.9');
-    // GitHub'ın "en son"u henüz eski sürümü gösteriyor: yeni sürümün notu gizli, sürüm bilgisi tazelendi
-    backdate(service);
+    // Notlar yeni sürümü gördü, "en son" henüz eski: yeni sürümün notu gizli, bunun için GitHub'a ek istek yok
     expect((await service.recentNotes()).map((n) => n.version)).toEqual(['0.8.9']);
-    expect(gh.latestCalls()).toBe(2);
-    // Hemen ardından gelen istek GitHub'a yeniden gitmez
     await service.recentNotes();
-    expect(gh.latestCalls()).toBe(2);
-    // "En son" yeni sürüme geçti: tazelenince not görünür, sürüm bilgisi de güncel
+    expect(gh.latestCalls()).toBe(1);
+    // Yoklama yeni sürümü gördü: not görünür
     gh.set({ latest: '0.8.10' });
-    backdate(service);
+    await (service as unknown as { refresh: () => Promise<unknown> }).refresh();
     expect((await service.recentNotes()).map((n) => n.version)).toEqual(['0.8.10', '0.8.9']);
-    expect(service.known()?.version).toBe('0.8.10');
+  });
+
+  it('GitHub hata verince bekler: istek sınırı dolduysa sıfırlanana kadar gitmez, son bilinen değer kalır', async () => {
+    const gh = githubFake({ latest: '0.8.9', notes: ['0.8.9'] });
+    const service = new ReleaseService('x/y', gh.fn);
+    await service.latest();
+    gh.set({ limited: true });
+    const refresh = () => (service as unknown as { refresh: () => Promise<{ version: string } | null> }).refresh();
+    expect((await refresh())?.version).toBe('0.8.9');
+    expect(gh.latestCalls()).toBe(2);
+    // Beklerken ne sürüm ne not için GitHub'a gidilir
+    expect((await refresh())?.version).toBe('0.8.9');
+    backdate(service);
+    await service.latest();
+    expect(gh.latestCalls()).toBe(2);
+    expect(await service.recentNotes()).toEqual([]);
+    expect(gh.notesCalls()).toBe(0);
   });
 
   it('yeni sürüm görülünce notların önbelleği sıfırlanır', async () => {
@@ -207,13 +219,26 @@ function backdate(service: ReleaseService): void {
 
 /** Adrese göre yanıt veren sahte GitHub: /releases/latest ve /releases?per_page (notlar) */
 function githubFake(initial: { latest: string; notes?: string[]; etag?: string }) {
-  let state: { latest: string; notes: string[]; etag?: string; notModified?: boolean } = { notes: [], ...initial };
+  let state: { latest: string; notes: string[]; etag?: string; notModified?: boolean; limited?: boolean } = {
+    notes: [],
+    ...initial,
+  };
   let latestCalls = 0;
+  let notesCalls = 0;
   let ifNoneMatch: string | undefined;
   const fn = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
+    if (url.endsWith('/releases/latest')) latestCalls++;
+    else notesCalls++;
+    if (state.limited) {
+      const reset = String(Math.floor(Date.now() / 1000) + 20 * 60);
+      return {
+        ok: false,
+        status: 403,
+        headers: new Headers({ 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset }),
+      } as unknown as Response;
+    }
     if (url.endsWith('/releases/latest')) {
-      latestCalls++;
       ifNoneMatch = (init?.headers as Record<string, string> | undefined)?.['If-None-Match'];
       if (state.notModified) return { ok: false, status: 304, headers: new Headers() } as Response;
       return {
@@ -236,6 +261,7 @@ function githubFake(initial: { latest: string; notes?: string[]; etag?: string }
       state = { ...state, ...next };
     },
     latestCalls: () => latestCalls,
+    notesCalls: () => notesCalls,
     lastIfNoneMatch: () => ifNoneMatch,
   };
 }
