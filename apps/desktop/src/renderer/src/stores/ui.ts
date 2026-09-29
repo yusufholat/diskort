@@ -93,6 +93,9 @@ interface UiStore {
   /** Metin kanalının sağındaki üye listesi açık mı */
   memberListOpen: boolean;
   toggleMemberList: () => void;
+  /** Ses sahnesinde odaklanmış yayının altındaki katılımcı şeridi gizli mi */
+  stageStripCollapsed: boolean;
+  toggleStageStrip: () => void;
   /** Yasaklama penceresi (açık pencerenin, ör. sunucu ayarlarının, üstünde açılır) */
   banUser: User | null;
   setBanUser: (user: User | null) => void;
@@ -124,6 +127,7 @@ const LAST_TEXT_CHANNEL_KEY = 'diskort-last-text-channel';
 const LAST_TEXT_BY_GUILD_KEY = 'diskort-last-text-by-guild';
 const LAST_DM_KEY = 'diskort-last-dm';
 const MEMBER_LIST_KEY = 'diskort-member-list';
+const STAGE_STRIP_KEY = 'diskort-stage-strip';
 
 function stored(key: string): string | null {
   try {
@@ -167,6 +171,12 @@ export const useUi = create<UiStore>()((set, get) => ({
     const memberListOpen = !get().memberListOpen;
     store(MEMBER_LIST_KEY, memberListOpen ? '1' : '0');
     set({ memberListOpen });
+  },
+  stageStripCollapsed: stored(STAGE_STRIP_KEY) === '0',
+  toggleStageStrip: () => {
+    const stageStripCollapsed = !get().stageStripCollapsed;
+    store(STAGE_STRIP_KEY, stageStripCollapsed ? '0' : '1');
+    set({ stageStripCollapsed });
   },
   banUser: null,
   setBanUser: (banUser) => set({ banUser, contextMenu: null }),

@@ -78,8 +78,9 @@ function MicMeter({ editable }: { editable: boolean }) {
   const thresholdPct = toPct(editable ? threshold : level.threshold);
 
   return (
-    <div className="relative h-8">
-      <div className="absolute inset-x-0 top-3 h-2 overflow-hidden rounded bg-control">
+    // Kaydırıcılarla aynı ince iz (styles/controls.css); eşik ince bir çentik
+    <div className="relative h-6">
+      <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-current/20">
         <div
           className="absolute inset-y-0 left-0 bg-warn transition-[width] duration-75"
           style={{ width: `${Math.min(toPct(level.db), thresholdPct)}%` }}
@@ -92,15 +93,18 @@ function MicMeter({ editable }: { editable: boolean }) {
       {editable ? (
         <input
           type="range"
-          className="slider absolute inset-x-0 top-1.5 w-full bg-transparent"
-          style={{ background: 'transparent' }}
+          className="range-tick absolute inset-x-0 top-1 w-full"
+          aria-label="Giriş hassasiyeti"
           min={-100}
           max={0}
           value={threshold}
           onChange={(e) => set({ vadThresholdDb: Number(e.target.value) })}
         />
       ) : (
-        <div className="absolute top-1 h-6 w-0.5 bg-text-head/70" style={{ left: `${thresholdPct}%` }} />
+        <div
+          className="absolute top-1/2 h-3.5 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-text-head/80"
+          style={{ left: `${thresholdPct}%` }}
+        />
       )}
     </div>
   );
