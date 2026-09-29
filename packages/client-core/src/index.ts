@@ -163,6 +163,22 @@ export {
   type RolePermissionSource,
 } from './permissions';
 export {
+  activeGuildContext,
+  canMessageIn,
+  channelMemberColorOf,
+  contextOfChannel,
+  DM_CONTEXT,
+  memberColorIn,
+  showsGuildInfo,
+  showsStreamInfo,
+  useActiveGuildContext,
+  useChannelContext,
+  useChannelMemberColor,
+  useVoiceMemberColor,
+  voiceMemberColorOf,
+  type ProfileContext,
+} from './profileContext';
+export {
   channelPermissionInfos,
   PERMISSION_GROUPS,
   permissionInfo,

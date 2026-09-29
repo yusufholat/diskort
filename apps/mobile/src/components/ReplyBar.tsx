@@ -5,7 +5,7 @@ import {
   isOwnReplyTarget,
   setReplyMention,
   useGuild,
-  useMemberColor,
+  useChannelMemberColor,
   useMessages,
 } from '@diskort/client-core';
 import { colors, createStyles } from '../theme';
@@ -18,7 +18,7 @@ import { ContextBar } from './ContextBar';
 export function ReplyBar({ channelId }: { channelId: string }) {
   const draft = useMessages((s) => s.replies[channelId]);
   const author = useGuild((s) => (draft?.authorId ? s.users[draft.authorId] : undefined));
-  const color = useMemberColor(draft?.authorId);
+  const color = useChannelMemberColor(draft?.authorId, channelId);
   if (!draft) return null;
   const own = isOwnReplyTarget(draft);
 

@@ -10,7 +10,7 @@ import {
   unpinMessage,
   useCan,
   useGuild,
-  useMemberColor,
+  useChannelMemberColor,
   usePins,
   useSession,
   type ChannelPins,
@@ -37,7 +37,7 @@ const markdownContext = (users: Record<string, User>, selfId: string | undefined
 /** Onay penceresinde ve sabitlenmiş mesajlar listesinde mesajın özeti */
 function MessageCard({ message, md, full = false }: { message: Message; md: MarkdownContext; full?: boolean }) {
   const author = useGuild((s) => (message.authorId ? s.users[message.authorId] : undefined));
-  const color = useMemberColor(message.authorId);
+  const color = useChannelMemberColor(message.authorId, message.channelId);
   const gif = gifOf(message);
   return (
     <div className="flex min-w-0 gap-3">

@@ -1,19 +1,24 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Crown, Eye, MessageCircle } from 'lucide-react';
+import { AtSign, Crown, Eye, MessageCircle } from 'lucide-react';
 import { create } from 'zustand';
 import { userProfileEffect } from '@diskort/shared';
 import {
+  canMessageIn,
+  showsGuildInfo,
+  showsStreamInfo,
   sortedRoles,
   useCustomStatus,
   useGuild,
   useSession,
   useStatus,
+  type ProfileContext,
 } from '@diskort/client-core';
 import { startDm } from '../../lib/dm';
 import { useEscapeLayer } from '../../lib/escape';
 import { usePresence } from '../../lib/motion';
 import { watchUserStream } from '../../lib/watchStream';
 import { cn } from '../../lib/utils';
+import { toast } from '../../stores/ui';
 import {
   ProfileCardTop,
   ProfileEffectLayer,
@@ -33,8 +38,11 @@ export interface ProfileAnchor {
 
 interface ProfileTarget {
   userId: string;
-  /** Kartın açıldığı kanal (yoksa null) */
-  channelId: string | null;
+  /**
+   * Kartın açıldığı bağlam (açan yer bildirir): sunucuda roller, sahiplik ve yayın; DM'de yalnızca hesap
+   * düzeyi bilgiler (seçili sunucunun rolleri ya da rengi DM'de görünmez)
+   */
+  context: ProfileContext;
   anchor: ProfileAnchor;
   /** Tercih edilen taraf: sohbetteki avatardan sağa, sağdaki üye listesinden sola açılır */
   side: 'right' | 'left';
@@ -59,27 +67,34 @@ export function closeProfile(): void {
   useProfilePopover.setState({ target: null });
 }
 
-/** Profil kartı: afiş, büyük avatar, ad, roller ve "Mesaj gönder". App'te bir kez çizilir. */
+/**
+ * Profil kartı: afiş, büyük avatar, ad, (sunucuda) roller ve "Mesaj gönder". App'te bir kez çizilir. DM
+ * bağlamında sunucu bilgisi yok: rol, sahiplik tacı, yayın ve "sunucuda değil" notu gösterilmez.
+ */
 export function ProfilePopover() {
   const target = useProfilePopover((s) => s.target);
   const { value: shown, closing } = usePresence(target, 100);
   const user = useGuild((s) => (shown ? s.users[shown.userId] : undefined));
   const status = useStatus(shown?.userId);
   const custom = useCustomStatus(shown?.userId);
-  const owner = useGuild((s) => (shown ? s.guild?.ownerId === shown.userId : false));
+  // Sunucu bilgisi (roller, taç, yayın) yalnızca o sunucunun bağlamında
+  const guildInfo = useGuild((s) => (shown ? showsGuildInfo(s, shown.context) : false));
+  const owner = useGuild((s) => (shown && guildInfo ? s.guild?.ownerId === shown.userId : false));
   const allRoles = useGuild((s) => s.roles);
   const selfId = useSession((s) => s.user?.id);
-  // Yayın yapıyorsa kanalı (kartta "Yayını izle" düğmesi için)
+  const canMessage = useGuild((s) => (shown ? canMessageIn(s, shown.context, shown.userId, selfId) : false));
+  // Yayın yapıyorsa kanalı (kartta "Yayını izle" düğmesi için): her sunucu bağlamında (seçili olmayan
+  // sunucunun ses kanalı da), DM'de değil
   const streamChannel = useGuild((s) => {
-    const v = shown ? s.voiceStates[shown.userId] : undefined;
+    const v = shown && showsStreamInfo(shown.context) ? s.voiceStates[shown.userId] : undefined;
     return v?.streaming ? v.channelId : null;
   });
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number; origin: string } | null>(null);
 
   const roles = useMemo(
-    () => (user ? sortedRoles({ roles: allRoles }).filter((r) => user.roles.includes(r.id)) : []),
-    [user, allRoles],
+    () => (user && guildInfo ? sortedRoles({ roles: allRoles }).filter((r) => user.roles.includes(r.id)) : []),
+    [user, allRoles, guildInfo],
   );
 
   // Tercih edilen tarafa sığmıyorsa öbür tarafa; dikeyde ekranın içinde kalır
@@ -121,10 +136,16 @@ export function ProfilePopover() {
   if (!shown || !user) return null;
 
   // Kendisi dışındaki üyeyle bire bir konuşmayı açar (yoksa oluşturur)
-  const canMessage = user.id !== selfId;
   const message = (): void => {
     closeProfile();
     void startDm(user.id);
+  };
+  const copyUsername = (): void => {
+    closeProfile();
+    void navigator.clipboard.writeText(user.username).then(
+      () => toast('Kullanıcı adı kopyalandı.', 'success'),
+      () => undefined,
+    );
   };
   const watch = (): void => {
     closeProfile();
@@ -170,7 +191,7 @@ export function ProfilePopover() {
           </div>
         )}
 
-        {streamChannel && !user.removed && (
+        {streamChannel && !(guildInfo && user.removed) && (
           <button
             type="button"
             className="press mt-4 flex w-full items-center justify-center gap-1.5 rounded bg-danger px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-danger-hover"
@@ -180,19 +201,37 @@ export function ProfilePopover() {
             {user.id === selfId ? 'Yayınını göster' : 'Yayını izle'}
           </button>
         )}
-        {user.removed ? (
+        {guildInfo && user.removed ? (
           <div className="mt-3 text-sm text-text-muted italic">Artık sunucuda değil.</div>
         ) : (
-          canMessage && (
+          (canMessage || !guildInfo) && (
             <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                className="press flex flex-1 items-center justify-center gap-1.5 rounded bg-brand px-3 py-2 text-sm font-medium whitespace-nowrap text-white transition-colors hover:bg-brand-hover"
-                onClick={message}
-              >
-                <MessageCircle size={16} className="ico-pop" />
-                Mesaj gönder
-              </button>
+              {canMessage && (
+                <button
+                  type="button"
+                  className="press flex flex-1 items-center justify-center gap-1.5 rounded bg-brand px-3 py-2 text-sm font-medium whitespace-nowrap text-white transition-colors hover:bg-brand-hover"
+                  onClick={message}
+                >
+                  <MessageCircle size={16} className="ico-pop" />
+                  Mesaj gönder
+                </button>
+              )}
+              {/* Sunucu dışında (DM) hesap düzeyi işlem: kullanıcı adını kopyala */}
+              {!guildInfo && (
+                <button
+                  type="button"
+                  data-tooltip={canMessage ? 'Kullanıcı adını kopyala' : undefined}
+                  aria-label="Kullanıcı adını kopyala"
+                  className={cn(
+                    'press flex items-center justify-center gap-1.5 rounded bg-bg-side px-3 py-2 text-sm font-medium whitespace-nowrap text-text-normal transition-colors hover:bg-bg-hover',
+                    !canMessage && 'flex-1',
+                  )}
+                  onClick={copyUsername}
+                >
+                  <AtSign size={16} />
+                  {!canMessage && 'Kullanıcı adını kopyala'}
+                </button>
+              )}
             </div>
           )
         )}

@@ -12,7 +12,7 @@ import {
   searchScopeKey,
   searchSuggestions,
   useGuild,
-  useMemberColor,
+  useChannelMemberColor,
   useSearch,
   useSession,
 } from '@diskort/client-core';
@@ -218,7 +218,7 @@ function ResultCard({ result, onOpen }: { result: SearchResult; onOpen: (r: Sear
   const author = useGuild((s) => (message.authorId ? s.users[message.authorId] : undefined));
   const fallback = useSearch((s) => (message.authorId ? s.users[message.authorId] : undefined));
   const user = author ?? fallback;
-  const color = useMemberColor(message.authorId);
+  const color = useChannelMemberColor(message.authorId, message.channelId);
   const files = message.attachments.length;
   return (
     <button

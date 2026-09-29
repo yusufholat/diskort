@@ -1,18 +1,23 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Image, ScrollView, Text, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import {
+  canMessageIn,
   memberActions,
   memberColorOf,
   moderation,
   moveTargets,
   openDirectMessage,
+  showsGuildInfo,
+  showsStreamInfo,
   streamPreviewHeaders,
   streamPreviewUrl,
   useCustomStatus,
   useGuild,
   useSession,
   useStatus,
+  type ProfileContext,
 } from '@diskort/client-core';
 import { usePathname, useRouter } from 'expo-router';
 import { feedback, haptic } from '../haptics';
@@ -33,37 +38,47 @@ type Page = 'main' | 'move' | 'roles';
  * Bir üyeye basınca açılan menü: başkasıysa "Mesaj gönder", sonra yetkiye ve hiyerarşiye göre yönetim
  * (masaüstündeki üye menüsüyle aynı): seste sunucuda susturma, sağırlaştırma, başka kanala taşıma, sesten
  * çıkarma; rol verme/alma; atma ve yasaklama (temalı onay penceresiyle; yasaklarken isteğe bağlı sebep).
+ * DM bağlamında sunucu yoktur: yalnızca hesap düzeyi bilgiler ve işlemler (mesaj, kullanıcı adını kopyala);
+ * rol, rol rengi, sahiplik, ses ve yönetim gösterilmez (kişi başka bir sunucuda olsa da).
  */
 export function MemberSheet({
   userId: requested,
+  context,
   onClose,
   renderExtra,
 }: {
   userId: string | null;
+  /** Menünün açıldığı bağlam (açan yer bildirir; seçili sunucudan çıkarılmaz) */
+  context: ProfileContext;
   onClose: () => void;
   /** Başlığın altında gösterilecek ek bölüm (ör. ses ekranında kişinin ses seviyesi) */
   renderExtra?: (userId: string) => ReactNode;
 }) {
-  // Kapanış animasyonu sürerken içerik kaybolmasın: son üye tutulur
-  const last = useRef(requested);
-  if (requested) last.current = requested;
-  const userId = requested ?? last.current;
+  // Kapanış animasyonu sürerken içerik kaybolmasın: son üye ve bağlamı tutulur
+  const last = useRef({ userId: requested, context });
+  if (requested) last.current = { userId: requested, context };
+  const userId = requested ?? last.current.userId;
+  const shownContext = requested ? context : last.current.context;
+  // Sunucu bilgisi (roller, taç, ses, yönetim) yalnızca o sunucunun bağlamında
+  const guildInfo = useGuild((s) => showsGuildInfo(s, shownContext));
   const user = useGuild((s) => (userId ? s.users[userId] : undefined));
-  const voice = useGuild((s) => (userId ? s.voiceStates[userId] : undefined));
+  // Sesteki yönetim (susturma, taşıma) seçili sunucunun yetkileriyle: yalnızca o sunucunun bağlamında
+  const voice = useGuild((s) => (userId && guildInfo ? s.voiceStates[userId] : undefined));
+  // Seste olduğu ve "Yayını izle": her sunucu bağlamında (seçili olmayan sunucunun ses kanalı da), DM'de değil
+  const live = useGuild((s) => (userId && showsStreamInfo(shownContext) ? s.voiceStates[userId] : undefined));
   const status = useStatus(userId);
   const custom = useCustomStatus(userId);
-  const color = useGuild((s) => memberColorOf(s, userId));
+  const color = useGuild((s) => (guildInfo ? memberColorOf(s, userId) : null));
   const guildRoles = useGuild((s) => s.roles);
-  const owner = useGuild((s) => Boolean(userId && s.guild?.ownerId === userId));
+  const owner = useGuild((s) => Boolean(guildInfo && userId && s.guild?.ownerId === userId));
   const [page, setPage] = useState<Page>('main');
   const moving = page === 'move';
-  const userRoles = useGuild((s) => (userId ? s.users[userId]?.roles : undefined));
+  const userRoles = useGuild((s) => (userId && guildInfo ? s.users[userId]?.roles : undefined));
   const selfId = useSession((s) => s.user?.id);
-  // Mesaj: ortak sunucusu olan herkese (DM'deki başka sunucudan biri de)
-  const reachable = useGuild((s) => (userId ? Boolean(s.reachable[userId]) : false));
-  const canMessage = Boolean(user && reachable && userId !== selfId);
+  // Mesaj: ortak sunucusu olan herkese (DM'deki başka sunucudan biri de); o kişiyle bire bir konuşmada değil
+  const canMessage = useGuild((s) => Boolean(user && userId && canMessageIn(s, shownContext, userId, selfId)));
   // Başkası ekran paylaşıyorsa "Yayını izle" (o kanalda değilsen önce katılır)
-  const streaming = Boolean(voice?.streaming && userId !== selfId);
+  const streaming = Boolean(live?.streaming && userId !== selfId);
   const watchingThis = useVoice((s) => s.watching !== null && s.watching === userId);
   const router = useRouter();
   const pathname = usePathname();
@@ -73,7 +88,7 @@ export function MemberSheet({
     onClose();
   };
 
-  const actions = userId && user && !user.removed ? memberActions(userId) : null;
+  const actions = guildInfo && userId && user && !user.removed ? memberActions(userId) : null;
   const targets = moving && user ? moveTargets(user) : [];
   const done = (ok: boolean, message: string): void => {
     feedback(ok ? 'moderate' : 'error');
@@ -135,8 +150,8 @@ export function MemberSheet({
   const voiceActions = Boolean(voice && actions && (actions.mute || actions.deafen || actions.move));
   const nothing =
     !extra && !canMessage && !streaming && actions && !voiceActions && !actions.kick && !actions.ban && actions.roles.length === 0;
-  // Rolleri, en üstteki önce (masaüstündeki profil kartı gibi renk noktasıyla)
-  const roles = (user?.roles ?? [])
+  // Rolleri, en üstteki önce (masaüstündeki profil kartı gibi renk noktasıyla); DM'de yok
+  const roles = (guildInfo ? (user?.roles ?? []) : [])
     .map((id) => guildRoles[id])
     .filter((r) => r !== undefined)
     .sort((a, b) => b.position - a.position);
@@ -147,9 +162,19 @@ export function MemberSheet({
     if (dm) showChat(dm.id);
   };
 
+  const copyUsername = (): void => {
+    const username = user?.username;
+    close();
+    if (!username) return;
+    void Clipboard.setStringAsync(username).then(
+      () => toast('Kullanıcı adı kopyalandı'),
+      () => undefined,
+    );
+  };
+
   const watchStream = async (): Promise<void> => {
     const target = userId!;
-    const channelId = voice!.channelId;
+    const channelId = live!.channelId;
     close();
     if (watchingThis) {
       voiceClient.watch(null);
@@ -183,7 +208,7 @@ export function MemberSheet({
               <MaterialCommunityIcons name="crown-outline" size={17} color={colors.warn} accessibilityLabel="Sunucunun sahibi" />
             )
           }
-          lines={voice ? 'Sesli sohbette' : undefined}
+          lines={live ? 'Sesli sohbette' : undefined}
           custom={custom}
           style={styles.header}
         />
@@ -199,7 +224,7 @@ export function MemberSheet({
         </View>
       )}
       {page === 'main' && extra}
-      {page === 'main' && user?.removed && <SheetNote>Artık bu sunucuda değil.</SheetNote>}
+      {page === 'main' && guildInfo && user?.removed && <SheetNote>Artık bu sunucuda değil.</SheetNote>}
       <ScrollView style={styles.scroll} bounces={false}>
         {moving ? (
           <>
@@ -247,17 +272,17 @@ export function MemberSheet({
           <>
             {streaming && (
               <SheetGroup>
-                {voice?.streamPreviewAt !== undefined && (
+                {live?.streamPreviewAt !== undefined && (
                   <View style={styles.preview}>
                     <Image
-                      source={{ uri: streamPreviewUrl(voice), headers: streamPreviewHeaders() }}
+                      source={{ uri: streamPreviewUrl(live), headers: streamPreviewHeaders() }}
                       style={styles.previewImage}
                       resizeMode="contain"
                       accessibilityLabel="Yayın önizlemesi"
                     />
-                    {voice.streamSourceName !== undefined && (
+                    {live.streamSourceName !== undefined && (
                       <Text style={styles.previewName} numberOfLines={1}>
-                        {voice.streamSourceName}
+                        {live.streamSourceName}
                       </Text>
                     )}
                   </View>
@@ -269,9 +294,13 @@ export function MemberSheet({
                 />
               </SheetGroup>
             )}
-            {canMessage && (
+            {(canMessage || !guildInfo) && (
               <SheetGroup>
-                <SheetItem icon="chatbubble-outline" label="Mesaj gönder" onPress={() => void message()} />
+                {canMessage && (
+                  <SheetItem key="message" icon="chatbubble-outline" label="Mesaj gönder" onPress={() => void message()} />
+                )}
+                {/* DM'de hesap düzeyi işlem */}
+                {!guildInfo && <SheetItem key="copy" icon="at" label="Kullanıcı adını kopyala" onPress={copyUsername} />}
               </SheetGroup>
             )}
             {voice && voiceActions && (

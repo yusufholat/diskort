@@ -15,7 +15,7 @@ import {
   searchScopeKey,
   searchSuggestions,
   useGuild,
-  useMemberColor,
+  useChannelMemberColor,
   useSearch,
   useSession,
 } from '@diskort/client-core';
@@ -242,7 +242,7 @@ const ResultRow = memo(function ResultRow({
   const member = useGuild((s) => (message.authorId ? s.users[message.authorId] : undefined));
   const fallback = useSearch((s) => (message.authorId ? s.users[message.authorId] : undefined));
   const user = member ?? fallback;
-  const color = useMemberColor(message.authorId);
+  const color = useChannelMemberColor(message.authorId, message.channelId);
   const selfId = useSession((s) => s.user?.id);
   const dmName = useGuild((s) => {
     const conv = s.dms[result.channel.id];

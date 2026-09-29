@@ -1,7 +1,7 @@
 import { memo, useMemo, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { memberColorOf, useGuild, useSession, useStatus, type MemberUser } from '@diskort/client-core';
+import { memberColorOf, useActiveGuildContext, useGuild, useSession, useStatus, type MemberUser } from '@diskort/client-core';
 import { colors, createStyles, font, radius, ripple, space } from '../../theme';
 import { Avatar } from '../Avatar';
 import { MemberSheet } from '../MemberSheet';
@@ -14,6 +14,7 @@ export function MembersSection() {
   const online = useGuild((s) => s.online);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
+  const context = useActiveGuildContext();
 
   const all = useMemo(() => Object.values(users).filter((u) => !u.removed), [users]);
   const list = useMemo(() => {
@@ -57,7 +58,7 @@ export function MembersSection() {
           <MemberRow key={u.id} user={u} first={i === 0} onPress={setSelected} />
         ))}
       </Card>
-      <MemberSheet userId={selected} onClose={() => setSelected(null)} />
+      <MemberSheet userId={selected} context={context} onClose={() => setSelected(null)} />
     </View>
   );
 }

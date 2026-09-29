@@ -8,7 +8,7 @@ import {
   membersOf,
   useCan,
   useGuild,
-  useMemberColor,
+  useChannelMemberColor,
   useMessages,
   useSession,
 } from '@diskort/client-core';
@@ -373,7 +373,7 @@ const VoiceChannelRow = memo(function VoiceChannelRow({
 
 const VoiceMember = memo(function VoiceMember({ state, onLongPress }: { state: VoiceState; onLongPress: (userId: string) => void }) {
   const user = useGuild((s) => s.users[state.userId]);
-  const color = useMemberColor(state.userId);
+  const color = useChannelMemberColor(state.userId, state.channelId);
   const selfId = useSession((s) => s.user?.id);
   const speaking = useVoice((s) => Boolean(s.speaking[state.userId]));
   const inMyChannel = useVoice((s) => s.channelId === state.channelId);

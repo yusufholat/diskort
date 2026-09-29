@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useActiveGuildContext } from '@diskort/client-core';
 import { openChat, useNav } from '../stores/nav';
 import { colors, createStyles, font, space } from '../theme';
 import { joinVoice } from '../voice/actions';
@@ -23,6 +24,8 @@ export function LeftPanel({ currentChat }: { currentChat: string | null }) {
   const home = useNav((s) => s.home);
   // Ses kanalında uzun basılan (yönetilecek) üye
   const [member, setMember] = useState<string | null>(null);
+  // Ses kanalları seçili sunucunun kanal listesinde
+  const memberContext = useActiveGuildContext();
 
   return (
     <View style={styles.root}>
@@ -56,7 +59,7 @@ export function LeftPanel({ currentChat }: { currentChat: string | null }) {
         </View>
       </View>
       <UserPanel onSettings={() => router.push('/settings')} />
-      <MemberSheet userId={member} onClose={() => setMember(null)} />
+      <MemberSheet userId={member} context={memberContext} onClose={() => setMember(null)} />
     </View>
   );
 }

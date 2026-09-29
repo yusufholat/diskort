@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Image, Reply } from 'lucide-react';
-import { jumpToMessage, plainText, useGuild, useMemberColor, type LocalMessage } from '@diskort/client-core';
+import { jumpToMessage, plainText, useGuild, useChannelMemberColor, type LocalMessage } from '@diskort/client-core';
 import type { MarkdownContext } from '../../features/messages/markdown';
 import { Avatar } from '../ui/Avatar';
 
@@ -12,7 +12,7 @@ import { Avatar } from '../ui/Avatar';
 export function ReplyPreview({ message, md }: { message: LocalMessage; md: MarkdownContext }) {
   const reference = message.referencedMessage;
   const author = useGuild((s) => (reference?.authorId ? s.users[reference.authorId] : undefined));
-  const color = useMemberColor(reference?.authorId);
+  const color = useChannelMemberColor(reference?.authorId, message.channelId);
   const snippet = useMemo(
     () => (reference ? plainText(reference.content, (u) => md.usersByName[u]?.displayName) : ''),
     [reference, md.usersByName],

@@ -11,7 +11,7 @@ import {
   unpinMessage,
   useCan,
   useGuild,
-  useMemberColor,
+  useChannelMemberColor,
   usePins,
   useSession,
   type ChannelPins,
@@ -143,7 +143,7 @@ function MessageSummary({
   children?: ReactNode;
 }) {
   const author = useGuild((s) => (message.authorId ? s.users[message.authorId] : undefined));
-  const color = useMemberColor(message.authorId);
+  const color = useChannelMemberColor(message.authorId, message.channelId);
   const gif = gifOf(message);
   const files = message.attachments.length;
   return (

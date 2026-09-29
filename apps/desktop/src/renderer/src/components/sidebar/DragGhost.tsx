@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Hash, Volume2 } from 'lucide-react';
-import { useGuild, useMemberColor } from '@diskort/client-core';
+import { useGuild, useVoiceMemberColor } from '@diskort/client-core';
 import { dragPointer, useSidebarDrag, type DragItem } from '../../lib/sidebarDrag';
 import { Avatar } from '../ui/Avatar';
 
@@ -56,7 +56,7 @@ export function DragGhost() {
 
 function MemberGhost({ item }: { item: Extract<DragItem, { kind: 'member' }> }) {
   const user = useGuild((s) => s.users[item.userId]);
-  const color = useMemberColor(item.userId);
+  const color = useVoiceMemberColor(item.userId);
   return (
     <>
       <Avatar user={user} size={24} />

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { channelById, membersOf, useCan, useGuild, useSession } from '@diskort/client-core';
+import { channelById, membersOf, useCan, useChannelContext, useGuild, useSession } from '@diskort/client-core';
 import { Permission } from '@diskort/shared';
 import { MemberSheet } from '../components/MemberSheet';
 import { EmptyState, Notice } from '../components/States';
@@ -27,6 +27,8 @@ export default function VoiceScreen() {
   const status = useVoice((s) => s.status);
   const listenOnly = useVoice((s) => s.listenOnly);
   const channel = useGuild((s) => channelById(s, channelId));
+  // Üye menüsü ses kanalının sunucusunun bağlamında
+  const memberContext = useChannelContext(channelId);
   const voiceStates = useGuild((s) => s.voiceStates);
   const members = useMemo(() => (channelId ? membersOf(voiceStates, channelId) : []), [voiceStates, channelId]);
   const watching = useVoice((s) => s.watching);
@@ -187,6 +189,7 @@ export default function VoiceScreen() {
 
       <MemberSheet
         userId={member}
+        context={memberContext}
         onClose={() => setMember(null)}
         // Seste başka biri: sesini yalnızca kendin için ayarla
         renderExtra={(userId) => (userId !== selfId && voiceStates[userId]?.channelId === channelId ? <UserVolume userId={userId} /> : null)}
