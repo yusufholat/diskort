@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CLIENT_ERROR_STACK_MAX,
+  NATIVE_CRASH_STACK_MAX,
   NATIVE_CRASH_WHERE,
   Permission,
   type Feedback,
@@ -122,7 +123,7 @@ describe('son hatalar', () => {
     expect(baseFeedbackContext()).toMatchObject({ platform: 'desktop', appVersion: '9.9.9', recentErrors: errors });
   });
 
-  it('yığın 4000 karakterde kesilir; telefonun yerel çökmelerinde daha uzun', () => {
+  it('yığın 4000 karakterde kesilir; telefonun yerel çökmelerinde 8000', () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
     const long = (message: string): Error => Object.assign(new Error(message), { stack: 'x'.repeat(9000) });
     reportClientError(long('uzun js hatası'), 'genel');
@@ -130,7 +131,18 @@ describe('son hatalar', () => {
     const stacks = fetchMock.mock.calls.map(
       ([, init]) => (JSON.parse((init as RequestInit).body as string) as { stack: string }).stack.length,
     );
-    expect(stacks).toEqual([4000, CLIENT_ERROR_STACK_MAX]);
+    expect(stacks).toEqual([CLIENT_ERROR_STACK_MAX, NATIVE_CRASH_STACK_MAX]);
+  });
+
+  it('yerel çökmeler aynı özetle de gider ve JS hatalarının payından yemez', () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    // Oturumun JS hatası payı dolar (en fazla 20)
+    for (let i = 0; i < 25; i++) reportClientError(new Error(`doldur ${i}`), 'genel');
+    fetchMock.mockClear();
+    reportClientError(new Error('pay doldu'), 'genel');
+    reportClientError(new Error('CRASH_NATIVE SIGSEGV'), NATIVE_CRASH_WHERE);
+    reportClientError(new Error('CRASH_NATIVE SIGSEGV'), NATIVE_CRASH_WHERE);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 

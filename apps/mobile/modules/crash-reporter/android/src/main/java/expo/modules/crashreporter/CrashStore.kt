@@ -7,6 +7,7 @@ import android.app.ApplicationExitInfo
 import android.content.Context
 import android.os.Build
 import android.os.Process
+import android.util.Base64
 import org.json.JSONObject
 import java.io.File
 import java.io.InputStream
@@ -27,7 +28,8 @@ internal object CrashStore {
   private const val DIR = "diskort-crashes"
   /** Çökme döngüsünde dosyalar birikmesin */
   private const val MAX_FILES = 10
-  private const val MAX_STACK_CHARS = 16_000
+  /** Çok uzun yığında (ör. StackOverflowError) baş ve son (asıl sebep) kalır; JS sunucu sınırına göre kısaltır */
+  private const val MAX_STACK_CHARS = 64_000
   private const val MAX_CONTEXT_CHARS = 500
   /** Android'in süreç özeti sınırı (setProcessStateSummary) */
   private const val MAX_SUMMARY_BYTES = 128
@@ -39,11 +41,13 @@ internal object CrashStore {
   private const val MAX_EXITS = 16
   private const val MAX_EXIT_REPORTS = 5
   private const val ANR_HEAD_BYTES = 32 * 1024
-  private const val TOMBSTONE_HEAD_BYTES = 64 * 1024
-  private const val TOMBSTONE_MAX_CHARS = 6_000
+  /** Tombstone'un başı: sinyal, iptal mesajı ve iş parçacıkları baştadır; bellek haritaları ve günlükler sonda */
+  private const val TOMBSTONE_HEAD_BYTES = 1024 * 1024
 
   @Volatile private var application: Application? = null
   @Volatile private var context = ""
+  /** APK sürümü: çökme anında paket yöneticisine (IPC) gidilmesin diye önceden alınır (ilk setContext'te) */
+  @Volatile private var nativeVersion: String? = null
   private val installed = AtomicBoolean(false)
   private val handling = AtomicBoolean(false)
 
@@ -63,8 +67,10 @@ internal object CrashStore {
     }
   }
 
+  /** JS iş parçacığından çağrılır (açılışta ve ekran değiştikçe) */
   fun setContext(info: String) {
     context = info.take(MAX_CONTEXT_CHARS)
+    if (nativeVersion == null) nativeVersion = application?.let { versionOf(it) }
     // Yerel çökmede Java işleyicisi çalışmaz: bağlamın başı sistemin çıkış kaydına eklenir (Android 11+)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
       try {
@@ -81,7 +87,7 @@ internal object CrashStore {
     am.setProcessStateSummary(utf8Head(info, MAX_SUMMARY_BYTES))
   }
 
-  /** Çökme anında: yığını dosyaya yazar (eşzamanlı, küçük). Hiçbir durumda fırlatmaz. */
+  /** Çökme anında: yığını dosyaya yazar (eşzamanlı, küçük, IPC yok). Hiçbir durumda fırlatmaz. */
   private fun record(thread: Thread, error: Throwable) {
     try {
       if (!handling.compareAndSet(false, true)) return
@@ -96,10 +102,13 @@ internal object CrashStore {
         .put("at", now)
         .put("pid", pid)
         .put("thread", thread.name)
-        .put("stack", stackOf(error).take(MAX_STACK_CHARS))
-        .put("nativeVersion", versionOf(app))
+        .put("stack", headAndTail(stackOf(error), MAX_STACK_CHARS))
+        .put("nativeVersion", nativeVersion ?: "")
         .put("context", context)
-      File(dir, "$now-$pid.json").writeText(json.toString())
+      // Yazma yarıda kalırsa bozuk dosya okunmasın: önce geçici dosya, sonra adı değişir
+      val tmp = File(dir, "$now-$pid.json.tmp")
+      tmp.writeText(json.toString())
+      tmp.renameTo(File(dir, "$now-$pid.json"))
     } catch (_: Throwable) {
       // kaydedilemedi (ör. bellek yetersiz): çökme yine önceki işleyiciye gider
     }
@@ -114,6 +123,10 @@ internal object CrashStore {
     PrintWriter(writer).use { error.printStackTrace(it) }
     return writer.toString()
   }
+
+  /** Uzun metnin başı ve sonu (asıl sebep, son "Caused by:" bölümü, yığının sonundadır) */
+  private fun headAndTail(text: String, max: Int): String =
+    if (text.length <= max) text else text.take(max / 2) + "\n…\n" + text.takeLast(max / 2)
 
   @Suppress("DEPRECATION")
   private fun versionOf(app: Context): String =
@@ -135,12 +148,15 @@ internal object CrashStore {
     try {
       val files = File(app.filesDir, DIR).listFiles()?.sortedBy { it.name } ?: emptyList()
       for (file in files) {
-        try {
-          val text = file.readText()
-          javaPids.add(JSONObject(text).optInt("pid"))
-          reports.add(text)
-        } catch (_: Throwable) {
-          // yarım yazılmış ya da bozuk dosya: atlanır
+        // Yarıda kalmış geçici dosyalar yalnızca silinir
+        if (file.name.endsWith(".json")) {
+          try {
+            val text = file.readText()
+            javaPids.add(JSONObject(text).optInt("pid"))
+            reports.add(text)
+          } catch (_: Throwable) {
+            // bozuk dosya: atlanır
+          }
         }
         file.delete()
       }
@@ -161,9 +177,13 @@ internal object CrashStore {
   private fun exitReports(app: Context, javaPids: Set<Int>): List<String> {
     val am = app.getSystemService(ActivityManager::class.java) ?: return emptyList()
     val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    val seen = prefs.getLong(KEY_EXIT_SEEN, System.currentTimeMillis() - FIRST_LOOKBACK_MS)
-    // En yenisi başta
-    val fresh = am.getHistoricalProcessExitReasons(app.packageName, 0, MAX_EXITS).filter { it.timestamp > seen }
+    val now = System.currentTimeMillis()
+    var seen = prefs.getLong(KEY_EXIT_SEEN, now - FIRST_LOOKBACK_MS)
+    // Saat geri alındıysa (kaydedilen an gelecekte) yeni kayıtlar gizlenmesin
+    if (seen > now) seen = now - FIRST_LOOKBACK_MS
+    // En yenisi başta. Geleceğe tarihli kayıtlar (ileri saatle yazılmış) atlanır: her açılışta yeniden gelmesinler
+    val fresh = am.getHistoricalProcessExitReasons(app.packageName, 0, MAX_EXITS)
+      .filter { it.timestamp > seen && it.timestamp <= now }
     if (fresh.isEmpty()) return emptyList()
     prefs.edit().putLong(KEY_EXIT_SEEN, fresh.maxOf { it.timestamp }).commit()
     return fresh
@@ -205,16 +225,16 @@ internal object CrashStore {
     info.processStateSummary?.let { json.put("context", String(it, Charsets.UTF_8)) }
     try {
       info.traceInputStream?.use { input ->
-        when (info.reason) {
+        when {
           // ANR: sistemin iş parçacığı dökümü (metin); JS ana iş parçacığının bölümünü ayıklar
-          ApplicationExitInfo.REASON_ANR -> {
+          info.reason == ApplicationExitInfo.REASON_ANR -> {
             json.put("traceKind", "anr").put("trace", String(readHead(input, ANR_HEAD_BYTES), Charsets.UTF_8))
           }
-          // Yerel çökme (Android 12+): tombstone protobuf'tur, ayrıştırılmaz; içindeki okunabilir metinler
-          // (sinyal, iptal mesajı, iş parçacığı, kütüphane ve işlev adları) sırayla alınır
-          ApplicationExitInfo.REASON_CRASH_NATIVE -> {
-            json.put("traceKind", "tombstone")
-              .put("trace", printableStrings(readHead(input, TOMBSTONE_HEAD_BYTES), TOMBSTONE_MAX_CHARS))
+          // Yerel çökme (Android 12+): tombstone protobuf'tur. Ham baytlar (base64) JS'e verilir; JS yalnızca
+          // güvenli alanları (sinyal, iptal mesajı, çöken iş parçacığının yığını) okur, gerisini atar
+          // (bkz. src/tombstone.ts). Bellek dökümleri uygulama verisi içerebilir: burada da hiçbir yere yazılmaz.
+          info.reason == ApplicationExitInfo.REASON_CRASH_NATIVE && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            json.put("tombstone", Base64.encodeToString(readHead(input, TOMBSTONE_HEAD_BYTES), Base64.NO_WRAP))
           }
           else -> Unit
         }
@@ -247,23 +267,6 @@ internal object CrashStore {
       total += n
     }
     return buffer.copyOf(total)
-  }
-
-  /** "strings" gibi: en az 6 yazdırılabilir ASCII karakterlik diziler, satır satır; salt onaltılık olanlar atlanır */
-  private fun printableStrings(bytes: ByteArray, maxChars: Int): String {
-    val out = StringBuilder()
-    val current = StringBuilder()
-    fun flush() {
-      if (current.length >= 6 && !current.all { it in '0'..'9' || it in 'a'..'f' }) out.append(current).append('\n')
-      current.setLength(0)
-    }
-    for (b in bytes) {
-      if (out.length >= maxChars) break
-      val c = b.toInt() and 0xff
-      if (c in 0x20..0x7e) current.append(c.toChar()) else flush()
-    }
-    flush()
-    return if (out.length > maxChars) out.substring(0, maxChars) else out.toString()
   }
 
   /** Metnin UTF-8 baytlarının başı; çok baytlı bir karakterin ortasından kesilmez */

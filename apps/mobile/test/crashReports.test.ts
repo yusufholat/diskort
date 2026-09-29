@@ -34,14 +34,37 @@ import {
   crashContext,
   crashToError,
   describeRoute,
+  fitJavaStack,
   noteCrashContext,
   parseCrashReport,
   reportNativeCrashes,
   reportPendingNativeCrashes,
   type CrashReport,
 } from '../src/crashReports';
+import { bytes, frame, msg, str, toBase64, utf8, vint } from './protobuf';
 
 const AT = Date.UTC(2026, 8, 29, 12, 0, 0);
+const SECRET = 'Bearer secret-jeton-123';
+
+/** Yerel çökmenin tombstone'u: çöken iş parçacığının bellek dökümünde jeton var (gönderilmemeli) */
+const tombstone = toBase64(
+  [
+    vint(1, 1),
+    vint(6, 4567),
+    msg(10, vint(1, 11), str(2, 'SIGSEGV'), vint(3, 1), str(4, 'SEGV_MAPERR'), vint(8, 1), vint(9, 0)),
+    msg(
+      16,
+      vint(1, 4567),
+      msg(
+        2,
+        vint(1, 4567),
+        str(2, 'RenderThread'),
+        frame(BigInt(0x4d6f8), 'SkCanvas::drawPath', 44, '/system/lib64/libhwui.so'),
+        msg(5, str(1, 'x1'), bytes(4, utf8(SECRET))),
+      ),
+    ),
+  ].flat(),
+);
 
 const javaJson = JSON.stringify({
   kind: 'java',
@@ -70,8 +93,7 @@ const nativeJson = JSON.stringify({
   pssKb: 300 * 1024,
   rssKb: 450 * 1024,
   process: 'com.diskort.app',
-  traceKind: 'tombstone',
-  trace: 'SIGSEGV\nSEGV_MAPERR\nRenderThread\n/system/lib64/libhwui.so\nSkCanvas::drawPath\n',
+  tombstone,
 });
 
 const errorOf = (report: CrashReport | null): Error => {
@@ -87,14 +109,20 @@ beforeEach(() => {
 describe('parseCrashReport', () => {
   it('Java çökmesini ve çıkış kaydını okur', () => {
     expect(parseCrashReport(javaJson)).toMatchObject({ kind: 'java', at: AT, thread: 'main', nativeVersion: '0.9.0 (900)' });
-    expect(parseCrashReport(nativeJson)).toMatchObject({
+    const native = parseCrashReport(nativeJson);
+    expect(native).toMatchObject({
       kind: 'exit',
       reason: 'CRASH_NATIVE',
       status: 11,
       importance: 100,
       context: '',
-      traceKind: 'tombstone',
+      anrTrace: '',
+      tombstone: { tid: 4567, thread: { id: 4567, name: 'RenderThread' } },
     });
+    // Tombstone'un ham baytları (base64) rapora girmez, hemen bırakılır
+    const kept = JSON.stringify(native);
+    expect(kept).not.toContain(tombstone.slice(0, 16));
+    expect(kept).not.toContain('secret');
   });
 
   it('bozuk ya da tanınmayan kayıt: null; eksik alanlar boş', () => {
@@ -103,12 +131,16 @@ describe('parseCrashReport', () => {
     expect(parseCrashReport('null')).toBeNull();
     expect(parseCrashReport('[]')).toBeNull();
     expect(parseCrashReport('{"kind":"başka"}')).toBeNull();
-    expect(parseCrashReport('{"kind":"exit","traceKind":"x","status":"11"}')).toMatchObject({
+    expect(parseCrashReport('{"kind":"exit","traceKind":"x","trace":"y","status":"11","tombstone":5}')).toMatchObject({
       reason: 'BİLİNMİYOR',
       status: 0,
-      traceKind: '',
-      trace: '',
+      anrTrace: '',
+      tombstone: null,
     });
+    // Bozuk tombstone: fırlatmaz, boş döküm
+    expect(errorOf(parseCrashReport('{"kind":"exit","reason":"CRASH_NATIVE","status":11,"tombstone":"////"}')).stack).toContain(
+      'Tombstone:\n(okunamadı)',
+    );
   });
 });
 
@@ -123,15 +155,47 @@ describe('crashToError', () => {
     expect(stack.indexOf('bağlam:')).toBeLessThan(stack.indexOf('java.lang.IllegalStateException'));
   });
 
-  it('yerel çökme: sinyal adı, önem, bellek ve tombstone metinleri; bağlam yoksa belirtilir', () => {
+  it('yerel çökme: sinyal, en üst çerçeve, önem, bellek ve çöken iş parçacığının yığını; bellek dökümü yok', () => {
     const error = errorOf(parseCrashReport(nativeJson));
-    expect(error.message).toBe('CRASH_NATIVE SIGSEGV');
+    expect(error.message).toBe('CRASH_NATIVE SIGSEGV · libhwui.so (SkCanvas::drawPath+44)');
     const stack = error.stack ?? '';
     expect(stack).toContain('Android çıkış kaydı CRASH_NATIVE · 2026-09-29T12:00:00.000Z');
     expect(stack).toContain('önem 100 (ön planda) · PSS 300 MB · RSS 450 MB · sinyal 11 · süreç com.diskort.app');
     expect(stack).toContain('bağlam: yok (eski APK');
-    expect(stack).toContain('Tombstone (ayrıştırılmadı');
-    expect(stack).toContain('SkCanvas::drawPath');
+    expect(stack).toContain(
+      [
+        'Tombstone:',
+        'signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0000000000000000',
+        'thread: RenderThread (4567)',
+        '  #00 pc 000000000004d6f8  /system/lib64/libhwui.so (SkCanvas::drawPath+44)',
+      ].join('\n'),
+    );
+    expect(stack).not.toContain('secret');
+  });
+
+  it('uzun Java yığınında baş ve asıl sebep (son "Caused by:") kalır', () => {
+    const frames = (n: number, name: string) => Array.from({ length: n }, (_, i) => `\tat ${name}.f${i}(X.kt:${i})`);
+    const stack = [
+      'java.lang.RuntimeException: sarmalayan',
+      ...frames(300, 'dis'),
+      'Caused by: java.lang.IllegalStateException: ara',
+      ...frames(300, 'ara'),
+      'Caused by: java.lang.NullPointerException: asıl sebep',
+      ...frames(20, 'asil'),
+    ].join('\n');
+    const report = parseCrashReport(JSON.stringify({ kind: 'java', at: AT, thread: 'main', stack }));
+    const details = errorOf(report).stack ?? '';
+    expect(details.length).toBeLessThanOrEqual(8000);
+    expect(details).toContain('java.lang.RuntimeException: sarmalayan\n\tat dis.f0(X.kt:0)');
+    expect(details).toContain('\n…\nCaused by: java.lang.NullPointerException: asıl sebep\n\tat asil.f0(X.kt:0)');
+    expect(details).toContain('\tat asil.f19(X.kt:19)');
+
+    expect(fitJavaStack('kısa', 100)).toBe('kısa');
+    expect(fitJavaStack('x'.repeat(200), 100)).toBe('x'.repeat(100));
+    const fitted = fitJavaStack(`baş\n${'y'.repeat(300)}\nCaused by: Z\n${'z'.repeat(300)}`, 100);
+    expect(fitted.length).toBe(100);
+    expect(fitted.startsWith('baş\n')).toBe(true);
+    expect(fitted).toContain('\n…\nCaused by: Z');
   });
 
   it('açıklama mesaja eklenir; sinyal yalnızca yerel çökme ve sinyalle kapanmada', () => {
@@ -205,8 +269,20 @@ describe('reportNativeCrashes', () => {
     expect(await reportNativeCrashes(source, report)).toBe(2);
     expect(report.mock.calls.map(([error, where]) => [(error as Error).message, where])).toEqual([
       ['java.lang.IllegalStateException: bozuk durum', 'yerel-çökme'],
-      ['CRASH_NATIVE SIGSEGV', 'yerel-çökme'],
+      ['CRASH_NATIVE SIGSEGV · libhwui.so (SkCanvas::drawPath+44)', 'yerel-çökme'],
     ]);
+  });
+
+  it('açılış başına en fazla 5, en yeniler önce', async () => {
+    const report = vi.fn();
+    const crashes = Array.from({ length: 8 }, (_, i) =>
+      JSON.stringify({ kind: 'java', at: AT + i * 1000, thread: 'main', stack: `java.lang.Error: çökme ${i}` }),
+    );
+    const source = { takePendingCrashes: () => Promise.resolve(crashes) };
+    expect(await reportNativeCrashes(source, report)).toBe(5);
+    expect(report.mock.calls.map(([error]) => (error as Error).message)).toEqual(
+      [7, 6, 5, 4, 3].map((i) => `java.lang.Error: çökme ${i}`),
+    );
   });
 });
 

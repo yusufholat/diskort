@@ -1,16 +1,21 @@
 // Telefonun yerel (Java/Kotlin, C++) çökmeleri. JavaScript bunları göremez: uygulama bir anda kapanır, küresel
 // hata işleyicisi (setup.ts) hiç çalışmaz. Yerel modül (modules/crash-reporter) çökmeyi kaydeder; bir sonraki
 // açılışta buradan sunucuya bildirilir (yer: 'yerel-çökme'). Android 11+'da sistemin çıkış kayıtları da okunur:
-// yerel kod (Skia, GPU sürücüsü, WebRTC) çökmeleri ve ANR'ler yalnızca oradan görünür.
+// yerel kod (Skia, GPU sürücüsü, WebRTC) çökmeleri ve ANR'ler yalnızca oradan görünür. Yerel çökmenin dökümünden
+// (tombstone) yalnızca güvenli alanlar alınır (bkz. tombstone.ts).
 // Çökme anının bağlamı için açık ekran, ses durumu, JS sürümü ve güncelleme yerel modüle bildirilir.
 //
 // Yerel modül eski APK'larda (kablosuz güncellemeyle yeni JS almış) ve iOS'ta yoktur: hiçbir şey yapılmaz.
 
 import * as Updates from 'expo-updates';
 import { reportClientError } from '@diskort/client-core';
-import { NATIVE_CRASH_WHERE } from '@diskort/shared';
+import { NATIVE_CRASH_STACK_MAX, NATIVE_CRASH_WHERE } from '@diskort/shared';
 import { CrashReporter } from '../modules/crash-reporter';
+import { decodeBase64, formatTombstone, parseTombstone, topFrame, type Tombstone } from './tombstone';
 import { APP_VERSION } from './version';
+
+/** Açılış başına en fazla bildirilen yerel çökme (en yeniler); JS hatalarının payından yemezler */
+const MAX_NATIVE_REPORTS = 5;
 
 /** Java/Kotlin'de yakalanmamış istisna (yerel işleyicinin çökme anında yazdığı dosya) */
 export interface JavaCrash {
@@ -42,9 +47,13 @@ export interface ExitCrash {
   process: string;
   /** Süreç özeti: crashContext'in ilk 128 baytı. Eski APK'da ya da JS başlamadan kapandıysa boş */
   context: string;
-  /** ANR dökümünün başı ya da tombstone'daki okunabilir metinler */
-  trace: string;
-  traceKind: 'anr' | 'tombstone' | '';
+  /** ANR dökümünün başı (metin) */
+  anrTrace: string;
+  /**
+   * Yerel çökmede (Android 12+) tombstone'un güvenli alanları (bkz. tombstone.ts). Yerel modülün verdiği
+   * ham baytlar burada çözülür ve hemen bırakılır; hiçbir yere yazılmaz ya da gönderilmez.
+   */
+  tombstone: Tombstone | null;
 }
 
 export type CrashReport = JavaCrash | ExitCrash;
@@ -84,8 +93,8 @@ export function parseCrashReport(raw: string): CrashReport | null {
       rssKb: num(data.rssKb),
       process: str(data.process),
       context: str(data.context),
-      trace: str(data.trace),
-      traceKind: data.traceKind === 'anr' || data.traceKind === 'tombstone' ? data.traceKind : '',
+      anrTrace: data.traceKind === 'anr' ? str(data.trace) : '',
+      tombstone: typeof data.tombstone === 'string' && data.tombstone ? parseTombstone(decodeBase64(data.tombstone)) : null,
     };
   }
   return null;
@@ -115,12 +124,33 @@ const IMPORTANCE: Record<number, string> = {
 
 const hasSignal = (report: ExitCrash): boolean => report.reason === 'CRASH_NATIVE' || report.reason === 'SIGNALED';
 
-/** Tek satırlık özet (hatanın mesajı; sunucuda aynı çökmeler bununla gruplanır) */
+/**
+ * Tek satırlık özet (hatanın mesajı): Java'da istisna ve mesajı; çıkış kaydında neden ve sinyal, iptal mesajı
+ * ya da açıklama ve yerel yığının en üstteki çerçevesi.
+ */
 export function crashTitle(report: CrashReport): string {
   if (report.kind === 'java') return report.stack.split('\n', 1)[0]?.trim() || 'Java çökmesi (yığın yok)';
-  const signal = hasSignal(report) ? (SIGNALS[report.status] ?? `sinyal ${report.status}`) : '';
+  const tomb = report.tombstone;
+  const signal = hasSignal(report) ? tomb?.signal?.name || SIGNALS[report.status] || `sinyal ${report.status}` : '';
   const head = [report.reason, signal].filter(Boolean).join(' ');
-  return report.description ? `${head}: ${report.description}` : head;
+  const detail = (tomb?.abortMessage || report.description).slice(0, 200);
+  const frame = tomb ? topFrame(tomb) : '';
+  return `${head}${detail ? `: ${detail}` : ''}${frame ? ` · ${frame}` : ''}`;
+}
+
+/**
+ * Uzun Java yığını: baş (istisna ve ilk çerçeveler) ve asıl sebep (son "Caused by:" bölümü) kalır; aradaki
+ * kısım atlanır. Sebep bölümüne en fazla yer yarısı verilir.
+ */
+export function fitJavaStack(stack: string, max: number): string {
+  if (stack.length <= max) return stack;
+  const gap = '\n…\n';
+  const room = Math.max(0, max - gap.length);
+  const cause = stack.lastIndexOf('\nCaused by:');
+  const causeLength = cause < 0 ? 0 : Math.min(stack.length - cause - 1, Math.floor(room / 2));
+  // Sebep yoksa ya da zaten baştaki kısma sığıyorsa yalnızca baş
+  if (cause < 0 || cause < room - causeLength) return stack.slice(0, max);
+  return `${stack.slice(0, room - causeLength)}${gap}${stack.slice(cause + 1, cause + 1 + causeLength)}`;
 }
 
 /**
@@ -148,12 +178,11 @@ const mb = (kb: number): string => `${Math.round(kb / 1024)} MB`;
  */
 export function crashDetails(report: CrashReport): string {
   if (report.kind === 'java') {
-    return [
+    const header = [
       `Java çökmesi · iş parçacığı "${report.thread || '?'}" · ${time(report.at)}`,
       `APK ${report.nativeVersion || '?'} · bağlam: ${report.context || 'yok'}`,
-      '',
-      report.stack,
     ].join('\n');
+    return `${header}\n\n${fitJavaStack(report.stack, NATIVE_CRASH_STACK_MAX - header.length - 2)}`;
   }
   const facts = [
     `önem ${report.importance} (${IMPORTANCE[report.importance] ?? '?'})`,
@@ -167,10 +196,8 @@ export function crashDetails(report: CrashReport): string {
     facts.join(' · '),
     `bağlam: ${report.context || 'yok (eski APK ya da JavaScript başlamadan kapandı)'}`,
   ];
-  if (report.traceKind === 'anr' && report.trace) lines.push('', 'ANR dökümü:', anrExcerpt(report.trace));
-  if (report.traceKind === 'tombstone' && report.trace) {
-    lines.push('', 'Tombstone (ayrıştırılmadı; okunabilir metinler):', report.trace);
-  }
+  if (report.anrTrace) lines.push('', 'ANR dökümü:', anrExcerpt(report.anrTrace));
+  if (report.tombstone) lines.push('', 'Tombstone:', formatTombstone(report.tombstone) || '(okunamadı)');
   return lines.join('\n');
 }
 
@@ -196,8 +223,8 @@ export interface CrashSource {
 }
 
 /**
- * Bekleyen yerel çökmeleri alır ve her birini bildirir; bildirilen sayıyı döner. Yerel modül yoksa (eski APK,
- * iOS) ya da hata verirse hiçbir şey yapmaz, hiçbir durumda fırlatmaz.
+ * Bekleyen yerel çökmeleri alır ve en yeni MAX_NATIVE_REPORTS tanesini bildirir; bildirilen sayıyı döner. Yerel
+ * modül yoksa (eski APK, iOS) ya da hata verirse hiçbir şey yapmaz, hiçbir durumda fırlatmaz.
  */
 export async function reportNativeCrashes(
   source: CrashSource | null,
@@ -211,14 +238,13 @@ export async function reportNativeCrashes(
     return 0;
   }
   if (!Array.isArray(raw)) return 0;
-  let count = 0;
-  for (const item of raw) {
-    const crash = typeof item === 'string' ? parseCrashReport(item) : null;
-    if (!crash) continue;
-    report(crashToError(crash), NATIVE_CRASH_WHERE);
-    count++;
-  }
-  return count;
+  const crashes = raw
+    .map((item) => (typeof item === 'string' ? parseCrashReport(item) : null))
+    .filter((crash): crash is CrashReport => crash !== null)
+    .sort((a, b) => b.at - a.at)
+    .slice(0, MAX_NATIVE_REPORTS);
+  for (const crash of crashes) report(crashToError(crash), NATIVE_CRASH_WHERE);
+  return crashes.length;
 }
 
 /** Değeri bağlama yazılabilen yol parametreleri (ayar bölümünün adı); kimlikler ve davet kodları yazılmaz */
