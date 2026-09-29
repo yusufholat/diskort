@@ -108,22 +108,107 @@ describe('parseTombstone', () => {
     expect(cut.frames[0]?.functionName).toBe('SkCanvas::drawPath');
   });
 
-  it('beklenmeyen kablo türleri atlanır, okuma sürer; bozuk girdi fırlatmaz', () => {
-    const odd = Uint8Array.from([
-      ...bytes(6, [1, 2, 3]), // tid uzunluklu gelmiş: atlanır
-      ...vint(10, 5), // signal_info sayı gelmiş: atlanır
-      ...vint(16, 9), // threads sayı gelmiş: atlanır
-      ...key(30, 5), 1, 2, 3, 4, // bilinmeyen 32 bitlik alan
-      ...key(31, 1), 1, 2, 3, 4, 5, 6, 7, 8, // bilinmeyen 64 bitlik alan
-      ...vint(6, 77),
-      ...str(14, 'son'),
-    ]);
-    const t = parseTombstone(odd);
-    expect(t).toMatchObject({ tid: 77, signal: null, abortMessage: 'son', frames: [] });
+  it('bilinmeyen alanlar atlanır; uzunluğu taşan alan kesik sayılır', () => {
+    const t = parseTombstone(
+      Uint8Array.from([
+        ...vint(1, 1),
+        ...key(30, 5), 1, 2, 3, 4, // bilinmeyen 32 bitlik alan
+        ...key(31, 1), 1, 2, 3, 4, 5, 6, 7, 8, // bilinmeyen 64 bitlik alan
+        ...vint(12, 3), // bilinmeyen sayı alanı
+        ...vint(6, 77),
+        ...key(14, 2), 0xff, 0xff, 0xff, 0xff, 0x0f, ...utf8('son'), // uzunluk dökümden uzun: eldeki kadarı
+      ]),
+    );
+    expect(t).toMatchObject({ wide: true, tid: 77, abortMessage: 'son' });
+  });
 
-    // Grup (kablo türü 3) ya da uzunluğu taşan alan: okuma orada biter
-    expect(parseTombstone(Uint8Array.from([...vint(6, 5), ...key(7, 3), ...vint(6, 9)])).tid).toBe(5);
-    expect(parseTombstone(Uint8Array.from([...vint(6, 5), ...key(14, 2), 0xff, 0xff, 0xff, 0xff, 0x0f])).tid).toBe(5);
+  it('protobuf gibi görünmeyen girdi: hiçbir şey döndürülmez', () => {
+    const base = [...vint(1, 1), ...msg(10, vint(1, 11), str(2, 'SIGSEGV')), ...str(14, SECRET)];
+    // Tek başına geçerli: iptal mesajı okunur
+    expect(parseTombstone(Uint8Array.from(base)).abortMessage).toBe(SECRET);
+    const broken: [string, number[]][] = [
+      ['tid uzunluklu', bytes(6, [1, 2, 3])],
+      ['pid uzunluklu', bytes(5, [1])],
+      ['signal_info sayı', vint(10, 5)],
+      ['abort_message sayı', vint(14, 5)],
+      ['causes sayı', vint(15, 5)],
+      ['threads sayı', vint(16, 9)],
+      ['grup', [...key(7, 3)]],
+      ['grup sonu', [...key(7, 4)]],
+      ['kablo türü 6', [...key(20, 6)]],
+      ['kablo türü 7', [...key(20, 7)]],
+      ['alan numarası 0', [0x02, 0x00]],
+      ['aşırı uzun varint', [...key(6, 0), ...Array<number>(10).fill(0xff), 0x01]],
+      ['iç içe yanlış tür (sinyal adı sayı)', msg(10, vint(2, 1))],
+    ];
+    for (const [name, part] of broken) {
+      const t = parseTombstone(Uint8Array.from([...base, ...part]));
+      expect({ name, text: formatTombstone(t), abort: t.abortMessage }).toEqual({ name, text: '', abort: '' });
+    }
+    // Ne sinyal ne mimari: boş
+    expect(formatTombstone(parseTombstone(Uint8Array.from([...vint(6, 5), ...str(14, SECRET)])))).toBe('');
+  });
+
+  it('kesik varint 0 sayılmaz: 0 anahtarlı sahte iş parçacığı seçilmez', () => {
+    const fake = msg(16, vint(1, 0), msg(2, vint(1, 0), str(2, 'sahte'), frame(BigInt(1), 'sahte', 1, '/sahte.so')));
+    const sig = msg(10, vint(1, 11), str(2, 'SIGSEGV'));
+    // tid'in değeri kesik
+    const a = parseTombstone(Uint8Array.from([...vint(1, 1), ...sig, ...fake, ...key(6, 0)]));
+    expect(a).toMatchObject({ tid: null, thread: null, frames: [] });
+    // Girdinin anahtarı kesik, tid = 0
+    const b = parseTombstone(
+      Uint8Array.from([...vint(1, 1), ...sig, ...vint(6, 0), ...msg(16, key(1, 0)), ...msg(16, msg(2, str(2, 'sahte')))]),
+    );
+    expect(b).toMatchObject({ tid: 0, thread: null, frames: [] });
+  });
+
+  it('metin döküm ve rastgele bayt: hiçbir kaydırmada çıktı yok, sızıntı yok', () => {
+    const textTombstone = utf8(
+      [
+        '*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***',
+        "Build fingerprint: 'HONOR/DNY-NX9/HNDNY:16/parmak-izi'",
+        "ABI: 'arm64'",
+        'pid: 4321, tid: 4567, name: RenderThread  >>> com.diskort.app <<<',
+        'signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0000000000000000',
+        `Abort message: '${SECRET}'`,
+        '    x0  0000000000000000  x1  b400007a12345678  x2  0000000000000001',
+        'backtrace:',
+        '      #00 pc 000000000004d6f8  /system/lib64/libhwui.so (SkCanvas::drawPath+44)',
+        '',
+        'memory near x0 ([anon:scudo:primary]):',
+        `    0000007a12345670 7265726165422022 7465726365732072  ${SECRET}`,
+        `    0000007a12345680 746e6f63227b2020 2c22746e65746e6f  ${DM_JSON}`,
+        `--------- log main`,
+        `09-29 12:00:00.000  4321  4567 I ReactNativeJS: ${DM_JSON} ${SECRET}`,
+      ].join('\n'),
+    );
+    for (let offset = 0; offset < 300; offset++) {
+      const t = parseTombstone(Uint8Array.from(textTombstone.slice(offset)));
+      expect({ offset, text: formatTombstone(t), leaks: leaks(JSON.stringify(t)) }).toEqual({ offset, text: '', leaks: [] });
+    }
+
+    // Rastgele baytların ortasında jeton ve DM metni
+    const payload = utf8(` ${SECRET} ${DM_JSON} `);
+    for (let seed = 1; seed <= 40; seed++) {
+      let x = seed;
+      const noise = Array.from({ length: 2048 }, () => {
+        x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
+        return x >>> 24;
+      });
+      const input = [...noise.slice(0, 1024), ...payload, ...noise.slice(1024)];
+      for (const offset of [0, 1, 2, 3, 7, 100, 1000, 1020]) {
+        const t = parseTombstone(Uint8Array.from(input.slice(offset)));
+        expect({ seed, offset, text: formatTombstone(t), leaks: leaks(JSON.stringify(t)) }).toEqual({
+          seed,
+          offset,
+          text: '',
+          leaks: [],
+        });
+      }
+    }
+  });
+
+  it('bozuk girdi fırlatmaz', () => {
     for (const garbage of [[0xff, 0xff, 0xff], [0x00], [0x80], Array.from({ length: 64 }, (_, i) => (i * 37) & 0xff)]) {
       expect(() => formatTombstone(parseTombstone(Uint8Array.from(garbage)))).not.toThrow();
     }

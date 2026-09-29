@@ -4,8 +4,10 @@
 // (yazmaçların çevresindeki ham bellek: mesaj, jeton gibi uygulama verisi içerebilir), bellek haritaları,
 // günlükler ve açık dosyalar hiç çözülmeden atlanır. Ham baytlar burada kalır, hiçbir yere yazılmaz.
 //
-// Döküm kesik (yerel modül ilk 1 MB'ı verir) ya da bozuk olabilir: okuyucu hiçbir durumda fırlatmaz,
-// okuyabildiği kadarını döner.
+// Döküm kesik olabilir (yerel modül ilk 1 MB'ı verir): okunabilen kadarı döner. Ama girdi protobuf gibi
+// görünmüyorsa (bozuk alan başlığı, grup, aşırı uzun varint, bilinen bir alanın yanlış kablo türüyle gelmesi)
+// ya da ne sinyal ne mimari okunabildiyse hiçbir şey döndürülmez: metin döküm ya da rastgele bayt tesadüfen
+// "alan" gibi okunup içindeki uygulama verisi sızmasın. Okuyucu hiçbir durumda fırlatmaz.
 
 export interface TombstoneFrame {
   /** Kütüphane içindeki adres (onaltılık) */
@@ -43,10 +45,16 @@ const MAX_THREADS = 2000;
 
 // ---------- Protobuf okuyucu ----------
 
+/** Girdinin protobuf olmadığı anlaşıldı (bkz. dosyanın başı); iç içe okuyucular paylaşır */
+interface ParseState {
+  bad: boolean;
+}
+
 interface Reader {
   buf: Uint8Array;
   pos: number;
   end: number;
+  state: ParseState;
 }
 
 /** 64 bitlik tamsayı iki 32 bitlik yarıda (JS sayısı 53 biti aşamaz; adresler aşar) */
@@ -55,12 +63,22 @@ interface U64 {
   hi: number;
 }
 
-/** Varint; bozuk ya da kesikse null ve okuma biter */
+/** Bozuk girdi: okuma biter, sonuç atılır */
+function fail(r: Reader): null {
+  r.state.bad = true;
+  r.pos = r.end;
+  return null;
+}
+
+/** Varint; kesikse null (okuma biter), 10 bayttan uzunsa bozuk */
 function varint(r: Reader): U64 | null {
   let lo = 0;
   let hi = 0;
   for (let i = 0; i < 10; i++) {
-    if (r.pos >= r.end) break;
+    if (r.pos >= r.end) {
+      r.pos = r.end;
+      return null;
+    }
     const byte = r.buf[r.pos++] ?? 0;
     const bits = byte & 0x7f;
     const shift = 7 * i;
@@ -69,59 +87,98 @@ function varint(r: Reader): U64 | null {
       lo |= (bits & 0x0f) << 28;
       hi |= bits >>> 4;
     } else hi |= bits << (shift - 32);
-    if (!(byte & 0x80)) return { lo: lo >>> 0, hi: hi >>> 0 };
+    if (!(byte & 0x80)) return i === 9 && bits > 1 ? fail(r) : { lo: lo >>> 0, hi: hi >>> 0 };
   }
-  r.pos = r.end;
-  return null;
+  return fail(r);
 }
 
-/** Alan başlığı (numara, kablo türü); bozuksa null ve okuma biter */
+/** Kablo türleri */
+const VARINT = 0;
+const LEN = 2;
+
+/** Alan başlığı; kesikse null, alan numarası 0 ya da grup/bilinmeyen kablo türü (3, 4, 6, 7) bozuk */
 function tag(r: Reader): { field: number; wire: number } | null {
   const v = varint(r);
-  if (!v || v.hi !== 0 || v.lo >>> 3 === 0) {
-    r.pos = r.end;
-    return null;
-  }
-  return { field: v.lo >>> 3, wire: v.lo & 7 };
+  if (!v) return null;
+  const field = v.lo >>> 3;
+  const wire = v.lo & 7;
+  if (v.hi !== 0 || field === 0 || (wire !== 0 && wire !== 1 && wire !== 2 && wire !== 5)) return fail(r);
+  return { field, wire };
 }
 
-/** Uzunluklu alanın gövdesi (kesikse eldeki kadarı); bozuksa null ve okuma biter */
+/** Uzunluklu alanın gövdesi (kesikse eldeki kadarı); uzunluk okunamazsa null */
 function body(r: Reader): Reader | null {
   const len = varint(r);
-  if (!len || len.hi !== 0) {
-    r.pos = r.end;
-    return null;
-  }
+  if (!len) return null;
+  if (len.hi !== 0) return fail(r);
   const start = r.pos;
   const end = Math.min(r.end, start + len.lo);
   r.pos = end;
-  return { buf: r.buf, pos: start, end };
+  return { buf: r.buf, pos: start, end, state: r.state };
 }
 
-/** İstenmeyen alanı çözmeden atlar; atlanamıyorsa (grup, bilinmeyen tür, kesik) okuma biter */
+/** İstenmeyen alanı çözmeden atlar (kesikse okuma biter) */
 function skip(r: Reader, wire: number): void {
-  if (wire === 0) varint(r);
-  else if (wire === 2) body(r);
-  else if ((wire === 1 || wire === 5) && r.pos + (wire === 1 ? 8 : 4) <= r.end) r.pos += wire === 1 ? 8 : 4;
-  else r.pos = r.end;
-}
-
-/**
- * Mesajın alanlarını sırayla gezer. `visit` alanı okuduysa true döner; false dönerse (istenmeyen alan ya da
- * beklenmeyen kablo türü) alan çözülmeden atlanır.
- */
-function walk(r: Reader, visit: (field: number, wire: number) => boolean): void {
-  while (r.pos < r.end) {
-    const t = tag(r);
-    if (!t) return;
-    if (!visit(t.field, t.wire)) skip(r, t.wire);
+  if (wire === VARINT) varint(r);
+  else if (wire === LEN) body(r);
+  else {
+    const size = wire === 1 ? 8 : 4;
+    r.pos = r.pos + size <= r.end ? r.pos + size : r.end;
   }
 }
 
-const num = (v: U64 | null): number => (v ? v.hi * 0x100000000 + v.lo : 0);
+/**
+ * Mesajın alanlarını sırayla gezer. `schema`: bilinen alanların kablo türü; bilinen bir alan başka türle gelirse
+ * girdi bozuktur. `visit` alanı okuduysa true döner; false dönerse ya da alan bilinmiyorsa çözülmeden atlanır.
+ */
+function walk(r: Reader, schema: Readonly<Record<number, number>>, visit: (field: number) => boolean): void {
+  while (r.pos < r.end && !r.state.bad) {
+    const t = tag(r);
+    if (!t) return;
+    const expected = schema[t.field];
+    if (expected !== undefined && expected !== t.wire) {
+      fail(r);
+      return;
+    }
+    if (expected === undefined || !visit(t.field)) skip(r, t.wire);
+  }
+}
+
+// Kablo türleri kesin bilinen alanlar (tombstone.proto); diğerleri (yeni sürümlerin alanları) atlanır
+const TOMBSTONE_SCHEMA = {
+  1: VARINT, // arch
+  2: LEN, // build_fingerprint
+  3: LEN, // revision
+  4: LEN, // timestamp
+  5: VARINT, // pid
+  6: VARINT, // tid
+  7: VARINT, // uid
+  8: LEN, // selinux_label
+  9: LEN, // command_line
+  10: LEN, // signal_info
+  14: LEN, // abort_message
+  15: LEN, // causes
+  16: LEN, // threads
+  17: LEN, // memory_mappings
+  18: LEN, // log_buffers
+  19: LEN, // open_fds
+};
+// number, name, code, code_name, has_sender, sender_uid, sender_pid, has_fault_address, fault_address,
+// fault_adjacent_metadata
+const SIGNAL_SCHEMA = { 1: VARINT, 2: LEN, 3: VARINT, 4: LEN, 5: VARINT, 6: VARINT, 7: VARINT, 8: VARINT, 9: VARINT, 10: LEN };
+// human_readable, heap_object, memory_error
+const CAUSE_SCHEMA = { 1: LEN, 2: LEN, 3: LEN };
+// map<uint32, Thread> girdisi: key, value
+const ENTRY_SCHEMA = { 1: VARINT, 2: LEN };
+// id, name, registers, current_backtrace, memory_dump
+const THREAD_SCHEMA = { 1: VARINT, 2: LEN, 3: LEN, 4: LEN, 5: LEN };
+// rel_pc, pc, sp, function_name, function_offset, file_name, file_map_offset, build_id
+const FRAME_SCHEMA = { 1: VARINT, 2: VARINT, 3: VARINT, 4: LEN, 5: VARINT, 6: LEN, 7: VARINT, 8: LEN };
+
+const num = (v: U64): number => v.hi * 0x100000000 + v.lo;
 /** int32 (eksi sayılar 10 baytlık varint olarak gelir) */
-const int32 = (v: U64 | null): number => (v ? v.lo | 0 : 0);
-const hex = (v: U64 | null): string => (!v ? '0' : v.hi ? v.hi.toString(16) + v.lo.toString(16).padStart(8, '0') : v.lo.toString(16));
+const int32 = (v: U64): number => v.lo | 0;
+const hex = (v: U64): string => (v.hi ? v.hi.toString(16) + v.lo.toString(16).padStart(8, '0') : v.lo.toString(16));
 
 /** Metin alanı: yalnızca yazdırılabilir ASCII (kütüphane ve işlev adları); diğer baytlar '?' */
 function text(r: Reader | null, max: number): string {
@@ -140,57 +197,62 @@ function parseSignal(r: Reader | null): Tombstone['signal'] {
   if (!r) return null;
   const signal = { number: 0, name: '', code: 0, codeName: '', faultAddress: null as string | null };
   const fault = { has: false, address: null as U64 | null };
-  // 1 number, 2 name, 3 code, 4 code_name, 8 has_fault_address, 9 fault_address; 10 (bellek meta verisi) atlanır
-  walk(r, (field, wire) => {
-    if (field === 1 && wire === 0) signal.number = int32(varint(r));
-    else if (field === 2 && wire === 2) signal.name = text(body(r), MAX_TEXT);
-    else if (field === 3 && wire === 0) signal.code = int32(varint(r));
-    else if (field === 4 && wire === 2) signal.codeName = text(body(r), MAX_TEXT);
-    else if (field === 8 && wire === 0) fault.has = num(varint(r)) !== 0;
-    else if (field === 9 && wire === 0) fault.address = varint(r);
-    else return false;
+  // Yalnızca sinyal, kod ve hatalı adres; gönderen bilgisi ve 10 (adresin çevresindeki bellek) atlanır
+  walk(r, SIGNAL_SCHEMA, (field) => {
+    if (field === 2) signal.name = text(body(r), MAX_TEXT);
+    else if (field === 4) signal.codeName = text(body(r), MAX_TEXT);
+    else if (field === 1 || field === 3 || field === 8 || field === 9) {
+      const v = varint(r);
+      if (!v) return true;
+      if (field === 1) signal.number = int32(v);
+      else if (field === 3) signal.code = int32(v);
+      else if (field === 8) fault.has = num(v) !== 0;
+      else fault.address = v;
+    } else return false;
     return true;
   });
-  signal.faultAddress = fault.has ? hex(fault.address) : null;
+  signal.faultAddress = fault.has && fault.address ? hex(fault.address) : null;
   return signal;
 }
 
-/** Cause: yalnızca 1 human_readable (ör. "null pointer dereference") */
+/** Cause: yalnızca human_readable (ör. "null pointer dereference") */
 function parseCause(r: Reader | null): string {
   const cause = { text: '' };
   if (!r) return '';
-  walk(r, (field, wire) => {
-    if (field !== 1 || wire !== 2) return false;
+  walk(r, CAUSE_SCHEMA, (field) => {
+    if (field !== 1) return false;
     cause.text = text(body(r), MAX_TEXT);
     return true;
   });
   return cause.text;
 }
 
-/** BacktraceFrame: 1 rel_pc, 4 function_name, 5 function_offset, 6 file_name (build_id vb. atlanır) */
+/** BacktraceFrame: rel_pc, function_name, function_offset, file_name (build_id vb. atlanır) */
 function parseFrame(r: Reader | null): TombstoneFrame {
   const frame: TombstoneFrame = { relPc: '0', functionName: '', functionOffset: 0, fileName: '' };
   if (!r) return frame;
-  walk(r, (field, wire) => {
-    if (field === 1 && wire === 0) frame.relPc = hex(varint(r));
-    else if (field === 4 && wire === 2) frame.functionName = text(body(r), MAX_TEXT);
-    else if (field === 5 && wire === 0) frame.functionOffset = num(varint(r));
-    else if (field === 6 && wire === 2) frame.fileName = text(body(r), MAX_TEXT);
-    else return false;
+  walk(r, FRAME_SCHEMA, (field) => {
+    if (field === 4) frame.functionName = text(body(r), MAX_TEXT);
+    else if (field === 6) frame.fileName = text(body(r), MAX_TEXT);
+    else if (field === 1 || field === 5) {
+      const v = varint(r);
+      if (v && field === 1) frame.relPc = hex(v);
+      else if (v) frame.functionOffset = num(v);
+    } else return false;
     return true;
   });
   return frame;
 }
 
-/**
- * Thread: 1 id, 2 name, 4 current_backtrace. 3 registers ve 5 memory_dump (ham bellek) çözülmeden atlanır.
- */
+/** Thread: id, name, current_backtrace. registers ve memory_dump (ham bellek) çözülmeden atlanır. */
 function parseThread(r: Reader, out: Tombstone): void {
   const thread = { id: 0, name: '' };
-  walk(r, (field, wire) => {
-    if (field === 1 && wire === 0) thread.id = int32(varint(r));
-    else if (field === 2 && wire === 2) thread.name = text(body(r), MAX_TEXT);
-    else if (field === 4 && wire === 2) {
+  walk(r, THREAD_SCHEMA, (field) => {
+    if (field === 1) {
+      const v = varint(r);
+      if (v) thread.id = int32(v);
+    } else if (field === 2) thread.name = text(body(r), MAX_TEXT);
+    else if (field === 4) {
       const frame = parseFrame(body(r));
       if (out.frames.length < MAX_FRAMES) out.frames.push(frame);
     } else return false;
@@ -199,49 +261,72 @@ function parseThread(r: Reader, out: Tombstone): void {
   out.thread = thread;
 }
 
-/** threads map girdisi: 1 anahtar (iş parçacığı kimliği), 2 değer (Thread); değer çözülmez, yalnızca yeri tutulur */
+/** threads map girdisi: anahtar (iş parçacığı kimliği) ve değer (Thread); değer çözülmez, yalnızca yeri tutulur */
 function threadEntry(r: Reader | null): { id: number; thread: Reader } | null {
   if (!r) return null;
   const entry = { id: null as number | null, thread: null as Reader | null };
-  walk(r, (field, wire) => {
-    if (field === 1 && wire === 0) entry.id = num(varint(r));
-    else if (field === 2 && wire === 2) entry.thread = body(r);
-    else return false;
+  walk(r, ENTRY_SCHEMA, (field) => {
+    if (field === 1) {
+      const v = varint(r);
+      entry.id = v ? num(v) : null;
+    } else entry.thread = body(r);
     return true;
   });
   return entry.id !== null && entry.thread ? { id: entry.id, thread: entry.thread } : null;
 }
 
-/** Tombstone protobuf'unu okur; hiçbir durumda fırlatmaz, okuyabildiğini döner */
+const empty = (): Tombstone => ({
+  wide: false,
+  tid: null,
+  signal: null,
+  abortMessage: '',
+  causes: [],
+  thread: null,
+  frames: [],
+});
+
+/**
+ * Tombstone protobuf'unu okur; hiçbir durumda fırlatmaz. Kesikse okuyabildiğini döner; protobuf gibi
+ * görünmüyorsa ya da ne sinyal ne mimari okunabildiyse boş döner (bkz. dosyanın başı).
+ */
 export function parseTombstone(bytes: Uint8Array): Tombstone {
-  const out: Tombstone = { wide: false, tid: null, signal: null, abortMessage: '', causes: [], thread: null, frames: [] };
   try {
+    const out = empty();
+    const state: ParseState = { bad: false };
+    const r: Reader = { buf: bytes, pos: 0, end: bytes.length, state };
+    const arch = { read: false };
     const threads: { id: number; thread: Reader }[] = [];
-    const r: Reader = { buf: bytes, pos: 0, end: bytes.length };
-    // 1 arch, 6 tid, 10 signal_info, 14 abort_message, 15 causes, 16 threads; diğerleri (17 bellek haritaları,
-    // 18 günlükler, 19 açık dosyalar…) çözülmeden atlanır
-    walk(r, (field, wire) => {
-      // Architecture: ARM32 = 0 (yazılmaz), ARM64 = 1, X86 = 2, X86_64 = 3, RISCV64 = 4
-      if (field === 1 && wire === 0) out.wide = [1, 3, 4].includes(num(varint(r)));
-      else if (field === 6 && wire === 0) out.tid = num(varint(r));
-      else if (field === 10 && wire === 2) out.signal = parseSignal(body(r));
-      else if (field === 14 && wire === 2) out.abortMessage = text(body(r), MAX_ABORT);
-      else if (field === 15 && wire === 2) {
+    // arch, tid, signal_info, abort_message, causes, threads; diğerleri (bellek haritaları, günlükler, açık
+    // dosyalar…) çözülmeden atlanır
+    walk(r, TOMBSTONE_SCHEMA, (field) => {
+      if (field === 1 || field === 6) {
+        const v = varint(r);
+        if (!v) return true;
+        // Architecture: ARM32 = 0 (varsayılan, yazılmaz), ARM64 = 1, X86 = 2, X86_64 = 3, RISCV64 = 4
+        if (field === 1) {
+          arch.read = true;
+          out.wide = [1, 3, 4].includes(num(v));
+        } else out.tid = num(v);
+      } else if (field === 10) out.signal = parseSignal(body(r));
+      else if (field === 14) out.abortMessage = text(body(r), MAX_ABORT);
+      else if (field === 15) {
         const cause = parseCause(body(r));
         if (cause && out.causes.length < MAX_CAUSES) out.causes.push(cause);
-      } else if (field === 16 && wire === 2) {
+      } else if (field === 16) {
         const entry = threadEntry(body(r));
         if (entry && threads.length < MAX_THREADS) threads.push(entry);
       } else return false;
       return true;
     });
+    if (state.bad || !(arch.read || (out.signal?.number ?? 0) > 0)) return empty();
     // Yalnızca çöken iş parçacığı (diğerlerinin adları ve yığınları gerekmez)
     const crashed = out.tid === null ? undefined : threads.find((t) => t.id === out.tid);
     if (crashed) parseThread(crashed.thread, out);
+    return state.bad ? empty() : out;
   } catch {
-    // beklenmez (okuyucu sınırları denetler): okunabilen kadarı döner
+    // beklenmez (okuyucu sınırları denetler)
+    return empty();
   }
-  return out;
 }
 
 const pad = (value: string, wide: boolean): string => value.padStart(wide ? 16 : 8, '0');

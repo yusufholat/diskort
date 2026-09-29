@@ -61,16 +61,28 @@ export type CrashReport = JavaCrash | ExitCrash;
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
-/** Yerel modülün verdiği JSON metnini okur; bozuksa ya da tanınmıyorsa null */
-export function parseCrashReport(raw: string): CrashReport | null {
-  let data: Record<string, unknown>;
+type CrashJson = Record<string, unknown> & { kind: 'java' | 'exit' };
+
+/** Yerel modülün verdiği JSON metni; bozuksa ya da tanınmıyorsa null. Tombstone henüz çözülmez (pahalı). */
+function readCrashJson(raw: unknown): CrashJson | null {
+  if (typeof raw !== 'string') return null;
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return null;
-    data = parsed as Record<string, unknown>;
+    const data = parsed as Record<string, unknown>;
+    return data.kind === 'java' || data.kind === 'exit' ? (data as CrashJson) : null;
   } catch {
     return null;
   }
+}
+
+/** Yerel modülün verdiği JSON metnini okur; bozuksa ya da tanınmıyorsa null */
+export function parseCrashReport(raw: string): CrashReport | null {
+  const data = readCrashJson(raw);
+  return data ? toCrashReport(data) : null;
+}
+
+function toCrashReport(data: CrashJson): CrashReport {
   if (data.kind === 'java') {
     return {
       kind: 'java',
@@ -81,23 +93,20 @@ export function parseCrashReport(raw: string): CrashReport | null {
       context: str(data.context),
     };
   }
-  if (data.kind === 'exit') {
-    return {
-      kind: 'exit',
-      at: num(data.at),
-      reason: str(data.reason) || 'BİLİNMİYOR',
-      description: str(data.description),
-      status: num(data.status),
-      importance: num(data.importance),
-      pssKb: num(data.pssKb),
-      rssKb: num(data.rssKb),
-      process: str(data.process),
-      context: str(data.context),
-      anrTrace: data.traceKind === 'anr' ? str(data.trace) : '',
-      tombstone: typeof data.tombstone === 'string' && data.tombstone ? parseTombstone(decodeBase64(data.tombstone)) : null,
-    };
-  }
-  return null;
+  return {
+    kind: 'exit',
+    at: num(data.at),
+    reason: str(data.reason) || 'BİLİNMİYOR',
+    description: str(data.description),
+    status: num(data.status),
+    importance: num(data.importance),
+    pssKb: num(data.pssKb),
+    rssKb: num(data.rssKb),
+    process: str(data.process),
+    context: str(data.context),
+    anrTrace: data.traceKind === 'anr' ? str(data.trace) : '',
+    tombstone: typeof data.tombstone === 'string' && data.tombstone ? parseTombstone(decodeBase64(data.tombstone)) : null,
+  };
 }
 
 const SIGNALS: Record<number, string> = {
@@ -238,11 +247,13 @@ export async function reportNativeCrashes(
     return 0;
   }
   if (!Array.isArray(raw)) return 0;
+  // Önce en yeniler seçilir, tombstone yalnızca onlarda çözülür (çökme döngüsünde JS iş parçacığı boşuna uğraşmasın)
   const crashes = raw
-    .map((item) => (typeof item === 'string' ? parseCrashReport(item) : null))
-    .filter((crash): crash is CrashReport => crash !== null)
-    .sort((a, b) => b.at - a.at)
-    .slice(0, MAX_NATIVE_REPORTS);
+    .map(readCrashJson)
+    .filter((data): data is CrashJson => data !== null)
+    .sort((a, b) => num(b.at) - num(a.at))
+    .slice(0, MAX_NATIVE_REPORTS)
+    .map(toCrashReport);
   for (const crash of crashes) report(crashToError(crash), NATIVE_CRASH_WHERE);
   return crashes.length;
 }

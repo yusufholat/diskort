@@ -46,7 +46,7 @@ internal object CrashStore {
 
   @Volatile private var application: Application? = null
   @Volatile private var context = ""
-  /** APK sürümü: çökme anında paket yöneticisine (IPC) gidilmesin diye önceden alınır (ilk setContext'te) */
+  /** APK sürümü: çökme anında paket yöneticisine (IPC) gidilmesin diye açılışta alınır */
   @Volatile private var nativeVersion: String? = null
   private val installed = AtomicBoolean(false)
   private val handling = AtomicBoolean(false)
@@ -54,6 +54,8 @@ internal object CrashStore {
   fun install(app: Application) {
     if (!installed.compareAndSet(false, true)) return
     application = app
+    // JS başlamadan olan çökmeler de APK sürümünü taşısın
+    nativeVersion = versionOf(app)
     val previous = Thread.getDefaultUncaughtExceptionHandler()
     Thread.setDefaultUncaughtExceptionHandler { thread, error ->
       record(thread, error)
@@ -70,7 +72,8 @@ internal object CrashStore {
   /** JS iş parçacığından çağrılır (açılışta ve ekran değiştikçe) */
   fun setContext(info: String) {
     context = info.take(MAX_CONTEXT_CHARS)
-    if (nativeVersion == null) nativeVersion = application?.let { versionOf(it) }
+    // Açılışta alınamadıysa
+    if (nativeVersion.isNullOrEmpty()) nativeVersion = application?.let { versionOf(it) }
     // Yerel çökmede Java işleyicisi çalışmaz: bağlamın başı sistemin çıkış kaydına eklenir (Android 11+)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
       try {
