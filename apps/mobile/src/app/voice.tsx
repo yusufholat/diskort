@@ -1,21 +1,18 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, BackHandler, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BackHandler, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { channelById, membersOf, useCan, useGuild, useMemberColor, useSession } from '@diskort/client-core';
-import { Permission, type VoiceState } from '@diskort/shared';
-import { Avatar } from '../components/Avatar';
+import { channelById, membersOf, useCan, useGuild, useSession } from '@diskort/client-core';
+import { Permission } from '@diskort/shared';
 import { MemberSheet } from '../components/MemberSheet';
-import { SpeakingRing } from '../components/SpeakingRing';
 import { EmptyState, Notice } from '../components/States';
 import { StreamViewer } from '../components/StreamViewer';
 import { StreamViewers } from '../components/StreamViewers';
-import { SwapIcon } from '../components/SwapIcon';
 import { VoiceControl } from '../components/VoiceBar';
 import { ConnectionQualityBadge } from '../components/VoiceQuality';
-import { VoiceStateIcon } from '../components/VoiceStateIcon';
+import { MemberTile, StreamTile, TILE_MIN_HEIGHT } from '../components/VoiceTiles';
 import { UserVolume } from '../components/VolumeControl';
-import { useAppear, useLayoutAnimationOn, useTimingTo } from '../motion';
+import { useLayoutAnimationOn } from '../motion';
 import { useSettings } from '../stores/settings';
 import { colors, createStyles, font, radius, space } from '../theme';
 import { leaveVoice, toggleDeafen, toggleMute, toggleScreenShare, toggleSpeaker } from '../voice/actions';
@@ -45,10 +42,15 @@ export default function VoiceScreen() {
   const { width } = useWindowDimensions();
   // Uzun basılan (yönetilecek / sesi ayarlanacak) üye
   const [member, setMember] = useState<string | null>(null);
+  const { fullscreen, setFullscreen, rotate, screenOptions } = useStreamFullscreen(viewing, watching);
+  // Yayın yapan kişinin hemen ardından yayınının kendi kutucuğu (masaüstündeki gibi)
+  const tiles = useMemo(
+    () => members.flatMap((m) => (m.streaming ? [{ state: m, stream: false }, { state: m, stream: true }] : [{ state: m, stream: false }])),
+    [members],
+  );
   // Katılan/ayrılan kutucukta diğerleri yumuşakça yer değiştirir
   // (yeni kutucuğun kendisi Animated ile büyür; LayoutAnimation yalnızca kaymayı ve çıkışı yapar)
-  useLayoutAnimationOn(members.map((m) => m.userId).join(','), 220, false);
-  const { fullscreen, setFullscreen, rotate, screenOptions } = useStreamFullscreen(viewing, watching);
+  useLayoutAnimationOn(tiles.map((t) => (t.stream ? 's:' : '') + t.state.userId).join(','), 220, false);
 
   const title = channel?.name ?? 'Ses';
   const options = useMemo(
@@ -60,11 +62,20 @@ export default function VoiceScreen() {
     [screenOptions, title, status],
   );
 
-  // Tek kişiyse geniş kutucuk, değilse iki sütun; yayın izlenirken kutucuklar kısalır
-  const single = members.length === 1;
+  // Tek kutucuksa geniş, değilse iki sütun; yayın izlenirken kutucuklar kısalır. Hepsi aynı yükseklikte:
+  // büyük avatar ve dekorasyonu (TILE_MIN_HEIGHT) her telefonda sığar
+  const single = tiles.length === 1;
   const tileWidth = single ? width - GRID_PADDING * 2 : Math.floor((width - GRID_PADDING * 2 - GRID_GAP) / 2);
-  const tileHeight = viewing ? 118 : single ? 220 : Math.round(tileWidth * 0.86);
+  const tileHeight = viewing ? 118 : single ? 220 : Math.max(TILE_MIN_HEIGHT, Math.round(tileWidth * 0.86));
   const openMember = useCallback((userId: string) => setMember(userId), []);
+  // Yayın kutucuğu: izlenmiyorsa izle, izleniyorsa tam ekran aç
+  const openStream = useCallback(
+    (userId: string) => {
+      if (useVoice.getState().watching === userId) setFullscreen(true);
+      else voice.watch(userId);
+    },
+    [setFullscreen],
+  );
 
   if (status === 'idle' || !channelId) {
     return (
@@ -120,9 +131,13 @@ export default function VoiceScreen() {
       )}
 
       <ScrollView contentContainerStyle={styles.grid}>
-        {members.map((m) => (
-          <MemberTile key={m.userId} state={m} width={tileWidth} height={tileHeight} selfId={selfId} onLongPress={openMember} />
-        ))}
+        {tiles.map(({ state, stream }) =>
+          stream ? (
+            <StreamTile key={'s:' + state.userId} state={state} width={tileWidth} height={tileHeight} selfId={selfId} onOpen={openStream} />
+          ) : (
+            <MemberTile key={state.userId} state={state} width={tileWidth} height={tileHeight} selfId={selfId} onLongPress={openMember} />
+          ),
+        )}
       </ScrollView>
 
       <View style={styles.controls}>
@@ -282,90 +297,6 @@ function ShareStatsLine() {
   );
 }
 
-/**
- * Seste bir kişi: büyük avatar (konuşunca yeşil halka ve kutucuğun kenarı yumuşakça yanar), altta
- * ad ve ses durumu; yayın yapıyorsa CANLI ve "Yayını izle". Katılınca büyüyerek belirir.
- */
-const MemberTile = memo(function MemberTile({
-  state,
-  width,
-  height,
-  selfId,
-  onLongPress,
-}: {
-  state: VoiceState;
-  width: number;
-  height: number;
-  selfId: string | undefined;
-  onLongPress: (userId: string) => void;
-}) {
-  const user = useGuild((s) => s.users[state.userId]);
-  const color = useMemberColor(state.userId);
-  const speaking = useVoice((s) => Boolean(s.speaking[state.userId]));
-  const hasStream = useVoice((s) => Boolean(s.streams[state.userId]));
-  const watching = useVoice((s) => s.watching === state.userId);
-  const appear = useAppear(true, 260);
-  // Konuşma kenarı: açılışı hızlı, sönüşü yavaş (kısa sessizliklerde titremez)
-  const edge = useTimingTo(speaking ? 1 : 0, speaking ? 90 : 280);
-  const self = state.userId === selfId;
-  const avatar = Math.min(72, Math.round(height * 0.44));
-  return (
-    <Pressable
-      onLongPress={() => onLongPress(state.userId)}
-      delayLongPress={300}
-      accessibilityLabel={`${user?.displayName ?? 'Üye'}${speaking ? ', konuşuyor' : ''}${state.streaming ? ', yayında' : ''}`}
-      accessibilityHint="Ses seviyesi ve seçenekler için uzun bas"
-    >
-      <Animated.View
-        style={[
-          styles.tile,
-          {
-            width,
-            height,
-            opacity: appear,
-            transform: [{ scale: appear.interpolate({ inputRange: [0, 1], outputRange: [0.88, 1] }) }],
-          },
-        ]}
-      >
-        <Animated.View pointerEvents="none" style={[styles.tileEdge, { opacity: edge }]} />
-        {state.streaming && (
-          <View style={styles.live}>
-            <Text style={styles.liveText}>CANLI</Text>
-          </View>
-        )}
-        {/* Kendi izleyicilerin "Ekranını paylaşıyorsun" şeridinde */}
-        {state.streaming && !self && <StreamViewers userId={state.userId} style={styles.viewers} />}
-        <SpeakingRing speaking={speaking} size={avatar}>
-          {/* Hareketli dekorasyon hafif modda: yalnızca konuşurken oynar (katılımcı kadar yüzey, sesle yarışır) */}
-          <Avatar
-            user={user}
-            size={avatar}
-            decoration={user?.avatarDecoration}
-            decorationLite={speaking ? 'on' : 'paused'}
-          />
-        </SpeakingRing>
-        <View style={styles.nameRow}>
-          <VoiceStateIcon state={state} size={14} />
-          <Text style={[styles.name, self && { color: colors.head }, color ? { color } : null]} numberOfLines={1}>
-            {user?.displayName ?? '…'}
-          </Text>
-        </View>
-        {hasStream && !self && (
-          <Pressable
-            onPress={() => voice.watch(watching ? null : state.userId)}
-            android_ripple={{ color: 'rgba(255,255,255,0.2)' }}
-            style={[styles.watch, watching && { backgroundColor: colors.control }]}
-            accessibilityRole="button"
-          >
-            <SwapIcon name={watching ? 'eye-off' : 'eye'} size={14} color={watching ? colors.onControl : '#fff'} motion="blink" />
-            <Text style={[styles.watchText, watching && { color: colors.onControl }]}>{watching ? 'İzlemeyi bırak' : 'Yayını izle'}</Text>
-          </Pressable>
-        )}
-      </Animated.View>
-    </Pressable>
-  );
-});
-
 const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: colors.deep },
   sharing: {
@@ -387,49 +318,6 @@ const styles = createStyles(() => ({
     padding: GRID_PADDING,
     gap: GRID_GAP,
   },
-  tile: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.rail,
-    borderRadius: radius.lg - 2,
-    paddingHorizontal: space.sm,
-    overflow: 'hidden',
-  },
-  tileEdge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    borderRadius: radius.lg - 2,
-    borderWidth: 2,
-    borderColor: colors.ok,
-  },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10, maxWidth: '100%' },
-  name: { color: colors.text, fontSize: font.body - 0.5, fontWeight: '600', flexShrink: 1 },
-  live: {
-    position: 'absolute',
-    top: space.sm,
-    left: space.sm,
-    backgroundColor: colors.danger,
-    borderRadius: radius.sm,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  liveText: { color: '#fff', fontSize: 10.5, fontWeight: '800' },
-  viewers: { position: 'absolute', top: space.sm, right: space.sm },
-  watch: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginTop: space.sm,
-    backgroundColor: colors.brand,
-    borderRadius: radius.pill,
-    paddingHorizontal: space.md,
-    paddingVertical: 5,
-    overflow: 'hidden',
-  },
-  watchText: { color: '#fff', fontSize: 12.5, fontWeight: '700' },
   controls: {
     flexDirection: 'row',
     justifyContent: 'space-evenly',
