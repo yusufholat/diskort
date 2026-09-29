@@ -71,6 +71,8 @@ export interface ScreenShareOptions {
   /** Seçilen pencerenin/ekranın adı ("Şimdi Yayın Yapıyor" kartında görünür) */
   sourceName?: string;
   sourceKind?: 'screen' | 'window';
+  /** Pencerenin uygulama simgesi (data: URL; ses bağlantısı kartındaki yayın satırında) */
+  sourceIcon?: string | null;
 }
 
 const STATS_INTERVAL_MS = 2000;
@@ -92,9 +94,20 @@ const RESET_ROOM_STATE = {
   pingMs: null,
   quality: 'unknown' as const,
   sharing: false,
+  selfPreview: false,
   shareHasAudio: false,
+  shareQuality: null,
+  shareIcon: null,
   pttActive: false,
 };
+
+/** Yayının gerçek çözünürlüğü ve kare hızı (ör. "1080p 60 FPS"); tarayıcı bildirmezse seçilen kalite */
+function qualityLabel(track: MediaStreamTrack, preset: { height: number; fps: number }): string {
+  const s = track.getSettings();
+  const height = Math.round(s.height ?? preset.height);
+  const fps = Math.round(s.frameRate ?? preset.fps);
+  return `${height}p ${fps} FPS`;
+}
 
 /** Paylaşılan kaynağın adı; sistem seçicisinde (macOS/tarayıcı) ad bilinmez, türü yazılır */
 function sourceOf(opts: ScreenShareOptions, track: MediaStreamTrack): { name: string; kind: 'screen' | 'window' } {
@@ -951,7 +964,7 @@ class VoiceClient {
     } catch (err) {
       await abandon();
       if (room !== this.room) return null;
-      setVoice({ sharing: false, shareHasAudio: false });
+      setVoice({ sharing: false, shareHasAudio: false, shareQuality: null, shareIcon: null });
       this.bumpTracks();
       throw err;
     }
@@ -965,7 +978,13 @@ class VoiceClient {
     this.screenHardwareEncoder = hardware;
     // Paylaşılan pencere kapanırsa veya sistemden durdurulursa yayını bitir.
     videoTrack.addEventListener('ended', () => void this.stopScreenShare());
-    setVoice({ sharing: true, shareHasAudio: audio !== null });
+    setVoice({
+      sharing: true,
+      selfPreview: false,
+      shareHasAudio: audio !== null,
+      shareQuality: qualityLabel(videoTrack, preset),
+      shareIcon: opts.sourceIcon ?? null,
+    });
     this.bumpTracks();
     playSound('streamStart');
     return warning;
@@ -987,7 +1006,7 @@ class VoiceClient {
       if (room) await room.localParticipant.unpublishTrack(track, true).catch(() => undefined);
       track.stop();
     }
-    setVoice({ sharing: false, shareHasAudio: false });
+    setVoice({ sharing: false, shareHasAudio: false, shareQuality: null, shareIcon: null });
     this.bumpTracks();
     if (withSound) playSound('streamStop');
   }

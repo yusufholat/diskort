@@ -62,49 +62,94 @@ input[type='number']::-webkit-outer-spin-button {
 }
 
 /* ---------- Kaydırıcı (range) ---------- */
-/* Dolu kısım: --fill (0–100%), components/ui/Slider.tsx ayarlar */
+/*
+ * Tüm uygulamanın kaydırıcıları (components/ui/Slider.tsx ve ham <input type="range">'ler) buradan ve tema
+ * belirteçlerinden görünür. İnce, yuvarlak iz (4 px): dolu kısım temanın vurgu rengi (--color-brand), kalanı
+ * yazı renginden türeyen hafif nötr (currentColor; yayının üstündeki beyaz yazılı haplarda kendiliğinden açık).
+ * Küçük yuvarlak tutamak üstüne gelince ve sürüklerken biraz büyür. Dolu kısım: --fill (0–100%).
+ * .range-tick: iz çizilmez, tutamak ince bir çentiktir (mikrofon seviye göstergesinin üstündeki eşik).
+ */
 input[type='range'] {
   -webkit-appearance: none;
   appearance: none;
-  height: 8px;
-  border-radius: 4px;
-  background: linear-gradient(
-    to right,
-    var(--color-brand) 0 var(--fill, 0%),
-    var(--color-control) var(--fill, 0%) 100%
-  );
+  /* Tıklama alanı izden yüksek; iz ortada çizilir */
+  height: 16px;
+  background: transparent;
   outline: none;
   cursor: pointer;
 }
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--color-brand) 0 var(--fill, 0%),
+    color-mix(in srgb, currentColor 20%, transparent) var(--fill, 0%) 100%
+  );
+}
 input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 10px;
-  height: 24px;
-  border-radius: 3px;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.4);
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.12),
+    0 1px 3px rgb(0 0 0 / 0.35);
   cursor: grab;
   transition:
     transform var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-fast) var(--ease-out);
 }
 input[type='range']:hover::-webkit-slider-thumb {
-  transform: scaleX(1.2);
+  transform: scale(1.15);
 }
 input[type='range']:active::-webkit-slider-thumb {
   cursor: grabbing;
-  transform: scale(1.2, 1.08);
+  transform: scale(1.25);
   box-shadow:
-    0 1px 3px rgb(0 0 0 / 0.4),
-    0 0 0 4px color-mix(in srgb, var(--color-brand) 35%, transparent);
+    0 0 0 1px rgb(0 0 0 / 0.12),
+    0 1px 3px rgb(0 0 0 / 0.35),
+    0 0 0 5px color-mix(in srgb, var(--color-brand) 30%, transparent);
 }
+/* Klavye odağı: izin çevresinde uzak bir çerçeve yerine tutamağın çevresinde halka */
 input[type='range']:focus-visible {
-  outline: 2px solid var(--color-brand);
-  outline-offset: 6px;
+  outline: none;
+}
+input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.12),
+    0 0 0 3px var(--color-bg-float),
+    0 0 0 5px var(--color-brand);
 }
 input[type='range']:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+input[type='range']:disabled::-webkit-slider-thumb {
+  cursor: not-allowed;
+  transform: none;
+}
+input[type='range'].range-tick::-webkit-slider-runnable-track {
+  background: transparent;
+}
+input[type='range'].range-tick::-webkit-slider-thumb {
+  width: 4px;
+  border-radius: 2px;
+  background: var(--color-text-head);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.25);
+}
+input[type='range'].range-tick:hover::-webkit-slider-thumb {
+  transform: scaleY(1.15);
+}
+input[type='range'].range-tick:active::-webkit-slider-thumb {
+  transform: scale(1.25, 1.15);
+}
+input[type='range'].range-tick:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 3px var(--color-bg-float),
+    0 0 0 5px var(--color-brand);
 }
 
 /* ---------- Onay kutusu ve seçenek düğmesi ---------- */

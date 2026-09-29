@@ -284,7 +284,7 @@ function ShareStatsLine() {
 
 /**
  * Seste bir kişi: büyük avatar (konuşunca yeşil halka ve kutucuğun kenarı yumuşakça yanar), altta
- * ad ve ses durumu; yayın yapıyorsa CANLI ve "Yayını izle". Katılınca büyüyerek belirir.
+ * ad ve ses durumu; yayın yapıyorsa YAYINDA ve "Yayını izle". Katılınca büyüyerek belirir.
  */
 const MemberTile = memo(function MemberTile({
   state,
@@ -330,7 +330,7 @@ const MemberTile = memo(function MemberTile({
         <Animated.View pointerEvents="none" style={[styles.tileEdge, { opacity: edge }]} />
         {state.streaming && (
           <View style={styles.live}>
-            <Text style={styles.liveText}>CANLI</Text>
+            <Text style={styles.liveText}>YAYINDA</Text>
           </View>
         )}
         {/* Kendi izleyicilerin "Ekranını paylaşıyorsun" şeridinde */}

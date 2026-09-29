@@ -397,7 +397,7 @@ const VoiceMember = memo(function VoiceMember({ state, onLongPress }: { state: V
       </Text>
       {state.streaming && (
         <View style={styles.live}>
-          <Text style={styles.liveText}>CANLI</Text>
+          <Text style={styles.liveText}>YAYINDA</Text>
         </View>
       )}
       <VoiceStateIcon state={state} size={15} />
