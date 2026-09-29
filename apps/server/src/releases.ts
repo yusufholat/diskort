@@ -84,10 +84,13 @@ const POLL_INTERVAL_MS = 3 * 60_000;
 const BACKOFF_MIN_MS = 60_000;
 const BACKOFF_MAX_MS = 30 * 60_000;
 
-/** Başarısız yanıttan bekleme süresi: retry-after, sınır dolduysa x-ratelimit-reset; yoksa en az süre */
-function backoffMs(res: Response | null): number {
+/**
+ * Başarısız yanıttan bekleme süresi: retry-after, sınır dolduysa x-ratelimit-reset; ipucu yoksa en az süre,
+ * her ardışık hatada ikiye katlanarak (`failures`: art arda kaçıncı hata)
+ */
+function backoffMs(res: Response | null, failures: number): number {
   const header = (name: string): number => Number(res?.headers?.get(name) ?? NaN);
-  let wait = BACKOFF_MIN_MS;
+  let wait = BACKOFF_MIN_MS * 2 ** Math.min(Math.max(failures - 1, 0), 10);
   const retryAfter = header('retry-after');
   if (retryAfter > 0) wait = retryAfter * 1000;
   else if (res?.headers?.get('x-ratelimit-remaining') === '0' && header('x-ratelimit-reset') > 0) {
@@ -124,6 +127,8 @@ export class ReleaseService {
   private etag: string | null = null;
   /** GitHub hata verdi: bu zamana kadar gidilmez, son bilinen değerler kullanılır */
   private blockedUntil = 0;
+  /** Art arda başarısız istek sayısı (başarıda sıfırlanır) */
+  private failures = 0;
   private inflight: Promise<LatestRelease | null> | null = null;
   private readonly listeners = new Set<ReleaseListener>();
   private timer: NodeJS.Timeout | null = null;
@@ -196,11 +201,18 @@ export class ReleaseService {
         .filter((r) => !r.draft && !r.prerelease && r.published_at)
         .map((r) => ({ version: r.tag_name.replace(/^v/, ''), publishedAt: r.published_at!, notes: r.body ?? '' }));
       if (generation === this.notesGeneration) this.notesCache = { at: Date.now(), value };
+      this.failures = 0;
       return value;
     } catch (err) {
-      this.blockedUntil = Date.now() + backoffMs(err instanceof GithubError ? err.res : null);
+      this.fail(err);
       return this.notesCache?.value ?? [];
     }
+  }
+
+  /** GitHub hata verdi: bir süre GitHub'a gidilmez (bkz. backoffMs) */
+  private fail(err: unknown): void {
+    this.failures++;
+    this.blockedUntil = Date.now() + backoffMs(err instanceof GithubError ? err.res : null, this.failures);
   }
 
   /** Yeni bir sürüm yayınlandığında (sürüm numarası değişince) çağrılır. */
@@ -244,6 +256,7 @@ export class ReleaseService {
       // Değişmedi: bilinen sürüm geçerli
       if (res.status === 304 && this.cache) {
         this.cache = { at: Date.now(), value: this.cache.value };
+        this.failures = 0;
         return this.cache.value;
       }
       if (!res.ok) throw new GithubError(res);
@@ -257,6 +270,7 @@ export class ReleaseService {
       const previous = this.cache?.value.version;
       this.cache = { at: Date.now(), value };
       this.etag = res.headers?.get('etag') ?? null;
+      this.failures = 0;
       if (previous && previous !== value.version) {
         // Yeni sürümün notları da hemen görünsün: not önbelleği bayat sayılır (silinmez: GitHub hata verirse
         // son bilinen liste kullanılır), bu andan önce başlamış not isteği önbelleğe yazmaz
@@ -266,7 +280,7 @@ export class ReleaseService {
       }
       return value;
     } catch (err) {
-      this.blockedUntil = Date.now() + backoffMs(err instanceof GithubError ? err.res : null);
+      this.fail(err);
       return this.cache?.value ?? null;
     }
   }
