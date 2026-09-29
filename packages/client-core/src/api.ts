@@ -4,6 +4,9 @@ import type {
   AuthResponse,
   Ban,
   Channel,
+  ChannelLinkItem,
+  ChannelMediaItem,
+  ChannelPanelPage,
   ChangePasswordRequest,
   CreateRoleRequest,
   DeleteAccountRequest,
@@ -187,6 +190,18 @@ export const api = {
   suppressEmbeds: (id: string) => request<Message>('DELETE', `/api/messages/${id}/embeds`),
   /** Kanalın sabitlenmiş mesajları, en son sabitlenen önce */
   listPins: (channelId: string) => request<PinnedMessage[]>('GET', `/api/channels/${channelId}/pins`),
+  /** Kanal paneli: kanalda (konuşmada) paylaşılan resim ve videolar, yeniden eskiye (before: nextCursor) */
+  channelMedia: (channelId: string, before?: string | null) =>
+    request<ChannelPanelPage<ChannelMediaItem>>(
+      'GET',
+      `/api/channels/${channelId}/media${before ? `?before=${encodeURIComponent(before)}` : ''}`,
+    ),
+  /** Kanal paneli: mesajlardaki bağlantılar, yeniden eskiye (before: nextCursor) */
+  channelLinks: (channelId: string, before?: string | null) =>
+    request<ChannelPanelPage<ChannelLinkItem>>(
+      'GET',
+      `/api/channels/${channelId}/links${before ? `?before=${encodeURIComponent(before)}` : ''}`,
+    ),
   pinMessage: (channelId: string, messageId: string) =>
     request<void>('PUT', `/api/channels/${channelId}/pins/${messageId}`),
   unpinMessage: (channelId: string, messageId: string) =>

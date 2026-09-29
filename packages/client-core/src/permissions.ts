@@ -192,6 +192,21 @@ export function memberGroups(s: Pick<GuildStore, 'guild' | 'roles' | 'users' | '
   return groups;
 }
 
+/**
+ * Kanal panelinin üye listesi: memberGroups gibi, ama yalnızca kanalı görebilen üyeler (Discord gibi;
+ * özel kanalda rolü/izni olmayanlar listelenmez). Sonuç yalnızca gösterim içindir.
+ */
+export function channelMemberGroups(
+  s: Pick<GuildStore, 'guild' | 'roles' | 'users' | 'online' | 'channels'>,
+  channelId: string,
+): MemberGroup[] {
+  const users: GuildStore['users'] = {};
+  for (const user of Object.values(s.users)) {
+    if (can(s, user.id, Permission.VIEW_CHANNEL, channelId)) users[user.id] = user;
+  }
+  return memberGroups({ ...s, users });
+}
+
 // ---------- Rol düzenleme ve etkin yetkiler ----------
 
 /**

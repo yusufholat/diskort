@@ -140,6 +140,7 @@ export {
   can,
   canAssignRole,
   canManageRole,
+  channelMemberGroups,
   effectivePermissions,
   isOwner,
   memberColorOf,
