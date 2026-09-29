@@ -181,9 +181,12 @@ export function inboundAudioDelta(curr: TransportStats, prev: TransportStats | n
     if (st.jitterMs !== null) out.jitters.push(st.jitterMs);
     const samples = diff(st.totalSamplesReceived, p.totalSamplesReceived);
     const concealed = diff(st.concealedSamples, p.concealedSamples);
-    if (samples !== null && samples > 0 && concealed !== null) {
-      // Sessizlikte (DTX) sentezlenen örnekler duyulmaz: kesilme sayılmaz
-      const silent = diff(st.audio?.silentConcealedSamples, p.audio?.silentConcealedSamples) ?? 0;
+    // Sessizlikte (DTX) sentezlenen örnekler duyulmaz: kesilme sayılmaz. Tarayıcı hiç bildirmiyorsa 0;
+    // yalnızca bir okumada varsa bu akış için hesaplanamaz (fazla sayılmasın)
+    const silentCurr = st.audio?.silentConcealedSamples ?? null;
+    const silentPrev = p.audio?.silentConcealedSamples ?? null;
+    const silent = silentCurr === null && silentPrev === null ? 0 : diff(silentCurr, silentPrev);
+    if (samples !== null && samples > 0 && concealed !== null && silent !== null) {
       out.samples += samples;
       out.concealed += Math.max(0, concealed - silent);
     }
@@ -271,11 +274,21 @@ export class LoopLagMeter {
     this.lags = [];
   }
 
-  /** Zamanlayıcıdan; testlerde elle */
+  /**
+   * Zamanlayıcıdan; testlerde elle. 10 sn'den uzun gecikme takılma değil uyku/arka plandır (React
+   * Native arka planda zamanlayıcıları durdurur): kaydedilmez, ölçüm oradan yeniden başlar.
+   */
   tick(at = this.now()): void {
-    this.lags.push(Math.max(0, at - this.last - this.tickMs));
+    const lag = Math.max(0, at - this.last - this.tickMs);
     this.last = at;
+    if (lag > MAX_STEP_MS) return;
+    this.lags.push(lag);
     if (this.lags.length > LAG_MAX_SAMPLES) this.lags.shift();
+  }
+
+  /** Uygulama öne gelince: arka planda geçen süre sonraki tikte takılma sayılmasın */
+  rebase(): void {
+    this.last = this.now();
   }
 
   /** Son okumadan beri ölçülenlerin özeti; ölçümler sıfırlanır */
@@ -407,6 +420,11 @@ export class VoiceTelemetry {
     this.prevQuality = 'unknown';
   }
 
+  /** Uygulama öne geldi (telefon): arka planda duran zamanlayıcı takılma sayılmaz */
+  rebaseLag(): void {
+    this.lag.rebase();
+  }
+
   /** LiveKit yeniden bağlanıyor (Reconnecting) */
   noteReconnect(): void {
     this.win.reconnects++;
@@ -427,6 +445,8 @@ export class VoiceTelemetry {
     // Uzun boşluk (uyku, donma): önceki aralık kendi sonunda kapanır, yenisi baştan başlar
     if (this.win.lastAt && s.at - this.win.lastAt > MAX_STEP_MS) {
       if (this.win.samples >= MIN_FINAL_SAMPLES) this.flush(this.win.lastAt);
+      // Gönderilmeyen aralığın takılmaları sonraki özete kalmasın
+      else this.lag.take();
       this.win = new Window();
     }
     const w = this.win;
@@ -558,6 +578,8 @@ export class VoiceTelemetry {
 
   private flush(at: number): void {
     const w = this.win;
+    // Takılma ölçümleri her aralıkta okunur (gönderilmese de): sonraki özete kalmasın
+    const jsLag = this.lag.take();
     if (w.samples === 0) return;
     const ctx = this.context();
     if (!ctx.channelId) return;
@@ -640,7 +662,7 @@ export class VoiceTelemetry {
       watch,
       device: ctx.device ?? null,
       audioIn,
-      jsLag: this.lag.take(),
+      jsLag,
       settings: ctx.settings ?? null,
     };
     this.lastSentAt = at;

@@ -294,13 +294,13 @@ describe('ses kalitesi ölçümleri', () => {
     expect(first!.audioIn).toEqual({ streams: 3, jitterMaxMs: 41.3, lossPct: 4.57, concealEvents: 12, jitterBufferMs: 62.3, bitrate: 96_000 });
     expect(first!.jsLag).toEqual({ maxMs: 1_450, p95Ms: 12, stalls: 2 });
     expect(first!.settings).toEqual(settings);
-    // Ses kaybı uyarı eşiğinde; takılma ek neden
+    // Ses kaybı var ama duyulur bozulma yok: kaynağı belirsiz uyarı; takılma da uyarı
     expect(first!.severity).toBe('warn');
-    expect(first!.causes).toEqual(['Gelen paket kaybı (indirme hattı)', 'Uygulama takıldı (JS iş parçacığı)']);
+    expect(first!.causes).toEqual(['Gelen paket kaybı (kaynağı belirsiz: konuşanın bağlantısı olabilir)', 'Uygulama takıldı (JS iş parçacığı)']);
     expect(old).toMatchObject({ audioIn: null, jsLag: null, settings: null, severity: 'ok' });
     expect(clamped!.audioIn).toMatchObject({ lossPct: 100, streams: 0 });
     expect(clamped!.settings).toEqual({ vadThresholdDb: -200, userVolumeMax: 100 });
-    expect(clamped!.severity).toBe('poor');
+    expect(clamped!.severity).toBe('warn');
   });
 
   it('kullanıcı başına dakikada en fazla 8 özet', async () => {
@@ -348,8 +348,20 @@ describe('ses kalitesi değerlendirmesi', () => {
       severity: 'poor',
       causes: ['Bağlantı koptu, yeniden bağlandı', 'Uygulama takıldı (JS iş parçacığı)'],
     });
-    // Gelen ses kaybı (yalnızca ses) toplam gelen kayıptan kötüyse o
-    expect(assessReport({ ...base(), lossIn: 0.5, audioIn: { streams: 2, jitterMaxMs: 10, lossPct: 12, concealEvents: 3, jitterBufferMs: 40, bitrate: 60_000 } }).severity).toBe('poor');
+    // Yalnızca ses kaybı: duyulur bozulmayla (kesilme ya da titreşim) kötü, yoksa en fazla uyarı
+    const audioIn = { streams: 2, jitterMaxMs: 10, lossPct: 12, concealEvents: 3, jitterBufferMs: 40, bitrate: 60_000 };
+    expect(assessReport({ ...base(), lossIn: 0.5, concealed: 4, audioIn })).toEqual({
+      severity: 'poor',
+      causes: ['Gelen paket kaybı (indirme hattı)'],
+    });
+    expect(assessReport({ ...base(), lossIn: 0.5, jitterIn: 35, audioIn }).severity).toBe('poor');
+    expect(assessReport({ ...base(), lossIn: 0.5, concealed: 0.2, audioIn })).toEqual({
+      severity: 'warn',
+      causes: ['Gelen paket kaybı (kaynağı belirsiz: konuşanın bağlantısı olabilir)'],
+    });
+    // Eski yol (yalnızca lossIn) değişmedi
+    expect(assessReport({ ...base(), lossIn: 12 }).causes).toEqual(['Gelen paket kaybı (indirme hattı)']);
+    expect(assessReport({ ...base(), lossIn: 12, audioIn }).severity).toBe('poor');
   });
 
   it('boyut sınırını aşan gün dosyaya yazılmaz; eski günler silinir', async () => {

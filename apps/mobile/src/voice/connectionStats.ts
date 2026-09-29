@@ -179,6 +179,8 @@ class ConnectionStatsSampler {
 
   constructor() {
     voiceTelemetry.setContext(telemetryContext);
+    // Arka planda zamanlayıcılar durur: öne gelince geçen süre JS takılması sayılmasın
+    AppState.addEventListener('change', (state) => state === 'active' && voiceTelemetry.rebaseLag());
     // Sese bağlanınca başlar, ayrılınca durur (ölçümler sıfırlanır)
     useVoice.subscribe((next, prev) => {
       if (next.status === prev.status) return;

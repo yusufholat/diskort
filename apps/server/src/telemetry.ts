@@ -107,6 +107,8 @@ const r = (v: number | null | undefined, digits = 0): number | null => {
 };
 
 const STALL_CAUSE = 'Uygulama takıldı (JS iş parçacığı)';
+const LOSS_IN_CAUSE = 'Gelen paket kaybı (indirme hattı)';
+const LOSS_IN_UNSURE_CAUSE = 'Gelen paket kaybı (kaynağı belirsiz: konuşanın bağlantısı olabilir)';
 
 /**
  * Özetin ne kadar kötü olduğu ve olası nedenleri. Eşikler Discord'un "bağlantı kötü" uyarısına yakın:
@@ -118,18 +120,27 @@ export function assessReport(
 ): { severity: TelemetrySeverity; causes: string[] } {
   const poor: string[] = [];
   const warn: string[] = [];
+  const add = (list: string[], text: string): void => {
+    if (!list.includes(text)) list.push(text);
+  };
   const check = (value: number | null, bad: number, meh: number, text: string): void => {
     if (value === null) return;
-    if (value >= bad) poor.push(text);
-    else if (value >= meh) warn.push(text);
+    if (value >= bad) add(poor, text);
+    else if (value >= meh) add(warn, text);
   };
   check(e.rttAvg !== null && e.rttMax !== null ? Math.max(e.rttAvg, e.rttMax * 0.6) : e.rttAvg, 250, 120, 'Yüksek gecikme (ping)');
   check(e.lossOut, 10, 3, 'Giden paket kaybı (yükleme hattı)');
-  // Gelen kayıp: tüm akışlar ya da (yeni istemcilerde) yalnızca sesler, hangisi kötüyse
-  const audioLoss = e.audioIn?.lossPct ?? null;
-  check(e.lossIn !== null && audioLoss !== null ? Math.max(e.lossIn, audioLoss) : (e.lossIn ?? audioLoss), 10, 3, 'Gelen paket kaybı (indirme hattı)');
+  check(e.lossIn, 10, 3, LOSS_IN_CAUSE);
   check(e.concealed, 8, 3, 'Gelen seste kesilme (kayıp ses sentezlendi)');
   check(e.jitterIn, 60, 30, 'Yüksek titreşim (jitter)');
+  // Yalnızca ses paketlerinin kaybı (yeni istemciler): kayıp konuşanın yükleme hattında da olabilir
+  // (SFU boşluğu olduğu gibi iletir). Duyulur bozulma (kesilme ya da titreşim) yoksa en fazla uyarı.
+  const audioLoss = e.audioIn?.lossPct ?? null;
+  if (audioLoss !== null && audioLoss >= 3) {
+    const audible = (e.concealed ?? 0) >= 3 || (e.jitterIn ?? 0) >= 30;
+    if (audible) check(audioLoss, 10, 3, LOSS_IN_CAUSE);
+    else if (!poor.includes(LOSS_IN_CAUSE) && !warn.includes(LOSS_IN_CAUSE)) add(warn, LOSS_IN_UNSURE_CAUSE);
+  }
   // Uygulama (JS) 1 sn'den uzun takıldı: tek başına uyarı (olay açmaz); kötü dönemde ek neden (kopmaların sebebi olabilir)
   const stalled = (e.jsLag?.maxMs ?? 0) >= 1_000;
   if (stalled) warn.push(STALL_CAUSE);

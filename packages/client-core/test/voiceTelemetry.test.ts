@@ -423,6 +423,9 @@ describe('gelen seslerin değişimi', () => {
     // Sayaçları olmayan (eski) tarayıcı: olay ve tampon bilinmiyor
     const bare = inboundAudioDelta(snapshot(2, [audio('a', 2, { audio: null })]), snapshot(1, [audio('a', 1, { audio: null })]));
     expect(bare).toMatchObject({ active: 1, samples: 100_000, concealed: 1_000, events: null, bufferEmitted: 0 });
+    // Sessiz gizleme yalnızca bir okumada var: bu akışın gizlemesi hesaplanamaz (fazla sayılmaz)
+    const half = inboundAudioDelta(snapshot(2, [audio('a', 2)]), snapshot(1, [audio('a', 1, { audio: null })]));
+    expect(half).toMatchObject({ active: 1, packets: 102, samples: 0, concealed: 0 });
   });
 
   it('izlenen yayın: bayt artan en büyük görüntü', () => {
@@ -455,6 +458,43 @@ describe('JS takılması', () => {
     expect(m.take()).toEqual({ maxMs: 2_000, p95Ms: 2_000, stalls: 1 });
     expect(m.take()).toBeNull();
     m.stop();
+  });
+
+  it('10 sn üstü boşluk (uyku/arka plan) ve öne gelmeden önceki süre takılma sayılmaz', () => {
+    let now = 0;
+    const m = new LoopLagMeter(() => now, 500);
+    m.start();
+    now += 60_000;
+    m.tick();
+    now += 500;
+    m.tick();
+    expect(m.take()).toEqual({ maxMs: 0, p95Ms: 0, stalls: 0 });
+    // Arka planda 8 sn: öne gelince (rebase) sayılmaz
+    now += 8_000;
+    m.rebase();
+    now += 500;
+    m.tick();
+    expect(m.take()).toEqual({ maxMs: 0, p95Ms: 0, stalls: 0 });
+    m.stop();
+  });
+
+  it('gönderilmeyen aralığın takılmaları sonraki özete kalmaz', () => {
+    let now = 0;
+    const lag = new LoopLagMeter(() => now);
+    const t = new VoiceTelemetry(lag);
+    let channel: string | null = null;
+    t.setContext(() => ({ channelId: channel, mic: null }));
+    feed(t, 16);
+    now += 3_500;
+    lag.tick();
+    // Kanal yokken özet gitmedi; takılma da atıldı
+    feed(t, 15, { start: 1_032_000 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    channel = 'ses1';
+    now += 500;
+    lag.tick();
+    feed(t, 16, { start: 1_062_000 });
+    expect(sent()[0]!.jsLag).toEqual({ maxMs: 0, p95Ms: 0, stalls: 0 });
   });
 });
 
