@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import tls from 'node:tls';
+import { HostNetworkLog, hostNetSample, readHostNet, type HostNetCounters, type HostNetSample } from './hostNetwork.js';
 import { counterRate, PromSnapshot } from './promText.js';
 
 // Yönetim paneli: altyapı ölçümleri.
@@ -9,6 +10,7 @@ import { counterRate, PromSnapshot } from './promText.js';
 // - Kapsayıcılar: API kendi cgroup'undan (kapsayıcının kendi görünümü; bağlama gerekmez), Caddy yönetim
 //   ucunun ölçümlerinden (127.0.0.1:2019/metrics), LiveKit kendi ölçümlerinden. Docker soketi kullanılmaz.
 // - Veritabanı yedekleri (salt okunur bağlanan yedek klasörü), TLS sertifikalarının bitiş tarihleri.
+// - Ana makinenin ağı: varsayılan yoldaki arayüzün ve UDP'nin hızları (hostNetwork.ts; host ağı sayesinde /proc).
 
 type Log = { warn(obj: object, msg: string): void };
 
@@ -287,8 +289,23 @@ export interface InfraOptions {
   /** TLS el sıkışmasının yapılacağı adres (host ağında Caddy: 127.0.0.1) */
   tlsHost: string;
   tlsPort?: number;
+  /** /proc kökü (ana makine ağı için); verilmezse ağ geçmişi tutulmaz (testler) */
+  procRoot?: string;
+  /** Ağ dakikalık özetlerinin klasörü (network-YYYY-AA-GG.jsonl); null: dosyaya yazılmaz */
+  networkDir?: string | null;
+  /** Günlerin saat dilimi (dk) */
+  offsetMin?: number;
   fetchImpl?: typeof fetch;
   log?: Log;
+}
+
+/** Panelin ağ bölümü */
+export interface HostNetworkStatus {
+  /** /proc okunabiliyor ve varsayılan yol arayüzü bulundu mu */
+  ok: boolean;
+  iface: string | null;
+  error: string | null;
+  history: HostNetSample[];
 }
 
 const TLS_CHECK_MS = 6 * 3_600_000;
@@ -343,6 +360,11 @@ export class InfraMonitor {
   private tlsInfo: TlsInfo[] = [];
   private tlsAt = 0;
   private readonly history: ContainerSample[] = [];
+  private readonly netHistory: HostNetSample[] = [];
+  private prevNet: HostNetCounters | null = null;
+  private netError: string | null = null;
+  private netIface: string | null = null;
+  private readonly netLog: HostNetworkLog | null;
   private timer: NodeJS.Timeout | null = null;
   private inflight: Promise<void> | null = null;
   private lastSample = 0;
@@ -352,6 +374,7 @@ export class InfraMonitor {
     private readonly livekit: LiveKitMetrics,
   ) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.netLog = opts.procRoot ? new HostNetworkLog(opts.networkDir ?? null, opts.offsetMin ?? 180, 14, opts.log) : null;
   }
 
   start(intervalMs = 15_000): void {
@@ -375,7 +398,7 @@ export class InfraMonitor {
 
   private async doSample(now: number): Promise<void> {
     this.lastSample = now;
-    await Promise.all([this.sampleApi(now), this.sampleCaddy(now)]);
+    await Promise.all([this.sampleApi(now), this.sampleCaddy(now), this.sampleHostNet(now)]);
     const lk = this.livekit.process();
     this.history.push({ at: now, api: this.api.cpu, livekit: lk.cpu, caddy: this.caddyProc.cpu });
     if (this.history.length > 120) this.history.splice(0, this.history.length - 120);
@@ -431,6 +454,31 @@ export class InfraMonitor {
       ok: true,
       error: null,
     };
+  }
+
+  /** Ana makinenin ağı: /proc/net/dev (varsayılan yolun arayüzü) ve /proc/net/snmp (UDP); okunamazsa boş */
+  private async sampleHostNet(now: number): Promise<void> {
+    const root = this.opts.procRoot;
+    if (!root || !this.netLog) return;
+    const read = (file: string): Promise<string | null> => fs.promises.readFile(path.join(root, file), 'utf8').catch(() => null);
+    const [dev, route, snmp] = await Promise.all([read('net/dev'), read('net/route'), read('net/snmp')]);
+    const cur = readHostNet({ dev, route, snmp }, now);
+    if (!cur) {
+      this.prevNet = null;
+      this.netIface = null;
+      this.netError = dev === null || route === null ? '/proc/net okunamadı (yalnızca Linux)' : 'varsayılan yol arayüzü bulunamadı';
+      return;
+    }
+    this.netError = null;
+    this.netIface = cur.iface;
+    // Aradan çok zaman geçtiyse oranlar anlamsız: yeni başlangıç
+    const prev = this.prevNet && now - this.prevNet.at <= 120_000 ? this.prevNet : null;
+    this.prevNet = cur;
+    const sample = prev ? hostNetSample(cur, prev) : null;
+    if (!sample) return;
+    this.netHistory.push(sample);
+    if (this.netHistory.length > 120) this.netHistory.splice(0, this.netHistory.length - 120);
+    void this.netLog.add(sample, now);
   }
 
   private async sampleCaddy(now: number): Promise<void> {
@@ -522,6 +570,7 @@ export class InfraMonitor {
     caddy: CaddyStats;
     backups: BackupInfo | null;
     tls: TlsInfo[];
+    network: HostNetworkStatus;
   }> {
     if (now - this.lastSample > 20_000) await this.sample(now);
     const lk = this.livekit.process();
@@ -540,6 +589,12 @@ export class InfraMonitor {
       caddy: this.caddy,
       backups: this.backups,
       tls: this.tlsInfo,
+      network: {
+        ok: this.netIface !== null && this.netError === null,
+        iface: this.netIface,
+        error: this.opts.procRoot ? this.netError : 'ağ ölçümü kapalı',
+        history: [...this.netHistory],
+      },
     };
   }
 }
