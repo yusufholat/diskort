@@ -67,6 +67,13 @@ function safeStats(): NoiseFilterStatus | null {
   }
 }
 
+/** Yonga adı (ör. "QTI SM8850"); DPDFNet modülünden okunur, eski APK'da ya da okunamazsa null */
+let soc: string | null | undefined;
+export function deviceSoc(): string | null {
+  if (soc === undefined) soc = safeStats()?.soc ?? null;
+  return soc;
+}
+
 /**
  * Sesli sohbete katılırken, mikrofon açılmadan önce: DPDFNet seçiliyse modeli yükler ve WebRTC'ye takar,
  * değilse kapatır. Sonuç webrtcNoiseSuppression() ile mikrofonun ayarlarına yansır.

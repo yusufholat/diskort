@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Animated,
   PanResponder,
+  PixelRatio,
   Pressable,
   StyleSheet,
   Text,
@@ -19,6 +20,7 @@ import { isStreamMuted, shownStreamVolume, useGuild } from '@diskort/client-core
 import { spring, timing } from '../motion';
 import { useSettings } from '../stores/settings';
 import { colors, createStyles } from '../theme';
+import { noteStreamView } from '../voice/connectionStats';
 import { useVoice, voice } from '../voice/voice';
 import { StreamViewers } from './StreamViewers';
 import { SwapIcon, type SwapMotion } from './SwapIcon';
@@ -77,6 +79,18 @@ export function StreamViewer({
 
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
   const [fit, setFit] = useState<'contain' | 'cover'>('contain');
+
+  // Ölçüm (bağlantı paneli ve ses kalitesi özeti): görünüm tam ekran mı, kaç fiziksel piksel
+  useEffect(() => {
+    if (size.width <= 0 || size.height <= 0) return;
+    const k = PixelRatio.get();
+    noteStreamView({
+      mode: fullscreen ? 'fullscreen' : 'inline',
+      width: Math.round(size.width * k),
+      height: Math.round(size.height * k),
+    });
+  }, [fullscreen, size]);
+  useEffect(() => () => noteStreamView(null), []);
 
   // Denetimler: dokununca görünür, bir süre sonra kaybolur; bilgi gösterilirken (yükleniyor) kalır
   const [controls, setControls] = useState(true);

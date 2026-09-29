@@ -7,6 +7,8 @@ import {
   describeCandidate,
   formatBitrate,
   formatPercent,
+  isHardwareCodec,
+  mainInboundVideo,
   summarizePings,
   type StreamView,
   type TransportView,
@@ -70,6 +72,7 @@ function diagnostics(): string {
       publisher: detail?.publisher ?? null,
       subscriber: detail?.subscriber ?? null,
       streamLabels: detail?.labels ?? {},
+      streamView: detail?.view ?? null,
       micProcessing: micProcessing(),
     },
     null,
@@ -200,6 +203,7 @@ function DebugTab() {
         {server?.nodeId ? <Row label="Düğüm" value={server.nodeId} /> : null}
         {server?.version ? <Row label="LiveKit sürümü" value={server.version} /> : null}
       </Section>
+      {detail && <WatchedStreamSection detail={detail} />}
       <MicProcessingSection />
       {!detail ? <Text style={styles.measuring}>Ölçülüyor…</Text> : <DebugDetail detail={detail} />}
     </View>
@@ -222,6 +226,45 @@ function MicProcessingSection() {
       <Row label="Yankı engelleme" value={onOff(echo)} />
       <Row label="Otomatik kazanç" value={onOff(agc)} />
       <Row label="Ses algılama" value={onOff(vad)} />
+    </Section>
+  );
+}
+
+const dec = (v: number, digits = 1): string => v.toFixed(digits).replace('.', ',');
+
+/**
+ * İzlenen ekran yayını: telefonun görüntüyü donanımda mı yazılımda mı çözdüğü ve maliyeti (telefonun
+ * ısınmasını anlamak için). Yalnızca gelen görüntü varken görünür.
+ */
+function WatchedStreamSection({ detail }: { detail: ConnectionDetail }) {
+  const s = mainInboundVideo(detail.subscriber?.streams ?? []);
+  if (!s) return null;
+  const hw = isHardwareCodec(s.implementation, s.video?.powerEfficient ?? null);
+  const kind = hw === null ? 'Bilinmiyor' : hw ? 'Donanım' : 'Yazılım';
+  const size = s.frameWidth && s.frameHeight ? `${s.frameWidth}×${s.frameHeight}` : '—';
+  const fps = s.framesPerSecond !== null ? ` @ ${Math.round(s.framesPerSecond)} fps` : '';
+  const v = s.video;
+  const dropped = v?.framesDropped ?? null;
+  const droppedPct = dropped !== null && v?.framesReceived ? (dropped / v.framesReceived) * 100 : null;
+  const view = detail.view;
+  return (
+    <Section title="İzlenen yayın">
+      <Row label="Kodek" value={codecText(s)} />
+      <Row label="Çözücü" value={s.implementation ? `${kind} · ${s.implementation}` : kind} />
+      <Row label="Görüntü" value={`${size}${fps}`} />
+      <Row label="Çözme süresi" value={s.frameMs !== null ? `${dec(s.frameMs, 2)} ms/kare` : '—'} />
+      <Row label="Bit hızı" value={formatBitrate(s.bitrate)} />
+      <Row
+        label="Atılan kare"
+        value={dropped === null ? '—' : `${dropped}${droppedPct !== null ? ` (${formatPercent(droppedPct)})` : ''}`}
+      />
+      {v?.freezeCount != null && (
+        <Row label="Donma" value={`${v.freezeCount} kez · ${dec(v.totalFreezesDuration ?? 0)} sn`} />
+      )}
+      {s.jitterBufferMs !== null && <Row label="Titreşim tamponu" value={`${Math.round(s.jitterBufferMs)} ms`} />}
+      {view && (
+        <Row label="Görünüm" value={`${view.mode === 'fullscreen' ? 'Tam ekran' : 'Küçük'} · ${view.width}×${view.height} px`} />
+      )}
     </Section>
   );
 }
