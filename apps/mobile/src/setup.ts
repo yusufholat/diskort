@@ -5,6 +5,7 @@ import { GIF_SNIPPET, isGifMessage } from '@diskort/shared';
 import * as SecureStore from 'expo-secure-store';
 import { AppState, Platform, Vibration } from 'react-native';
 import { uploadFromDevice } from './attachments';
+import { noteCrashContext } from './crashReports';
 import { soundCue } from './haptics';
 import { dismissChannelNotifications, forgetPushRegistration } from './notifications';
 import { setupSounds } from './sounds';
@@ -12,6 +13,10 @@ import { getSettings } from './stores/settings';
 import { toast, useUi } from './stores/ui';
 import { checkForUpdate } from './update/updater';
 import { APP_VERSION } from './version';
+
+// Yerel çökmelerin bağlamı: açılışta (ekran bilinmeden) çökerse de JS sürümü ve güncelleme rapora girsin.
+// Ekran değiştikçe _layout.tsx günceller; önceki çökmeler açılış bitince bildirilir (bkz. crashReports.ts).
+noteCrashContext('açılış');
 
 // LiveKit'in kullandığı WebRTC ve tarayıcı API'lerini React Native'e tanıtır
 registerGlobals();

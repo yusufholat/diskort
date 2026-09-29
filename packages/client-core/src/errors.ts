@@ -1,9 +1,11 @@
-import { FEEDBACK_MAX_ERRORS } from '@diskort/shared';
+import { CLIENT_ERROR_STACK_MAX, FEEDBACK_MAX_ERRORS, NATIVE_CRASH_WHERE } from '@diskort/shared';
 import { normalizeServerUrl } from './api';
 import { env } from './env';
 import { useSession } from './session';
 
 const MAX_REPORTS = 20;
+/** JS yığını için yeterli; telefonun yerel çökmelerinde ("Caused by" zinciri, ANR dökümü) daha uzun */
+const stackLimit = (where: string): number => (where === NATIVE_CRASH_WHERE ? CLIENT_ERROR_STACK_MAX : 4000);
 const reported = new Set<string>();
 /**
  * Beklenen, zararsız gürültü: sunucuya hiç gönderilmez (sunucu da aynı listeyi eski istemciler için uygular).
@@ -42,7 +44,7 @@ export function reportClientError(error: unknown, where: string): void {
         version,
         where,
         message: err.message.slice(0, 500),
-        stack: err.stack?.slice(0, 4000),
+        stack: err.stack?.slice(0, stackLimit(where)),
       }),
     }).catch(() => undefined);
   } catch {

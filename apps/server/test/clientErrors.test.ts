@@ -22,6 +22,9 @@ describe('istemci hata bildirimi', () => {
     expect((await send(ok)).statusCode).toBe(204);
     expect((await send({ ...ok, platform: 'amiga' })).statusCode).toBe(400);
     expect((await send({ ...ok, message: 'x'.repeat(501) })).statusCode).toBe(400);
+    // Telefonun yerel çökmelerinin yığını uzun (bkz. CLIENT_ERROR_STACK_MAX)
+    expect((await send({ ...ok, where: 'yerel-çökme', stack: 'x'.repeat(8000) })).statusCode).toBe(204);
+    expect((await send({ ...ok, where: 'yerel-çökme', stack: 'x'.repeat(8001) })).statusCode).toBe(400);
 
     let last = 0;
     for (let i = 0; i < 25; i++) last = (await send(ok)).statusCode;

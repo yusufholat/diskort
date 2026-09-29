@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { CLIENT_ERROR_STACK_MAX } from '@diskort/shared';
 import { parseBody, sendError, type AppContext } from '../context.js';
 import { createRateLimiter } from './messages.js';
 
@@ -8,7 +9,8 @@ const clientErrorSchema = z.object({
   version: z.string().max(32),
   where: z.string().max(64),
   message: z.string().max(500),
-  stack: z.string().max(4000).optional(),
+  // İstemciler JS hatalarında 4000'de keser; telefonun yerel çökmelerinde (yerel-çökme) daha uzun
+  stack: z.string().max(CLIENT_ERROR_STACK_MAX).optional(),
 });
 
 /**

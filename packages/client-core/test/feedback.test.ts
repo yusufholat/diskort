@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Permission, type Feedback, type GatewayServerMessage, type Role, type User } from '@diskort/shared';
+import {
+  CLIENT_ERROR_STACK_MAX,
+  NATIVE_CRASH_WHERE,
+  Permission,
+  type Feedback,
+  type GatewayServerMessage,
+  type Role,
+  type User,
+} from '@diskort/shared';
 import {
   ApiError,
   baseFeedbackContext,
@@ -112,6 +120,17 @@ describe('son hatalar', () => {
     expect(errors[0]).toBe('test: hata 2');
     expect(errors.at(-1)).toBe('test: hata 11');
     expect(baseFeedbackContext()).toMatchObject({ platform: 'desktop', appVersion: '9.9.9', recentErrors: errors });
+  });
+
+  it('yığın 4000 karakterde kesilir; telefonun yerel çökmelerinde daha uzun', () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    const long = (message: string): Error => Object.assign(new Error(message), { stack: 'x'.repeat(9000) });
+    reportClientError(long('uzun js hatası'), 'genel');
+    reportClientError(long('uzun yerel çökme'), NATIVE_CRASH_WHERE);
+    const stacks = fetchMock.mock.calls.map(
+      ([, init]) => (JSON.parse((init as RequestInit).body as string) as { stack: string }).stack.length,
+    );
+    expect(stacks).toEqual([4000, CLIENT_ERROR_STACK_MAX]);
   });
 });
 
