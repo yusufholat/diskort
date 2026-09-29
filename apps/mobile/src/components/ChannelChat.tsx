@@ -556,8 +556,7 @@ function ChannelTitle({ channelId, name, onPress }: { channelId: string; name: s
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`${name} kanalı, ${online} çevrim içi. Kanal panelini göster`}
-      style={({ pressed }) => [styles.channelTitle, pressed && { opacity: 0.6 }]}
-      hitSlop={6}
+      style={({ pressed }) => [styles.channelTitle, pressed && { backgroundColor: colors.hover }]}
     >
       <View style={styles.title}>
         <Feather name="hash" size={18} color={colors.muted} />
@@ -622,8 +621,7 @@ function DmTitle({
         onPress={onOpenPanel}
         accessibilityRole="button"
         accessibilityLabel={`${name}. Katılımcıları, medyayı ve bağlantıları göster`}
-        style={({ pressed }) => [styles.channelTitle, pressed && { opacity: 0.6 }]}
-        hitSlop={6}
+        style={({ pressed }) => [styles.channelTitle, pressed && { backgroundColor: colors.hover }]}
       >
         {content}
       </Pressable>
@@ -635,8 +633,7 @@ function DmTitle({
       onPress={() => onPress(partner.id)}
       accessibilityRole="button"
       accessibilityLabel={`${name} profilini göster`}
-      style={({ pressed }) => [styles.channelTitle, pressed && { opacity: 0.6 }]}
-      hitSlop={6}
+      style={({ pressed }) => [styles.channelTitle, pressed && { backgroundColor: colors.hover }]}
     >
       {content}
     </Pressable>
@@ -1007,13 +1004,14 @@ const styles = createStyles(() => ({
     elevation: 2,
     zIndex: 1,
   },
-  headerTitle: { flex: 1, marginLeft: space.xs },
+  headerTitle: { flex: 1, alignSelf: 'stretch', marginLeft: space.xs },
   listArea: { flex: 1 },
   loading: { minHeight: 60, justifyContent: 'center', paddingBottom: space.sm },
   title: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   titleText: { color: colors.head, fontSize: 18, fontWeight: '700', flexShrink: 1 },
   titleSub: { color: colors.muted, fontSize: 12, marginTop: -1 },
-  channelTitle: { alignSelf: 'flex-start', maxWidth: '100%' },
+  // Başlık yazısı değil, geri düğmesi ile sağdaki simgeler arasındaki bütün boş alan dokunma alanı (Discord gibi)
+  channelTitle: { flex: 1, justifyContent: 'center', borderRadius: 10, paddingHorizontal: space.xs },
   onlineRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginLeft: 2 },
   onlineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.ok },
   intro: { paddingHorizontal: space.lg, paddingTop: space.xxl, paddingBottom: space.sm },
