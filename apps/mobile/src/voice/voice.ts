@@ -778,7 +778,8 @@ class MobileVoiceClient {
         // Kendi başlattığımız ayrılma değilse: sunucu çıkardı, başka cihaza geçildi ya da bağlantı koptu
         if (this.room !== room || room.state !== ConnectionState.Disconnected) return;
         const channelId = useVoice.getState().channelId;
-        if (reason !== DisconnectReason.CLIENT_INITIATED) {
+        // DUPLICATE_IDENTITY beklenen bir durum (başka cihazdan girildi): hata sayılmaz
+        if (reason !== DisconnectReason.CLIENT_INITIATED && reason !== DisconnectReason.DUPLICATE_IDENTITY) {
           reportClientError(new Error(`ses bağlantısı kapandı: ${DisconnectReason[reason ?? 0] ?? reason}`), 'ses');
         }
         // Kendi yeniden bağlanmamızın ardından gelen "başka cihaz" uyarısı: sessizce kanala geri dön
@@ -787,7 +788,8 @@ class MobileVoiceClient {
           this.join(channelId, { silent: true, rejoin: true }).catch((err: Error) => toast(err.message, 'error'));
           return;
         }
-        toast(disconnectMessage(reason), reason === DisconnectReason.CLIENT_INITIATED ? 'info' : 'error');
+        const benign = reason === DisconnectReason.CLIENT_INITIATED || reason === DisconnectReason.DUPLICATE_IDENTITY;
+        toast(disconnectMessage(reason), benign ? 'info' : 'error');
         // Kendimiz ayrılmadık (sunucu çıkardı, bağlantı koptu): masaüstündeki gibi "koptu" sesi
         soundCue(reason === DisconnectReason.CLIENT_INITIATED ? 'leave' : 'disconnect');
         void this.leave();

@@ -129,7 +129,7 @@ const JOIN_SOUND_MAX_WAIT_MS = 1500;
 function disconnectMessage(reason?: DisconnectReason): string {
   switch (reason) {
     case DisconnectReason.DUPLICATE_IDENTITY:
-      return 'Bu hesapla başka bir yerden ses kanalına bağlanıldı.';
+      return 'Başka bir cihazdan bu kanala bağlandın.';
     case DisconnectReason.PARTICIPANT_REMOVED:
       return 'Ses kanalından çıkarıldın.';
     case DisconnectReason.ROOM_DELETED:
@@ -753,7 +753,8 @@ class VoiceClient {
       .on(RoomEvent.Disconnected, (reason) => {
         if (room !== this.room) return; // kendi başlattığımız ayrılma
         const channelId = useVoice.getState().channelId;
-        if (reason !== DisconnectReason.CLIENT_INITIATED) {
+        // DUPLICATE_IDENTITY beklenen bir durum (başka cihazdan girildi): hata sayılmaz
+        if (reason !== DisconnectReason.CLIENT_INITIATED && reason !== DisconnectReason.DUPLICATE_IDENTITY) {
           reportClientError(new Error(`ses bağlantısı kapandı: ${DisconnectReason[reason ?? 0] ?? reason}`), 'ses');
         }
         // Kendi yeniden bağlanmamızın ardından gelen "başka cihaz" uyarısı: sessizce kanala geri dön
@@ -1003,7 +1004,9 @@ class VoiceClient {
     releaseHardwareEncoder(screen.video.mediaStreamTrack);
     for (const track of [screen.video, screen.audio]) {
       if (!track) continue;
-      if (room) await room.localParticipant.unpublishTrack(track, true).catch(() => undefined);
+      // Yakalama kendiliğinden bittiyse ('ended') livekit-client yayını zaten kaldırmıştır: ikinci kaldırma uyarı üretir
+      const published = room?.localParticipant.getTrackPublications().some((pub) => pub.track === track);
+      if (room && published) await room.localParticipant.unpublishTrack(track, true).catch(() => undefined);
       track.stop();
     }
     setVoice({ sharing: false, shareHasAudio: false, shareQuality: null, shareIcon: null });

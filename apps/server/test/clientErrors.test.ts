@@ -29,6 +29,23 @@ describe('istemci hata bildirimi', () => {
   });
 });
 
+describe('zararsız gürültü', () => {
+  it('bilinen zararsız mesajlar 204 döner ama kaydedilmez', async () => {
+    const built = await buildApp(loadConfig({ NODE_ENV: 'test', DATA_DIR: '.' }), { dbFile: ':memory:', logger: false });
+    app = built.app;
+    const ctx = built.ctx;
+    const send = (where: string, message: string) =>
+      app!.inject({ method: 'POST', url: '/api/client-errors', payload: { platform: 'desktop', version: '0.8.6', where, message } });
+    const before = ctx.errors.client.total;
+    expect((await send('ses', 'ses bağlantısı kapandı: DUPLICATE_IDENTITY')).statusCode).toBe(204);
+    expect((await send('livekit', 'could not createOffer with closed peer connection {}')).statusCode).toBe(204);
+    expect((await send('livekit', 'track was not unpublished because no publication was found')).statusCode).toBe(204);
+    expect(ctx.errors.client.total).toBe(before);
+    expect((await send('ses', 'ses bağlantısı kapandı: SERVER_SHUTDOWN')).statusCode).toBe(204);
+    expect(ctx.errors.client.total).toBe(before + 1);
+  });
+});
+
 describe('hata kayıtlarının kalıcılığı', () => {
   it('kayıtlar dosyaya eklenir, yeniden açılışta son N geri yüklenir, 14 günden eskiler atılır', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diskort-errors-'));
