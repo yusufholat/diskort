@@ -17,6 +17,8 @@ export interface NoiseFilterStatus {
   warmupModelMs?: number | null;
   /** Isınmanın ilk yarısında kare süresi (ikinci yarıdan çok yüksekse işlemci frekansı yükseliyordu) */
   warmupFirstMs?: number | null;
+  /** Isınmanın ikinci yarısındaki en uzun kare (ms) */
+  warmupMaxMs?: number | null;
   /** Isınmanın bittiği çekirdek, ör. "7 (2600 MHz)" */
   warmupCore?: string | null;
   /** Modeli çalıştıran ONNX Runtime yürütücüsü: "CPU" ya da "XNNPACK" */
@@ -40,6 +42,14 @@ export interface NoiseFilterStatus {
   soc?: string | null;
 }
 
+/** Telefonun ısı durumu (Android PowerManager) */
+export interface ThermalInfo {
+  /** THERMAL_STATUS_*: 0 yok, 1 hafif, 2 orta, 3 ciddi, 4 kritik, 5 acil, 6 kapanıyor; Android 10 öncesinde -1 */
+  status: number;
+  /** Isınma payı (1,0 = "ciddi" eşiği); Android 11 öncesinde ya da ölçülemezse null */
+  headroom: number | null;
+}
+
 export type NoiseFilterEvents = {
   onBypass: (params: { reason: string }) => void;
 };
@@ -49,6 +59,8 @@ declare class NoiseFilterModule extends NativeModule<NoiseFilterEvents> {
   configure(enabled: boolean, attenLimitDb: number): Promise<NoiseFilterStatus>;
   setAttenLimit(db: number): void;
   getStats(): NoiseFilterStatus;
+  /** Eski APK'larda yoktur (çağırmadan önce varlığı denetlenmeli) */
+  getThermal?: () => ThermalInfo;
 }
 
 /** Eski APK'larda (kablosuz güncellemeyle yeni JS almış) yerel modül yoktur: null */

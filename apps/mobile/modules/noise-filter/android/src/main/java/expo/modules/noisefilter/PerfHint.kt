@@ -8,7 +8,7 @@ import android.os.PerformanceHintManager
  * Android'in başarım ipucu (ADPF, PerformanceHintManager; Android 12+) ile bir iş parçacığının kare başına
  * hedef süresini sisteme bildirir. Varsayılan zamanlayıcı (EAS + schedutil) 10 ms'de bir gelen işi, kareyi
  * dönemin ~%80'inde bitirecek kadar düşük frekansta ya da küçük çekirdekte çalıştırmaya çalışır; model
- * süresi böylece gereksizce uzar ve 6 ms bütçesini aşabilir. İpucuyla sistem, gerçekleşen süreleri görüp
+ * süresi böylece gereksizce uzar ve bütçeyi aşabilir. İpucuyla sistem, gerçekleşen süreleri görüp
  * hedefi tutturacak kadar frekansı yükseltir / işi büyük çekirdeğe taşır. Desteklenmiyorsa hiçbir şey yapmaz.
  *
  * İş parçacığı güvenli değildir: tek bir iş parçacığından (ölçülen iş parçacığı) kullanılmalı.
@@ -35,8 +35,11 @@ class PerfHint private constructor(private val session: Any?) : AutoCloseable {
   }
 
   companion object {
-    /** Kare başına hedef süre: bütçenin (6 ms) altında pay bırakır */
-    const val TARGET_NS = 5_000_000L
+    /**
+     * Kare başına hedef süre: canlı bütçenin (DpdfnetBudget.LIVE_BUDGET_MS, 5 ms) altında pay bırakır. Sistem
+     * ancak süre hedefi aşınca hızlandırır; hedef bütçeye eşit olsaydı kareler sınırda kalırdı.
+     */
+    const val TARGET_NS = 4_000_000L
 
     @Volatile
     var context: Context? = null

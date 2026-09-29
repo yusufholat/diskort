@@ -10,8 +10,8 @@ const split = (total: number, model: number | null | undefined): string =>
 
 /**
  * Bağlantı panelinde (Mikrofon işleme) DPDFNet'in telefonda nasıl çalıştığı: kare başına ortalama/en uzun
- * süre (bütçe 10 ms; ortalama %60'ı aşarsa standart engellemeye dönülür), ses iş parçacığının yükü ve
- * çalışmıyorsa nedeni. Ölçümler 2 saniyede bir tazelenir.
+ * süre (bütçe 10 ms; ortalama yarısını aşarsa ya da kareler 10 ms'yi kaçırırsa standart engellemeye dönülür),
+ * ses iş parçacığının yükü ve çalışmıyorsa nedeni. Ölçümler 2 saniyede bir tazelenir.
  */
 export function NoiseFilterRows({ Row }: { Row: ComponentType<{ label: string; value: string }> }) {
   const selected = useNoiseFilter((s) => s.status !== null);

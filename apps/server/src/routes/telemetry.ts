@@ -50,6 +50,7 @@ const reportSchema = z.object({
       // Yeni istemcilerde (eskiler göndermez)
       modelFrameMs: num(10_000).optional(),
       core: text(48).optional(),
+      noiseFallback: text(80).optional(),
     })
     .nullable(),
   screen: z
@@ -97,6 +98,9 @@ const reportSchema = z.object({
     .object({
       appState: text(16),
       soc: text(48),
+      // Yeni APK'larda (eskiler göndermez)
+      thermal: text(16).optional(),
+      thermalHeadroom: num(10).optional(),
     })
     .nullable()
     .optional(),

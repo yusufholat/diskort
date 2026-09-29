@@ -1,16 +1,27 @@
 package expo.modules.noisefilter
 
+import android.content.Context
 import android.os.Build
 import android.util.Log
 import com.livekit.reactnative.LiveKitReactNative
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import java.util.concurrent.Executors
 
 /**
  * DPDFNet gürültü engelleme (JS: modules/noise-filter). Model APK'nın içindedir (assets); ONNX Runtime
  * ile telefonda çalışır. Model sesli sohbete katılırken yüklenir, ayrılırken bellekten atılır.
+ *
+ * Telefon yetişemezse (ısınmada ya da canlıda) bu telefon ve bu APK için kaydedilir (SlowMemory): sonraki
+ * katılışlarda model hiç yüklenmez. Telefonun ısı durumu da buradan okunur (getThermal); sesli sohbetteyken
+ * "ciddi" ya da üstüne çıkarsa DPDFNet o oturum için kapatılır.
  */
 class NoiseFilterModule : Module() {
+  /** Devre dışı kalma sonrası işler (motoru kapatma, kayıt) ve ısı bildirimleri: ses iş parçacığı dışında */
+  private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "DiskortNoiseFilter") }
+  private var stopThermal: (() -> Unit)? = null
+  private var memory: SlowMemory? = null
+
   override fun definition() = ModuleDefinition {
     Name("DiskortNoiseFilter")
 
@@ -18,15 +29,24 @@ class NoiseFilterModule : Module() {
     Events("onBypass")
 
     OnCreate {
-      PerfHint.context = appContext.reactContext?.applicationContext
-      DpdfnetProcessor.onBypass = { reason ->
-        Log.w(TAG, "DPDFNet devre dışı: $reason")
-        sendEvent("onBypass", mapOf("reason" to reason))
+      val context = appContext.reactContext?.applicationContext
+      PerfHint.context = context
+      DpdfnetProcessor.onBypass = { b ->
+        // Ses iş parçacığında olabilir: iş sıraya alınır
+        worker.execute { handleBypass(b) }
+      }
+      if (context != null) {
+        stopThermal = Thermal.listen(context, worker) { status ->
+          if (status >= Thermal.SEVERE) DpdfnetProcessor.bypassThermal(thermalReason(status))
+        }
       }
     }
 
     OnDestroy {
       DpdfnetProcessor.onBypass = null
+      stopThermal?.invoke()
+      stopThermal = null
+      worker.shutdown()
     }
 
     /** Bu telefonda denenebilir mi (32/64 bit ARM; emülatörde ONNX Runtime kütüphanesi paketlenmiyor) */
@@ -44,15 +64,28 @@ class NoiseFilterModule : Module() {
         DpdfnetProcessor.install(null)
         return@AsyncFunction status(null)
       }
+      // Önceki oturumdan devre dışı kalmış motor kalmışsa atılır: aşağıdaki denetimlerden yeniden geçer
+      if (DpdfnetProcessor.bypassReason != null) {
+        DpdfnetProcessor.setEnabled(false)
+        DpdfnetProcessor.install(null)
+      }
+      val context = appContext.reactContext ?: return@AsyncFunction status("uygulama bağlamı yok")
+      val thermal = Thermal.status(context)
+      if (thermal >= Thermal.SEVERE) {
+        DpdfnetProcessor.setEnabled(false)
+        DpdfnetProcessor.install(null)
+        return@AsyncFunction status(thermalReason(thermal))
+      }
+      // Bu telefonda ve bu APK'da daha önce yetişemedi (kalıcı kayıt) ya da bu açılışta yetişemedi
+      memoryOf(context).reason()?.let { return@AsyncFunction status("$it (önceki ölçüm)") }
       DpdfnetProcessor.slowReason?.let { return@AsyncFunction status(it) }
       try {
         if (!DpdfnetProcessor.hasEngine()) {
-          val context = appContext.reactContext ?: return@AsyncFunction status("uygulama bağlamı yok")
           val bytes = context.assets.open(MODEL_ASSET).use { it.readBytes() }
           var engine: DpdfnetEngine? = load(bytes, attenLimitDb, xnnpack = false)
           var warm = DpdfnetProcessor.warmUp(engine!!)
           log(warm)
-          if (warm.avgMs > DpdfnetProcessor.BUDGET_MS) {
+          if (warm.judge() != null) {
             // Son şans: XNNPACK (Conv düğümleri başka çekirdeklerle). ARM64 büyük çekirdekte (Neoverse N2)
             // CPU'dan hızlı değildi, o yüzden varsayılan değil; yalnızca CPU yetişemeyen telefonda denenir.
             engine.close()
@@ -65,8 +98,8 @@ class NoiseFilterModule : Module() {
             if (engine != null) {
               val alt = DpdfnetProcessor.warmUp(engine)
               log(alt)
-              if (alt.avgMs < warm.avgMs) warm = alt
-              if (alt.avgMs > DpdfnetProcessor.BUDGET_MS) {
+              if (alt.judge() == null || alt.avgMs < warm.avgMs) warm = alt
+              if (alt.judge() != null) {
                 engine.close()
                 engine = null
               }
@@ -74,9 +107,11 @@ class NoiseFilterModule : Module() {
           }
           DpdfnetProcessor.warmup = warm
           if (engine == null) {
-            val reason = String.format("yavaş: kare başına %.1f ms", warm.avgMs)
-            DpdfnetProcessor.slowReason = reason
-            return@AsyncFunction status(reason)
+            val miss = warm.judge() ?: DpdfnetBudget.Miss("yavaş", systematic = false)
+            DpdfnetProcessor.slowReason = miss.reason
+            val remembered = memoryOf(context).record(miss)
+            Log.w(TAG, "DPDFNet ısınmada yetişemedi: ${miss.reason}${if (remembered) " (kaydedildi)" else ""}")
+            return@AsyncFunction status(miss.reason)
           }
           DpdfnetProcessor.install(engine)
         } else {
@@ -109,7 +144,47 @@ class NoiseFilterModule : Module() {
     Function("getStats") {
       status(null)
     }
+
+    /**
+     * Telefonun ısı durumu: status (PowerManager.THERMAL_STATUS_*: 0 yok … 6 kapanıyor; Android 10 öncesinde
+     * -1) ve headroom (ısınma payı, 1,0 = "ciddi" eşiği; Android 11+, ölçülemezse null).
+     */
+    Function("getThermal") {
+      val context = appContext.reactContext
+      mapOf(
+        "status" to (context?.let { Thermal.status(it) } ?: Thermal.UNKNOWN),
+        "headroom" to context?.let { Thermal.headroom(it) },
+      )
+    }
   }
+
+  private fun memoryOf(context: Context): SlowMemory =
+    memory ?: SlowMemory(context.applicationContext).also { memory = it }
+
+  /** Devre dışı kalma sonrası (iş parçacığı: worker): motor kapatılır, yavaşlık kaydedilir, JS'e bildirilir */
+  private fun handleBypass(b: DpdfnetProcessor.Bypass) {
+    Log.w(TAG, "DPDFNet devre dışı: ${b.reason}")
+    try {
+      b.engine?.let { DpdfnetProcessor.unload(it) }
+    } catch (t: Throwable) {
+      Log.w(TAG, "DPDFNet motoru kapatılamadı", t)
+    }
+    if (b.kind == DpdfnetProcessor.Kind.SLOW || b.kind == DpdfnetProcessor.Kind.SPIKE) {
+      val context = appContext.reactContext
+      if (context != null) {
+        val miss = DpdfnetBudget.Miss(b.reason, systematic = b.kind == DpdfnetProcessor.Kind.SLOW)
+        if (memoryOf(context).record(miss)) Log.w(TAG, "DPDFNet bu telefonda kapalı kalacak (yeni APK'ya kadar)")
+      }
+    }
+    try {
+      sendEvent("onBypass", mapOf("reason" to b.reason))
+    } catch (t: Throwable) {
+      Log.w(TAG, "onBypass gönderilemedi", t)
+    }
+  }
+
+  private fun thermalReason(status: Int): String =
+    "telefon çok ısındı (ısı durumu ${if (status >= 4) "kritik" else "ciddi"})"
 
   private fun load(bytes: ByteArray, attenLimitDb: Double, xnnpack: Boolean): DpdfnetEngine {
     val start = System.nanoTime()
@@ -122,8 +197,8 @@ class NoiseFilterModule : Module() {
     Log.i(
       TAG,
       String.format(
-        "DPDFNet ısınma (%s): kare başına %.2f ms (model %.2f, ilk yarı %.2f; çekirdek %s; ipucu %b)",
-        w.provider, w.avgMs, w.modelMs, w.firstMs, w.core, w.hint,
+        "DPDFNet ısınma (%s): kare başına %.2f ms (model %.2f, en uzun %.2f, ilk yarı %.2f; çekirdek %s; ipucu %b)",
+        w.provider, w.avgMs, w.modelMs, w.maxMs, w.firstMs, w.core, w.hint,
       ),
     )
   }
@@ -140,6 +215,7 @@ class NoiseFilterModule : Module() {
       "warmupMs" to (w?.avgMs ?: 0.0),
       "warmupModelMs" to w?.modelMs,
       "warmupFirstMs" to w?.firstMs,
+      "warmupMaxMs" to w?.maxMs,
       "warmupCore" to w?.core,
       "provider" to (DpdfnetProcessor.provider ?: w?.provider),
       // Başarım ipucu (ADPF): ses iş parçacığında (canlı) ya da ısınmada açıldı mı

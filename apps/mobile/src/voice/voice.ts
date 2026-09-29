@@ -211,7 +211,7 @@ class MobileVoiceClient {
   constructor() {
     // DPDFNet yetişemedi ya da hata verdi: mikrofon WebRTC'nin standart gürültü engellemesiyle yeniden açılır
     onNoiseFilterBypass(() => {
-      toast('DPDFNet gürültü engelleme durdu (telefon yetişemedi ya da hata); standart gürültü engellemeye geçildi.');
+      toast('DPDFNet gürültü engelleme durdu (telefon yetişemedi, ısındı ya da hata); standart gürültü engellemeye geçildi.');
       const track = this.room?.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack as
         | LocalAudioTrack
         | undefined;
