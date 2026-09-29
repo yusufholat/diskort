@@ -57,10 +57,14 @@ export {
   describeTransport,
   formatBitrate,
   formatPercent,
+  isHardwareCodec,
+  jitterBufferMs,
   linkQuality,
+  mainInboundVideo,
   minuteTicks,
   outboundDelta,
   parseTransportStats,
+  perFrameMs,
   PING_HISTORY_MS,
   pingAxis,
   pushSample,
@@ -76,6 +80,7 @@ export {
   type StreamView,
   type TransportStats,
   type TransportView,
+  type VideoCounters,
 } from './connectionStats';
 export {
   TELEMETRY_SUBSCRIBER_EVERY_MS,

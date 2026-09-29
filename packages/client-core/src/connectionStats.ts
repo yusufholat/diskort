@@ -28,6 +28,29 @@ export interface CandidateInfo {
   networkType: string | null;
 }
 
+/**
+ * Görüntü akışının kare sayaçları (gelen: çözücü, giden: kodlayıcı). Tarayıcıya/sürüme göre alanlar eksik
+ * olabilir (null). Süreler WebRTC'deki gibi saniye ve toplamdır; oranlar iki ölçüm arasındaki farktan.
+ */
+export interface VideoCounters {
+  /** powerEfficientDecoder / powerEfficientEncoder: donanım (güç verimli) mi; bildirilmiyorsa null */
+  powerEfficient: boolean | null;
+  /** Çözülen (gelen) ya da kodlanan (giden) kare, toplam */
+  frames: number | null;
+  /** totalDecodeTime / totalEncodeTime (sn), toplam */
+  totalTime: number | null;
+  /** Yalnızca gelen: alınan kare, toplam */
+  framesReceived: number | null;
+  /** Yalnızca gelen: çözülmeden ya da gösterilmeden atılan kare, toplam */
+  framesDropped: number | null;
+  /** Yalnızca gelen: donma sayısı ve donmaların toplam süresi (sn) */
+  freezeCount: number | null;
+  totalFreezesDuration: number | null;
+  /** Yalnızca gelen: titreşim tamponunda bekleme toplamı (sn) ve tampondan çıkan kare sayısı */
+  jitterBufferDelay: number | null;
+  jitterBufferEmittedCount: number | null;
+}
+
 export interface RtpStream {
   id: string;
   direction: 'out' | 'in';
@@ -56,6 +79,8 @@ export interface RtpStream {
   /** Ses: gizlenen (kayıp yüzünden sentezlenen) örnek sayısı, toplam */
   concealedSamples: number | null;
   totalSamplesReceived: number | null;
+  /** Görüntü akışının kare sayaçları; ses akışında null */
+  video: VideoCounters | null;
 }
 
 /** Tek bir RTCPeerConnection'ın (yayın ya da abonelik bağlantısı) o anki toplamları */
@@ -80,6 +105,10 @@ export interface StreamView extends RtpStream {
   bitrate: number | null;
   /** Son iki ölçüm arasındaki paket kaybı (%) */
   lossPercent: number | null;
+  /** Görüntü: kare başına ortalama çözme/kodlama süresi (ms); önceki ölçüm yoksa baştan beri */
+  frameMs: number | null;
+  /** Gelen görüntü: kare başına titreşim tamponu gecikmesi (ms) */
+  jitterBufferMs: number | null;
 }
 
 export interface TransportView extends Omit<TransportStats, 'streams'> {
@@ -151,6 +180,23 @@ function codecOf(stat: RtcStat, byId: Map<string, RtcStat>): Pick<RtpStream, 'co
   };
 }
 
+const bool = (v: unknown): boolean | null => (typeof v === 'boolean' ? v : null);
+
+function videoCounters(s: RtcStat, direction: 'in' | 'out'): VideoCounters {
+  const inbound = direction === 'in';
+  return {
+    powerEfficient: bool(inbound ? s.powerEfficientDecoder : s.powerEfficientEncoder),
+    frames: num(inbound ? s.framesDecoded : s.framesEncoded),
+    totalTime: num(inbound ? s.totalDecodeTime : s.totalEncodeTime),
+    framesReceived: inbound ? num(s.framesReceived) : null,
+    framesDropped: inbound ? num(s.framesDropped) : null,
+    freezeCount: inbound ? num(s.freezeCount) : null,
+    totalFreezesDuration: inbound ? num(s.totalFreezesDuration) : null,
+    jitterBufferDelay: inbound ? num(s.jitterBufferDelay) : null,
+    jitterBufferEmittedCount: inbound ? num(s.jitterBufferEmittedCount) : null,
+  };
+}
+
 function kindOf(stat: RtcStat): 'audio' | 'video' {
   return (stat.kind ?? stat.mediaType) === 'video' ? 'video' : 'audio';
 }
@@ -193,6 +239,7 @@ export function parseTransportStats(report: StatsSource, at: number = Date.now()
         qualityLimitationReason: str(s.qualityLimitationReason),
         concealedSamples: null,
         totalSamplesReceived: null,
+        video: kindOf(s) === 'video' ? videoCounters(s, 'out') : null,
       });
     } else if (s.type === 'inbound-rtp') {
       streams.push({
@@ -213,6 +260,7 @@ export function parseTransportStats(report: StatsSource, at: number = Date.now()
         qualityLimitationReason: null,
         concealedSamples: num(s.concealedSamples),
         totalSamplesReceived: num(s.totalSamplesReceived),
+        video: kindOf(s) === 'video' ? videoCounters(s, 'in') : null,
       });
     }
   }
@@ -255,7 +303,15 @@ export function describeTransport(curr: TransportStats, prev: TransportStats | n
   const prevStreams = new Map(prev?.streams.map((s) => [s.id, s]));
   const streams = curr.streams.map((s): StreamView => {
     const p = prevStreams.get(s.id);
-    if (!p) return { ...s, bitrate: null, lossPercent: null };
+    if (!p) {
+      return {
+        ...s,
+        bitrate: null,
+        lossPercent: null,
+        frameMs: perFrameMs(s.video, null),
+        jitterBufferMs: jitterBufferMs(s.video, null),
+      };
+    }
     const dPackets = Math.max(0, s.packets - p.packets);
     const dLost = s.packetsLost !== null && p.packetsLost !== null ? Math.max(0, s.packetsLost - p.packetsLost) : null;
     return {
@@ -263,6 +319,8 @@ export function describeTransport(curr: TransportStats, prev: TransportStats | n
       bitrate: rate(s.bytes, p.bytes, seconds),
       // Giden: kaybolan / gönderilen; gelen: kaybolan / (alınan + kaybolan)
       lossPercent: dLost === null ? null : lossPercent(dLost, s.direction === 'out' ? dPackets : dPackets + dLost),
+      frameMs: perFrameMs(s.video, p.video),
+      jitterBufferMs: jitterBufferMs(s.video, p.video),
     };
   });
   const { streams: _omit, ...rest } = curr;
@@ -272,6 +330,83 @@ export function describeTransport(curr: TransportStats, prev: TransportStats | n
     bitrateIn: prev ? rate(curr.bytesReceived, prev.bytesReceived, seconds) : null,
     streams,
   };
+}
+
+// ---------- Görüntü çözme / kodlama ----------
+
+/** İki toplam arasındaki farkın kare başına ms'si; önceki yoksa baştan beri. Kare çözülmediyse null. */
+function perFrame(time: number | null, count: number | null, prevTime: number | null, prevCount: number | null): number | null {
+  if (time === null || count === null) return null;
+  const hasPrev = prevTime !== null && prevCount !== null;
+  const dTime = hasPrev ? time - prevTime : time;
+  const dCount = hasPrev ? count - prevCount : count;
+  if (dCount <= 0 || dTime < 0) return null;
+  return (dTime / dCount) * 1000;
+}
+
+/** Kare başına ortalama çözme (gelen) ya da kodlama (giden) süresi (ms): totalDecodeTime / framesDecoded farkı */
+export function perFrameMs(curr: VideoCounters | null, prev: VideoCounters | null): number | null {
+  if (!curr) return null;
+  return perFrame(curr.totalTime, curr.frames, prev?.totalTime ?? null, prev?.frames ?? null);
+}
+
+/** Kare başına titreşim tamponu gecikmesi (ms): jitterBufferDelay / jitterBufferEmittedCount farkı */
+export function jitterBufferMs(curr: VideoCounters | null, prev: VideoCounters | null): number | null {
+  if (!curr) return null;
+  return perFrame(
+    curr.jitterBufferDelay,
+    curr.jitterBufferEmittedCount,
+    prev?.jitterBufferDelay ?? null,
+    prev?.jitterBufferEmittedCount ?? null,
+  );
+}
+
+/** Yazılım kodlayıcı/çözücü adları (libwebrtc'nin yerleşikleri, Android'in Google yazılım kodekleri, yedeğe düşme) */
+const SOFTWARE_CODEC = /libvpx|ffmpeg|libaom|dav1d|openh264|\bc2\.android\.|\bomx\.google\.|software/i;
+/** Donanım kodlayıcı/çözücü adları (Android MediaCodec, Windows, macOS/iOS, Linux, NVIDIA/AMD/Intel) */
+const HARDWARE_CODEC =
+  /mediacodec|\bc2\.|\bomx\.|d3d11|dxva|mediafoundation|videotoolbox|vaapi|v4l2|nvenc|nvdec|quicksync|hardware|accelerat/i;
+/** Chromium/Electron'un genel sarmalayıcı adları: donanım da yazılım da olabilir */
+const GENERIC_CODEC = /^external(decoder|encoder)$/i;
+
+/** Tek adın türü: true donanım, false yazılım, null bilinmiyor */
+function classifyCodec(name: string): boolean | null {
+  const n = name.trim();
+  // Yedeğe düşmüş: şu an yazılım çalışıyor ("libvpx (fallback from: c2.qti.vp9.decoder)")
+  if (/fallback/i.test(n)) return false;
+  // Sarmalayıcı ve içindekiler: "SimulcastEncoderAdapter (libvpx, c2.qti.vp9.encoder)", "MediaCodec (c2.android.avc.decoder)"
+  const inner = /\(([^()]*)\)\s*$/.exec(n);
+  if (inner) {
+    const kinds = inner[1]!.split(',').map((x) => classifyCodec(x));
+    // İçlerinden biri donanımdaysa donanım; hepsi yazılımsa yazılım
+    if (kinds.includes(true)) return true;
+    if (kinds.length > 0 && kinds.every((k) => k === false)) return false;
+    return null;
+  }
+  if (GENERIC_CODEC.test(n)) return null;
+  if (SOFTWARE_CODEC.test(n)) return false;
+  if (HARDWARE_CODEC.test(n)) return true;
+  return null;
+}
+
+/**
+ * Kodlayıcı/çözücü donanımda mı çalışıyor: önce uygulamanın adına (ör. "c2.qti.vp9.decoder" donanım,
+ * "libvpx" ya da "c2.android.vp9.decoder" yazılım), ad bir şey söylemiyorsa (ör. "ExternalDecoder")
+ * powerEfficient işaretine bakar. Bilinemiyorsa null.
+ */
+export function isHardwareCodec(implementation: string | null, powerEfficient: boolean | null): boolean | null {
+  return (implementation ? classifyCodec(implementation) : null) ?? powerEfficient;
+}
+
+/** İzlenen görüntü: gelen görüntü akışları arasında en büyük kare (eşitse en çok bayt alan) */
+export function mainInboundVideo<T extends RtpStream>(streams: readonly T[]): T | null {
+  let best: T | null = null;
+  const area = (s: T): number => (s.frameWidth ?? 0) * (s.frameHeight ?? 0);
+  for (const s of streams) {
+    if (s.direction !== 'in' || s.kind !== 'video') continue;
+    if (!best || area(s) > area(best) || (area(s) === area(best) && s.bytes > best.bytes)) best = s;
+  }
+  return best;
 }
 
 // ---------- Ping geçmişi (grafik ve bağlantı kalitesi) ----------

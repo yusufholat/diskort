@@ -32,6 +32,56 @@ export interface TelemetryMic {
   droppedSamples: number | null;
   /** Mikrofon kapalıydı (aralığın sonunda) */
   muted: boolean;
+  // "?" alanlar yeni istemcilerde vardır (eski istemciler göndermez)
+  /** Kare süresinin modele düşen kısmı (ms; telefonda DPDFNet) */
+  modelFrameMs?: number | null;
+  /** Ses iş parçacığının çalıştığı çekirdek ve en yüksek frekansı, ör. "7 (4320 MHz)" */
+  core?: string | null;
+}
+
+/** İzlenen ekran yayınının görünümü (telefon): tam ekran ya da ses ekranındaki küçük görünüm */
+export interface TelemetryView {
+  mode: 'fullscreen' | 'inline';
+  /** Görünümün fiziksel piksel boyutu */
+  width: number;
+  height: number;
+}
+
+/** İzlenen (gelen) görüntü: çözücü ve çözme maliyeti (yalnızca bir yayın izlenirken) */
+export interface TelemetryWatch {
+  /** ör. "video/VP9" */
+  codec: string | null;
+  /** decoderImplementation, ör. "c2.qti.vp9.decoder", "libvpx", "ExternalDecoder" */
+  decoder: string | null;
+  /** Donanım çözücü mü (addan ya da powerEfficientDecoder'dan); bilinmiyorsa null */
+  hardware: boolean | null;
+  /** WebRTC'nin powerEfficientDecoder değeri (bildirilmiyorsa null) */
+  powerEfficient: boolean | null;
+  /** Aralığın sonundaki çözünürlük ve ortalama kare hızı */
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+  /** Kare başına çözme süresi (ms): aralık ortalaması ve ~10 sn'lik ölçümlerin en yükseği */
+  decodeMs: number | null;
+  decodeMsMax: number | null;
+  /** Gelen görüntü bit hızı (bit/sn) */
+  bitrate: number | null;
+  /** Aralıkta atılan kare, donma sayısı ve donmaların toplam süresi (sn) */
+  framesDropped: number | null;
+  freezes: number | null;
+  freezeSec: number | null;
+  /** Kare başına titreşim tamponu gecikmesi (ms) */
+  jitterBufferMs: number | null;
+  /** Görünüm (bildiren platformlarda) */
+  view: TelemetryView | null;
+}
+
+/** Cihaz durumu (ısınma tahmini için; yalnızca yerel modül gerektirmeden okunabilenler) */
+export interface TelemetryDevice {
+  /** Uygulama durumu: active, background, inactive */
+  appState: string | null;
+  /** Yonga, ör. "QTI SM8850" */
+  soc: string | null;
 }
 
 /** Ekran paylaşımı (yalnızca yayındayken) */
@@ -48,6 +98,10 @@ export interface TelemetryScreen {
   /** Aralıkta en sık görülen kısıtlama nedeni ve ölçümlerin kısıtlı geçen oranı (0–1) */
   limitation: TelemetryLimitation;
   limitedRatio: number | null;
+  /** Kare başına kodlama süresi (ms, aralık ortalaması) */
+  encodeMs?: number | null;
+  /** Donanım kodlayıcı mı (addan ya da powerEfficientEncoder'dan); bilinmiyorsa null */
+  hardware?: boolean | null;
 }
 
 /** POST /api/telemetry/voice gövdesi */
@@ -87,6 +141,9 @@ export interface VoiceTelemetryReport {
   reconnects: number;
   mic: TelemetryMic | null;
   screen: TelemetryScreen | null;
+  /** İzlenen yayın (eski istemcilerde yok) */
+  watch?: TelemetryWatch | null;
+  device?: TelemetryDevice | null;
 }
 
 /** Gönderim aralığı ve "kötü" anındaki erken gönderimler arasındaki en kısa süre */

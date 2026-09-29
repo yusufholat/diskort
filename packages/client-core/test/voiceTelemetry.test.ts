@@ -32,6 +32,7 @@ const stream = (over: Partial<RtpStream>): RtpStream => ({
   qualityLimitationReason: null,
   concealedSamples: null,
   totalSamplesReceived: null,
+  video: null,
   ...over,
 });
 
@@ -191,5 +192,81 @@ describe('ses kalitesi özeti', () => {
     t.reset();
     expect(sent()[0]).toMatchObject({ samples: 5, mic: { noise: 'dpdfnet', load: 0.3 } });
     expect(() => t.sample({ at: 1, publisher: { broken: true } as unknown as TransportStats, prevPublisher: null, subscriber: null, quality: 'good' })).not.toThrow();
+  });
+
+  it('izlenen yayın: çözücü, kare başına çözme süresi, atılan kare, donma, görünüm ve cihaz', () => {
+    const t = new VoiceTelemetry();
+    const view = { mode: 'fullscreen' as const, width: 2400, height: 1080 };
+    t.setContext(() => ({ channelId: 'ses1', mic: null, view, device: { appState: 'active', soc: 'QTI SM8850' } }));
+    const start = 1_000_000;
+    let prev: TransportStats | null = null;
+    // 16 ölçüm (2 sn); abonelik bağlantısı 10 sn'de bir okunur (0., 5., 10., 15. ölçüm)
+    for (let i = 0; i < 16; i++) {
+      const at = start + i * 2000;
+      const pub = transport(at, { rttMs: 30, streams: [stream({ id: 'mic', packets: i * 100 })] });
+      // Her 10 sn'de 600 kare; kare başına çözme 4 ms, sonra 10 ms (ısınma); 10 sn'de 3 kare atılır
+      const step = i / 5;
+      const decodeSec = step <= 1 ? step * 600 * 0.004 : 600 * 0.004 + (step - 1) * 600 * 0.01;
+      const sub =
+        i % 5 === 0
+          ? transport(at, {
+              streams: [
+                stream({
+                  id: 'yayin',
+                  direction: 'in',
+                  kind: 'video',
+                  codec: 'video/VP9',
+                  bytes: step * 15_000_000,
+                  frameWidth: 2560,
+                  frameHeight: 1440,
+                  framesPerSecond: 60,
+                  implementation: 'libvpx',
+                  video: {
+                    powerEfficient: false,
+                    frames: step * 600,
+                    totalTime: decodeSec,
+                    framesReceived: step * 603,
+                    framesDropped: step * 3,
+                    freezeCount: step >= 2 ? 1 : 0,
+                    totalFreezesDuration: step >= 2 ? 0.4 : 0,
+                    jitterBufferDelay: step * 600 * 0.05,
+                    jitterBufferEmittedCount: step * 600,
+                  },
+                }),
+              ],
+            })
+          : null;
+      t.sample({ at, publisher: pub, prevPublisher: prev, subscriber: sub, quality: 'good' });
+      prev = pub;
+    }
+    const r = sent()[0]!;
+    expect(r.watch).toMatchObject({
+      codec: 'video/VP9',
+      decoder: 'libvpx',
+      hardware: false,
+      powerEfficient: false,
+      width: 2560,
+      height: 1440,
+      fps: 60,
+      // Özet 30. saniyede (15. ölçüm) gider: 0→10→20 sn arası 1200 kare, 600×4 ms + 600×10 ms → ort. 7 ms
+      decodeMs: 7,
+      decodeMsMax: 10,
+      // 15 MB / 10 sn
+      bitrate: 12_000_000,
+      framesDropped: 6,
+      freezes: 1,
+      freezeSec: 0.4,
+      jitterBufferMs: 50,
+      view,
+    });
+    expect(r.device).toEqual({ appState: 'active', soc: 'QTI SM8850' });
+  });
+
+  it('yayın izlenmiyorsa ve platform bildirmiyorsa watch ve device null', () => {
+    const t = new VoiceTelemetry();
+    t.setContext(() => ({ channelId: 'ses1', mic: null }));
+    feed(t, 16);
+    expect(sent()[0]!.watch).toBeNull();
+    expect(sent()[0]!.device).toBeNull();
   });
 });

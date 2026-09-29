@@ -893,8 +893,25 @@ function micText(mic) {
 function screenText(s) {
   if (!s) return null;
   const size = s.width && s.height ? `${s.width}×${s.height}` : '';
-  return [size, s.fps !== null ? `${dec(s.fps)} fps` : '', bits(s.bitrate), s.encoder ?? ''].filter(Boolean).join(' · ');
+  const encode = s.encodeMs !== null && s.encodeMs !== undefined ? `${dec(s.encodeMs)} ms/kare` : '';
+  return [size, s.fps !== null ? `${dec(s.fps)} fps` : '', bits(s.bitrate), s.encoder ?? '', encode].filter(Boolean).join(' · ');
 }
+
+/** İzlenen yayın: kodek, çözücü (donanım/yazılım), çözünürlük, çözme süresi */
+function watchText(w) {
+  if (!w) return null;
+  const kind = w.hardware === true ? 'Donanım' : w.hardware === false ? 'Yazılım' : 'Bilinmiyor';
+  const codec = w.codec ? (w.codec.split('/')[1] ?? w.codec) : '';
+  const size = w.width && w.height ? `${w.width}×${w.height}${w.fps !== null ? `@${dec(w.fps, 0)}` : ''}` : '';
+  const decode = w.decodeMs !== null ? `${dec(w.decodeMs)} ms/kare${w.decodeMsMax !== null ? ` (en çok ${dec(w.decodeMsMax)})` : ''}` : '';
+  const view = w.view ? (w.view.mode === 'fullscreen' ? 'tam ekran' : 'küçük') : '';
+  return [codec, `${kind}${w.decoder ? ` (${w.decoder})` : ''}`, size, decode, bits(w.bitrate), w.framesDropped ? `${num(w.framesDropped)} atılan` : '', view]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** Yazılım çözücü yalnızca telefonda uyarı (ısınma ve pil); masaüstünde olağan */
+const watchTone = (e) => (e.watch?.hardware === false && (e.platform === 'android' || e.platform === 'ios') ? 'warn' : undefined);
 
 const LIMIT = { cpu: 'işlemci', bandwidth: 'bant genişliği', other: 'diğer' };
 
@@ -914,6 +931,7 @@ function metricsOf(q) {
     q.screen &&
       q.screen.limitation !== 'none' &&
       metric('Yayın kısıtı', `${LIMIT[q.screen.limitation] ?? q.screen.limitation} · ${percent(q.screen.limitedRatio)}`, toneOf(q.screen.limitedRatio, 0.3, 0.5)),
+    q.watch && metric('İzlenen yayın', watchText(q.watch), watchTone(q)),
     q.reconnects > 0 && metric('Yeniden bağlanma', num(q.reconnects), 'bad'),
     metric('Cihaz', `${PLATFORM[q.platform] ?? q.platform} ${q.version}`),
   );
@@ -1523,6 +1541,9 @@ function telemetryDetail(x, state, reload) {
         chart('Gürültü engelleyici yükü', (e) => e.mic?.load ?? null, percent, { max: 1 }),
         chart('Yayın kare hızı', (e) => e.screen?.fps ?? null, (v) => `${dec(v)} fps`, { max: 30, color: 'ok' }),
         chart('Yayın bit hızı', (e) => e.screen?.bitrate ?? null, bits, { color: 'pink' }),
+        chart('İzlenen yayın: çözme süresi', (e) => e.watch?.decodeMs ?? null, (v) => `${dec(v)} ms/kare`, { max: 10, color: 'pink' }),
+        chart('İzlenen yayın: kare hızı', (e) => e.watch?.fps ?? null, (v) => `${dec(v)} fps`, { max: 30, color: 'ok' }),
+        chart('Gürültü engelleyici kare süresi', (e) => e.mic?.avgFrameMs ?? null, (v) => `${dec(v, 2)} ms`, { max: 5 }),
         chart('Kullanılabilir yükleme hızı', 'availableOut', bits, { color: 'ok' }),
       ),
     );
@@ -1549,6 +1570,7 @@ function telemetryDetail(x, state, reload) {
                   badge(`kayıp ${pct(e.lossOut, 1)} / ${pct(e.lossIn, 1)}`),
                   e.concealed ? badge(`kesilme ${pct(e.concealed)}`) : null,
                   e.screen && badge(`yayın ${screenText(e.screen)}`, 'live'),
+                  e.watch && badge(`izliyor ${watchText(e.watch)}`, watchTone(e)),
                   e.channelId && x.channels[e.channelId] && badge(`🔊 ${x.channels[e.channelId].name}`, 'muted'),
                 ),
                 e.causes.length > 0 && h('div', 'adm-sub', e.causes.join(' · ')),

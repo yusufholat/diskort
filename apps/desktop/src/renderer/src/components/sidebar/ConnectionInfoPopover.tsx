@@ -477,6 +477,12 @@ function StreamRows({ s, labels }: { s: StreamView; labels: ConnectionDetail['la
         />
       )}
       {s.implementation && <Row label={s.direction === 'out' ? 'Kodlayıcı' : 'Çözücü'} value={s.implementation} />}
+      {s.frameMs !== null && (
+        <Row
+          label={s.direction === 'out' ? 'Kodlama süresi' : 'Çözme süresi'}
+          value={`${s.frameMs.toFixed(2).replace('.', ',')} ms/kare`}
+        />
+      )}
       {s.qualityLimitationReason && s.qualityLimitationReason !== 'none' && (
         <Row label="Kısıtlama" value={QUALITY_LIMIT[s.qualityLimitationReason] ?? s.qualityLimitationReason} />
       )}

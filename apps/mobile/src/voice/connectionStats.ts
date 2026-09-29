@@ -13,10 +13,12 @@ import {
   type TelemetryContext,
   type TransportView,
 } from '@diskort/client-core';
+import type { TelemetryView } from '@diskort/shared';
 import { Track, type Room } from 'livekit-client';
+import { AppState } from 'react-native';
 import { create } from 'zustand';
 import { getSettings } from '../stores/settings';
-import { effectiveNoiseMode, noiseFilterStats } from './noiseFilter';
+import { deviceSoc, effectiveNoiseMode, noiseFilterStats } from './noiseFilter';
 import { useVoice, voice } from './voice';
 
 /**
@@ -53,6 +55,15 @@ export interface ConnectionDetail {
   publisher: TransportView | null;
   subscriber: TransportView | null;
   labels: Record<string, StreamLabel>;
+  /** İzlenen yayının görünümü (izlenmiyorsa null) */
+  view: TelemetryView | null;
+}
+
+/** İzlenen yayının görünümü: StreamViewer bildirir (tam ekran mı, fiziksel piksel boyutu) */
+let streamView: TelemetryView | null = null;
+
+export function noteStreamView(view: TelemetryView | null): void {
+  streamView = view;
 }
 
 interface ConnectionStatsStore {
@@ -145,7 +156,12 @@ function telemetryContext(): TelemetryContext {
       underruns: null,
       droppedSamples: null,
       muted: s.selfMute || s.selfDeaf || v.listenOnly || !v.micAllowed,
+      // Isınma belirtisi: aynı çekirdekte kare süresi uzarsa işlemci kısılıyordur
+      modelFrameMs: ns?.modelMs ?? null,
+      core: ns?.audioCore ?? null,
     },
+    view: v.watching ? streamView : null,
+    device: { appState: AppState.currentState ?? null, soc: deviceSoc() },
   };
 }
 
@@ -224,6 +240,7 @@ class ConnectionStatsSampler {
               publisher: publisher && describeTransport(publisher, prev.publisher),
               subscriber: subscriber && describeTransport(subscriber, prev.subscriber),
               labels: streamLabels(room),
+              view: useVoice.getState().watching ? streamView : null,
             }
           : null,
       });

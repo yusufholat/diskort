@@ -4,10 +4,13 @@ import {
   describeTransport,
   formatBitrate,
   formatPercent,
+  isHardwareCodec,
   linkQuality,
+  mainInboundVideo,
   minuteTicks,
   outboundDelta,
   parseTransportStats,
+  perFrameMs,
   pingAxis,
   pushSample,
   summarizePings,
@@ -15,7 +18,153 @@ import {
 } from '../src/connectionStats';
 import { publisherReport, subscriberReport } from './fixtures/rtcStats';
 
-const asReport = (stats: { id: string }[]): Map<string, unknown> => new Map(stats.map((s) => [s.id, s]));
+const asReport = <T extends { id: string }>(stats: T[]): Map<string, unknown> => new Map(stats.map((s) => [s.id, s]));
+
+/** İzlenen ekran yayını: gelen VP9 görüntü (react-native-webrtc / Chrome alan adları) */
+function inboundVideoReport(t: number, over: Record<string, unknown> = {}): { id: string; type: string; [k: string]: unknown }[] {
+  return [
+    { id: 'COT01_98', type: 'codec', mimeType: 'video/VP9', clockRate: 90000, payloadType: 98 },
+    {
+      id: 'IT01V123',
+      type: 'inbound-rtp',
+      kind: 'video',
+      ssrc: 123,
+      codecId: 'COT01_98',
+      trackIdentifier: 'yayin-track',
+      packetsReceived: 1000 * t,
+      bytesReceived: 1_500_000 * t,
+      packetsLost: 0,
+      jitter: 0.004,
+      frameWidth: 2560,
+      frameHeight: 1440,
+      framesPerSecond: 60,
+      framesReceived: 121 * t,
+      framesDecoded: 120 * t,
+      framesDropped: t,
+      totalDecodeTime: 120 * t * (t > 1 ? 0.0069 : 0.00185),
+      freezeCount: 0,
+      totalFreezesDuration: 0,
+      jitterBufferDelay: 120 * t * 0.03,
+      jitterBufferEmittedCount: 120 * t,
+      decoderImplementation: 'c2.qti.vp9.decoder',
+      powerEfficientDecoder: true,
+      ...over,
+    },
+  ];
+}
+
+describe('görüntü çözme / kodlama', () => {
+  it('gelen görüntü: kodek, çözücü, kare sayaçları', () => {
+    const t = parseTransportStats(asReport(inboundVideoReport(1)), 1000)!;
+    const s = t.streams[0]!;
+    expect(s).toMatchObject({
+      direction: 'in',
+      kind: 'video',
+      codec: 'video/VP9',
+      implementation: 'c2.qti.vp9.decoder',
+      frameWidth: 2560,
+      frameHeight: 1440,
+      framesPerSecond: 60,
+    });
+    expect(s.video).toMatchObject({ powerEfficient: true, frames: 120, framesReceived: 121, framesDropped: 1, freezeCount: 0 });
+    expect(isHardwareCodec(s.implementation, s.video!.powerEfficient)).toBe(true);
+  });
+
+  it('kare başına çözme süresi iki ölçüm arasındaki farktan; önceki yoksa baştan beri', () => {
+    const a = parseTransportStats(asReport(inboundVideoReport(1)), 1000)!;
+    const b = parseTransportStats(asReport(inboundVideoReport(2)), 2000)!;
+    const first = describeTransport(a, null).streams[0]!;
+    expect(first.frameMs).toBeCloseTo(1.85, 5);
+    const view = describeTransport(b, a).streams[0]!;
+    // 2. ölçümde toplam 240 × 6,9 ms; ilk 120 kare 1,85 ms → aradaki 120 kare (1656 - 222) / 120
+    expect(view.frameMs).toBeCloseTo((240 * 6.9 - 120 * 1.85) / 120, 5);
+    expect(view.jitterBufferMs).toBeCloseTo(30, 5);
+    expect(view.bitrate).toBe(12_000_000);
+    // Kare çözülmediyse (duraklatılmış) süre yok
+    expect(perFrameMs(a.streams[0]!.video, a.streams[0]!.video)).toBeNull();
+  });
+
+  it('yazılım çözücü: libvpx, Android yazılım kodeği ve yedeğe düşme', () => {
+    expect(isHardwareCodec('libvpx', null)).toBe(false);
+    expect(isHardwareCodec('libvpx', true)).toBe(false);
+    expect(isHardwareCodec('c2.android.vp9.decoder', null)).toBe(false);
+    expect(isHardwareCodec('OMX.google.vp9.decoder', null)).toBe(false);
+    expect(isHardwareCodec('libvpx (fallback from: c2.qti.vp9.decoder)', null)).toBe(false);
+    expect(isHardwareCodec('FFmpeg', null)).toBe(false);
+    expect(isHardwareCodec('dav1d', null)).toBe(false);
+  });
+
+  it('donanım çözücü/kodlayıcı adları; ad bir şey söylemiyorsa powerEfficient', () => {
+    expect(isHardwareCodec('c2.qti.vp9.decoder', null)).toBe(true);
+    expect(isHardwareCodec('OMX.qcom.video.decoder.vp9', null)).toBe(true);
+    expect(isHardwareCodec('MediaCodecVideoDecoder', null)).toBe(true);
+    expect(isHardwareCodec('MediaCodec', null)).toBe(true);
+    expect(isHardwareCodec('D3D11VideoDecoder', null)).toBe(true);
+    expect(isHardwareCodec('NvEnc', null)).toBe(true);
+    expect(isHardwareCodec('MediaFoundationVideoEncodeAccelerator', null)).toBe(true);
+    expect(isHardwareCodec('bilinmeyen', false)).toBe(false);
+    expect(isHardwareCodec(null, true)).toBe(true);
+    expect(isHardwareCodec(null, null)).toBeNull();
+  });
+
+  it('genel sarmalayıcı adı (ExternalDecoder/Encoder) donanım saymaz: powerEfficient, yoksa bilinmiyor', () => {
+    expect(isHardwareCodec('ExternalDecoder', false)).toBe(false);
+    expect(isHardwareCodec('ExternalDecoder', true)).toBe(true);
+    expect(isHardwareCodec('ExternalDecoder', null)).toBeNull();
+    expect(isHardwareCodec('ExternalEncoder', null)).toBeNull();
+  });
+
+  it('sarmalayıcı içindeki adlar: biri donanımsa donanım, hepsi yazılımsa yazılım', () => {
+    expect(isHardwareCodec('SimulcastEncoderAdapter (libvpx, c2.qti.vp9.encoder)', null)).toBe(true);
+    expect(isHardwareCodec('SimulcastEncoderAdapter (libvpx, libvpx)', true)).toBe(false);
+    expect(isHardwareCodec('MediaCodec (c2.android.avc.decoder)', null)).toBe(false);
+    expect(isHardwareCodec('MediaCodec (OMX.google.h264.decoder)', true)).toBe(false);
+    expect(isHardwareCodec('SimulcastEncoderAdapter (ExternalEncoder, ExternalEncoder)', true)).toBe(true);
+    expect(isHardwareCodec('SimulcastEncoderAdapter (ExternalEncoder)', null)).toBeNull();
+  });
+
+  it('eksik alanlar (eski sürüm / başka tarayıcı): sayaçlar null, oranlar hesaplanmaz', () => {
+    const report = inboundVideoReport(1, {
+      decoderImplementation: undefined,
+      powerEfficientDecoder: undefined,
+      totalDecodeTime: undefined,
+      framesDropped: undefined,
+      freezeCount: undefined,
+      totalFreezesDuration: undefined,
+      jitterBufferDelay: undefined,
+      codecId: undefined,
+    });
+    const t = parseTransportStats(asReport(report), 1000)!;
+    const s = describeTransport(t, t).streams[0]!;
+    expect(s.codec).toBeNull();
+    expect(s.implementation).toBeNull();
+    expect(s.video).toMatchObject({ powerEfficient: null, totalTime: null, framesDropped: null, freezeCount: null, jitterBufferDelay: null });
+    expect(s.frameMs).toBeNull();
+    expect(s.jitterBufferMs).toBeNull();
+    expect(isHardwareCodec(s.implementation, s.video!.powerEfficient)).toBeNull();
+  });
+
+  it('giden görüntü: kodlayıcı ve kodlama süresi; ses akışında sayaç yok', () => {
+    const t = parseTransportStats(
+      asReport([
+        { id: 'OT1', type: 'outbound-rtp', kind: 'video', ssrc: 5, packetsSent: 10, bytesSent: 1000, framesEncoded: 300, totalEncodeTime: 1.5, encoderImplementation: 'libvpx', powerEfficientEncoder: false, qualityLimitationReason: 'cpu' },
+        { id: 'OT2', type: 'outbound-rtp', kind: 'audio', ssrc: 6, packetsSent: 10, bytesSent: 1000 },
+      ]),
+      1000,
+    )!;
+    const video = t.streams.find((s) => s.kind === 'video')!;
+    expect(video.video).toMatchObject({ powerEfficient: false, frames: 300, totalTime: 1.5, framesDropped: null });
+    expect(perFrameMs(video.video, null)).toBeCloseTo(5, 5);
+    expect(t.streams.find((s) => s.kind === 'audio')!.video).toBeNull();
+  });
+
+  it('izlenen görüntü: gelen görüntüler arasında en büyük kare', () => {
+    const small = parseTransportStats(asReport(inboundVideoReport(1, { id: 'kucuk', frameWidth: 320, frameHeight: 180 })), 1)!.streams[0]!;
+    const big = parseTransportStats(asReport(inboundVideoReport(1)), 1)!.streams[0]!;
+    expect(mainInboundVideo([small, big])?.frameWidth).toBe(2560);
+    expect(mainInboundVideo([])).toBeNull();
+  });
+});
 
 describe('getStats raporunu okuma', () => {
   it('seçili aday çiftinden ping, adaylar ve şifreleme bilgisi', () => {
