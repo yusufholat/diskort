@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChannelPanelPage } from '@diskort/shared';
 import { errorMessage } from '@diskort/client-core';
 
+/** Bir "daha yükle" isteğinde art arda izlenen en fazla boş sayfa */
+const EMPTY_PAGE_HOPS = 5;
+
 export interface Paged<T> {
   items: T[];
   /** İlk sayfa yükleniyor (liste boş) */
@@ -42,10 +45,13 @@ export function usePaged<T>(
   const busy = useRef(false);
   const fetcher = useRef(fetchPage);
   fetcher.current = fetchPage;
+  // Ekranı doldurmak için kendiliğinden yüklenen sayfa sayısı (baştan yüklemede sıfırlanır)
+  const [tries, setTries] = useState(0);
 
   const loadFirst = useCallback((mode: 'initial' | 'refresh') => {
     const gen = ++generation.current;
     busy.current = true;
+    setTries(0);
     if (mode === 'refresh') setRefreshing(true);
     else setLoading(true);
     setError(null);
@@ -91,14 +97,16 @@ export function usePaged<T>(
     const gen = generation.current;
     busy.current = true;
     setLoadingMore(true);
-    fetcher.current(cursor).then(
-      (page) => {
-        if (gen !== generation.current) return;
-        setItems((prev) => [...prev, ...page.items]);
-        setCursor(page.nextCursor);
-      },
-      () => undefined,
-    ).finally(() => {
+    // Boş dönen ama devamı olan sayfalar (sunucu bir istekte sınırlı sayıda mesaj tarar) hemen sürdürülür:
+    // liste değişmeyince "sona gelindi" olayı yeniden gelmez
+    const fetchFrom = async (from: string, hops: number): Promise<void> => {
+      const page = await fetcher.current(from);
+      if (gen !== generation.current) return;
+      if (page.items.length === 0 && page.nextCursor && hops < EMPTY_PAGE_HOPS) return fetchFrom(page.nextCursor, hops + 1);
+      setItems((prev) => [...prev, ...page.items]);
+      setCursor(page.nextCursor);
+    };
+    fetchFrom(cursor, 0).catch(() => undefined).finally(() => {
       if (gen !== generation.current) return;
       busy.current = false;
       setLoadingMore(false);
@@ -107,8 +115,6 @@ export function usePaged<T>(
 
   // Ekranı doldurmayan liste (ör. bağlantısı kod içinde kalan mesajlarla boş dönen sayfa) kendiliğinden sürer:
   // kaydırılamayan listede "sona gelindi" olayı gelmez
-  const [tries, setTries] = useState(0);
-  useEffect(() => setTries(0), [key]);
   useEffect(() => {
     if (!loaded || loadingMore || refreshing || cursor === null || items.length >= minItems || tries >= 10) return;
     setTries((n) => n + 1);

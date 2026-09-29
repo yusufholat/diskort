@@ -32,6 +32,15 @@ interface Section {
 
 const byName = (a: User, b: User): number => a.displayName.localeCompare(b.displayName, 'tr');
 
+/** Bilgisi olmayan konuşma katılımcısının yer tutucusu */
+const UNKNOWN = new WeakSet<User>();
+function unknownUser(id: string): User {
+  const user: User = { id, username: id, displayName: 'Bilinmeyen kullanıcı', avatarColor: '#80848e', isAdmin: false };
+  UNKNOWN.add(user);
+  return user;
+}
+const isUnknown = (u: User): boolean => UNKNOWN.has(u);
+
 /**
  * Üye listesi (Discord'daki gibi): gruplar (ayrı gösterilen roller, Çevrim içi, Çevrim dışı), her grup
  * yuvarlak köşeli bir kart, satırlar arasında ince çizgi. Dokununca üye menüsü (verilen bağlamda).
@@ -60,9 +69,11 @@ export function MemberList({
 
   const sections = useMemo<Section[]>(() => {
     if (source.kind === 'dm') {
-      const list = source.participantIds.map((id) => users[id]).filter((u): u is NonNullable<typeof u> => Boolean(u));
-      const on = list.filter((u) => online[u.id]).sort(byName);
-      const off = list.filter((u) => !online[u.id]).sort(byName);
+      // Depoda bilgisi olmayan katılımcı (ortak sunucu kalmadı, bilgisi henüz gelmedi) atlanmaz: yer tutucuyla
+      // çevrim dışında gösterilir (dokunulamaz)
+      const list: User[] = source.participantIds.map((id) => users[id] ?? unknownUser(id));
+      const on = list.filter((u) => online[u.id] && !isUnknown(u)).sort(byName);
+      const off = list.filter((u) => !online[u.id] || isUnknown(u)).sort(byName);
       return [
         ...(on.length ? [{ key: 'online', title: 'Çevrim içi', offline: false, data: on }] : []),
         ...(off.length ? [{ key: 'offline', title: 'Çevrim dışı', offline: true, data: off }] : []),
@@ -94,7 +105,7 @@ export function MemberList({
         guildInfo={guildInfo}
         first={index === 0}
         last={index === section.data.length - 1}
-        onPress={setSelected}
+        onPress={isUnknown(item) ? undefined : setSelected}
       />
     ),
     [ownerId, guildInfo],
@@ -144,7 +155,8 @@ const MemberRow = memo(function MemberRow({
   guildInfo: boolean;
   first: boolean;
   last: boolean;
-  onPress: (userId: string) => void;
+  /** Yoksa satır dokunulamaz (bilgisi olmayan katılımcı) */
+  onPress?: (userId: string) => void;
 }) {
   const roleColor = useMemberColor(user.id);
   const color = guildInfo ? roleColor : null;
@@ -158,12 +170,13 @@ const MemberRow = memo(function MemberRow({
   return (
     <View style={[styles.cardRow, first && styles.cardFirst, last && styles.cardLast]}>
       <Pressable
-        onPress={() => onPress(user.id)}
-        onLongPress={() => onPress(user.id)}
+        onPress={onPress && (() => onPress(user.id))}
+        onLongPress={onPress && (() => onPress(user.id))}
+        disabled={!onPress}
         delayLongPress={300}
         android_ripple={ripple.row}
         style={styles.row}
-        accessibilityRole="button"
+        accessibilityRole={onPress ? 'button' : 'text'}
         accessibilityLabel={`${user.displayName}${offline ? ', çevrimdışı' : ''}${inVoice ? ', sesli sohbette' : ''}`}
       >
         {plate && <NameplateBackground set={plate} />}

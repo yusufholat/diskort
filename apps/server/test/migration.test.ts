@@ -718,7 +718,7 @@ describe('göç 23: eski kozmetikler kaldırıldı', () => {
     const store = new Store(file);
     try {
       expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
-      expect(MIGRATIONS.length).toBe(23);
+      expect(MIGRATIONS.length).toBe(24);
       expect(
         store.db.prepare('SELECT id, profile_effect, avatar_decoration, profile_frame, nameplate FROM users ORDER BY id').all(),
       ).toEqual(
@@ -744,6 +744,36 @@ describe('göç 23: eski kozmetikler kaldırıldı', () => {
       // Göç tekrar çalışsa da zararsızdır
       expect(() => store.db.exec(MIGRATIONS[22]!)).not.toThrow();
       expect(store.getUser(second)).toMatchObject({ animatedEffect: 'karadelik', avatarDecoration: 'anim:buz' });
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe('göç 24: kanal medyası dizini', () => {
+  it('şema 23 veritabanına dizin eklenir, medya sorgusu onu kullanır; tekrar çalışsa da zararsızdır', () => {
+    const file = schema19Database();
+    const db = new DatabaseSync(file);
+    for (let v = 19; v < 23; v++) db.exec(MIGRATIONS[v]!);
+    db.exec('PRAGMA user_version = 23');
+    db.close();
+
+    const store = new Store(file);
+    try {
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
+      const index = store.db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'attachments_by_channel_message'")
+        .get();
+      expect(index).toEqual({ name: 'attachments_by_channel_message' });
+      const plan = store.db
+        .prepare(
+          `EXPLAIN QUERY PLAN SELECT a.* FROM attachments a JOIN messages m ON m.id = a.message_id
+           WHERE a.channel_id = ? AND a.message_id IS NOT NULL AND a.content_type IN ('image/png')
+           ORDER BY a.message_id DESC, a.position ASC LIMIT 10`,
+        )
+        .all('k') as { detail: string }[];
+      expect(plan.map((p) => p.detail).join(' | ')).toContain('attachments_by_channel_message');
+      expect(() => store.db.exec(MIGRATIONS[23]!)).not.toThrow();
     } finally {
       store.close();
     }

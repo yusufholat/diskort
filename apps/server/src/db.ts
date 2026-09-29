@@ -440,9 +440,17 @@ export const MIGRATIONS: string[] = [
   UPDATE users SET avatar_decoration = NULL WHERE avatar_decoration NOT LIKE 'anim:%';
   UPDATE users SET profile_frame = NULL WHERE profile_frame IS NOT NULL;
   `,
+  // 24: kanal panelinin "Medya" sekmesi (bkz. listChannelMedia): kanalın dosyaları mesaj ve sıra düzeninde,
+  // sıralamasız okunur. Tekrar çalışsa da zararsızdır (IF NOT EXISTS).
+  `
+  CREATE INDEX IF NOT EXISTS attachments_by_channel_message ON attachments(channel_id, message_id, position);
+  `,
 ];
 
 type Param = string | number | null;
+
+/** Kanal panelinin "Bağlantılar" sayfasında bir istekte taranan en fazla mesaj (bkz. listChannelLinks) */
+const CHANNEL_LINKS_SCAN_WINDOW = 2000;
 
 /** user_status satırı */
 export interface StatusRow {
@@ -2285,22 +2293,47 @@ export class Store {
   /**
    * Kanal panelinin "Bağlantılar" sekmesi: bağlantı içeren mesajlar yeniden eskiye (en fazla `limit` mesaj,
    * `before` kimliğinden eskiler), mesaj başına bağlantıları. GIF mesajları (metni GIPHY bağlantısı) sayılmaz.
-   * `last`: taranan en eski mesaj (sonraki sayfa ondan eskiler). Erişim denetimi çağırandadır.
+   * `last`: sonraki sayfanın imleci (ondan eskiler). Bir istekte en fazla `scanWindow` mesaj taranır; o
+   * pencerede bağlantı bulunmasa da daha eskisi varsa `more` true, `last` pencerenin alt sınırıdır.
+   * Erişim denetimi çağırandadır.
    */
   listChannelLinks(
     channelId: string,
     before: number | null,
     limit: number,
+    /** Bir istekte en fazla bu kadar mesaj taranır (bağlantısız uzun geçmişte sorgu sınırlı kalsın) */
+    scanWindow = CHANNEL_LINKS_SCAN_WINDOW,
   ): { items: ChannelLinkItem[]; more: boolean; last: number | null } {
+    const range = before !== null ? 'AND id < ?' : '';
+    const params: Param[] = before !== null ? [channelId, before] : [channelId];
+    // Taranacak pencere: imleçten eskiye en fazla scanWindow mesaj (yalnızca dizinden okunur)
+    const window = this.one<{ low: number | null; n: number }>(
+      `SELECT MIN(id) AS low, COUNT(*) AS n FROM
+         (SELECT id FROM messages WHERE channel_id = ? ${range} ORDER BY id DESC LIMIT ?)`,
+      ...params,
+      scanWindow,
+    )!;
+    if (window.n === 0 || window.low === null) return { items: [], more: false, last: null };
     const rows = this.all<Pick<MessageRow, 'id' | 'author_id' | 'content' | 'created_at' | 'embeds'>>(
       `SELECT id, author_id, content, created_at, embeds FROM messages
-       WHERE channel_id = ? ${before !== null ? 'AND id < ?' : ''}
+       WHERE channel_id = ? ${range} AND id >= ?
          AND (content LIKE '%http://%' OR content LIKE '%https://%')
        ORDER BY id DESC LIMIT ?`,
-      ...(before !== null ? [channelId, before] : [channelId]),
+      ...params,
+      window.low,
       limit + 1,
     );
     const page = rows.slice(0, limit);
+    // Sayfa dolduysa sonraki sayfa son mesajdan; dolmadıysa ama pencere dolduysa (daha eski mesaj var)
+    // pencerenin alt sınırından sürer (sayfa boş olabilir; istemci kendiliğinden devam eder)
+    if (rows.length > limit) {
+      return { items: this.linkItems(page), more: true, last: page[page.length - 1]!.id };
+    }
+    const full = window.n >= scanWindow;
+    return { items: this.linkItems(page), more: full, last: full ? window.low : null };
+  }
+
+  private linkItems(page: Pick<MessageRow, 'id' | 'author_id' | 'content' | 'created_at' | 'embeds'>[]): ChannelLinkItem[] {
     const items: ChannelLinkItem[] = [];
     for (const r of page) {
       const embeds = parseEmbeds(r.embeds);
@@ -2317,7 +2350,7 @@ export class Store {
         });
       }
     }
-    return { items, more: rows.length > limit, last: page.length ? page[page.length - 1]!.id : null };
+    return items;
   }
 
   /** Kanaldaki en son sabitlemenin zamanı (sabitli mesaj yoksa null) */

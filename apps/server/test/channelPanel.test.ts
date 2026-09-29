@@ -165,6 +165,33 @@ describe('kanal paneli: bağlantılar', () => {
     expect((await links(s.owner, text.id, '?before=x')).statusCode).toBe(400);
   });
 
+  it('bir istekte sınırlı sayıda mesaj taranır; bağlantısız pencerede boş sayfa ve alt sınır imleci döner', async () => {
+    const text = s.channel('text');
+    const withLink = await send(s.owner, text.id, { content: 'eski https://ornek.com/eski' });
+    const plain: Message[] = [];
+    for (let i = 0; i < 5; i++) plain.push(await send(s.owner, text.id, { content: `düz ${i}` }));
+    const store = s.ctx.store;
+
+    // Pencere 2 mesaj: en yeni iki düz mesaj taranır, bağlantı yok ama daha eskisi var
+    const first = store.listChannelLinks(text.id, null, 30, 2);
+    expect(first).toEqual({ items: [], more: true, last: Number(plain[3]!.id) });
+    const second = store.listChannelLinks(text.id, first.last, 30, 2);
+    expect(second).toEqual({ items: [], more: true, last: Number(plain[1]!.id) });
+    const third = store.listChannelLinks(text.id, second.last, 30, 2);
+    expect(third.items.map((i) => i.url)).toEqual(['https://ornek.com/eski']);
+    expect(third.items[0]!.messageId).toBe(withLink.id);
+    expect(third).toMatchObject({ more: true, last: Number(withLink.id) });
+    // Pencere dolmadı: sonu
+    expect(store.listChannelLinks(text.id, third.last, 30, 2)).toEqual({ items: [], more: false, last: null });
+    // Pencere yeterince büyükse tek istekte biter
+    expect(store.listChannelLinks(text.id, null, 30, 100)).toMatchObject({ more: false, last: null });
+
+    // HTTP üzerinden: boş sayfa da imleç taşıyabilir; istemci imleç bitene kadar sürer
+    const res = (await links(s.owner, text.id)).json() as ChannelPanelPage<ChannelLinkItem>;
+    expect(res.items.map((i) => i.url)).toEqual(['https://ornek.com/eski']);
+    expect(res.nextCursor).toBeNull();
+  });
+
   it('mesaj başına bağlantı sınırı; <…> biçimindekiler de sayılır', () => {
     expect(extractMessageUrls('<https://a.com/1> https://a.com/2 https://a.com/1')).toEqual(['https://a.com/1', 'https://a.com/2']);
     const many = Array.from({ length: 20 }, (_, i) => `https://a.com/${i}`).join(' ');
