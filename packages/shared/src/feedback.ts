@@ -35,6 +35,13 @@ export const FEEDBACK_PER_HOUR = 5;
 /** Teknik bilgilerde gönderilen en fazla son hata */
 export const FEEDBACK_MAX_ERRORS = 10;
 
+/** İstemci hata bildiriminde (POST /api/client-errors) yığının üst sınırı (karakter) */
+export const CLIENT_ERROR_STACK_MAX = 4000;
+/** Telefonun yerel (Java/Kotlin, C++) çökme bildiriminin yeri */
+export const NATIVE_CRASH_WHERE = 'yerel-çökme';
+/** Yerel çökmede yığının üst sınırı: "Caused by" zinciri, ANR dökümü ya da tombstone yığını daha uzun */
+export const NATIVE_CRASH_STACK_MAX = 8000;
+
 /**
  * Otomatik eklenen teknik bilgiler (kullanıcı gönderimden önce görür ve kapatabilir). Mesaj içerikleri,
  * jetonlar ya da kişisel veriler yoktur; sunucu bilinmeyen alanları atar.

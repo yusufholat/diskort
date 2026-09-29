@@ -274,7 +274,8 @@ bağlantısıyla sunulursa bu da kapanır.
   iOS'un OTA adresini (`/updates/expo/ios`) ve arka plan kiplerini yazar; CI
   (`scripts/check-ios-project.sh`) prebuild sonrası bunları denetler.
 - **Android'e özgü yerel modüller** iOS'ta yok sayılır: sesli sohbet ön plan servisi
-  (`modules/voice-service`, iOS'ta boş işlevler), APK güncelleyici (iOS'ta `itms-services` bağlantısı),
+  (`modules/voice-service`, iOS'ta boş işlevler), yerel çökme bildirici (`modules/crash-reporter`, iOS'ta
+  yalnızca JavaScript hataları bildirilir), APK güncelleyici (iOS'ta `itms-services` bağlantısı),
   `expo-intent-launcher` (iOS'ta dosyalar paylaşım sayfasıyla, videolar Safari'de açılır), titreşim
   (iOS'ta kapalı, bkz. eksikler).
 - **Ses**: `registerGlobals()` iOS ses oturumunu LiveKit'e bıraktırır (`setupIOSAudioManagement`).

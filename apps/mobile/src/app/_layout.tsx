@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { AppState, Text, View } from 'react-native';
-import { Stack, type ErrorBoundaryProps } from 'expo-router';
+import { Stack, useGlobalSearchParams, useSegments, type ErrorBoundaryProps } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -15,6 +15,7 @@ import { StatusPickerHost } from '../components/StatusPicker';
 import { Toast } from '../components/Toast';
 import { Button } from '../components/ui';
 import { UpdateScreen } from '../components/UpdateScreen';
+import { describeRoute, noteCrashContext, reportPendingNativeCrashes } from '../crashReports';
 import { channelFromResponse, registerForPush } from '../notifications';
 import { clientReady } from '../setup';
 import { checkForUpdate, cleanupDownloads, updateOnLaunch, useAppUpdate } from '../update/updater';
@@ -64,6 +65,17 @@ function ThemedScreen({ children }: { children: ReactNode }) {
   return <Fragment key={version}>{children}</Fragment>;
 }
 
+/**
+ * Açık ekranı ve ses durumunu yerel çökme raporlarının bağlamına yazar (bkz. crashReports.ts). Ayrı bileşen:
+ * ekran değiştikçe kök yerleşim değil yalnızca bu yeniden çizilir.
+ */
+function CrashContext() {
+  const route = describeRoute(useSegments(), useGlobalSearchParams());
+  const inVoice = useVoice((s) => s.status !== 'idle');
+  useEffect(() => noteCrashContext(route, inVoice), [route, inVoice]);
+  return null;
+}
+
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
   const themeVersion = useTheme((s) => s.version);
@@ -95,6 +107,12 @@ export default function RootLayout() {
   useEffect(() => {
     if (ready || launchUpdating) void SplashScreen.hideAsync();
   }, [ready, launchUpdating]);
+
+  // Önceki çalıştırmaların yerel çökmeleri (JavaScript'in göremediği) sunucuya bildirilir: açılış bittikten
+  // sonra (oturum yüklü: bildirim kullanıcıyla eşleşir), çizimin dışında. Yerel modülü olmayan APK'da bir şey yapmaz.
+  useEffect(() => {
+    if (ready) reportPendingNativeCrashes();
+  }, [ready]);
 
   // Skia (hareketli kozmetikler) açılış ekranını geciktirmesin: uygulama çizildikten sonra, çizimin dışında
   // bir kez kurulur; kurulamazsa ölümcül değil (bkz. skia.ts). Hazır olunca kozmetikler kendiliğinden belirir.
@@ -170,6 +188,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <StatusBar style={colors.statusBar} />
+        <CrashContext />
         {showUpdate ? (
           <UpdateScreen key={themeVersion} requiredVersion={updateRequired} />
         ) : (

@@ -22,6 +22,11 @@ describe('istemci hata bildirimi', () => {
     expect((await send(ok)).statusCode).toBe(204);
     expect((await send({ ...ok, platform: 'amiga' })).statusCode).toBe(400);
     expect((await send({ ...ok, message: 'x'.repeat(501) })).statusCode).toBe(400);
+    // Yığın 4000'e kadar; yalnızca telefonun yerel çökmelerinde 8000'e kadar
+    expect((await send({ ...ok, stack: 'x'.repeat(4000) })).statusCode).toBe(204);
+    expect((await send({ ...ok, stack: 'x'.repeat(4001) })).statusCode).toBe(400);
+    expect((await send({ ...ok, where: 'yerel-çökme', stack: 'x'.repeat(8000) })).statusCode).toBe(204);
+    expect((await send({ ...ok, where: 'yerel-çökme', stack: 'x'.repeat(8001) })).statusCode).toBe(400);
 
     let last = 0;
     for (let i = 0; i < 25; i++) last = (await send(ok)).statusCode;

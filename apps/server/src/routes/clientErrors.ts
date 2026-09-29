@@ -1,15 +1,22 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { CLIENT_ERROR_STACK_MAX, NATIVE_CRASH_STACK_MAX, NATIVE_CRASH_WHERE } from '@diskort/shared';
 import { parseBody, sendError, type AppContext } from '../context.js';
 import { createRateLimiter } from './messages.js';
 
-const clientErrorSchema = z.object({
-  platform: z.enum(['desktop', 'android', 'ios']),
-  version: z.string().max(32),
-  where: z.string().max(64),
-  message: z.string().max(500),
-  stack: z.string().max(4000).optional(),
-});
+const clientErrorSchema = z
+  .object({
+    platform: z.enum(['desktop', 'android', 'ios']),
+    version: z.string().max(32),
+    where: z.string().max(64),
+    message: z.string().max(500),
+    stack: z.string().max(NATIVE_CRASH_STACK_MAX).optional(),
+  })
+  // Yığın yalnızca telefonun yerel çökmelerinde uzun olabilir
+  .refine(
+    (b) => (b.stack?.length ?? 0) <= (b.where === NATIVE_CRASH_WHERE ? NATIVE_CRASH_STACK_MAX : CLIENT_ERROR_STACK_MAX),
+    { message: 'Yığın çok uzun.', path: ['stack'] },
+  );
 
 /**
  * Beklenen, zararsız gürültü: eski istemcilerden gelenler de kaydedilmez (yeniler zaten göndermez).

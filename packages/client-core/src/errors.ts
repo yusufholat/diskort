@@ -1,4 +1,9 @@
-import { FEEDBACK_MAX_ERRORS } from '@diskort/shared';
+import {
+  CLIENT_ERROR_STACK_MAX,
+  FEEDBACK_MAX_ERRORS,
+  NATIVE_CRASH_STACK_MAX,
+  NATIVE_CRASH_WHERE,
+} from '@diskort/shared';
 import { normalizeServerUrl } from './api';
 import { env } from './env';
 import { useSession } from './session';
@@ -23,15 +28,22 @@ const recent: string[] = [];
  * Uygulamadaki beklenmedik bir hatayı sunucuya bildirir (sunucu kayıtlarına yazılır). Telefonda hata
  * ayıklama aracı olmadığından hataları görmenin tek yolu budur. Aynı hata bir kez, oturum başına en
  * fazla MAX_REPORTS hata gönderilir; bildirim başarısız olursa sessizce geçilir.
+ *
+ * Telefonun yerel çökmeleri (NATIVE_CRASH_WHERE) bu sınırların dışındadır: her biri ayrı bir çökmedir (aynı
+ * özetli iki çökme de gider), sayısını mobil uygulama sınırlar (açılış başına en fazla 5) ve JS hatalarının
+ * payından yemezler. Yığınları da daha uzun olabilir.
  */
 export function reportClientError(error: unknown, where: string): void {
   try {
     const err = error instanceof Error ? error : new Error(String(error));
     if (BENIGN_ERRORS.some((re) => re.test(err.message))) return;
+    const native = where === NATIVE_CRASH_WHERE;
     const key = `${where}:${err.message}`;
     remember(`${where}: ${err.message}`);
-    if (reported.has(key) || reported.size >= MAX_REPORTS) return;
-    reported.add(key);
+    if (!native) {
+      if (reported.has(key) || reported.size >= MAX_REPORTS) return;
+      reported.add(key);
+    }
     const { platform, version, serverUrl } = env();
     const token = useSession.getState().token;
     void fetch(`${normalizeServerUrl(serverUrl())}/api/client-errors`, {
@@ -42,7 +54,7 @@ export function reportClientError(error: unknown, where: string): void {
         version,
         where,
         message: err.message.slice(0, 500),
-        stack: err.stack?.slice(0, 4000),
+        stack: err.stack?.slice(0, native ? NATIVE_CRASH_STACK_MAX : CLIENT_ERROR_STACK_MAX),
       }),
     }).catch(() => undefined);
   } catch {
