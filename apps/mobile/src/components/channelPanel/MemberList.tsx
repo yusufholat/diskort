@@ -50,11 +50,14 @@ export function MemberList({
   source,
   context,
   header,
+  still,
 }: {
   source: MemberSource;
   context: ProfileContext;
   /** Listenin başında gösterilen öğe (ör. "Üyeleri Davet Et") */
   header?: ReactElement | null;
+  /** İsim plakaları durur (sayfa görünmüyor ya da sekme geçişi sürüyor: kareler kayan sayfadan çalınmasın) */
+  still?: boolean;
 }) {
   const users = useGuild((s) => s.users);
   const roles = useGuild((s) => s.roles);
@@ -103,12 +106,13 @@ export function MemberList({
         offline={section.offline}
         owner={item.id === ownerId}
         guildInfo={guildInfo}
+        still={still}
         first={index === 0}
         last={index === section.data.length - 1}
         onPress={isUnknown(item) ? undefined : setSelected}
       />
     ),
-    [ownerId, guildInfo],
+    [ownerId, guildInfo, still],
   );
 
   const loading = Object.keys(users).length === 0 && status !== 'ready';
@@ -144,6 +148,7 @@ const MemberRow = memo(function MemberRow({
   offline,
   owner,
   guildInfo,
+  still,
   first,
   last,
   onPress,
@@ -153,6 +158,7 @@ const MemberRow = memo(function MemberRow({
   owner: boolean;
   /** Sunucu bilgisi (rol rengi, taç, ses) gösterilir mi; konuşmada gösterilmez */
   guildInfo: boolean;
+  still?: boolean;
   first: boolean;
   last: boolean;
   /** Yoksa satır dokunulamaz (bilgisi olmayan katılımcı) */
@@ -179,7 +185,7 @@ const MemberRow = memo(function MemberRow({
         accessibilityRole={onPress ? 'button' : 'text'}
         accessibilityLabel={`${user.displayName}${offline ? ', çevrimdışı' : ''}${inVoice ? ', sesli sohbette' : ''}`}
       >
-        {plate && <NameplateBackground set={plate} />}
+        {plate && <NameplateBackground set={plate} still={still} />}
         {!first && <View style={styles.divider} />}
         <View style={offline && styles.offline}>
           <Avatar
