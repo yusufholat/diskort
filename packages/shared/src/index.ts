@@ -382,6 +382,36 @@ export interface PinnedMessage extends Message {
   pinnedBy: string | null;
 }
 
+/**
+ * Kanal panelindeki "Medya" sekmesinin bir öğesi: kanalda (ya da konuşmada) paylaşılmış resim/video dosyası
+ * ve ait olduğu mesaj (GET /api/channels/:id/media). Yeniden eskiye; aynı mesajın dosyaları sırasıyla.
+ */
+export interface ChannelMediaItem {
+  messageId: string;
+  authorId: string | null;
+  createdAt: number;
+  attachment: Attachment;
+}
+
+/**
+ * Kanal panelindeki "Bağlantılar" sekmesinin bir öğesi: mesajdaki bir bağlantı (GET /api/channels/:id/links).
+ * Başlık ve site adı mesajın bağlantı önizlemesinden gelir (önizleme yoksa null).
+ */
+export interface ChannelLinkItem {
+  messageId: string;
+  authorId: string | null;
+  createdAt: number;
+  url: string;
+  title: string | null;
+  siteName: string | null;
+}
+
+/** Kanal paneli listelerinin bir sayfası; nextCursor verilirse daha eskisi `before` ile istenir */
+export interface ChannelPanelPage<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
 /** Bir kanalın sabitlenmiş mesajları değişti; son sabitlemenin zamanı (hiç kalmadıysa null) */
 export interface ChannelPinsUpdate {
   channelId: string;
@@ -903,6 +933,14 @@ export const REPLY_EXCERPT_LENGTH = 200;
 export const MESSAGE_MAX_REACTIONS = 20;
 /** Bir kanalda (ya da direkt mesaj konuşmasında) en fazla sabitlenmiş mesaj sayısı */
 export const MAX_PINS_PER_CHANNEL = 50;
+/** Kanal panelinde "Medya" sekmesinin sayfa boyutu (dosya) ve en fazlası */
+export const CHANNEL_MEDIA_PAGE_SIZE = 48;
+export const CHANNEL_MEDIA_MAX_PAGE_SIZE = 100;
+/** Kanal panelinde "Bağlantılar" sekmesinin sayfa boyutu (mesaj) ve en fazlası */
+export const CHANNEL_LINKS_PAGE_SIZE = 30;
+export const CHANNEL_LINKS_MAX_PAGE_SIZE = 100;
+/** Kanal panelinde bir mesajdan en fazla bu kadar bağlantı listelenir */
+export const CHANNEL_LINKS_PER_MESSAGE = 10;
 /** Tepki verenler listesinin varsayılan ve en büyük sayfa boyutu */
 export const REACTION_USERS_PAGE_SIZE = 50;
 export const REACTION_USERS_MAX_PAGE_SIZE = 100;
@@ -1027,10 +1065,22 @@ export const EMBED_URL_MAX_LENGTH = 2048;
  * önizlemeyi kapatma) sayılmaz. Kullanıcı adı/şifre içeren ya da çok uzun adresler atlanır.
  */
 export function extractEmbedUrls(content: string): string[] {
+  return scanUrls(content, false, MESSAGE_MAX_LINK_EMBEDS);
+}
+
+/**
+ * Mesajdaki bağlantılar (kanal panelinin "Bağlantılar" sekmesi için; en fazla `max`, tekrarsız, metindeki
+ * sırayla). Önizlemedeki kurallarla aynı, ama <https://…> biçiminde yazılanlar da sayılır.
+ */
+export function extractMessageUrls(content: string, max = CHANNEL_LINKS_PER_MESSAGE): string[] {
+  return scanUrls(content, true, max);
+}
+
+function scanUrls(content: string, withSuppressed: boolean, max: number): string[] {
   const text = withoutCode(content).replace(SPOILERS, ' ');
   const urls: string[] = [];
   for (const m of text.matchAll(URL_IN_TEXT)) {
-    if (m[1] && m[3]) continue;
+    if (m[1] && m[3] && !withSuppressed) continue;
     const raw = m[2]!;
     if (raw.length > EMBED_URL_MAX_LENGTH) continue;
     let url: InstanceType<typeof URL>;
@@ -1042,7 +1092,7 @@ export function extractEmbedUrls(content: string): string[] {
     if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password || !url.hostname) continue;
     const href = url.href;
     if (!urls.includes(href)) urls.push(href);
-    if (urls.length >= MESSAGE_MAX_LINK_EMBEDS) break;
+    if (urls.length >= max) break;
   }
   return urls;
 }

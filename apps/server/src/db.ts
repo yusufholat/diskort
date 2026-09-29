@@ -6,7 +6,11 @@ import {
   ALL_PERMISSIONS,
   DEFAULT_EVERYONE_PERMISSIONS,
   extractMentions,
+  extractMessageUrls,
   hasPermission,
+  INLINE_IMAGE_TYPES,
+  INLINE_VIDEO_TYPES,
+  isGifMessage,
   MAX_GUILDS_PER_USER,
   MESSAGE_MAX_REACTIONS,
   MAX_PINS_PER_CHANNEL,
@@ -14,6 +18,8 @@ import {
   basePermissions,
   type Attachment,
   type Channel,
+  type ChannelLinkItem,
+  type ChannelMediaItem,
   type ChannelType,
   type DmChannel,
   type Embed,
@@ -2237,6 +2243,81 @@ export class Store {
       pinned: true as const,
       ...pins.get(m.id)!,
     }));
+  }
+
+  /**
+   * Kanal panelinin "Medya" sekmesi: kanalda (konuşmada) mesaja eklenmiş resim ve videolar, yeniden eskiye
+   * (aynı mesajdakiler sırasıyla). `after`: bir önceki sayfanın son öğesi (bu mesajın sonraki dosyaları ve
+   * daha eski mesajlar gelir). Erişim denetimi çağırandadır.
+   */
+  listChannelMedia(
+    channelId: string,
+    after: { messageId: number; position: number } | null,
+    limit: number,
+  ): { items: (ChannelMediaItem & { position: number })[]; more: boolean } {
+    const types = [...INLINE_IMAGE_TYPES, ...INLINE_VIDEO_TYPES];
+    const params: Param[] = [channelId, ...types];
+    let page = '';
+    if (after) {
+      page = 'AND (a.message_id < ? OR (a.message_id = ? AND a.position > ?))';
+      params.push(after.messageId, after.messageId, after.position);
+    }
+    const rows = this.all<AttachmentRow & { position: number; author_id: string | null; message_created_at: number }>(
+      `SELECT a.*, m.author_id, m.created_at AS message_created_at
+       FROM attachments a JOIN messages m ON m.id = a.message_id
+       WHERE a.channel_id = ? AND a.message_id IS NOT NULL AND a.content_type IN (${types.map(() => '?').join(',')}) ${page}
+       ORDER BY a.message_id DESC, a.position ASC LIMIT ?`,
+      ...params,
+      limit + 1,
+    );
+    return {
+      items: rows.slice(0, limit).map((r) => ({
+        messageId: String(r.message_id),
+        authorId: r.author_id,
+        createdAt: r.message_created_at,
+        attachment: toAttachment(r),
+        position: r.position,
+      })),
+      more: rows.length > limit,
+    };
+  }
+
+  /**
+   * Kanal panelinin "Bağlantılar" sekmesi: bağlantı içeren mesajlar yeniden eskiye (en fazla `limit` mesaj,
+   * `before` kimliğinden eskiler), mesaj başına bağlantıları. GIF mesajları (metni GIPHY bağlantısı) sayılmaz.
+   * `last`: taranan en eski mesaj (sonraki sayfa ondan eskiler). Erişim denetimi çağırandadır.
+   */
+  listChannelLinks(
+    channelId: string,
+    before: number | null,
+    limit: number,
+  ): { items: ChannelLinkItem[]; more: boolean; last: number | null } {
+    const rows = this.all<Pick<MessageRow, 'id' | 'author_id' | 'content' | 'created_at' | 'embeds'>>(
+      `SELECT id, author_id, content, created_at, embeds FROM messages
+       WHERE channel_id = ? ${before !== null ? 'AND id < ?' : ''}
+         AND (content LIKE '%http://%' OR content LIKE '%https://%')
+       ORDER BY id DESC LIMIT ?`,
+      ...(before !== null ? [channelId, before] : [channelId]),
+      limit + 1,
+    );
+    const page = rows.slice(0, limit);
+    const items: ChannelLinkItem[] = [];
+    for (const r of page) {
+      const embeds = parseEmbeds(r.embeds);
+      if (isGifMessage({ embeds })) continue;
+      for (const url of extractMessageUrls(r.content)) {
+        const preview = embeds.find((e): e is LinkEmbed => e.type === 'link' && e.url === url);
+        items.push({
+          messageId: String(r.id),
+          authorId: r.author_id,
+          createdAt: r.created_at,
+          url,
+          title: preview?.title ?? null,
+          siteName: preview?.siteName ?? null,
+        });
+      }
+    }
+    return { items, more: rows.length > limit, last: page.length ? page[page.length - 1]!.id : null };
   }
 
   /** Kanaldaki en son sabitlemenin zamanı (sabitli mesaj yoksa null) */
