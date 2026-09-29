@@ -69,7 +69,7 @@ function EmbedImage({ embed, maxWidth, onPress }: { embed: LinkEmbed; maxWidth: 
   const box = fitBox(embed.image.width, embed.image.height, { width: maxWidth, height: MEDIA_MAX_HEIGHT }) ?? { width: 240, height: 180 };
   return (
     <Pressable onPress={onPress} style={[styles.media, box]} accessibilityRole="imagebutton" accessibilityLabel="Resim">
-      <Image source={{ uri: src }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+      <Image source={{ uri: src }} style={StyleSheet.absoluteFill} resizeMode="cover" resizeMethod="resize" />
     </Pressable>
   );
 }
@@ -120,7 +120,7 @@ function EmbedCard({ embed, maxWidth, onImage }: { embed: LinkEmbed; maxWidth: n
         </View>
         {thumb ? (
           <Pressable onPress={onImage} style={styles.thumb} accessibilityRole="imagebutton" accessibilityLabel="Resim">
-            <Image source={{ uri: thumb }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+            <Image source={{ uri: thumb }} style={StyleSheet.absoluteFill} resizeMode="cover" resizeMethod="resize" />
           </Pressable>
         ) : null}
       </View>
@@ -131,7 +131,7 @@ function EmbedCard({ embed, maxWidth, onImage }: { embed: LinkEmbed; maxWidth: n
           accessibilityRole={youtube || video ? 'button' : 'imagebutton'}
           accessibilityLabel={youtube ? `YouTube'da oynat: ${embed.title ?? 'video'}` : video ? 'Videoyu oynat' : 'Resim'}
         >
-          {image ? <Image source={{ uri: image }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : null}
+          {image ? <Image source={{ uri: image }} style={StyleSheet.absoluteFill} resizeMode="cover" resizeMethod="resize" /> : null}
           {youtube || video ? (
             <View style={styles.playWrap} pointerEvents="none">
               <View style={styles.play}>
