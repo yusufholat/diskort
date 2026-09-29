@@ -57,6 +57,7 @@ const send = async (who: Account, channelId: string, payload: { content?: string
 };
 
 const media = (who: Account, channelId: string, query = '') => s.req(who.token, 'GET', `/api/channels/${channelId}/media${query}`);
+const files = (who: Account, channelId: string, query = '') => s.req(who.token, 'GET', `/api/channels/${channelId}/files${query}`);
 const links = (who: Account, channelId: string, query = '') => s.req(who.token, 'GET', `/api/channels/${channelId}/links${query}`);
 
 describe('kanal paneli: medya', () => {
@@ -118,6 +119,75 @@ describe('kanal paneli: medya', () => {
     const otherText = s.ctx.store.listChannels(other.guild.id).find((c) => c.type === 'text')!;
     expect((await media(s.owner, otherText.id)).statusCode).toBe(404);
     expect((await links(s.owner, otherText.id)).statusCode).toBe(404);
+  });
+});
+
+describe('kanal paneli: dosyalar', () => {
+  it('resim/video dışındaki ekler yeniden eskiye, bekleyenler hariç; sayfalı', async () => {
+    const text = s.channel('text');
+    const img = await upload(s.owner, text.id, 'resim.png', png(), 'image/png');
+    await send(s.owner, text.id, { attachmentIds: [img.id] });
+    const a = await upload(s.owner, text.id, 'not.txt', Buffer.from('merhaba'), 'text/plain');
+    const first = await send(s.owner, text.id, { attachmentIds: [a.id] });
+    await send(s.owner, text.id, { content: 'yalnızca metin' });
+    const b = await upload(s.owner, text.id, 'iki.zip', Buffer.from('zip'), 'application/zip');
+    const c = await upload(s.owner, text.id, 'uc.apk', Buffer.from('apk'), 'application/vnd.android.package-archive');
+    const both = await send(s.owner, text.id, { attachmentIds: [b.id, c.id] });
+    await upload(s.owner, text.id, 'bekleyen.pdf', Buffer.from('pdf'), 'application/pdf');
+
+    const all = (await files(s.owner, text.id)).json() as ChannelPanelPage<ChannelMediaItem>;
+    expect(all.items.map((i) => i.attachment.name)).toEqual(['iki.zip', 'uc.apk', 'not.txt']);
+    expect(all.items[0]).toMatchObject({ messageId: both.id, authorId: s.owner.user.id, createdAt: both.createdAt });
+    expect(all.nextCursor).toBeNull();
+    // Medya sekmesi yalnızca resmi gösterir
+    const m = (await media(s.owner, text.id)).json() as ChannelPanelPage<ChannelMediaItem>;
+    expect(m.items.map((i) => i.attachment.name)).toEqual(['resim.png']);
+
+    const p1 = (await files(s.owner, text.id, '?limit=1')).json() as ChannelPanelPage<ChannelMediaItem>;
+    expect(p1.items.map((i) => i.attachment.name)).toEqual(['iki.zip']);
+    expect(p1.nextCursor).toBe(`${both.id}_0`);
+    const p2 = (await files(s.owner, text.id, `?limit=1&before=${p1.nextCursor}`)).json() as ChannelPanelPage<ChannelMediaItem>;
+    expect(p2.items.map((i) => i.attachment.name)).toEqual(['uc.apk']);
+    const p3 = (await files(s.owner, text.id, `?limit=1&before=${p2.nextCursor}`)).json() as ChannelPanelPage<ChannelMediaItem>;
+    expect(p3.items.map((i) => i.messageId)).toEqual([first.id]);
+    expect(p3.nextCursor).toBeNull();
+
+    expect((await files(s.owner, text.id, '?before=abc')).statusCode).toBe(400);
+    expect((await files(s.owner, text.id, '?limit=1000')).statusCode).toBe(400);
+  });
+
+  it('kanalı göremeyen, başka sunucudaki ya da ses kanalı: 404', async () => {
+    const text = s.channel('text');
+    const alice = await s.member('alice');
+    const secret = (await s.req(s.owner.token, 'POST', `/api/guilds/${s.guildId}/channels`, { name: 'gizli', type: 'text' })).json() as Channel;
+    const deny = await s.req(s.owner.token, 'PATCH', `/api/channels/${secret.id}`, {
+      overwrites: [{ roleId: s.guildId, allow: 0, deny: P.VIEW_CHANNEL }],
+    });
+    expect(deny.statusCode).toBe(200);
+    const a = await upload(s.owner, secret.id, 'gizli.txt', Buffer.from('x'), 'text/plain');
+    await send(s.owner, secret.id, { attachmentIds: [a.id] });
+
+    expect((await files(s.owner, secret.id)).statusCode).toBe(200);
+    expect((await files(alice, secret.id)).statusCode).toBe(404);
+    expect((await files(alice, text.id)).statusCode).toBe(200);
+    expect((await files(alice, s.channel('voice').id)).statusCode).toBe(404);
+    expect((await s.app.inject({ method: 'GET', url: `/api/channels/${text.id}/files` })).statusCode).toBe(401);
+    const other = (await s.req(alice.token, 'POST', '/api/guilds', { name: 'Alice sunucusu' })).json() as { guild: { id: string } };
+    const otherText = s.ctx.store.listChannels(other.guild.id).find((c) => c.type === 'text')!;
+    expect((await files(s.owner, otherText.id)).statusCode).toBe(404);
+  });
+
+  it('direkt mesajda yalnızca katılımcılar görür', async () => {
+    const ali = await s.member('ali');
+    const veli = await s.member('veli');
+    const dm = (await s.req(ali.token, 'POST', '/api/dms', { userIds: [veli.user.id] })).json() as DmChannel;
+    const a = await upload(ali, dm.id, 'belge.pdf', Buffer.from('pdf'), 'application/pdf');
+    await send(ali, dm.id, { attachmentIds: [a.id] });
+    for (const who of [ali, veli]) {
+      const f = (await files(who, dm.id)).json() as ChannelPanelPage<ChannelMediaItem>;
+      expect(f.items.map((i) => i.attachment.name)).toEqual(['belge.pdf']);
+    }
+    expect((await files(s.owner, dm.id)).statusCode).toBe(404);
   });
 });
 

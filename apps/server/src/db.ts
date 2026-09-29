@@ -2263,6 +2263,27 @@ export class Store {
     after: { messageId: number; position: number } | null,
     limit: number,
   ): { items: (ChannelMediaItem & { position: number })[]; more: boolean } {
+    return this.listChannelAttachments(channelId, after, limit, false);
+  }
+
+  /**
+   * Kanal panelinin "Dosyalar" sekmesi: Medya'daki resim/video sınıflandırmasının tersi (belge, arşiv, ses,
+   * APK vb.); sıralama, imleç ve dönüş biçimi aynıdır. Erişim denetimi çağırandadır.
+   */
+  listChannelFiles(
+    channelId: string,
+    after: { messageId: number; position: number } | null,
+    limit: number,
+  ): { items: (ChannelMediaItem & { position: number })[]; more: boolean } {
+    return this.listChannelAttachments(channelId, after, limit, true);
+  }
+
+  private listChannelAttachments(
+    channelId: string,
+    after: { messageId: number; position: number } | null,
+    limit: number,
+    invert: boolean,
+  ): { items: (ChannelMediaItem & { position: number })[]; more: boolean } {
     const types = [...INLINE_IMAGE_TYPES, ...INLINE_VIDEO_TYPES];
     const params: Param[] = [channelId, ...types];
     let page = '';
@@ -2273,7 +2294,7 @@ export class Store {
     const rows = this.all<AttachmentRow & { position: number; author_id: string | null; message_created_at: number }>(
       `SELECT a.*, m.author_id, m.created_at AS message_created_at
        FROM attachments a JOIN messages m ON m.id = a.message_id
-       WHERE a.channel_id = ? AND a.message_id IS NOT NULL AND a.content_type IN (${types.map(() => '?').join(',')}) ${page}
+       WHERE a.channel_id = ? AND a.message_id IS NOT NULL AND a.content_type ${invert ? 'NOT IN' : 'IN'} (${types.map(() => '?').join(',')}) ${page}
        ORDER BY a.message_id DESC, a.position ASC LIMIT ?`,
       ...params,
       limit + 1,
