@@ -432,7 +432,8 @@ const styles = createStyles(() => ({
   bigDot: { width: 18, height: 18, borderRadius: 9 },
   title: { flex: 1, color: colors.head, fontSize: font.heading, fontWeight: '800' },
   swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  swatch: { width: 36, height: 36, borderRadius: radius.md },
+  // borderWidth: 0: seçim kalkınca kenarlık kaldırılmasın (Android'de NaN gelir; bkz. ProfileSettings)
+  swatch: { width: 36, height: 36, borderRadius: radius.md, borderWidth: 0 },
   noColor: { borderWidth: 2, borderColor: '#99aab5', alignItems: 'center', justifyContent: 'center' },
   swatchOn: { borderWidth: 3, borderColor: colors.head },
   hexRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm + 2, marginTop: space.lg },

@@ -537,7 +537,17 @@ const styles = createStyles(() => ({
   hint: { color: colors.muted, fontSize: font.small, marginBottom: space.md },
   hintLast: { marginBottom: 0 },
   colors: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md },
-  swatch: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  // borderWidth: 0 bilerek: seçim kalkınca kenarlık "kaldırılmasın", 0 olsun. Android'de (RN 0.86) kaldırılan
+  // kenarlığın genişliği NaN gelir; yuvarlak kırpma alanı NaN olur, içerik (degrade) görünmez (#29)
+  swatch: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
   swatchOn: { borderWidth: 3, borderColor: colors.head },
   swatchNone: { backgroundColor: colors.main, borderWidth: 1, borderColor: colors.line },
   buttons: { flexDirection: 'row', gap: space.sm },
