@@ -145,4 +145,97 @@ describe('sürüm notları', () => {
       { version: '0.4.3', publishedAt: '2026-09-27T09:00:00Z', notes: '' },
     ]);
   });
+
+  it('notlar en son sürüm bilgisinin önüne geçmez: yeni sürümün notu, sürüm görülünce çıkar', async () => {
+    const gh = githubFake({ latest: '0.8.9', notes: ['0.8.10', '0.8.9'] });
+    const service = new ReleaseService('x/y', gh.fn);
+    expect((await service.latest())?.version).toBe('0.8.9');
+    // GitHub'ın "en son"u henüz eski sürümü gösteriyor: yeni sürümün notu gizli, sürüm bilgisi tazelendi
+    backdate(service);
+    expect((await service.recentNotes()).map((n) => n.version)).toEqual(['0.8.9']);
+    expect(gh.latestCalls()).toBe(2);
+    // Hemen ardından gelen istek GitHub'a yeniden gitmez
+    await service.recentNotes();
+    expect(gh.latestCalls()).toBe(2);
+    // "En son" yeni sürüme geçti: tazelenince not görünür, sürüm bilgisi de güncel
+    gh.set({ latest: '0.8.10' });
+    backdate(service);
+    expect((await service.recentNotes()).map((n) => n.version)).toEqual(['0.8.10', '0.8.9']);
+    expect(service.known()?.version).toBe('0.8.10');
+  });
+
+  it('yeni sürüm görülünce notların önbelleği sıfırlanır', async () => {
+    const gh = githubFake({ latest: '0.8.9', notes: ['0.8.9'] });
+    const service = new ReleaseService('x/y', gh.fn);
+    expect((await service.recentNotes()).map((n) => n.version)).toEqual(['0.8.9']);
+    gh.set({ latest: '0.8.10', notes: ['0.8.10', '0.8.9'] });
+    await (service as unknown as { refresh: () => Promise<unknown> }).refresh();
+    expect((await service.recentNotes()).map((n) => n.version)).toEqual(['0.8.10', '0.8.9']);
+  });
 });
+
+describe('en son sürümün önbelleği', () => {
+  it('süresi dolmuş değeri beklemeden verir, arka planda tazeler', async () => {
+    const gh = githubFake({ latest: '0.8.9' });
+    const service = new ReleaseService('x/y', gh.fn);
+    await service.latest();
+    gh.set({ latest: '0.8.10' });
+    backdate(service);
+    // Eski değer hemen döner; tazeleme arka planda
+    expect((await service.latest())?.version).toBe('0.8.9');
+    expect(gh.latestCalls()).toBe(2);
+    await new Promise((r) => setTimeout(r, 0));
+    expect((await service.latest())?.version).toBe('0.8.10');
+  });
+
+  it('koşullu istek: ETag gönderir, 304 gelince bilinen sürüm geçerli kalır', async () => {
+    const gh = githubFake({ latest: '0.8.9', etag: '"abc"' });
+    const service = new ReleaseService('x/y', gh.fn);
+    await service.latest();
+    expect(gh.lastIfNoneMatch()).toBeUndefined();
+    gh.set({ notModified: true });
+    const refresh = () => (service as unknown as { refresh: () => Promise<{ version: string } | null> }).refresh();
+    expect((await refresh())?.version).toBe('0.8.9');
+    expect(gh.lastIfNoneMatch()).toBe('"abc"');
+  });
+});
+
+/** Önbelleği süresi dolmuş gibi gösterir */
+function backdate(service: ReleaseService): void {
+  (service as unknown as { cache: { at: number } }).cache.at = 0;
+}
+
+/** Adrese göre yanıt veren sahte GitHub: /releases/latest ve /releases?per_page (notlar) */
+function githubFake(initial: { latest: string; notes?: string[]; etag?: string }) {
+  let state: { latest: string; notes: string[]; etag?: string; notModified?: boolean } = { notes: [], ...initial };
+  let latestCalls = 0;
+  let ifNoneMatch: string | undefined;
+  const fn = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith('/releases/latest')) {
+      latestCalls++;
+      ifNoneMatch = (init?.headers as Record<string, string> | undefined)?.['If-None-Match'];
+      if (state.notModified) return { ok: false, status: 304, headers: new Headers() } as Response;
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers(state.etag ? { etag: state.etag } : {}),
+        json: async () => ({ tag_name: `v${state.latest}`, published_at: '2026-09-29T10:00:00Z', assets: [] }),
+      } as unknown as Response;
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () =>
+        state.notes.map((v) => ({ tag_name: `v${v}`, published_at: '2026-09-29T10:00:00Z', body: v, draft: false, prerelease: false })),
+    } as unknown as Response;
+  }) as typeof fetch;
+  return {
+    fn,
+    set: (next: Partial<typeof state>) => {
+      state = { ...state, ...next };
+    },
+    latestCalls: () => latestCalls,
+    lastIfNoneMatch: () => ifNoneMatch,
+  };
+}

@@ -2,6 +2,8 @@
 // yönlendirmeleri ve "eski istemci bağlanamaz" kuralı bu tek kaynağı kullanır.
 // Kullanıcılar GitHub'a gitmez: sayfa /download/<platform> adresine bağlanır, API dosyaya yönlendirir.
 
+import { compareVersions } from '@diskort/shared';
+
 export type Platform = 'windows' | 'linux-appimage' | 'linux-deb' | 'mac-arm64' | 'mac-x64' | 'android' | 'ios';
 
 export interface PlatformAsset {
@@ -73,6 +75,14 @@ export function pickOtaAssets(assets: GithubAsset[]): Partial<Record<OtaPlatform
 }
 
 const CACHE_TTL_MS = 5 * 60_000;
+/**
+ * GitHub'ı yoklama aralığı: yeni sürüm (OTA, APK, masaüstü) en geç bu kadar sonra görülür. Koşullu istek
+ * (ETag) kullanılır: sürüm değişmediyse GitHub 304 döner ve bu istek kimliksiz sınırdan (saatte 60) düşmez;
+ * düşse de saatte 30 istek sınırın altında kalır.
+ */
+const POLL_INTERVAL_MS = 2 * 60_000;
+/** Notlarda bilinmeyen yeni bir sürüm görülünce sürüm bilgisi en fazla bu sıklıkta tazelenir */
+const NOTES_REFRESH_MIN_MS = 30_000;
 
 type ReleaseListener = (release: LatestRelease) => void;
 
@@ -90,6 +100,8 @@ export class ReleaseService {
   private notesCache: { at: number; value: ReleaseNotes[] } | null = null;
   private notesInflight: Promise<ReleaseNotes[]> | null = null;
   private cache: { at: number; value: LatestRelease } | null = null;
+  /** Son başarılı yanıtın ETag'i (koşullu istek için) */
+  private etag: string | null = null;
   private inflight: Promise<LatestRelease | null> | null = null;
   private readonly listeners = new Set<ReleaseListener>();
   private timer: NodeJS.Timeout | null = null;
@@ -99,9 +111,16 @@ export class ReleaseService {
     private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
-  /** En son yayınlanmış sürüm; GitHub'a ulaşılamazsa son bilinen değer (yoksa null). */
+  /**
+   * En son yayınlanmış sürüm; GitHub'a ulaşılamazsa son bilinen değer (yoksa null). Bilinen bir değer varsa
+   * GitHub beklenmez: süresi dolduysa arka planda tazelenir (telefonun açılıştaki güncelleme denetimi 4 sn'de
+   * vazgeçer; GitHub'ın yavaşlığı OTA'yı kaçırtmasın). Yeni sürüm yoklamayla (startPolling) görülür.
+   */
   latest(): Promise<LatestRelease | null> {
-    if (this.cache && Date.now() - this.cache.at < CACHE_TTL_MS) return Promise.resolve(this.cache.value);
+    if (this.cache) {
+      if (Date.now() - this.cache.at >= CACHE_TTL_MS) void this.refresh();
+      return Promise.resolve(this.cache.value);
+    }
     return this.refresh();
   }
 
@@ -110,8 +129,27 @@ export class ReleaseService {
     return this.cache?.value ?? null;
   }
 
-  /** Yayınlanmış son sürümlerin notları, yeniden eskiye (önbellekli; GitHub'a ulaşılamazsa son bilinen). */
-  recentNotes(): Promise<ReleaseNotes[]> {
+  /**
+   * Yayınlanmış son sürümlerin notları, yeniden eskiye (önbellekli; GitHub'a ulaşılamazsa son bilinen).
+   * Notlar en son sürüm bilgisinden önce tazelenmiş olabilir: bilinen en son sürümden yeni bir not görülürse
+   * sürüm bilgisi tazelenir, o sürüm yine de görülmediyse notu gösterilmez (telefonda "Yenilikler" APK /
+   * OTA güncellemesinden önce çıkmasın).
+   */
+  async recentNotes(): Promise<ReleaseNotes[]> {
+    const notes = await this.loadNotes();
+    const known = await this.latest();
+    if (!known) return notes;
+    // Arka plandaki tazeleme bu arada bitmiş olabilir: önbellekteki en güncel değer
+    let latest = this.cache?.value.version ?? known.version;
+    const ahead = notes.some((n) => compareVersions(n.version, latest) > 0);
+    // Sık tazelenmez: "en son" işaretlenmemiş yeni bir sürüm varsa her istek GitHub'a gitmesin
+    if (ahead && (!this.cache || Date.now() - this.cache.at >= NOTES_REFRESH_MIN_MS)) {
+      latest = (await this.refresh())?.version ?? latest;
+    }
+    return notes.filter((n) => compareVersions(n.version, latest) <= 0);
+  }
+
+  private loadNotes(): Promise<ReleaseNotes[]> {
     if (this.notesCache && Date.now() - this.notesCache.at < CACHE_TTL_MS) {
       return Promise.resolve(this.notesCache.value);
     }
@@ -152,7 +190,7 @@ export class ReleaseService {
   }
 
   /** Düzenli aralıklarla GitHub'ı yoklar; böylece yeni sürüm birkaç dakika içinde fark edilir. */
-  startPolling(intervalMs = CACHE_TTL_MS): void {
+  startPolling(intervalMs = POLL_INTERVAL_MS): void {
     if (this.timer) return;
     void this.refresh();
     this.timer = setInterval(() => void this.refresh(), intervalMs);
@@ -173,10 +211,20 @@ export class ReleaseService {
 
   private async fetchLatest(): Promise<LatestRelease | null> {
     try {
+      const etag = this.cache ? this.etag : null;
       const res = await this.fetchImpl(`https://api.github.com/repos/${this.repo}/releases/latest`, {
-        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'diskort-server' },
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'diskort-server',
+          ...(etag ? { 'If-None-Match': etag } : {}),
+        },
         signal: AbortSignal.timeout(8000),
       });
+      // Değişmedi: bilinen sürüm geçerli
+      if (res.status === 304 && this.cache) {
+        this.cache = { at: Date.now(), value: this.cache.value };
+        return this.cache.value;
+      }
       if (!res.ok) throw new Error(`GitHub ${res.status}`);
       const body = (await res.json()) as { tag_name: string; published_at: string; assets: GithubAsset[] };
       const value: LatestRelease = {
@@ -187,7 +235,10 @@ export class ReleaseService {
       };
       const previous = this.cache?.value.version;
       this.cache = { at: Date.now(), value };
+      this.etag = res.headers?.get('etag') ?? null;
       if (previous && previous !== value.version) {
+        // Yeni sürümün notları da hemen görünsün
+        this.notesCache = null;
         for (const listener of this.listeners) listener(value);
       }
       return value;
