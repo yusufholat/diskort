@@ -14,9 +14,13 @@ vi.mock('react-native', () => ({
   Dimensions: { get: () => ({ width: 400, height: 800 }) },
 }));
 
+/** Çizim hata versin mi (kare döngüsünün hatadan sonra yeniden başlaması denenir) */
+const draw = vi.hoisted(() => ({ fail: false }));
 vi.mock('../src/components/cosmetics/draw', () => ({
   compileCosmetic: () => null,
-  drawCosmetic: () => undefined,
+  drawCosmetic: () => {
+    if (draw.fail) throw new Error('çizim hatası');
+  },
 }));
 
 interface FakePic {
@@ -34,6 +38,10 @@ let native = new Map<number, FakePic>();
 let dropped = new Set<number>();
 let calls: { id: number; pic: FakePic }[] = [];
 let failNext = false;
+/** Kural dışı bırakmalar (motorun sweep'i hataları yuttuğundan fırlatmak yerine kaydedilir) */
+let violations: string[] = [];
+/** Görünüme özgü uyarı ("[kozmetik:set]") hata fırlatsın: step() kendi dışına hata atar */
+let warnThrows = false;
 
 const fakeSkia = {
   Skia: {
@@ -47,8 +55,8 @@ const fakeSkia = {
           replacedAt: null,
           dispose() {
             // Yerel görünümün şu an çizdiği resim bırakılmamalı; yerini bıraktıysa en az RETIRE_MS geçmeli
-            for (const [id, p] of native) if (p === pic && !dropped.has(id)) throw new Error(`resim ${pic.id} görünüm ${id}'de çizilirken bırakıldı`);
-            if (pic.replacedAt !== null && Date.now() - pic.replacedAt < RETIRE_MS) throw new Error(`resim ${pic.id} erken bırakıldı`);
+            for (const [id, p] of native) if (p === pic && !dropped.has(id)) violations.push(`resim ${pic.id} görünüm ${id}'de çizilirken bırakıldı`);
+            if (pic.replacedAt !== null && Date.now() - pic.replacedAt < RETIRE_MS) violations.push(`resim ${pic.id} erken bırakıldı`);
             pic.disposed++;
           },
         };
@@ -62,6 +70,8 @@ const fakeSkia = {
 vi.mock('../src/components/cosmetics/skia', () => ({ skia: () => fakeSkia, hasSkia: () => true }));
 
 let RETIRE_MS = 150;
+let FRAME_RETRY_AFTER = 3;
+let FRAME_RETRY_MS = 500;
 let rafQueue: FrameRequestCallback[] = [];
 
 /** Bir kare ilerletir (motorun requestAnimationFrame geri çağrıları) */
@@ -76,6 +86,8 @@ async function load() {
   vi.resetModules();
   const engine = await import('../src/components/cosmetics/engine');
   RETIRE_MS = engine.RETIRE_MS;
+  FRAME_RETRY_AFTER = engine.FRAME_RETRY_AFTER;
+  FRAME_RETRY_MS = engine.FRAME_RETRY_MS;
   return engine;
 }
 
@@ -86,6 +98,9 @@ beforeEach(() => {
   dropped = new Set();
   calls = [];
   failNext = false;
+  violations = [];
+  warnThrows = false;
+  draw.fail = false;
   rafQueue = [];
   (globalThis as Record<string, unknown>).requestAnimationFrame = (cb: FrameRequestCallback) => rafQueue.push(cb);
   (globalThis as Record<string, unknown>).cancelAnimationFrame = () => undefined;
@@ -103,10 +118,14 @@ beforeEach(() => {
       calls.push({ id, pic: value });
     },
   };
-  vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  vi.spyOn(console, 'warn').mockImplementation((msg: unknown) => {
+    if (warnThrows && typeof msg === 'string' && msg.startsWith('[kozmetik:')) throw new Error('uyarı hatası');
+  });
 });
 
 afterEach(() => {
+  // Hiçbir denemede resim canlıyken ya da erken bırakılmamalı
+  expect(violations).toEqual([]);
   vi.useRealTimers();
   vi.restoreAllMocks();
   delete (globalThis as Record<string, unknown>).SkiaViewApi;
@@ -248,5 +267,49 @@ describe('kozmetik motoru: yerel görünüm yaşam döngüsü', () => {
     answer!(true);
     for (let i = 0; i < 5; i++) tick();
     expect(calls.length).toBe(0);
+  });
+
+  it('kare hata verirse döngü yeniden istenir, başarılı karede sayaç sıfırlanır', async () => {
+    const { attachView } = await load();
+    attachView(20, { kind: 'thumb', set: 'buz', w: 160, h: 100 });
+    attachView(21, { kind: 'thumb', set: 'neon', w: 160, h: 100 });
+    // İlk görünümün çizimi hata verir, uyarısı da hata fırlatır: step() dışarı hata atar
+    draw.fail = true;
+    warnThrows = true;
+    expect(() => tick()).not.toThrow();
+    // Döngü donmadı: bir sonraki kare istendi
+    expect(rafQueue.length).toBe(1);
+    draw.fail = false;
+    warnThrows = false;
+    const before = calls.length;
+    for (let i = 0; i < 5; i++) tick();
+    expect(calls.length).toBeGreaterThan(before);
+    expect(rafQueue.length).toBe(1);
+  });
+
+  it('art arda hata veren karelerde FRAME_RETRY_MS beklenir (sıcak döngü yok)', async () => {
+    const { attachView } = await load();
+    // Her karede bir görünüm bozulur, sıradaki görünüm bir sonraki karede yine hata verir
+    for (let i = 0; i < 10; i++) attachView(30 + i, { kind: 'thumb', set: 'buz', w: 160, h: 100 });
+    tick(); // ilk kare ve ölçümler
+    draw.fail = true;
+    warnThrows = true;
+    for (let i = 0; i < FRAME_RETRY_AFTER; i++) {
+      expect(rafQueue.length).toBe(1);
+      tick();
+    }
+    // Art arda FRAME_RETRY_AFTER hata: kare hemen istenmez
+    expect(rafQueue.length).toBe(0);
+    vi.advanceTimersByTime(FRAME_RETRY_MS - 1);
+    expect(rafQueue.length).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(rafQueue.length).toBe(1);
+    // Hata geçince döngü normal sürer
+    draw.fail = false;
+    warnThrows = false;
+    const before = calls.length;
+    for (let i = 0; i < 5; i++) tick();
+    expect(calls.length).toBeGreaterThan(before);
+    expect(rafQueue.length).toBe(1);
   });
 });

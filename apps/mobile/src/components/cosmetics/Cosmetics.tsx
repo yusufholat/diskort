@@ -225,8 +225,12 @@ export function NameplateBackground({ set, still }: { set: CosmeticSet; still?: 
 /** Seçici kutusundaki küçük resim (30 kare/sn yeter) */
 export function SetThumb({ set, still, style }: { set: CosmeticSet; still?: boolean; style?: StyleProp<ViewStyle> }) {
   const info = COSMETIC_SET_INFO[set];
+  const gradient = `linear-gradient(135deg, ${info.from}, ${info.to})`;
   return (
-    <View style={[{ experimental_backgroundImage: `linear-gradient(135deg, ${info.from}, ${info.to})` }, style]}>
+    <View style={style}>
+      {/* Degrade ayrı görünümde: set değişince o yeniden kurulur (Android'de deneysel özellik yerinde güncellenmesin; #28),
+          Skia yüzeyi kurulu kalır */}
+      <View key={gradient} style={[StyleSheet.absoluteFill, { experimental_backgroundImage: gradient }]} />
       <CosmeticSurface kind="thumb" set={set} fps={30} still={still} style={StyleSheet.absoluteFill} />
     </View>
   );

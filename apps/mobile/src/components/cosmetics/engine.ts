@@ -29,6 +29,9 @@ const MAX_FPS = 60;
 const MEASURE_MS = 500;
 /** Yerel görünüme verilmiş, yerini yenisine bırakmış resim bu kadar sonra bırakılır (ms; birkaç kare) */
 export const RETIRE_MS = 150;
+/** Art arda bu kadar kare hata verirse sonraki deneme FRAME_RETRY_MS bekler (hata döngüsü işlemciyi yakmasın) */
+export const FRAME_RETRY_AFTER = 3;
+export const FRAME_RETRY_MS = 500;
 
 export interface ViewOptions {
   kind: ShaderViewKind;
@@ -91,6 +94,9 @@ let appActive = AppState.currentState === 'active' || AppState.currentState == n
 let reduced = false;
 let started = false;
 let measureTimer: ReturnType<typeof setInterval> | null = null;
+/** Art arda hata veren kare sayısı ve bekleyen yeniden deneme */
+let failures = 0;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Uygulamanın durumu ve "Hareketi azalt" ayarı: ilk görünüm eklenince dinlenmeye başlar */
 function start(): void {
@@ -209,17 +215,27 @@ function sweep(): void {
       // zaten bırakılmış: yapılacak bir şey yok
     }
   }
-  if (retired.length > 0) sweepTimer = setTimeout(sweep, Math.max(16, RETIRE_MS - (now - retired[0]!.at)));
+  // Saat geri alınırsa (now - at < 0) bekleme RETIRE_MS'i aşmasın
+  if (retired.length > 0) sweepTimer = setTimeout(sweep, Math.min(RETIRE_MS, Math.max(16, RETIRE_MS - (now - retired[0]!.at))));
 }
 
 function frame(now: number): void {
   raf = 0;
   try {
     step(now);
+    failures = 0;
   } catch (err) {
-    // Beklenmeyen hata döngüyü (ve uygulamayı) düşürmesin: bir sonraki değişiklikte yeniden başlar
+    // Beklenmeyen hata döngüyü (ve uygulamayı) düşürmesin: döngü yeniden istenir, art arda hatada beklenerek
     last = 0;
-    console.warn('[kozmetik] kare çizilemedi:', err);
+    failures++;
+    if (failures === 1) console.warn('[kozmetik] kare çizilemedi:', err);
+    if (!appActive || views.size === 0) return;
+    if (failures < FRAME_RETRY_AFTER) raf = requestAnimationFrame(frame);
+    else if (!retryTimer)
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        kick();
+      }, FRAME_RETRY_MS);
   }
 }
 
@@ -258,7 +274,8 @@ function step(now: number): void {
 }
 
 function kick(): void {
-  if (!raf && appActive && views.size > 0) raf = requestAnimationFrame(frame);
+  // Hata sonrası bekleme sürerken döngü erken başlatılmaz
+  if (!raf && !retryTimer && appActive && views.size > 0) raf = requestAnimationFrame(frame);
   if (!measureTimer && appActive && views.size > 0) measureTimer = setInterval(measureAll, MEASURE_MS);
 }
 
@@ -268,6 +285,9 @@ function stop(): void {
   last = 0;
   if (measureTimer) clearInterval(measureTimer);
   measureTimer = null;
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = null;
+  failures = 0;
 }
 
 /** Görünümlerin ekranda olup olmadığı (kaydırılan listeler, ayarlar sayfası) */
