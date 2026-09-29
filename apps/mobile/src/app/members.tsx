@@ -14,7 +14,7 @@ import {
   useStatus,
 } from '@diskort/client-core';
 import { Avatar } from '../components/Avatar';
-import { hasSkia, NAMEPLATE_TEXT_SHADOW, NameplateBackground, nameplateNameColor } from '../components/cosmetics/Cosmetics';
+import { useHasSkia, NAMEPLATE_TEXT_SHADOW, NameplateBackground, nameplateNameColor } from '../components/cosmetics/Cosmetics';
 import { MemberSheet } from '../components/MemberSheet';
 import { ListSkeleton } from '../components/Skeleton';
 import { EmptyState } from '../components/States';
@@ -99,7 +99,7 @@ const MemberRow = memo(function MemberRow({
   const custom = useCustomStatus(user.id);
   // İsim plakası: satırın arkasında hareketli zemin; üstündeki yazılar açık renkli ve gölgeli (Skia yoksa
   // plaka çizilmez, satır eskisi gibi kalır)
-  const plate = hasSkia() ? (user.nameplate ?? null) : null;
+  const plate = useHasSkia() ? (user.nameplate ?? null) : null;
   return (
     <View style={styles.rowWrap}>
       <Pressable
