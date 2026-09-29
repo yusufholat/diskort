@@ -910,6 +910,40 @@ function watchText(w) {
     .join(' · ');
 }
 
+/** Gelen sesler: kaç kişi, ses kaybı, gizleme olayı, titreşim (en çok), tampon, bit hızı */
+function audioInText(a) {
+  if (!a) return null;
+  return [
+    `${num(a.streams)} ses`,
+    `kayıp ${pct(a.lossPct, 2)}`,
+    a.concealEvents !== null ? `${num(a.concealEvents)} gizleme` : '',
+    a.jitterMaxMs !== null ? `titreşim en çok ${msText(a.jitterMaxMs)}` : '',
+    a.jitterBufferMs !== null ? `tampon ${msText(a.jitterBufferMs)}` : '',
+    bits(a.bitrate),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+const lagText = (l) => (l ? `en çok ${msText(l.maxMs)} · p95 ${msText(l.p95Ms)}${l.stalls ? ` · ${num(l.stalls)} takılma` : ''}` : null);
+
+/** Sesi bozabilecek ayarlar: kapalı yankı/kazanç, ses algılama, gürültü, seviyeler */
+function settingsText(s) {
+  if (!s) return null;
+  const onOff = (v) => (v === true ? 'açık' : v === false ? 'kapalı' : '?');
+  const vad = s.voiceActivity === false ? 'kapalı' : s.vadAuto ? 'otomatik' : s.vadThresholdDb !== null && s.vadThresholdDb !== undefined ? `${s.vadThresholdDb} dB` : '?';
+  return [
+    `yankı ${onOff(s.echoCancellation)}`,
+    `kazanç ${onOff(s.autoGainControl)}`,
+    s.inputMode === 'ptt' ? 'bas-konuş' : `algılama ${vad}`,
+    s.noiseMode ? `gürültü ${s.noiseMode}${s.noiseStrengthDb ? ` ${s.noiseStrengthDb} dB` : ''}` : '',
+    s.speaker === true ? 'hoparlör' : s.speaker === false ? 'ahize' : '',
+    s.userVolumesChanged ? `${num(s.userVolumesChanged)} kişi seviyesi değişik (en çok ${percent(s.userVolumeMax)})` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
 /** Yazılım çözücü yalnızca telefonda uyarı (ısınma ve pil); masaüstünde olağan */
 const watchTone = (e) => (e.watch?.hardware === false && (e.platform === 'android' || e.platform === 'ios') ? 'warn' : undefined);
 
@@ -932,6 +966,9 @@ function metricsOf(q) {
       q.screen.limitation !== 'none' &&
       metric('Yayın kısıtı', `${LIMIT[q.screen.limitation] ?? q.screen.limitation} · ${percent(q.screen.limitedRatio)}`, toneOf(q.screen.limitedRatio, 0.3, 0.5)),
     q.watch && metric('İzlenen yayın', watchText(q.watch), watchTone(q)),
+    q.audioIn && metric('Gelen sesler', audioInText(q.audioIn), toneOf(q.audioIn.lossPct, 3, 10)),
+    q.jsLag && metric('Uygulama takılması', lagText(q.jsLag), toneOf(q.jsLag.maxMs, 250, 1000)),
+    q.settings && metric('Ses ayarları', settingsText(q.settings)),
     q.reconnects > 0 && metric('Yeniden bağlanma', num(q.reconnects), 'bad'),
     metric('Cihaz', `${PLATFORM[q.platform] ?? q.platform} ${q.version}`),
   );
@@ -1536,6 +1573,9 @@ function telemetryDetail(x, state, reload) {
         chart('Paket kaybı ↑ (giden)', 'lossOut', (v) => pct(v, 2), { max: 5, color: 'pink' }),
         chart('Paket kaybı ↓ (gelen)', 'lossIn', (v) => pct(v, 2), { max: 5, color: 'pink' }),
         chart('Ses kesilmesi (gelen)', 'concealed', (v) => pct(v, 2), { max: 5, color: 'pink' }),
+        chart('Gelen ses kaybı', (e) => e.audioIn?.lossPct ?? null, (v) => pct(v, 2), { max: 5, color: 'pink' }),
+        chart('Gelen ses gizleme olayı', (e) => e.audioIn?.concealEvents ?? null, num, { max: 10, color: 'pink' }),
+        chart('Uygulama takılması (en yüksek)', (e) => e.jsLag?.maxMs ?? null, msText, { max: 200, color: 'pink' }),
         chart('Bit hızı ↑', 'bitrateOut', bits),
         chart('Bit hızı ↓', 'bitrateIn', bits, { color: 'ok' }),
         chart('Gürültü engelleyici yükü', (e) => e.mic?.load ?? null, percent, { max: 1 }),
@@ -1571,6 +1611,7 @@ function telemetryDetail(x, state, reload) {
                   e.concealed ? badge(`kesilme ${pct(e.concealed)}`) : null,
                   e.screen && badge(`yayın ${screenText(e.screen)}`, 'live'),
                   e.watch && badge(`izliyor ${watchText(e.watch)}`, watchTone(e)),
+                  (e.jsLag?.maxMs ?? 0) >= 250 ? badge(`takılma ${msText(e.jsLag.maxMs)}`, e.jsLag.maxMs >= 1000 ? 'bad' : 'warn') : null,
                   e.channelId && x.channels[e.channelId] && badge(`🔊 ${x.channels[e.channelId].name}`, 'muted'),
                 ),
                 e.causes.length > 0 && h('div', 'adm-sub', e.causes.join(' · ')),

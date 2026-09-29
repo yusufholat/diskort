@@ -76,6 +76,56 @@ export interface TelemetryWatch {
   view: TelemetryView | null;
 }
 
+/** Gelen sesler (başkalarını nasıl duyduğun): abone olunan tüm ses akışlarının toplamı */
+export interface TelemetryAudioIn {
+  /** Aralıkta ses paketi gelen akış sayısı (en yüksek; konuşan/yayın sesi olan kişiler) */
+  streams: number;
+  /** Akışların en yüksek titreşimi (ms) */
+  jitterMaxMs: number | null;
+  /** Yalnızca ses paketlerinin kaybı (%) */
+  lossPct: number | null;
+  /** Gizleme olayı sayısı (kayıp/geç paket yüzünden sentezlenen her parça; duyulabilir cızırtı/kesilme) */
+  concealEvents: number | null;
+  /** Ses titreşim tamponunda örnek başına bekleme (ms) */
+  jitterBufferMs: number | null;
+  /** Gelen ses bit hızı (bit/sn; yalnızca ses akışları) */
+  bitrate: number | null;
+}
+
+/** JS iş parçacığının takılması: zamanlayıcı kayması (ms). Uzun takılmalar LiveKit "ping timeout"una yol açabilir. */
+export interface TelemetryJsLag {
+  maxMs: number | null;
+  p95Ms: number | null;
+  /** 200 ms ve üstü geciken ölçüm sayısı */
+  stalls: number;
+}
+
+/**
+ * Sesi bozabilecek kayıtlı ses ayarları (kullanıcı kimliği yok). Platforma göre bazı alanlar yok.
+ * Ses seviyeleri 1 = %100 (0–2).
+ */
+export interface TelemetryVoiceSettings {
+  echoCancellation?: boolean | null;
+  autoGainControl?: boolean | null;
+  /** Ses algılama (telefon: açık/kapalı; masaüstü: giriş kipi "vad") */
+  voiceActivity?: boolean | null;
+  vadAuto?: boolean | null;
+  vadThresholdDb?: number | null;
+  /** Seçili gürültü engelleme ayarı (çalışan tür mic.noise'ta) ve gücü (dB) */
+  noiseMode?: string | null;
+  noiseStrengthDb?: number | null;
+  /** Telefon: hoparlör (true) ya da ahize (false) */
+  speaker?: boolean | null;
+  /** %100'den farklı kişi başı ses seviyesi sayısı ve en yükseği */
+  userVolumesChanged?: number | null;
+  userVolumeMax?: number | null;
+  /** Masaüstü: giriş kipi (vad, ptt), giriş/çıkış seviyesi çarpanı, ses bit hızı (kb/sn) */
+  inputMode?: string | null;
+  inputVolume?: number | null;
+  outputVolume?: number | null;
+  audioBitrateKbps?: number | null;
+}
+
 /** Cihaz durumu (ısınma tahmini için; yalnızca yerel modül gerektirmeden okunabilenler) */
 export interface TelemetryDevice {
   /** Uygulama durumu: active, background, inactive */
@@ -127,7 +177,10 @@ export interface VoiceTelemetryReport {
   /** Paket kaybı (%): giden (karşı tarafın raporu) ve gelen */
   lossOutPct: number | null;
   lossInPct: number | null;
-  /** Gelen seste kayıp yüzünden sentezlenen örneklerin oranı (%) — "robotik ses" göstergesi */
+  /**
+   * Gelen seste kayıp yüzünden sentezlenen örneklerin oranı (%) — "robotik ses" göstergesi. Sessizlik
+   * sırasındaki gizleme (DTX) sayılmaz.
+   */
   concealedPct: number | null;
   /** Ortalama bit hızları (bit/sn) */
   bitrateOut: number | null;
@@ -144,6 +197,10 @@ export interface VoiceTelemetryReport {
   /** İzlenen yayın (eski istemcilerde yok) */
   watch?: TelemetryWatch | null;
   device?: TelemetryDevice | null;
+  /** Gelen seslerin ayrıntısı, JS takılması ve ses ayarları (eski istemcilerde yok) */
+  audioIn?: TelemetryAudioIn | null;
+  jsLag?: TelemetryJsLag | null;
+  settings?: TelemetryVoiceSettings | null;
 }
 
 /** Gönderim aralığı ve "kötü" anındaki erken gönderimler arasındaki en kısa süre */

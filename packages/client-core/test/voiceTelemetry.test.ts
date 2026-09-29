@@ -3,7 +3,14 @@ import type { VoiceTelemetryReport } from '@diskort/shared';
 import { configureClient, type KeyValueStorage } from '../src';
 import type { RtpStream, TransportStats } from '../src/connectionStats';
 import { useSession } from '../src/session';
-import { VoiceTelemetry } from '../src/voiceTelemetry';
+import {
+  inboundAudioDelta,
+  LoopLagMeter,
+  summarizeLag,
+  VoiceTelemetry,
+  volumeSummary,
+  watchedVideo,
+} from '../src/voiceTelemetry';
 
 const memory = new Map<string, string>();
 const storage: KeyValueStorage = {
@@ -268,5 +275,233 @@ describe('ses kalitesi özeti', () => {
     feed(t, 16);
     expect(sent()[0]!.watch).toBeNull();
     expect(sent()[0]!.device).toBeNull();
+    expect(sent()[0]!.settings).toBeNull();
+  });
+
+  it('tek bağlantı kipi (abonelik bağlantısı yok): gelen sesler ve izlenen yayın yayın bağlantısından okunur', () => {
+    const t = new VoiceTelemetry();
+    const settings = { echoCancellation: false, userVolumesChanged: 1, userVolumeMax: 2 };
+    t.setContext(() => ({ channelId: 'ses1', mic: null, settings }));
+    const start = 1_000_000;
+    let prev: TransportStats | null = null;
+    for (let i = 0; i < 16; i++) {
+      const at = start + i * 2000;
+      const pub = transport(at, {
+        rttMs: 30,
+        bytesSent: i * 10_000,
+        // 2 sn'de 50 kB ses + 2,5 MB yayın
+        bytesReceived: i * 2_550_000,
+        streams: [
+          stream({ id: 'mic', packets: i * 100, bytes: i * 8_000 }),
+          stream({
+            id: 'ali',
+            direction: 'in',
+            packets: i * 95,
+            packetsLost: i * 5,
+            bytes: i * 25_000,
+            jitterMs: i === 10 ? 40 : 10,
+            concealedSamples: i * 1_920,
+            totalSamplesReceived: i * 96_000,
+            audio: { silentConcealedSamples: i * 960, concealmentEvents: i * 2, jitterBufferDelay: i * 96_000 * 0.06, jitterBufferEmittedCount: i * 96_000 },
+          }),
+          stream({ id: 'veli', direction: 'in', packets: i * 50, packetsLost: 0, bytes: i * 25_000, jitterMs: 20, concealedSamples: 0, totalSamplesReceived: i * 96_000 }),
+          // Susturulmuş kişi: paket gelmiyor (sayılmaz)
+          stream({ id: 'sessiz', direction: 'in', packets: 7, packetsLost: 0, jitterMs: 90, concealedSamples: 0, totalSamplesReceived: 100 }),
+          stream({
+            id: 'yayin',
+            direction: 'in',
+            kind: 'video',
+            codec: 'video/H264',
+            packets: i * 2_000,
+            packetsLost: 0,
+            bytes: i * 2_500_000,
+            frameWidth: 1920,
+            frameHeight: 1080,
+            framesPerSecond: 60,
+            implementation: 'c2.qti.avc.decoder',
+            video: { powerEfficient: true, frames: i * 120, totalTime: i * 120 * 0.003, framesReceived: i * 120, framesDropped: 0, freezeCount: 0, totalFreezesDuration: 0, jitterBufferDelay: null, jitterBufferEmittedCount: null },
+          }),
+        ],
+      });
+      t.sample({ at, publisher: pub, prevPublisher: prev, subscriber: null, quality: 'good' });
+      prev = pub;
+    }
+    const r = sent()[0]!;
+    // Gelen: 0., 5., 10. ölçümler (10 sn arayla); 10 sn'de ali 475 alınan + 25 kayıp, veli 250, yayın 10.000
+    expect(r.lossInPct).toBe(round2((50 / 21_500) * 100));
+    // Titreşim: yalnızca paket gelen akışlar (susturulmuşun 90 ms'si sayılmaz)
+    expect(r.jitterInMs).toBe(22.5);
+    // ali: 9.600 gizlenen − 4.800 sessiz / 480.000 + veli 0 / 480.000 → %0,5
+    expect(r.concealedPct).toBe(0.5);
+    // 12,75 MB / 10 sn
+    expect(r.bitrateIn).toBe(10_200_000);
+    expect(r.audioIn).toEqual({
+      streams: 2,
+      jitterMaxMs: 40,
+      lossPct: round2((50 / 1_500) * 100),
+      concealEvents: 20,
+      jitterBufferMs: 60,
+      // 2 × 125 kB / 10 sn
+      bitrate: 200_000,
+    });
+    expect(r.watch).toMatchObject({ codec: 'video/H264', decoder: 'c2.qti.avc.decoder', hardware: true, width: 1920, fps: 60, decodeMs: 3, bitrate: 10_000_000 });
+    expect(r.settings).toEqual(settings);
+  });
+
+  it('duraklatılmış (izlenmeyen) yayın watch sayılmaz', () => {
+    const t = new VoiceTelemetry();
+    t.setContext(() => ({ channelId: 'ses1', mic: null }));
+    for (let i = 0; i < 16; i++) {
+      const at = 1_000_000 + i * 2000;
+      const paused = stream({ id: 'yayin', direction: 'in', kind: 'video', bytes: 5_000_000, frameWidth: 1920, frameHeight: 1080, framesPerSecond: 0 });
+      const sub = i % 5 === 0 ? transport(at, { streams: [paused] }) : null;
+      t.sample({ at, publisher: transport(at, { rttMs: 30 }), prevPublisher: null, subscriber: sub, quality: 'good' });
+    }
+    expect(sent()[0]!.watch).toBeNull();
+    expect(sent()[0]!.audioIn).toBeNull();
+  });
+
+  it('JS takılması özete eklenir, çıkışta ölçüm durur', () => {
+    let now = 0;
+    const lag = new LoopLagMeter(() => now);
+    const t = new VoiceTelemetry(lag);
+    t.setContext(() => ({ channelId: 'ses1', mic: null }));
+    feed(t, 3);
+    expect(lag.running).toBe(true);
+    for (const step of [500, 500, 1_700, 500]) {
+      now += step;
+      lag.tick();
+    }
+    t.reset();
+    expect(sent()[0]!.jsLag).toEqual({ maxMs: 1_200, p95Ms: 1_200, stalls: 1 });
+    expect(lag.running).toBe(false);
+  });
+});
+
+const round2 = (v: number): number => Math.round(v * 100) / 100;
+
+const snapshot = (at: number, streams: RtpStream[]): TransportStats => transport(at, { streams });
+
+describe('gelen seslerin değişimi', () => {
+  const audio = (id: string, i: number, over: Partial<RtpStream> = {}): RtpStream =>
+    stream({
+      id,
+      direction: 'in',
+      packets: i * 100,
+      packetsLost: i * 2,
+      bytes: i * 4_000,
+      jitterMs: 8,
+      concealedSamples: i * 1_000,
+      totalSamplesReceived: i * 100_000,
+      audio: { silentConcealedSamples: i * 400, concealmentEvents: i * 3, jitterBufferDelay: i * 4_000, jitterBufferEmittedCount: i * 100_000 },
+      ...over,
+    });
+
+  it('kayıp, gizleme (sessizlik hariç), olay, tampon ve bayt farkı', () => {
+    const d = inboundAudioDelta(snapshot(2, [audio('a', 2)]), snapshot(1, [audio('a', 1)]));
+    expect(d).toEqual({
+      active: 1,
+      packets: 102,
+      lost: 2,
+      bytes: 4_000,
+      samples: 100_000,
+      concealed: 600,
+      events: 3,
+      bufferDelay: 4_000,
+      bufferEmitted: 100_000,
+      jitters: [8],
+    });
+  });
+
+  it('önceki okuma yoksa, paket gelmeyen ve yeni akış sayılmaz; sayaç geri giderse 0', () => {
+    expect(inboundAudioDelta(snapshot(1, [audio('a', 1)]), null)).toMatchObject({ active: 0, packets: 0, jitters: [] });
+    const d = inboundAudioDelta(
+      snapshot(2, [audio('a', 1), audio('yeni', 1), audio('b', 1, { concealedSamples: 0, totalSamplesReceived: 50 })]),
+      snapshot(1, [audio('a', 1), audio('b', 3)]),
+    );
+    expect(d).toMatchObject({ active: 0, packets: 0, samples: 0, concealed: 0, events: null, jitters: [] });
+    // Sayaçları olmayan (eski) tarayıcı: olay ve tampon bilinmiyor
+    const bare = inboundAudioDelta(snapshot(2, [audio('a', 2, { audio: null })]), snapshot(1, [audio('a', 1, { audio: null })]));
+    expect(bare).toMatchObject({ active: 1, samples: 100_000, concealed: 1_000, events: null, bufferEmitted: 0 });
+    // Sessiz gizleme yalnızca bir okumada var: bu akışın gizlemesi hesaplanamaz (fazla sayılmaz)
+    const half = inboundAudioDelta(snapshot(2, [audio('a', 2)]), snapshot(1, [audio('a', 1, { audio: null })]));
+    expect(half).toMatchObject({ active: 1, packets: 102, samples: 0, concealed: 0 });
+  });
+
+  it('izlenen yayın: bayt artan en büyük görüntü', () => {
+    const video = (id: string, bytes: number, w: number, fps: number | null = 30): RtpStream =>
+      stream({ id, direction: 'in', kind: 'video', bytes, frameWidth: w, frameHeight: w, framesPerSecond: fps });
+    const prev = snapshot(1, [video('buyuk', 100, 1920), video('kucuk', 100, 320)]);
+    expect(watchedVideo(snapshot(2, [video('buyuk', 100, 1920), video('kucuk', 200, 320)]), prev)?.id).toBe('kucuk');
+    expect(watchedVideo(snapshot(2, [video('buyuk', 100, 1920)]), prev)).toBeNull();
+    expect(watchedVideo(snapshot(2, [video('yeni', 5, 640)]), prev)?.id).toBe('yeni');
+    expect(watchedVideo(snapshot(2, [video('yeni', 5, 640, 0)]), null)).toBeNull();
+  });
+});
+
+describe('JS takılması', () => {
+  it('en yüksek, 95. yüzdelik ve takılma sayısı', () => {
+    expect(summarizeLag([])).toBeNull();
+    const lags = [...Array.from({ length: 95 }, () => 2), 150, 210, 300, 900, 4_000];
+    expect(summarizeLag(lags)).toEqual({ maxMs: 4_000, p95Ms: 2, stalls: 4 });
+    expect(summarizeLag([5, 250])).toEqual({ maxMs: 250, p95Ms: 250, stalls: 1 });
+  });
+
+  it('tik gecikmesi zamanlayıcı kaymasından ölçülür; okuyunca sıfırlanır', () => {
+    let now = 1_000;
+    const m = new LoopLagMeter(() => now, 500);
+    m.start();
+    for (const step of [500, 504, 2_500]) {
+      now += step;
+      m.tick();
+    }
+    expect(m.take()).toEqual({ maxMs: 2_000, p95Ms: 2_000, stalls: 1 });
+    expect(m.take()).toBeNull();
+    m.stop();
+  });
+
+  it('10 sn üstü boşluk (uyku/arka plan) ve öne gelmeden önceki süre takılma sayılmaz', () => {
+    let now = 0;
+    const m = new LoopLagMeter(() => now, 500);
+    m.start();
+    now += 60_000;
+    m.tick();
+    now += 500;
+    m.tick();
+    expect(m.take()).toEqual({ maxMs: 0, p95Ms: 0, stalls: 0 });
+    // Arka planda 8 sn: öne gelince (rebase) sayılmaz
+    now += 8_000;
+    m.rebase();
+    now += 500;
+    m.tick();
+    expect(m.take()).toEqual({ maxMs: 0, p95Ms: 0, stalls: 0 });
+    m.stop();
+  });
+
+  it('gönderilmeyen aralığın takılmaları sonraki özete kalmaz', () => {
+    let now = 0;
+    const lag = new LoopLagMeter(() => now);
+    const t = new VoiceTelemetry(lag);
+    let channel: string | null = null;
+    t.setContext(() => ({ channelId: channel, mic: null }));
+    feed(t, 16);
+    now += 3_500;
+    lag.tick();
+    // Kanal yokken özet gitmedi; takılma da atıldı
+    feed(t, 15, { start: 1_032_000 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    channel = 'ses1';
+    now += 500;
+    lag.tick();
+    feed(t, 16, { start: 1_062_000 });
+    expect(sent()[0]!.jsLag).toEqual({ maxMs: 0, p95Ms: 0, stalls: 0 });
+  });
+});
+
+describe('ses seviyesi özeti', () => {
+  it('%100 dışındaki seviyelerin sayısı ve en yükseği; kimlik yok', () => {
+    expect(volumeSummary({ u1: 1, u2: 1.8, u3: 0.4, u4: Number.NaN })).toEqual({ userVolumesChanged: 2, userVolumeMax: 1.8 });
+    expect(volumeSummary({})).toEqual({ userVolumesChanged: 0, userVolumeMax: null });
+    expect(volumeSummary(undefined)).toEqual({ userVolumesChanged: 0, userVolumeMax: null });
   });
 });

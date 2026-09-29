@@ -15,7 +15,7 @@ import {
   type RemoteTrackPublication,
   type RemoteVideoTrack,
 } from 'livekit-client';
-import type { VoiceJoinResponse } from '@diskort/shared';
+import type { TelemetryVoiceSettings, VoiceJoinResponse } from '@diskort/shared';
 import {
   api,
   ChannelSoundGate,
@@ -33,6 +33,7 @@ import {
   useGuild,
   useSession,
   voiceTelemetry,
+  volumeSummary,
   type TelemetryContext,
   type TransportStats,
 } from '@diskort/client-core';
@@ -390,6 +391,26 @@ class VoiceClient {
             muted: this.micMuted(),
           }
         : null,
+      settings: this.telemetrySettings(),
+    };
+  }
+
+  /** Sesi bozabilecek kayıtlı ayarlar (kişi başı seviyelerden yalnızca sayı ve en yüksek; kimlik yok) */
+  private telemetrySettings(): TelemetryVoiceSettings {
+    const s = getSettings();
+    return {
+      echoCancellation: s.echoCancellation,
+      autoGainControl: s.autoGainControl,
+      voiceActivity: s.inputMode === 'vad',
+      vadAuto: s.vadAuto,
+      vadThresholdDb: s.vadThresholdDb,
+      noiseMode: s.noise,
+      noiseStrengthDb: s.noiseStrengthDb,
+      inputMode: s.inputMode,
+      inputVolume: s.inputVolume,
+      outputVolume: s.outputVolume,
+      audioBitrateKbps: s.audioBitrateKbps,
+      ...volumeSummary(s.userVolumes),
     };
   }
 

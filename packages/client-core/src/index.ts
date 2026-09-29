@@ -80,12 +80,14 @@ export {
   type StreamView,
   type TransportStats,
   type TransportView,
+  type AudioCounters,
   type VideoCounters,
 } from './connectionStats';
 export {
   TELEMETRY_SUBSCRIBER_EVERY_MS,
   VoiceTelemetry,
   voiceTelemetry,
+  volumeSummary,
   type TelemetryContext,
   type TelemetrySample,
 } from './voiceTelemetry';

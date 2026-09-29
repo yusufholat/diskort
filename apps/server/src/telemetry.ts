@@ -3,10 +3,13 @@ import path from 'node:path';
 import readline from 'node:readline';
 import type {
   ClientPlatform,
+  TelemetryAudioIn,
   TelemetryDevice,
+  TelemetryJsLag,
   TelemetryMic,
   TelemetryQuality,
   TelemetryScreen,
+  TelemetryVoiceSettings,
   TelemetryWatch,
   VoiceTelemetryReport,
 } from '@diskort/shared';
@@ -53,6 +56,10 @@ export interface TelemetryEntry {
   /** İzlenen yayının çözücüsü ve çözme maliyeti; cihaz durumu (eski özetlerde yok) */
   watch?: TelemetryWatch | null;
   device?: TelemetryDevice | null;
+  /** Gelen seslerin ayrıntısı, JS takılması ve ses ayarları (eski özetlerde yok) */
+  audioIn?: TelemetryAudioIn | null;
+  jsLag?: TelemetryJsLag | null;
+  settings?: TelemetryVoiceSettings | null;
   severity: TelemetrySeverity;
   causes: string[];
 }
@@ -99,6 +106,10 @@ const r = (v: number | null | undefined, digits = 0): number | null => {
   return Math.round(v * f) / f;
 };
 
+const STALL_CAUSE = 'Uygulama takıldı (JS iş parçacığı)';
+const LOSS_IN_CAUSE = 'Gelen paket kaybı (indirme hattı)';
+const LOSS_IN_UNSURE_CAUSE = 'Gelen paket kaybı (kaynağı belirsiz: konuşanın bağlantısı olabilir)';
+
 /**
  * Özetin ne kadar kötü olduğu ve olası nedenleri. Eşikler Discord'un "bağlantı kötü" uyarısına yakın:
  * 250 ms ve üstü gecikme ya da %10 üstü kayıp sesi bozar; %3 / 120 ms "idare eder".
@@ -109,16 +120,30 @@ export function assessReport(
 ): { severity: TelemetrySeverity; causes: string[] } {
   const poor: string[] = [];
   const warn: string[] = [];
+  const add = (list: string[], text: string): void => {
+    if (!list.includes(text)) list.push(text);
+  };
   const check = (value: number | null, bad: number, meh: number, text: string): void => {
     if (value === null) return;
-    if (value >= bad) poor.push(text);
-    else if (value >= meh) warn.push(text);
+    if (value >= bad) add(poor, text);
+    else if (value >= meh) add(warn, text);
   };
   check(e.rttAvg !== null && e.rttMax !== null ? Math.max(e.rttAvg, e.rttMax * 0.6) : e.rttAvg, 250, 120, 'Yüksek gecikme (ping)');
   check(e.lossOut, 10, 3, 'Giden paket kaybı (yükleme hattı)');
-  check(e.lossIn, 10, 3, 'Gelen paket kaybı (indirme hattı)');
+  check(e.lossIn, 10, 3, LOSS_IN_CAUSE);
   check(e.concealed, 8, 3, 'Gelen seste kesilme (kayıp ses sentezlendi)');
   check(e.jitterIn, 60, 30, 'Yüksek titreşim (jitter)');
+  // Yalnızca ses paketlerinin kaybı (yeni istemciler): kayıp konuşanın yükleme hattında da olabilir
+  // (SFU boşluğu olduğu gibi iletir). Duyulur bozulma (kesilme ya da titreşim) yoksa en fazla uyarı.
+  const audioLoss = e.audioIn?.lossPct ?? null;
+  if (audioLoss !== null && audioLoss >= 3) {
+    const audible = (e.concealed ?? 0) >= 3 || (e.jitterIn ?? 0) >= 30;
+    if (audible) check(audioLoss, 10, 3, LOSS_IN_CAUSE);
+    else if (!poor.includes(LOSS_IN_CAUSE) && !warn.includes(LOSS_IN_CAUSE)) add(warn, LOSS_IN_UNSURE_CAUSE);
+  }
+  // Uygulama (JS) 1 sn'den uzun takıldı: tek başına uyarı (olay açmaz); kötü dönemde ek neden (kopmaların sebebi olabilir)
+  const stalled = (e.jsLag?.maxMs ?? 0) >= 1_000;
+  if (stalled) warn.push(STALL_CAUSE);
   if (e.reconnects > 0) poor.push('Bağlantı koptu, yeniden bağlandı');
   if (e.serverQuality === 'lost') poor.push('LiveKit bağlantıyı kayıp gördü');
   const s = e.screen;
@@ -142,6 +167,7 @@ export function assessReport(
   const bad = poor.length > 0 || e.quality === 'poor' || e.poorSec >= 4;
   if (bad) {
     const causes = poor.length > 0 ? poor : ['Bağlantı kalitesi kötü'];
+    if (stalled) causes.push(STALL_CAUSE);
     if (e.candidate === 'relay') causes.push(`TURN aktarıcısı üzerinden (${e.protocol ?? '?'})`);
     return { severity: 'poor', causes };
   }
@@ -304,6 +330,18 @@ export class VoiceTelemetryStore {
           }
         : null,
       device: report.device ?? null,
+      audioIn: report.audioIn
+        ? {
+            ...report.audioIn,
+            jitterMaxMs: r(report.audioIn.jitterMaxMs, 1),
+            lossPct: r(report.audioIn.lossPct, 2),
+            concealEvents: r(report.audioIn.concealEvents),
+            jitterBufferMs: r(report.audioIn.jitterBufferMs, 1),
+            bitrate: r(report.audioIn.bitrate),
+          }
+        : null,
+      jsLag: report.jsLag ? { ...report.jsLag, maxMs: r(report.jsLag.maxMs), p95Ms: r(report.jsLag.p95Ms) } : null,
+      settings: report.settings ?? null,
     };
     const entry: TelemetryEntry = { ...base, ...assessReport(base, this.live.get(userId)) };
     this.received++;
