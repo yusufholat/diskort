@@ -1,4 +1,4 @@
-import { memo, type ReactNode } from 'react';
+import { memo, useEffect, useState, type ReactNode } from 'react';
 import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { avatarUrl, streamPreviewHeaders, streamPreviewUrl, useGuild, useMemberColor } from '@diskort/client-core';
@@ -79,19 +79,15 @@ function TileFrame({
  * Seste bir kişi: sabit sahnenin ortasında avatar (konuşunca yeşil halka ve kutucuğun kenarı yumuşakça
  * yanar), altta ad, sağ üstte ses durumu. Yayını ayrı bir kutucukta (StreamTile) gösterilir.
  */
-export const MemberTile = memo(function MemberTile({
-  state,
-  width,
-  height,
-  selfId,
-  onLongPress,
-}: {
+interface MemberTileProps {
   state: VoiceState;
   width: number;
   height: number;
   selfId: string | undefined;
   onLongPress: (userId: string) => void;
-}) {
+}
+
+export const MemberTile = memo(function MemberTile({ state, width, height, selfId, onLongPress }: MemberTileProps) {
   const user = useGuild((s) => s.users[state.userId]);
   const color = useMemberColor(state.userId);
   const speaking = useVoice((s) => Boolean(s.speaking[state.userId]));
@@ -129,12 +125,25 @@ export const MemberTile = memo(function MemberTile({
       </TileFrame>
     </Pressable>
   );
-});
+}, sameMemberTile);
+
+/** Kişi kutucuğu yayın önizlemesi tazelenince (birkaç saniyede bir) yeniden çizilmesin: dekorasyon yüzeyi ağır */
+function sameMemberTile(a: MemberTileProps, b: MemberTileProps): boolean {
+  if (a.width !== b.width || a.height !== b.height || a.selfId !== b.selfId || a.onLongPress !== b.onLongPress) return false;
+  if (a.state === b.state) return true;
+  const keys = new Set([...Object.keys(a.state), ...Object.keys(b.state)] as (keyof VoiceState)[]);
+  for (const key of keys) {
+    if (key === 'streamPreviewAt' || key === 'streamSourceName') continue;
+    if (a.state[key] !== b.state[key]) return false;
+  }
+  return true;
+}
 
 /**
  * Bir ekran yayını, yayıncının kutucuğunun yanında kendi kutucuğunda (masaüstündeki gibi): sunucudaki
- * önizleme karesi varsa o, yoksa yayıncının bulanık avatarı. Dokununca yayın izlenir (izleniyorsa tam
- * ekran açılır). Kendi yayınında önizleme gösterilmez (pil): yalnızca "Ekranını paylaşıyorsun".
+ * önizleme karesi varsa o, yoksa yayıncının bulanık avatarı. Dokununca yayın izlenir; izlenen yayın
+ * ızgarada tekrarlanmaz (üstte büyük görünür, denetimleri videonun üstünde). Kendi yayınında önizleme
+ * gösterilmez (pil): yalnızca "Ekranını paylaşıyorsun".
  */
 export const StreamTile = memo(function StreamTile({
   state,
@@ -150,77 +159,75 @@ export const StreamTile = memo(function StreamTile({
   onOpen: (userId: string) => void;
 }) {
   const user = useGuild((s) => s.users[state.userId]);
-  const watching = useVoice((s) => s.watching === state.userId);
   const self = state.userId === selfId;
   const name = user?.displayName ?? '…';
-  const preview = !self && state.streamPreviewAt !== undefined;
+  // Yüklenemeyen önizleme karesi (yayın bitti, ağ) bulanık avatara döner; yeni kare gelince yeniden denenir
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [state.streamPreviewAt]);
+  const preview = !self && state.streamPreviewAt !== undefined && !failed;
   const photo = avatarUrl(user);
   const avatar = Math.min(44, Math.round(height * 0.3));
   return (
-    <Pressable
-      onPress={self ? undefined : () => onOpen(state.userId)}
-      disabled={self}
-      accessibilityRole={self ? undefined : 'button'}
-      accessibilityLabel={self ? 'Ekranını paylaşıyorsun' : `${name} yayında${watching ? ', izleniyor' : ''}`}
-      accessibilityHint={self ? undefined : watching ? 'Tam ekran açar' : 'Yayını izler'}
-    >
-      <TileFrame width={width} height={height} dark>
-        {preview ? (
-          <Image
-            source={{ uri: streamPreviewUrl(state), headers: streamPreviewHeaders() }}
-            style={StyleSheet.absoluteFill}
-            resizeMode="cover"
-            accessibilityIgnoresInvertColors
-          />
-        ) : (
-          <>
-            {photo ? (
-              <Image
-                source={{ uri: photo }}
-                style={[StyleSheet.absoluteFill, styles.blurred]}
-                blurRadius={24}
-                resizeMode="cover"
-                accessibilityIgnoresInvertColors
-              />
-            ) : (
-              <View style={[StyleSheet.absoluteFill, styles.blurred, { backgroundColor: user?.avatarColor ?? '#747f8d' }]} />
-            )}
-            <View style={styles.dim} />
-          </>
-        )}
-        {/* Önizleme üstünde yazı okunsun diye izlenirken ya da kendi yayınında koyulaşır */}
-        {preview && watching && <View style={styles.dim} />}
-
-        <View style={styles.center} pointerEvents="none">
-          {!preview && (
-            <View style={styles.dimAvatar}>
-              <Avatar user={user} size={avatar} />
-            </View>
+    <View>
+      <Pressable
+        onPress={self ? undefined : () => onOpen(state.userId)}
+        disabled={self}
+        accessibilityRole={self ? undefined : 'button'}
+        accessibilityLabel={self ? 'Ekranını paylaşıyorsun' : `${name} yayında`}
+        accessibilityHint={self ? undefined : 'Yayını izler'}
+      >
+        <TileFrame width={width} height={height} dark>
+          {preview ? (
+            <Image
+              source={{ uri: streamPreviewUrl(state), headers: streamPreviewHeaders() }}
+              style={StyleSheet.absoluteFill}
+              resizeMode="cover"
+              // Yeni kare gelince eskisinin üstüne solmadan geçer (titremez)
+              fadeDuration={0}
+              onError={() => setFailed(true)}
+              accessibilityIgnoresInvertColors
+            />
+          ) : (
+            <>
+              {photo ? (
+                <Image
+                  source={{ uri: photo }}
+                  style={[StyleSheet.absoluteFill, styles.blurred]}
+                  blurRadius={24}
+                  resizeMode="cover"
+                  accessibilityIgnoresInvertColors
+                />
+              ) : (
+                <View style={[StyleSheet.absoluteFill, styles.blurred, { backgroundColor: user?.avatarColor ?? '#747f8d' }]} />
+              )}
+              <View style={styles.dim} />
+            </>
           )}
-          {self ? (
-            <Text style={styles.centerText}>Ekranını paylaşıyorsun</Text>
-          ) : watching ? (
-            <View style={styles.watchingPill}>
-              <Ionicons name="eye" size={13} color="#fff" />
-              <Text style={styles.watchingText}>İzleniyor</Text>
-            </View>
-          ) : null}
-        </View>
 
-        <View style={styles.live} pointerEvents="none">
-          <Text style={styles.liveText}>YAYINDA</Text>
-        </View>
-        {/* Kendi izleyicilerin "Ekranını paylaşıyorsun" şeridinde */}
-        {!self && <StreamViewers userId={state.userId} style={styles.viewers} />}
+          <View style={styles.center} pointerEvents="none">
+            {!preview && (
+              <View style={styles.dimAvatar}>
+                <Avatar user={user} size={avatar} />
+              </View>
+            )}
+            {self && <Text style={styles.centerText}>Ekranını paylaşıyorsun</Text>}
+          </View>
 
-        <View style={styles.caption} pointerEvents="none">
-          <Ionicons name="desktop-outline" size={13} color="#fff" />
-          <Text style={styles.captionText} numberOfLines={1}>
-            {name}
-          </Text>
-        </View>
-      </TileFrame>
-    </Pressable>
+          <View style={styles.live} pointerEvents="none">
+            <Text style={styles.liveText}>YAYINDA</Text>
+          </View>
+          <View style={styles.caption} pointerEvents="none">
+            <Ionicons name="desktop-outline" size={13} color="#fff" />
+            <Text style={styles.captionText} numberOfLines={1}>
+              {name}
+            </Text>
+          </View>
+        </TileFrame>
+      </Pressable>
+      {/* Kutucuğun dokunma alanının dışında, üstünde: ekran okuyucu ayrı düğme olarak ulaşır.
+          Kendi izleyicilerin "Ekranını paylaşıyorsun" şeridinde */}
+      {!self && <StreamViewers userId={state.userId} style={styles.viewers} />}
+    </View>
   );
 });
 
@@ -260,16 +267,6 @@ const styles = createStyles(() => ({
   center: { alignItems: 'center', gap: space.sm, paddingHorizontal: space.sm },
   dimAvatar: { opacity: 0.8 },
   centerText: { color: '#fff', fontSize: font.small, fontWeight: '700', textAlign: 'center' },
-  watchingPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  watchingText: { color: '#fff', fontSize: 12.5, fontWeight: '700' },
   live: {
     position: 'absolute',
     top: space.sm,

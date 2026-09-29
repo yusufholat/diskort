@@ -43,10 +43,14 @@ export default function VoiceScreen() {
   // Uzun basılan (yönetilecek / sesi ayarlanacak) üye
   const [member, setMember] = useState<string | null>(null);
   const { fullscreen, setFullscreen, rotate, screenOptions } = useStreamFullscreen(viewing, watching);
-  // Yayın yapan kişinin hemen ardından yayınının kendi kutucuğu (masaüstündeki gibi)
+  // Yayın yapan kişinin hemen ardından yayınının kendi kutucuğu (masaüstündeki gibi); izlenen yayın
+  // üstte büyük görünür, ızgarada tekrarlanmaz
   const tiles = useMemo(
-    () => members.flatMap((m) => (m.streaming ? [{ state: m, stream: false }, { state: m, stream: true }] : [{ state: m, stream: false }])),
-    [members],
+    () =>
+      members.flatMap((m) =>
+        m.streaming && m.userId !== watching ? [{ state: m, stream: false }, { state: m, stream: true }] : [{ state: m, stream: false }],
+      ),
+    [members, watching],
   );
   // Katılan/ayrılan kutucukta diğerleri yumuşakça yer değiştirir
   // (yeni kutucuğun kendisi Animated ile büyür; LayoutAnimation yalnızca kaymayı ve çıkışı yapar)
@@ -68,14 +72,7 @@ export default function VoiceScreen() {
   const tileWidth = single ? width - GRID_PADDING * 2 : Math.floor((width - GRID_PADDING * 2 - GRID_GAP) / 2);
   const tileHeight = viewing ? 118 : single ? 220 : Math.max(TILE_MIN_HEIGHT, Math.round(tileWidth * 0.86));
   const openMember = useCallback((userId: string) => setMember(userId), []);
-  // Yayın kutucuğu: izlenmiyorsa izle, izleniyorsa tam ekran aç
-  const openStream = useCallback(
-    (userId: string) => {
-      if (useVoice.getState().watching === userId) setFullscreen(true);
-      else voice.watch(userId);
-    },
-    [setFullscreen],
-  );
+  const openStream = useCallback((userId: string) => voice.watch(userId), []);
 
   if (status === 'idle' || !channelId) {
     return (
