@@ -3,8 +3,16 @@ import { Permission, type VoiceState } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
-import { can, useGuild, useMemberColor, useSession, voiceDropTargets } from '@diskort/client-core';
-import { currentView } from '../../lib/mainView';
+import {
+  activeGuildContext,
+  can,
+  contextOfChannel,
+  useGuild,
+  useMemberColor,
+  useSession,
+  voiceDropTargets,
+  type ProfileContext,
+} from '@diskort/client-core';
 import { startSidebarDrag, useSidebarDrag } from '../../lib/sidebarDrag';
 import { watchUserStream } from '../../lib/watchStream';
 import { useSettings } from '../../stores/settings';
@@ -52,10 +60,16 @@ export function WatchLiveBadge({
   );
 }
 
+/** Ses kanalındaki üyenin bağlamı: ses kanalının sunucusu (DM açıkken de) */
+export function voiceMemberContext(userId: string): ProfileContext {
+  const s = useGuild.getState();
+  const channelId = s.voiceStates[userId]?.channelId;
+  return channelId ? contextOfChannel(s, channelId) : activeGuildContext(s);
+}
+
 /** Ses kanalındaki üyenin profil kartını açar */
 export function openVoiceProfile(userId: string, anchor: ProfileAnchor, side: 'right' | 'left' = 'right'): void {
-  const view = currentView();
-  openProfile({ userId, channelId: view.kind === 'text' || view.kind === 'dm' ? view.channelId : null, anchor, side });
+  openProfile({ userId, context: voiceMemberContext(userId), anchor, side });
 }
 
 /** Üyenin bulunduğu kanalda konuşma yetkisi yok (yalnızca dinliyor) */
@@ -135,7 +149,7 @@ export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMy
       }}
       onContextMenu={(e) => {
         e.preventDefault();
-        const items = memberMenuItems(state.userId);
+        const items = memberMenuItems(state.userId, voiceMemberContext(state.userId));
         if (!isSelf || items.length > 0) {
           openContextMenu({
             x: e.clientX,

@@ -1,10 +1,17 @@
 import { memo, useMemo } from 'react';
 import { Crown, MessageCircle } from 'lucide-react';
 import type { User } from '@diskort/shared';
-import { memberGroups, useCustomStatus, useGuild, useMemberColor, useSession, useStatus } from '@diskort/client-core';
+import {
+  activeGuildContext,
+  memberGroups,
+  useCustomStatus,
+  useGuild,
+  useMemberColor,
+  useSession,
+  useStatus,
+} from '@diskort/client-core';
 import { CustomStatusLine } from '../status/CustomStatusLine';
 import { startDm } from '../../lib/dm';
-import { currentView } from '../../lib/mainView';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
@@ -49,10 +56,10 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
 
   // Tıklayınca profil kartı listenin soluna açılır
   const showProfile = (el: HTMLElement): void => {
-    const view = currentView();
+    // Üye listesi seçili sunucunun listesidir
     openProfile({
       userId: user.id,
-      channelId: view.kind === 'text' || view.kind === 'dm' ? view.channelId : null,
+      context: activeGuildContext(useGuild.getState()),
       anchor: el.getBoundingClientRect(),
       side: 'left',
     });
@@ -77,7 +84,7 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
       }}
       onContextMenu={(e) => {
         e.preventDefault();
-        const items = memberMenuItems(user.id);
+        const items = memberMenuItems(user.id, activeGuildContext(useGuild.getState()));
         // Başkasına sağ tıklayınca ses seviyesi de ayarlanabilir (seste olmasa da kaydedilir)
         if (!isSelf || items.length > 0) {
           openContextMenu({ x: e.clientX, y: e.clientY, userId: isSelf ? undefined : user.id, items });

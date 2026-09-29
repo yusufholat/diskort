@@ -29,7 +29,6 @@ import {
   searchSettings,
   settingsGroupsFor,
   useFeedback,
-  useGuild,
   useSession,
   type SettingsSectionId,
   type SettingsSectionInfo,
@@ -277,16 +276,8 @@ function NavItem({
 
 /** Hesabım: görünen ad, kullanıcı adı, şifre değiştirme ve hesabı silme */
 function AccountSection() {
+  // Hesap düzeyi: hiçbir sunucunun rolü ya da rengi burada gösterilmez
   const user = useSession((s) => s.user);
-  // Rolleri, en üstteki önce
-  const roleNames = useGuild((s) =>
-    (s.users[user?.id ?? '']?.roles ?? [])
-      .map((id) => s.roles[id])
-      .filter((r) => r !== undefined)
-      .sort((a, b) => b.position - a.position)
-      .map((r) => r.name)
-      .join(', '),
-  );
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [busy, setBusy] = useState(false);
 
@@ -311,10 +302,7 @@ function AccountSection() {
         <Avatar user={user} size={72} />
         <div>
           <div className="text-lg font-semibold text-text-head">{user.displayName}</div>
-          <div className="text-sm text-text-muted">
-            @{user.username}
-            {roleNames && ` · ${roleNames}`}
-          </div>
+          <div className="text-sm text-text-muted">@{user.username}</div>
         </div>
       </div>
       <Field label="Görünen ad">

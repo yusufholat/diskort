@@ -4,7 +4,15 @@ import { Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import type { User } from '@diskort/shared';
-import { memberGroups, useCustomStatus, useGuild, useMemberColor, useSession, useStatus } from '@diskort/client-core';
+import {
+  memberGroups,
+  useActiveGuildContext,
+  useCustomStatus,
+  useGuild,
+  useMemberColor,
+  useSession,
+  useStatus,
+} from '@diskort/client-core';
 import { Avatar } from '../components/Avatar';
 import { hasSkia, NAMEPLATE_TEXT_SHADOW, NameplateBackground, nameplateNameColor } from '../components/cosmetics/Cosmetics';
 import { MemberSheet } from '../components/MemberSheet';
@@ -19,6 +27,8 @@ export default function MembersScreen() {
   const roles = useGuild((s) => s.roles);
   const online = useGuild((s) => s.online);
   const guild = useGuild((s) => s.guild);
+  // Üye listesi seçili sunucunun listesidir
+  const context = useActiveGuildContext();
   const status = useGuild((s) => s.status);
   const [selected, setSelected] = useState<string | null>(null);
   const sections = useMemo(
@@ -66,7 +76,7 @@ export default function MembersScreen() {
           ListEmptyComponent={<EmptyState icon="people-outline" tone="muted" title="Üye yok" text="Sunucuda henüz kimse yok." />}
         />
       )}
-      <MemberSheet userId={selected} onClose={() => setSelected(null)} />
+      <MemberSheet userId={selected} context={context} onClose={() => setSelected(null)} />
     </SafeAreaView>
   );
 }

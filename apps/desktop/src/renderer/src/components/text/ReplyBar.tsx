@@ -4,7 +4,7 @@ import {
   isOwnReplyTarget,
   setReplyMention,
   useGuild,
-  useMemberColor,
+  useChannelMemberColor,
   useMessages,
 } from '@diskort/client-core';
 import { useEscapeLayer } from '../../lib/escape';
@@ -19,7 +19,7 @@ export function ReplyBar({ channelId }: { channelId: string }) {
   const draft = useMessages((s) => s.replies[channelId]);
   const { value: shown, closing } = usePresence(draft, 100);
   const author = useGuild((s) => (shown?.authorId ? s.users[shown.authorId] : undefined));
-  const color = useMemberColor(shown?.authorId);
+  const color = useChannelMemberColor(shown?.authorId, channelId);
   useEscapeLayer(() => cancelReply(channelId), Boolean(draft));
 
   if (!shown) return null;

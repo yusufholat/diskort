@@ -24,7 +24,7 @@ import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
 import { Avatar } from '../ui/Avatar';
 import { SwapIcon } from '../ui/SwapIcon';
-import { LiveBadge, openVoiceProfile, VoiceStateIcons, WatchLiveBadge } from '../sidebar/VoiceMemberRow';
+import { LiveBadge, openVoiceProfile, voiceMemberContext, VoiceStateIcons, WatchLiveBadge } from '../sidebar/VoiceMemberRow';
 import { StreamView } from './StreamView';
 import { StreamViewers } from './StreamViewers';
 import { orderStrip } from './stripOrder';
@@ -465,7 +465,7 @@ function ParticipantTile({ state, compact }: { state: VoiceState; compact?: bool
       onContextMenu={(e) => {
         e.preventDefault();
         const isSelf = state.userId === selfId;
-        const items = memberMenuItems(state.userId);
+        const items = memberMenuItems(state.userId, voiceMemberContext(state.userId));
         if (!isSelf || items.length > 0) {
           openContextMenu({ x: e.clientX, y: e.clientY, userId: isSelf ? undefined : state.userId, items });
         }

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { jumpToMessage, plainText, useGuild, useMemberColor, type LocalMessage } from '@diskort/client-core';
+import { jumpToMessage, plainText, useGuild, useChannelMemberColor, type LocalMessage } from '@diskort/client-core';
 import { colors, createStyles } from '../theme';
 import { Avatar } from './Avatar';
 import type { MarkdownContext } from './Markdown';
@@ -16,7 +16,7 @@ export const REPLY_PREVIEW_HEIGHT = 22;
 export function ReplyPreview({ message, md }: { message: LocalMessage; md: MarkdownContext }) {
   const reference = message.referencedMessage;
   const author = useGuild((s) => (reference?.authorId ? s.users[reference.authorId] : undefined));
-  const color = useMemberColor(reference?.authorId);
+  const color = useChannelMemberColor(reference?.authorId, message.channelId);
   const snippet = useMemo(
     () => (reference ? plainText(reference.content, (u) => md.usersByName[u]?.displayName) : ''),
     [reference, md.usersByName],

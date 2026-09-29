@@ -2,6 +2,7 @@ import { useMemo, useState, type MouseEvent } from 'react';
 import { ChevronDown, Crown, MoreHorizontal, Plus, ShieldCheck, X } from 'lucide-react';
 import { Permission } from '@diskort/shared';
 import {
+  activeGuildContext,
   canAssignRole,
   effectivePermissions,
   memberColorOf,
@@ -75,7 +76,7 @@ function MemberRow({ user }: { user: MemberUser }) {
   const held = user.roles.map((id) => roles[id]).filter((r) => r !== undefined).sort((a, b) => b.position - a.position);
 
   /** Yönetim menüsü: seste yönetim, roller, atma/yasaklama */
-  const menuItems = (): ContextMenuItem[] => memberMenuItems(user.id);
+  const menuItems = (): ContextMenuItem[] => memberMenuItems(user.id, activeGuildContext(useGuild.getState()));
 
   const openMenu = (e: MouseEvent, x: number, y: number): void => {
     e.preventDefault();

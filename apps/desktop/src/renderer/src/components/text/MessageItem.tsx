@@ -24,7 +24,8 @@ import {
   suppressEmbeds,
   toggleReaction,
   useCan,
-  useMemberColor,
+  contextOfChannel,
+  useChannelMemberColor,
   useMessages,
   visibleLinkEmbeds,
   type LocalMessage,
@@ -91,7 +92,8 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
   const canReply = useCan(Permission.SEND_MESSAGES, message.channelId);
   // Metin kanalında PIN_MESSAGES yetkisi olan, direkt mesajda her katılımcı sabitler
   const canPin = useCan(Permission.PIN_MESSAGES, message.channelId);
-  const authorColor = useMemberColor(message.authorId);
+  // DM'de rol rengi yok (ad varsayılan renkte); sunucu kanalında o sunucudaki rol rengi
+  const authorColor = useChannelMemberColor(message.authorId, message.channelId);
   const canDelete = own || canManage;
   const confirmed = !message.status;
   const mentioned = isMentioned(message, self);
@@ -116,7 +118,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
    */
   const openAuthorMenu = (e: MouseEvent): void => {
     if (!author || authorGone) return;
-    const items = memberMenuItems(author.id);
+    const items = memberMenuItems(author.id, contextOfChannel(useGuild.getState(), message.channelId));
     if (own && items.length === 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -129,7 +131,12 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
     openModal({ type: 'reactions', channelId: message.channelId, messageId: message.id, emoji });
   const showProfile = (el: HTMLElement): void => {
     if (!author) return;
-    openProfile({ userId: author.id, channelId: message.channelId, anchor: el.getBoundingClientRect(), side: 'right' });
+    openProfile({
+      userId: author.id,
+      context: contextOfChannel(useGuild.getState(), message.channelId),
+      anchor: el.getBoundingClientRect(),
+      side: 'right',
+    });
   };
   // Ada tıklamak yazma kutusuna bahsetme ekler; kanala yazılamıyorsa profil kartı açılır
   const mentionAuthor = (el: HTMLElement): void => {

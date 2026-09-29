@@ -12,7 +12,7 @@ import {
   retryMessage,
   toggleReaction,
   useGuild,
-  useMemberColor,
+  useChannelMemberColor,
   useMessages,
   visibleLinkEmbeds,
   type LocalMessage,
@@ -29,14 +29,17 @@ type RowAuthor = Pick<MemberUser, 'id' | 'displayName' | 'username' | 'avatarCol
  * nesnenin tamamına bağlı olsaydı ilgisiz her güncellemede yeniden çizilirdi (bkz. ChannelChat.renderItem).
  * İlkel değerler (string/boolean) yalnızca gerçekten değişince referans/değer farkı yaratır.
  */
-function useRowAuthor(authorId: string | null | undefined): RowAuthor | undefined {
+function useRowAuthor(authorId: string | null | undefined, channelId: string): RowAuthor | undefined {
   const exists = useGuild((s) => (authorId ? authorId in s.users : false));
   const displayName = useGuild((s) => (authorId ? s.users[authorId]?.displayName : undefined));
   const username = useGuild((s) => (authorId ? s.users[authorId]?.username : undefined));
   const avatarColor = useGuild((s) => (authorId ? s.users[authorId]?.avatarColor : undefined));
   const avatarUrl = useGuild((s) => (authorId ? s.users[authorId]?.avatarUrl : undefined));
   const avatarDecoration = useGuild((s) => (authorId ? s.users[authorId]?.avatarDecoration : undefined));
-  const removed = useGuild((s) => (authorId ? s.users[authorId]?.removed : undefined));
+  // Artık burada değil: kanalda sunucunun üyesi değil; DM'de (sunucu yok) ortak sunucusu kalmadı
+  const removed = useGuild((s) =>
+    !authorId ? undefined : s.dms[channelId] ? !s.reachable[authorId] : s.users[authorId]?.removed,
+  );
   return useMemo(
     () =>
       exists && authorId && displayName !== undefined && username !== undefined && avatarColor !== undefined
@@ -124,13 +127,13 @@ export const MessageRow = memo(function MessageRow({
   onReply,
   onAvatarPress,
 }: Props) {
-  const author = useRowAuthor(authorId);
+  const author = useRowAuthor(authorId, message.channelId);
   const mentioned = isMentioned(message, self);
   // Metni yalnızca GIPHY bağlantısı olan mesaj: bağlantı yerine GIF gösterilir
   const gif = gifOf(message);
   // Bağlantı önizlemeleri hep gösterilir (gönderen kaldırdıysa hiç gelmez)
   const linkEmbeds = visibleLinkEmbeds(message);
-  const authorColor = useMemberColor(message.authorId);
+  const authorColor = useChannelMemberColor(message.authorId, message.channelId);
   const appear = useAppear(animateIn, 240);
   // Yazma kutusunun üstünde bu mesaja yanıt veriliyor
   const replying = useMessages((s) => s.replies[message.channelId]?.messageId === message.id);

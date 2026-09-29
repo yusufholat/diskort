@@ -33,6 +33,7 @@ import {
   suppressEmbeds,
   toggleReaction,
   useCan,
+  useChannelContext,
   useCustomStatus,
   useGuild,
   useMessages,
@@ -134,6 +135,8 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
   const [menuFor, setMenuFor] = useState<LocalMessage | null>(null);
   // Sohbette avatara dokununca açılan üye kartı
   const [profileOf, setProfileOf] = useState<string | null>(null);
+  // Kartın bağlamı: DM'de sunucu yok (rol, rol rengi, yönetim gösterilmez); kanalda o sunucu
+  const profileContext = useChannelContext(id);
   const [editing, setEditing] = useState<LocalMessage | null>(null);
   // Geçmiş yüklenemedi (bağlantı yok): iskelet yerine hata ve "Tekrar dene"
   const [failed, setFailed] = useState(false);
@@ -363,7 +366,7 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
       </HeaderButton>
       <View style={styles.headerTitle}>
         {dm ? (
-          <DmTitle dm={dm} name={dmName} />
+          <DmTitle dm={dm} name={dmName} onPress={setProfileOf} />
         ) : (
           <ChannelTitle channelId={id} name={channel?.name ?? ''} onPress={() => router.push('/members')} />
         )}
@@ -498,7 +501,7 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
       />
       <ReactionsSheet />
       <PinsSheet />
-      <MemberSheet userId={profileOf} onClose={() => setProfileOf(null)} />
+      <MemberSheet userId={profileOf} context={profileContext} onClose={() => setProfileOf(null)} />
     </View>
   );
 }
@@ -564,8 +567,11 @@ function ChannelTitle({ channelId, name, onPress }: { channelId: string; name: s
   );
 }
 
-/** Başlık: konuşmanın resmi, adı ve bire bir konuşmada karşı tarafın durumu */
-function DmTitle({ dm, name }: { dm: DmChannel; name: string }) {
+/**
+ * Başlık: konuşmanın resmi, adı ve bire bir konuşmada karşı tarafın durumu. Bire bir konuşmada resme ya
+ * da ada dokununca karşı tarafın profil kartı (DM bağlamında) açılır.
+ */
+function DmTitle({ dm, name, onPress }: { dm: DmChannel; name: string; onPress: (userId: string) => void }) {
   const selfId = useSession((s) => s.user?.id);
   const partner = useGuild((s) => dmPartner(dm, s.users, selfId));
   const status = useStatus(partner?.id);
@@ -579,7 +585,7 @@ function DmTitle({ dm, name }: { dm: DmChannel; name: string }) {
       : custom
         ? `${custom.emoji ? `${custom.emoji} ` : ''}${custom.text ?? ''}`
         : STATUS_LABELS[status];
-  return (
+  const content = (
     <View style={styles.title}>
       <DmAvatar dm={dm} size={30} status surfaceColor={colors.main} />
       <View style={{ flexShrink: 1, marginLeft: 4 }}>
@@ -589,6 +595,18 @@ function DmTitle({ dm, name }: { dm: DmChannel; name: string }) {
         {sub ? <Text style={styles.titleSub}>{sub}</Text> : null}
       </View>
     </View>
+  );
+  if (dm.group || !partner) return content;
+  return (
+    <Pressable
+      onPress={() => onPress(partner.id)}
+      accessibilityRole="button"
+      accessibilityLabel={`${name} profilini göster`}
+      style={({ pressed }) => [styles.channelTitle, pressed && { opacity: 0.6 }]}
+      hitSlop={6}
+    >
+      {content}
+    </Pressable>
   );
 }
 

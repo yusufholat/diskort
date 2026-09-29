@@ -1,4 +1,13 @@
-import { memberActions, moderation, moveTargets, useGuild, useSession } from '@diskort/client-core';
+import {
+  canMessageIn,
+  memberActions,
+  moderation,
+  moveTargets,
+  showsGuildInfo,
+  useGuild,
+  useSession,
+  type ProfileContext,
+} from '@diskort/client-core';
 import { toast, useUi, type ContextMenuItem } from '../stores/ui';
 import { startDm } from './dm';
 import { confirmDialog } from './dialog';
@@ -6,25 +15,39 @@ import { confirmDialog } from './dialog';
 /**
  * Bir üyeye sağ tıklanınca: başkasıysa "Mesaj Gönder", sonra yetkilere ve hiyerarşiye göre yönetim
  * öğeleri: seste sunucuda susturma, sağırlaştırma, taşıma, sesten çıkarma; rol verme/alma; atma ve
- * yasaklama. Kendisi için ve yetki yoksa boş liste.
+ * yasaklama. Kendisi için ve yetki yoksa boş liste. `context`: menünün açıldığı yer; DM'de (ya da seçili
+ * olmayan sunucuda) yönetim yok, yalnızca hesap düzeyi işlemler (mesaj, kullanıcı adını kopyala).
  */
-export function memberMenuItems(userId: string): ContextMenuItem[] {
+export function memberMenuItems(userId: string, context: ProfileContext): ContextMenuItem[] {
   const guild = useGuild.getState();
   const user = guild.users[userId];
   if (!user) return [];
-  const self = userId === useSession.getState().user?.id;
-  // Seçili sunucunun üyesi değil (ör. DM'deki başka sunucudan biri): ortak sunucu varsa yalnızca mesaj
-  if (user.removed) {
-    return !self && guild.reachable[userId] ? [{ label: 'Mesaj Gönder', onClick: () => void startDm(userId) }] : [];
+  const selfId = useSession.getState().user?.id;
+  const self = userId === selfId;
+  const message: ContextMenuItem[] = canMessageIn(guild, context, userId, selfId)
+    ? [{ label: 'Mesaj Gönder', onClick: () => void startDm(userId) }]
+    : [];
+  // DM'de sunucu yok: yalnızca hesap düzeyi işlemler
+  if (!showsGuildInfo(guild, context)) {
+    if (self) return [];
+    return [
+      ...message,
+      {
+        label: 'Kullanıcı Adını Kopyala',
+        onClick: () =>
+          void navigator.clipboard.writeText(user.username).then(
+            () => toast('Kullanıcı adı kopyalandı.', 'success'),
+            () => undefined,
+          ),
+      },
+    ];
   }
+  // Seçili sunucunun üyesi değil: ortak sunucu varsa yalnızca mesaj
+  if (user.removed) return message;
   const name = user.displayName;
   const actions = memberActions(userId);
   const voice = guild.voiceStates[userId];
-  const items: ContextMenuItem[] = [];
-
-  if (!self && guild.reachable[userId]) {
-    items.push({ label: 'Mesaj Gönder', onClick: () => void startDm(userId) });
-  }
+  const items: ContextMenuItem[] = [...message];
 
   if (voice && (actions.mute || actions.deafen || actions.move)) {
     items.push({ label: 'Sesli sohbet', heading: true });
