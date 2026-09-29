@@ -13,7 +13,7 @@ import java.util.concurrent.Executor
  */
 object Thermal {
   const val UNKNOWN = -1
-  const val MODERATE = 2
+  const val LIGHT = 1
   const val SEVERE = 3
 
   fun status(context: Context): Int {

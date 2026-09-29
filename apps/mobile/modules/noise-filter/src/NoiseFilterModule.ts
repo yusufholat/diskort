@@ -61,6 +61,8 @@ declare class NoiseFilterModule extends NativeModule<NoiseFilterEvents> {
   getStats(): NoiseFilterStatus;
   /** Eski APK'larda yoktur (çağırmadan önce varlığı denetlenmeli) */
   getThermal?: () => ThermalInfo;
+  /** Yayın izleniyor ya da paylaşılıyor (o sırada yavaşlık kalıcı kaydedilmez); eski APK'larda yoktur */
+  setVideoActive?: (active: boolean) => void;
 }
 
 /** Eski APK'larda (kablosuz güncellemeyle yeni JS almış) yerel modül yoktur: null */

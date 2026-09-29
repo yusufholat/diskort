@@ -111,6 +111,11 @@ object DpdfnetProcessor : AudioProcessorInterface {
 
   /** Açılıştan (ya da aradan) beri biten pencereler: ilki karar vermez */
   private var windows = 0
+
+  /** Bu motorla yetişilen (karar veren) pencereler: oturum sağlıklı geçti mi (SlowMemory.clearStrikes) */
+  @Volatile
+  var healthyWindows = 0
+    private set
   private var totalFrames = 0L
   private var lastFrameAt = 0L
 
@@ -130,22 +135,23 @@ object DpdfnetProcessor : AudioProcessorInterface {
   )
 
   /**
-   * Isınma ölçümü (ms/kare). avgMs ikinci yarının ortalaması, maxMs ikinci yarının en uzun karesi; firstMs
-   * ilk yarınınki (ilk kare hariç; ikinci yarıdan çok yüksekse işlemci frekansı ısınma sırasında yükseliyordu);
-   * modelMs ikinci yarıda modelin payı. Karar: DpdfnetBudget.judgeWarmUp.
+   * Isınma ölçümü (ms/kare). avgMs ikinci yarının ortalaması, maxMs / spikeMs ikinci yarının en uzun ve ikinci
+   * en uzun karesi; firstMs ilk yarınınki (ilk kare hariç; ikinci yarıdan çok yüksekse işlemci frekansı ısınma
+   * sırasında yükseliyordu); modelMs ikinci yarıda modelin payı. Karar: DpdfnetBudget.judgeWarmUp.
    */
   data class WarmUp(
     val avgMs: Double,
     val modelMs: Double,
     val firstMs: Double,
     val maxMs: Double,
+    val spikeMs: Double,
     val provider: String,
     /** Isınmanın bittiği çekirdek, ör. "7 (2600 MHz)" */
     val core: String?,
     /** Başarım ipucu (ADPF) kullanıldı mı */
     val hint: Boolean,
   ) {
-    fun judge(): DpdfnetBudget.Miss? = DpdfnetBudget.judgeWarmUp(avgMs, maxMs, firstMs)
+    fun judge(): DpdfnetBudget.Miss? = DpdfnetBudget.judgeWarmUp(avgMs, spikeMs, firstMs)
   }
 
   /** Motoru takar (öncekini kapatır). Yeni motorla ölçümler ve bypass durumu sıfırlanır. */
@@ -158,6 +164,7 @@ object DpdfnetProcessor : AudioProcessorInterface {
       bypassReason = null
       winStart = 0
       windows = 0
+      healthyWindows = 0
       stats = null
       old
     }
@@ -166,16 +173,21 @@ object DpdfnetProcessor : AudioProcessorInterface {
 
   /**
    * Devre dışı kaldıktan sonra (ses iş parçacığı dışında): motor kapatılır ve bellekten atılır; neden ve son
-   * ölçümler durum için kalır. Bu arada motor değiştiyse (ayrılıp yeniden katılındı) dokunulmaz.
+   * ölçümler durum için kalır. Bu arada motor değiştiyse (ayrılıp yeniden katılındı) dokunulmaz: false döner
+   * (eski oturumun bildirimi yeni oturumu standart engellemeye geçirmemeli).
    */
-  fun unload(expected: DpdfnetEngine) {
-    val closing = lock.withLock {
-      if (engine !== expected || bypassReason == null) return
+  fun unload(expected: DpdfnetEngine): Boolean {
+    lock.withLock {
+      if (engine !== expected || bypassReason == null) return false
       enabled = false
       engine = null
-      expected
     }
-    closing.close()
+    try {
+      expected.close()
+    } catch (_: Throwable) {
+      // bellekten atılamadıysa da devre dışı: ses olduğu gibi geçer
+    }
+    return true
   }
 
   fun hasEngine(): Boolean = lock.withLock { engine != null }
@@ -222,6 +234,7 @@ object DpdfnetProcessor : AudioProcessorInterface {
         hint.close()
         hint = PerfHint.NONE
         hintTid = 0
+        hintActive = false
       }
       return
     }
@@ -307,7 +320,11 @@ object DpdfnetProcessor : AudioProcessorInterface {
     windows++
     // İlk pencere (iş parçacığının ilk kareleri, ipucu oturumu yeni) karar vermez; sonrakilerde tek pencere yeter
     if (windows < 2) return
-    val miss = DpdfnetBudget.judgeWindow(avgMs, winOverHop, winFrames) ?: return
+    val miss = DpdfnetBudget.judgeWindow(avgMs, winOverHop, winFrames)
+    if (miss == null) {
+      healthyWindows++
+      return
+    }
     slowReason = miss.reason
     bypass(Bypass(miss.reason, if (miss.systematic) Kind.SLOW else Kind.SPIKE, e))
   }
@@ -337,6 +354,7 @@ object DpdfnetProcessor : AudioProcessorInterface {
     var total = 0L
     var model = 0L
     var max = 0L
+    var second = 0L
     val frames = 40
     val half = frames / 2
     for (f in 0 until frames) {
@@ -351,7 +369,12 @@ object DpdfnetProcessor : AudioProcessorInterface {
       if (f >= half) {
         total += took
         model += e.lastModelNs
-        if (took > max) max = took
+        if (took > max) {
+          second = max
+          max = took
+        } else if (took > second) {
+          second = took
+        }
       } else if (f > 0) {
         // İlk kare (bellek ayırma, ilk çalıştırma) sayılmaz
         first += took
@@ -365,6 +388,7 @@ object DpdfnetProcessor : AudioProcessorInterface {
       modelMs = model / 1e6 / half,
       firstMs = first / 1e6 / (half - 1),
       maxMs = max / 1e6,
+      spikeMs = second / 1e6,
       provider = e.provider,
       core = core,
       hint = warmHint.active,

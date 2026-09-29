@@ -26,8 +26,11 @@ object DpdfnetBudget {
   /** Isınmanın (ikinci yarı) ortalama sınırı: canlıda 1,6 katıyla bütçeye sığmalı (5,0 / 1,6 ≈ 3,1 ms) */
   const val WARMUP_BUDGET_MS = LIVE_BUDGET_MS / LIVE_FACTOR
 
-  /** Isınmanın ikinci yarısındaki en uzun kare: canlıda 1,6 katıyla 10 ms'ye dayanmamalı (6 × 1,6 = 9,6) */
-  const val WARMUP_MAX_MS = 6.0
+  /**
+   * Isınmanın ikinci yarısındaki ikinci en uzun kare: canlıda 1,6 katıyla 10 ms'ye dayanmamalı (6 × 1,6 = 9,6).
+   * En uzun kare değil: tek bir kez iş parçacığı başka işe bırakıldıysa hızlı telefon elenmesin.
+   */
+  const val WARMUP_SPIKE_MS = 6.0
 
   /**
    * Isınmanın ilk yarısı (ilk kare hariç; işlemci henüz hızlanmamış, kod ısınıyor): 10 ms'ye yaklaşıyorsa
@@ -42,16 +45,19 @@ object DpdfnetBudget {
   const val OVER_HOP_PERCENT = 1
 
   /**
-   * Yetişemedi kararı. systematic: telefon genel olarak yavaş (ortalama bütçeyi aşıyor): bu telefonda ve bu
-   * APK'da hemen kalıcı olarak kapatılır. Değilse ani takılmalardır (ör. anlık başka yük): ikinci kez
-   * olursa kalıcı olur (bkz. SlowMemory).
+   * Yetişemedi kararı. systematic: telefon genel olarak yavaş (ortalama bütçeyi aşıyor); değilse ani
+   * takılmalardır (ör. anlık başka yük). Isınmada ani takılma kararı ancak ikinci ölçümde de görülürse
+   * verilir ve bu açılışta bile akılda tutulmaz. Kalıcı kayıt: SlowMemory.
    */
   data class Miss(val reason: String, val systematic: Boolean)
 
-  /** Isınma ölçümünün kararı (ms/kare); null: yetişiyor */
-  fun judgeWarmUp(avgMs: Double, maxMs: Double, firstMs: Double): Miss? {
+  /**
+   * Isınma ölçümünün kararı (ms/kare): avgMs ikinci yarının ortalaması, spikeMs ikinci yarının ikinci en uzun
+   * karesi, firstMs ilk yarının ortalaması. null: yetişiyor.
+   */
+  fun judgeWarmUp(avgMs: Double, spikeMs: Double, firstMs: Double): Miss? {
     if (avgMs > WARMUP_BUDGET_MS) return Miss(String.format("yavaş: ısınmada kare başına %.1f ms", avgMs), true)
-    if (maxMs > WARMUP_MAX_MS) return Miss(String.format("yavaş: ısınmada en uzun kare %.1f ms", maxMs), false)
+    if (spikeMs > WARMUP_SPIKE_MS) return Miss(String.format("yavaş: ısınmada uzun kareler (%.1f ms)", spikeMs), false)
     if (firstMs > WARMUP_FIRST_MS) {
       return Miss(String.format("yavaş: ısınmanın ilk yarısında kare başına %.1f ms", firstMs), false)
     }
@@ -59,8 +65,15 @@ object DpdfnetBudget {
   }
 
   /**
+   * Isınma ortalaması canlı bütçeyi bile aşıyor: canlıda hiç yetişemez, bu telefonda ve bu APK'da hemen kalıcı
+   * olarak kaydedilir. Aradaki ısınmalar (3,1–5 ms) yalnızca bu açılışta akılda tutulur.
+   */
+  fun rememberWarmUp(avgMs: Double): Boolean = avgMs > LIVE_BUDGET_MS
+
+  /**
    * Canlıda bir ölçüm penceresinin kararı: ortalama bütçeyi aşıyor ya da karelerin %1'inden fazlası 10 ms'yi
-   * geçiyor (gerçek zamanı kaçırdı). null: yetişiyor.
+   * geçiyor (gerçek zamanı kaçırdı). null: yetişiyor. Tek pencere bu oturumda kapatmaya yeter; kalıcı kayıt
+   * için 7 gün içinde ikinci kez olmalı (SlowMemory.strike).
    */
   fun judgeWindow(avgMs: Double, overHop: Int, frames: Int): Miss? {
     if (frames <= 0) return null

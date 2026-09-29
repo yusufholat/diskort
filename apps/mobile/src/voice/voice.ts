@@ -38,7 +38,13 @@ import { soundCue, type SoundEvent } from '../haptics';
 import { getSettings, useSettings } from '../stores/settings';
 import { toast } from '../stores/ui';
 import { MicGate, SILENT_LEVEL, type GateConfig, type MicLevel } from './micGate';
-import { onNoiseFilterBypass, prepareNoiseFilter, releaseNoiseFilter, webrtcNoiseSuppression } from './noiseFilter';
+import {
+  noteVideoActivity,
+  onNoiseFilterBypass,
+  prepareNoiseFilter,
+  releaseNoiseFilter,
+  webrtcNoiseSuppression,
+} from './noiseFilter';
 
 function disconnectMessage(reason?: DisconnectReason): string {
   switch (reason) {
@@ -229,6 +235,10 @@ class MobileVoiceClient {
     // İzlenen yayın sunucuya bildirilir (yayıncı izleyenlerini görür); yeniden bağlanınca gateway tekrarlar
     useVoice.subscribe((next, prev) => {
       if (next.watching !== prev.watching) gateway.setWatching(next.watching ? [next.watching] : []);
+      // DPDFNet: görüntü varken yetişemeyen telefon kalıcı "yavaş" kaydedilmez
+      if (next.watching !== prev.watching || next.sharing !== prev.sharing) {
+        noteVideoActivity(next.watching !== null || next.sharing);
+      }
     });
     // Sunucuya yeniden bağlanınca ses durumunu tekrar bildir
     gateway.on((msg) => {

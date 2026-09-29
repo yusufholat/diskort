@@ -88,6 +88,20 @@ export function deviceThermal(): DeviceThermal {
   return readThermal(module && typeof module.getThermal === 'function' ? () => module.getThermal!() : undefined);
 }
 
+/**
+ * Yayın izleniyor ya da paylaşılıyor: görüntü de işlemciyi yorar, o sırada DPDFNet yetişemezse telefon kalıcı
+ * olarak "yavaş" kaydedilmez (yalnızca o oturumda kapanır). Eski APK'da yerel işlev yoktur.
+ */
+export function noteVideoActivity(active: boolean): void {
+  const module = NoiseFilter;
+  if (!module || typeof module.setVideoActive !== 'function') return;
+  try {
+    module.setVideoActive(active);
+  } catch {
+    // yalnızca kayıt kararını etkiler
+  }
+}
+
 /** DPDFNet seçili ama çalışmıyorsa nedeni (ses kalitesi özeti); çalışıyorsa ya da seçili değilse null */
 export function noiseFallbackReason(status: NoiseFilterStatus | null): string | null {
   if (effectiveNoiseMode() !== 'dpdfnet') return null;
