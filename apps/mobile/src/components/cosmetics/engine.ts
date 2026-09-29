@@ -5,6 +5,13 @@
 // React yeniden çizilmez. Ekranda olmayan görünüm (ölçülerek bulunur), odakta olmayan ekran ve arka plandaki
 // uygulama çizilmez; hiç çizilecek görünüm yoksa döngü durur. "Hareketi azalt" açıkken her görünüm tek bir
 // sabit kare olarak çizilir. Gölgelendirici derlenemezse 2B yedek zemin kullanılır.
+//
+// Yerel tarafla sözleşme (Skia 2.6, Android): setJsiProperty resmi JS iş parçacığında yerel görünümün
+// çiziciye yazar, çizim ise ana iş parçacığında o resmin bir kopyasıyla yapılır. Aynı anda eski resmin son
+// başvurusu JS tarafında bırakılırsa ana iş parçacığı silinmiş resmi okuyabilir (yerel çökme, JS hatası
+// bırakmaz). Bu yüzden yerel görünüme verilmiş resim hemen bırakılmaz: RETIRE_MS sonra bırakılır (görünüm
+// kalkınca da). Motorun zamanlayıcı ve kare geri çağrıları hiçbir zaman hata fırlatmaz: React Native
+// zamanlayıcıdaki yakalanmamış hatayı ölümcül sayar ve uygulamayı kapatır.
 
 import { AccessibilityInfo, AppState, Dimensions } from 'react-native';
 import type { CosmeticSet } from '@diskort/shared';
@@ -20,6 +27,11 @@ export const STATIC_T = 8.4;
 const MAX_FPS = 60;
 /** Görünümlerin ekranda olup olmadığı bu aralıkla ölçülür (ms) */
 const MEASURE_MS = 500;
+/** Yerel görünüme verilmiş, yerini yenisine bırakmış resim bu kadar sonra bırakılır (ms; birkaç kare) */
+export const RETIRE_MS = 150;
+/** Art arda bu kadar kare hata verirse sonraki deneme FRAME_RETRY_MS bekler (hata döngüsü işlemciyi yakmasın) */
+export const FRAME_RETRY_AFTER = 3;
+export const FRAME_RETRY_MS = 500;
 
 export interface ViewOptions {
   kind: ShaderViewKind;
@@ -67,7 +79,10 @@ interface View extends LayerView {
   dirty: boolean;
   /** Çizimi hata verdi: bir daha denenmez */
   broken: boolean;
+  /** Yerel görünüme en son verilen resim (görünüm onu çizer; bırakılması yenisi gelince ertelenir) */
   pic: SkPicture | null;
+  /** Görünüm motordan çıkarıldı: yerel görünüme bir daha dokunulmaz */
+  detached: boolean;
 }
 
 
@@ -79,6 +94,9 @@ let appActive = AppState.currentState === 'active' || AppState.currentState == n
 let reduced = false;
 let started = false;
 let measureTimer: ReturnType<typeof setInterval> | null = null;
+/** Art arda hata veren kare sayısı ve bekleyen yeniden deneme */
+let failures = 0;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Uygulamanın durumu ve "Hareketi azalt" ayarı: ilk görünüm eklenince dinlenmeye başlar */
 function start(): void {
@@ -129,30 +147,99 @@ function program(set: CosmeticSet, lite: boolean): CosmeticProgram | null {
 
 // ---------- Çizim ----------
 
+/** Çizilebilir boyut: sonlu ve en az 2 piksel (NaN karşılaştırmalardan sessizce geçmesin) */
+const drawable = (v: View): boolean =>
+  Number.isFinite(v.w) && Number.isFinite(v.h) && v.w >= 2 && v.h >= 2 && Number.isFinite(v.scale) && v.scale > 0;
+
 function render(v: View, t: number): void {
+  // Kalkmış görünüme (yerel görünümü bırakılmış olabilir) hiçbir şey verilmez
+  if (v.detached || !views.has(v) || !drawable(v)) return;
   const sk = skia();
-  if (!sk || v.w < 2 || v.h < 2) return;
+  const api = viewApi();
+  if (!sk || !api) return;
   const S = sk.Skia;
   const k = v.scale;
   const rec = S.PictureRecorder();
-  const canvas = rec.beginRecording(S.XYWHRect(0, 0, v.w * k, v.h * k));
-  // Yüzey css pikselinin k katı: bütün çizim css pikseliyle yapılır (gölgelendiricinin koordinatı da)
-  canvas.scale(k, k);
-  drawCosmetic(S, canvas, v, t, program(v.set, v.lite));
-  const pic = rec.finishRecordingAsPicture();
-  rec.dispose();
-  // Resim yerel görünüme verilir (yerel taraf kendi kopyasını tutar, eskisi bırakılabilir)
-  viewApi().setJsiProperty(v.nativeId, 'picture', pic);
-  v.pic?.dispose();
+  let pic: SkPicture;
+  try {
+    const canvas = rec.beginRecording(S.XYWHRect(0, 0, v.w * k, v.h * k));
+    // Yüzey css pikselinin k katı: bütün çizim css pikseliyle yapılır (gölgelendiricinin koordinatı da)
+    canvas.scale(k, k);
+    drawCosmetic(S, canvas, v, t, program(v.set, v.lite));
+    pic = rec.finishRecordingAsPicture();
+  } finally {
+    rec.dispose();
+  }
+  try {
+    api.setJsiProperty(v.nativeId, 'picture', pic);
+  } catch (err) {
+    // Yerel tarafa verilemedi: resim kimsede değil, hemen bırakılır
+    pic.dispose();
+    throw err;
+  }
+  // Önceki resim ana iş parçacığında hâlâ çiziliyor olabilir: birkaç kare sonra bırakılır
+  retire(v.pic);
   v.pic = pic;
 }
 
-/** Skia'nın yerel görünümlerine erişim (paket yüklenince küresel olarak kurulur) */
-const viewApi = (): { setJsiProperty(nativeId: number, name: string, value: unknown): void } =>
-  (globalThis as unknown as { SkiaViewApi: ReturnType<typeof viewApi> }).SkiaViewApi;
+type ViewApi = { setJsiProperty(nativeId: number, name: string, value: unknown): void };
+
+/** Skia'nın yerel görünümlerine erişim (paket yüklenince küresel olarak kurulur); yoksa null */
+function viewApi(): ViewApi | null {
+  const api = (globalThis as unknown as { SkiaViewApi?: ViewApi }).SkiaViewApi;
+  return api && typeof api.setJsiProperty === 'function' ? api : null;
+}
+
+// ---------- Resimlerin bırakılması ----------
+
+/** Yerel görünüme verilmiş, yerini yenisine bırakmış resimler (en eskisi başta) */
+const retired: { pic: SkPicture; at: number }[] = [];
+let sweepTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Resmi RETIRE_MS sonra bırakılmak üzere kuyruğa koyar */
+function retire(pic: SkPicture | null): void {
+  if (!pic) return;
+  retired.push({ pic, at: Date.now() });
+  if (!sweepTimer) sweepTimer = setTimeout(sweep, RETIRE_MS);
+}
+
+/** Süresi dolan resimleri bırakır; kuyrukta kalan varsa yeniden kurulur */
+function sweep(): void {
+  sweepTimer = null;
+  const now = Date.now();
+  while (retired.length > 0 && now - retired[0]!.at >= RETIRE_MS) {
+    const { pic } = retired.shift()!;
+    try {
+      pic.dispose();
+    } catch {
+      // zaten bırakılmış: yapılacak bir şey yok
+    }
+  }
+  // Saat geri alınırsa (now - at < 0) bekleme RETIRE_MS'i aşmasın
+  if (retired.length > 0) sweepTimer = setTimeout(sweep, Math.min(RETIRE_MS, Math.max(16, RETIRE_MS - (now - retired[0]!.at))));
+}
 
 function frame(now: number): void {
   raf = 0;
+  try {
+    step(now);
+    failures = 0;
+  } catch (err) {
+    // Beklenmeyen hata döngüyü (ve uygulamayı) düşürmesin: döngü yeniden istenir, art arda hatada beklenerek
+    last = 0;
+    failures++;
+    if (failures === 1) console.warn('[kozmetik] kare çizilemedi:', err);
+    if (!appActive || views.size === 0) return;
+    if (failures < FRAME_RETRY_AFTER) raf = requestAnimationFrame(frame);
+    else if (!retryTimer)
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        kick();
+      }, FRAME_RETRY_MS);
+  }
+}
+
+function step(now: number): void {
   const dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
   last = now;
   if (reduced) T = STATIC_T;
@@ -160,7 +247,7 @@ function frame(now: number): void {
   let running = false;
   const due: View[] = [];
   for (const v of views) {
-    if (!v.visible || !v.focused || v.broken || v.w < 2 || v.h < 2) continue;
+    if (!v.visible || !v.focused || v.broken || v.detached || !drawable(v)) continue;
     // Hareketi azalt açıkken, durdurulmuş ya da sabit görünümde yalnızca değişince tek kare çizilir
     if (reduced || v.paused || v.still) {
       if (v.dirty) due.push(v);
@@ -187,7 +274,8 @@ function frame(now: number): void {
 }
 
 function kick(): void {
-  if (!raf && appActive && views.size > 0) raf = requestAnimationFrame(frame);
+  // Hata sonrası bekleme sürerken döngü erken başlatılmaz
+  if (!raf && !retryTimer && appActive && views.size > 0) raf = requestAnimationFrame(frame);
   if (!measureTimer && appActive && views.size > 0) measureTimer = setInterval(measureAll, MEASURE_MS);
 }
 
@@ -197,6 +285,9 @@ function stop(): void {
   last = 0;
   if (measureTimer) clearInterval(measureTimer);
   measureTimer = null;
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = null;
+  failures = 0;
 }
 
 /** Görünümlerin ekranda olup olmadığı (kaydırılan listeler, ayarlar sayfası) */
@@ -209,15 +300,26 @@ function measureAll(): void {
 }
 
 function measureOne(v: View): void {
-  v.measure?.((visible) => {
-    if (visible === v.visible || !views.has(v)) return;
-    v.visible = visible;
-    if (visible) {
-      v.dirty = true;
-      kick();
-    }
-  });
+  if (v.detached || !views.has(v) || !v.measure) return;
+  try {
+    v.measure((visible) => {
+      if (v.detached || !views.has(v) || visible === v.visible) return;
+      v.visible = visible;
+      if (visible) {
+        v.dirty = true;
+        kick();
+      }
+    });
+  } catch (err) {
+    // Ölçülemeyen görünüm (yerel görünümü kalkmış): bir sonraki ölçümde yeniden denenir
+    console.warn('[kozmetik] görünüm ölçülemedi:', err);
+  }
 }
+
+/** Sonlu sayı ya da yedeği (yerleşimden ya da hesaptan NaN / sonsuz gelirse) */
+const finite = (x: number | undefined, fallback: number): number => (x !== undefined && Number.isFinite(x) ? x : fallback);
+const finiteGeo = (g: CardGeo | undefined): g is CardGeo =>
+  !!g && Number.isFinite(g.bh) && Number.isFinite(g.ax) && Number.isFinite(g.ay) && Number.isFinite(g.ar);
 
 /** Ölçülen dikdörtgen pencerede görünür mü (biraz pay bırakılır: kaydırırken geç kalmasın) */
 export function onScreen(x: number, y: number, w: number, h: number): boolean {
@@ -228,18 +330,20 @@ export function onScreen(x: number, y: number, w: number, h: number): boolean {
 
 /** Yerel Skia görünümünü (nativeId) motora bağlar; dönen tutamaçla ayarları değiştirilir, kalkınca bırakılır */
 export function attachView(nativeId: number, options: ViewOptions): ViewHandle {
+  // Geçersiz kimlikle yerel tarafa hiç gidilmez (yerel taraf kimliği tamsayı sayar)
+  if (typeof nativeId !== 'number' || !Number.isFinite(nativeId)) return { update: () => undefined, dispose: () => undefined };
   start();
   const v: View = {
     nativeId,
     kind: options.kind,
     set: options.set,
-    w: options.w ?? 0,
-    h: options.h ?? 0,
+    w: finite(options.w, 0),
+    h: finite(options.h, 0),
     cache: new Map(),
-    geo: options.geo ?? { bh: 106, ax: 62, ay: 112, ar: 46 },
-    R: options.R ?? 46,
-    scale: options.scale ?? 1,
-    fps: options.fps ?? MAX_FPS,
+    geo: finiteGeo(options.geo) ? options.geo : { bh: 106, ax: 62, ay: 112, ar: 46 },
+    R: finite(options.R, 46),
+    scale: finite(options.scale, 1),
+    fps: finite(options.fps, MAX_FPS),
     paused: options.paused ?? false,
     lite: options.lite ?? false,
     still: options.still ?? false,
@@ -251,32 +355,38 @@ export function attachView(nativeId: number, options: ViewOptions): ViewHandle {
     dirty: true,
     broken: false,
     pic: null,
+    detached: false,
   };
   views.add(v);
   kick();
   // İlk ölçüm yerleşimden sonraki karede (ayrıca boyut gelince yeniden), 500 ms'lik aralığı beklemeden
-  requestAnimationFrame(() => {
-    if (views.has(v)) measureOne(v);
-  });
+  requestAnimationFrame(() => measureOne(v));
   return {
     update(next) {
+      if (v.detached) return;
       let reset = false;
       if (next.set !== undefined && next.set !== v.set) {
         v.set = next.set;
         reset = true;
       }
-      if (next.R !== undefined && next.R !== v.R) {
+      if (next.R !== undefined && Number.isFinite(next.R) && next.R !== v.R) {
         v.R = next.R;
         reset = true;
       }
       let resized = false;
-      if (next.w !== undefined && next.h !== undefined && (next.w !== v.w || next.h !== v.h)) {
+      if (
+        next.w !== undefined &&
+        next.h !== undefined &&
+        Number.isFinite(next.w) &&
+        Number.isFinite(next.h) &&
+        (next.w !== v.w || next.h !== v.h)
+      ) {
         v.w = next.w;
         v.h = next.h;
         reset = true;
         resized = true;
       }
-      if (next.geo && (next.geo.bh !== v.geo.bh || next.geo.ax !== v.geo.ax || next.geo.ay !== v.geo.ay || next.geo.ar !== v.geo.ar)) {
+      if (finiteGeo(next.geo) && (next.geo.bh !== v.geo.bh || next.geo.ax !== v.geo.ax || next.geo.ay !== v.geo.ay || next.geo.ar !== v.geo.ar)) {
         v.geo = next.geo;
         reset = true;
       }
@@ -285,8 +395,8 @@ export function attachView(nativeId: number, options: ViewOptions): ViewHandle {
         releaseCache(v.cache);
         v.broken = false;
       }
-      if (next.scale !== undefined) v.scale = next.scale;
-      if (next.fps !== undefined) v.fps = next.fps;
+      if (next.scale !== undefined && Number.isFinite(next.scale) && next.scale > 0) v.scale = next.scale;
+      if (next.fps !== undefined && Number.isFinite(next.fps) && next.fps > 0) v.fps = next.fps;
       if (next.paused !== undefined) v.paused = next.paused;
       if (next.still !== undefined) v.still = next.still;
       if (next.lite !== undefined) v.lite = next.lite;
@@ -297,9 +407,14 @@ export function attachView(nativeId: number, options: ViewOptions): ViewHandle {
       if (resized) measureOne(v);
     },
     dispose() {
+      if (v.detached) return;
+      v.detached = true;
       views.delete(v);
+      v.measure = undefined;
+      // Hazır listeler bırakılabilir: yerel görünümdeki resim içindekilere kendi başvurusunu tutar
       releaseCache(v.cache);
-      v.pic?.dispose();
+      // Son resim ana iş parçacığında hâlâ çiziliyor olabilir: hemen değil, birkaç kare sonra bırakılır
+      retire(v.pic);
       v.pic = null;
       if (views.size === 0) stop();
     },
@@ -307,8 +422,8 @@ export function attachView(nativeId: number, options: ViewOptions): ViewHandle {
 }
 
 /** Geliştirme ve ölçüm için: kaç görünüm var, kaçı çiziliyor (türlerine göre) */
-export function cosmeticsStats(): { views: number; drawing: Record<string, number>; reduced: boolean } {
+export function cosmeticsStats(): { views: number; drawing: Record<string, number>; reduced: boolean; retired: number } {
   const drawing: Record<string, number> = {};
   for (const v of views) if (v.visible && v.focused && !v.broken) drawing[v.kind] = (drawing[v.kind] ?? 0) + 1;
-  return { views: views.size, drawing, reduced };
+  return { views: views.size, drawing, reduced, retired: retired.length };
 }
