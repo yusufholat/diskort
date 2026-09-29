@@ -36,7 +36,7 @@ import { pickAvatar, pickBanner } from '../../attachments';
 import { toast } from '../../stores/ui';
 import { colors, createStyles, font, radius, space } from '../../theme';
 import { Avatar, PresenceAvatar } from '../Avatar';
-import { hasSkia, NAMEPLATE_TEXT_SHADOW, NameplateBackground, nameplateNameColor, SetThumb } from '../cosmetics/Cosmetics';
+import { useHasSkia, NAMEPLATE_TEXT_SHADOW, NameplateBackground, nameplateNameColor, SetThumb } from '../cosmetics/Cosmetics';
 import { confirmDialog } from '../Dialog';
 import { PressableScale } from '../PressableScale';
 import { ProfileHeader } from '../ProfileHeader';
@@ -55,7 +55,7 @@ export function ProfileSettings() {
   const look = useProfileLook();
   const [savingColor, setSavingColor] = useState(false);
   // Hareketli setler yalnızca Skia'lı uygulamada sunulur (yoksa çizilemez)
-  const animated = hasSkia();
+  const animated = useHasSkia();
 
   const setColor = async (avatarColor: string): Promise<void> => {
     setSavingColor(true);

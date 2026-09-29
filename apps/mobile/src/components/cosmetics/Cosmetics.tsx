@@ -5,14 +5,14 @@ import type { CosmeticSet } from '@diskort/shared';
 import { COSMETIC_SET_INFO, type ShaderViewKind } from '@diskort/client-core';
 import { attachView, onScreen, type ViewHandle } from './engine';
 import type { CardGeo } from './layers';
-import { hasSkia, skia } from './skia';
+import { skia, useHasSkia } from './skia';
 
 // Hareketli kozmetiklerin React bileşenleri (masaüstündeki Cosmetics.tsx'in karşılığı): hepsi tek motora
 // (engine.ts) bağlanan yerel Skia yüzeyleridir. Skia'nın yerel modülü olmayan uygulamada hiçbiri çizilmez
 // (küçük avatarlardaki sabit halka dışında: o düz bir görünümdür).
 
 export type { CardGeo } from './layers';
-export { hasSkia } from './skia';
+export { hasSkia, useHasSkia } from './skia';
 
 /** Avatarın bu boydan küçüğünde (mesajlar, listeler) hareketli dekorasyon yerine sabit, ucuz bir halka */
 export const ANIMATED_DECORATION_MIN_SIZE = 64;
@@ -52,7 +52,7 @@ interface SurfaceProps {
 
 /** Skia yoksa hiçbir şey; varsa motora bağlı yüzey */
 function CosmeticSurface(props: SurfaceProps) {
-  return hasSkia() ? (
+  return useHasSkia() ? (
     <SurfaceBoundary>
       <SkiaSurface {...props} />
     </SurfaceBoundary>
@@ -173,7 +173,7 @@ export function AnimatedDecoration({
   /** Sabit tek kare (seçicide seçili olmayan seçenek) */
   still?: boolean;
 }) {
-  if (!hasSkia() || (!animate && size < ANIMATED_DECORATION_MIN_SIZE)) return <StaticDecorationRing set={set} size={size} />;
+  if (!useHasSkia() || (!animate && size < ANIMATED_DECORATION_MIN_SIZE)) return <StaticDecorationRing set={set} size={size} />;
   // Avatarın dış yarıçapı (profil kartında 80 piksellik avatar + 6 piksellik halka = 46)
   const R = (size / 2) * 1.15;
   const box = Math.round(R * DECORATION_CANVAS_SCALE);
