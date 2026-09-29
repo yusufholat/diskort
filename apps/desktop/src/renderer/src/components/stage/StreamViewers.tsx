@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { useGuild, useMemberColor, useStreamViewers } from '@diskort/client-core';
+import { useGuild, useStreamViewers, useVoiceMemberColor } from '@diskort/client-core';
 import { useEscapeLayer } from '../../lib/escape';
 import { usePresence } from '../../lib/motion';
 import { cn } from '../../lib/utils';
@@ -224,7 +224,7 @@ function ViewerList({
 
 function ViewerRow({ userId }: { userId: string }) {
   const user = useGuild((s) => s.users[userId]);
-  const color = useMemberColor(userId);
+  const color = useVoiceMemberColor(userId);
   return (
     <li className="flex items-center gap-2 rounded px-2 py-1.5">
       <Avatar user={user} size={24} />

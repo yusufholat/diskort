@@ -18,7 +18,7 @@ import { voice } from '../../features/voice/voiceClient';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { animate, usePresence, usePresenceList, type PresenceEntry, type PresencePhase } from '../../lib/motion';
 import { cn } from '../../lib/utils';
-import { channelById, membersOf, useCan, useGuild, useMemberColor, useSession } from '@diskort/client-core';
+import { channelById, membersOf, useCan, useChannelMemberColor, useGuild, useSession } from '@diskort/client-core';
 import { useSettings } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
@@ -439,7 +439,7 @@ function tileCenter(el: HTMLElement): { left: number; right: number; top: number
 
 function ParticipantTile({ state, compact }: { state: VoiceState; compact?: boolean }) {
   const user = useGuild((s) => s.users[state.userId]);
-  const color = useMemberColor(state.userId);
+  const color = useChannelMemberColor(state.userId, state.channelId);
   const speaking = useVoice((s) => s.speaking[state.userId] === true);
   const selfId = useSession((s) => s.user?.id);
   const localMuted = useSettings((s) => s.localMutes[state.userId] === true);

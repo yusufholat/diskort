@@ -38,6 +38,15 @@ export function showsGuildInfo(s: Pick<GuildStore, 'activeGuildId'>, context: Pr
   return context.kind === 'guild' && context.guildId === s.activeGuildId;
 }
 
+/**
+ * Bağlamda sesteki durum ve "Yayını izle" gösterilir mi: her sunucu bağlamında, seçili sunucu olmasa da
+ * (ses durumları tüm sunucuların; izlemek yönetim yetkisi istemez). DM'de yok. Sesteki yönetim (susturma,
+ * taşıma, sesten çıkarma) ise seçili sunucunun yetkileriyle hesaplandığından showsGuildInfo'ya bağlıdır.
+ */
+export function showsStreamInfo(context: ProfileContext): boolean {
+  return context.kind === 'guild';
+}
+
 /** Bağlamda bir kişiye (kendisi değilse, ortak sunucusu varsa) "Mesaj gönder" gösterilir mi */
 export function canMessageIn(
   s: Pick<GuildStore, 'dms' | 'reachable'>,
@@ -92,6 +101,23 @@ function contextFor(guildId: string | null, channelId: string | null | undefined
     contexts.set(key, context);
   }
   return context;
+}
+
+/**
+ * Sesteki kişinin adının rengi: seste olduğu kanalın sunucusundaki rol rengi (o sunucu seçiliyse; başka
+ * sunucunun rolleri uygulanmaz). Seste değilse null.
+ */
+export function voiceMemberColorOf(
+  s: Pick<GuildStore, 'guild' | 'roles' | 'users' | 'activeGuildId' | 'dms' | 'channelGuild' | 'voiceStates'>,
+  userId: string | null | undefined,
+): string | null {
+  const channelId = userId ? s.voiceStates[userId]?.channelId : undefined;
+  return channelId ? channelMemberColorOf(s, userId, channelId) : null;
+}
+
+/** Sesteki kişinin adının rengi (bkz. voiceMemberColorOf) */
+export function useVoiceMemberColor(userId: string | null | undefined): string | null {
+  return useGuild((s) => voiceMemberColorOf(s, userId));
 }
 
 /** Kanalın bağlamı (bileşenlerde; kanal ya da sunucusu değişmedikçe aynı nesne) */

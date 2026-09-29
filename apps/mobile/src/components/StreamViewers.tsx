@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
-import { useGuild, useMemberColor, useStreamViewers } from '@diskort/client-core';
+import { useGuild, useStreamViewers, useVoiceMemberColor } from '@diskort/client-core';
 import { colors, createStyles, font, radius, space } from '../theme';
 import { Avatar } from './Avatar';
 import { BottomSheet } from './BottomSheet';
@@ -72,7 +72,7 @@ function StackAvatar({ userId, first }: { userId: string; first: boolean }) {
 
 function ViewerRow({ userId }: { userId: string }) {
   const user = useGuild((s) => s.users[userId]);
-  const color = useMemberColor(userId);
+  const color = useVoiceMemberColor(userId);
   return (
     <View style={styles.row}>
       <Avatar user={user} size={32} />

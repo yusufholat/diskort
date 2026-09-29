@@ -1,7 +1,7 @@
 import { memo, useEffect, useState, type ReactNode } from 'react';
 import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { avatarUrl, streamPreviewHeaders, streamPreviewUrl, useGuild, useMemberColor } from '@diskort/client-core';
+import { avatarUrl, streamPreviewHeaders, streamPreviewUrl, useChannelMemberColor, useGuild } from '@diskort/client-core';
 import type { VoiceState } from '@diskort/shared';
 import { useAppear, useTimingTo } from '../motion';
 import { colors, createStyles, font, radius, space } from '../theme';
@@ -89,7 +89,7 @@ interface MemberTileProps {
 
 export const MemberTile = memo(function MemberTile({ state, width, height, selfId, onLongPress }: MemberTileProps) {
   const user = useGuild((s) => s.users[state.userId]);
-  const color = useMemberColor(state.userId);
+  const color = useChannelMemberColor(state.userId, state.channelId);
   const speaking = useVoice((s) => Boolean(s.speaking[state.userId]));
   // Konuşma kenarı: açılışı hızlı, sönüşü yavaş (kısa sessizliklerde titremez)
   const edge = useTimingTo(speaking ? 1 : 0, speaking ? 90 : 280);

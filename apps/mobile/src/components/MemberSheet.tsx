@@ -10,6 +10,7 @@ import {
   moveTargets,
   openDirectMessage,
   showsGuildInfo,
+  showsStreamInfo,
   streamPreviewHeaders,
   streamPreviewUrl,
   useCustomStatus,
@@ -61,7 +62,10 @@ export function MemberSheet({
   // Sunucu bilgisi (roller, taç, ses, yönetim) yalnızca o sunucunun bağlamında
   const guildInfo = useGuild((s) => showsGuildInfo(s, shownContext));
   const user = useGuild((s) => (userId ? s.users[userId] : undefined));
+  // Sesteki yönetim (susturma, taşıma) seçili sunucunun yetkileriyle: yalnızca o sunucunun bağlamında
   const voice = useGuild((s) => (userId && guildInfo ? s.voiceStates[userId] : undefined));
+  // Seste olduğu ve "Yayını izle": her sunucu bağlamında (seçili olmayan sunucunun ses kanalı da), DM'de değil
+  const live = useGuild((s) => (userId && showsStreamInfo(shownContext) ? s.voiceStates[userId] : undefined));
   const status = useStatus(userId);
   const custom = useCustomStatus(userId);
   const color = useGuild((s) => (guildInfo ? memberColorOf(s, userId) : null));
@@ -74,7 +78,7 @@ export function MemberSheet({
   // Mesaj: ortak sunucusu olan herkese (DM'deki başka sunucudan biri de); o kişiyle bire bir konuşmada değil
   const canMessage = useGuild((s) => Boolean(user && userId && canMessageIn(s, shownContext, userId, selfId)));
   // Başkası ekran paylaşıyorsa "Yayını izle" (o kanalda değilsen önce katılır)
-  const streaming = Boolean(voice?.streaming && userId !== selfId);
+  const streaming = Boolean(live?.streaming && userId !== selfId);
   const watchingThis = useVoice((s) => s.watching !== null && s.watching === userId);
   const router = useRouter();
   const pathname = usePathname();
@@ -170,7 +174,7 @@ export function MemberSheet({
 
   const watchStream = async (): Promise<void> => {
     const target = userId!;
-    const channelId = voice!.channelId;
+    const channelId = live!.channelId;
     close();
     if (watchingThis) {
       voiceClient.watch(null);
@@ -204,7 +208,7 @@ export function MemberSheet({
               <MaterialCommunityIcons name="crown-outline" size={17} color={colors.warn} accessibilityLabel="Sunucunun sahibi" />
             )
           }
-          lines={voice ? 'Sesli sohbette' : undefined}
+          lines={live ? 'Sesli sohbette' : undefined}
           custom={custom}
           style={styles.header}
         />
@@ -268,17 +272,17 @@ export function MemberSheet({
           <>
             {streaming && (
               <SheetGroup>
-                {voice?.streamPreviewAt !== undefined && (
+                {live?.streamPreviewAt !== undefined && (
                   <View style={styles.preview}>
                     <Image
-                      source={{ uri: streamPreviewUrl(voice), headers: streamPreviewHeaders() }}
+                      source={{ uri: streamPreviewUrl(live), headers: streamPreviewHeaders() }}
                       style={styles.previewImage}
                       resizeMode="contain"
                       accessibilityLabel="Yayın önizlemesi"
                     />
-                    {voice.streamSourceName !== undefined && (
+                    {live.streamSourceName !== undefined && (
                       <Text style={styles.previewName} numberOfLines={1}>
-                        {voice.streamSourceName}
+                        {live.streamSourceName}
                       </Text>
                     )}
                   </View>

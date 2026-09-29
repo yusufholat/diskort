@@ -170,9 +170,12 @@ export {
   DM_CONTEXT,
   memberColorIn,
   showsGuildInfo,
+  showsStreamInfo,
   useActiveGuildContext,
   useChannelContext,
   useChannelMemberColor,
+  useVoiceMemberColor,
+  voiceMemberColorOf,
   type ProfileContext,
 } from './profileContext';
 export {

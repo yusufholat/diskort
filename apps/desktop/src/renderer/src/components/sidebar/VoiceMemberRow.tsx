@@ -8,7 +8,7 @@ import {
   can,
   contextOfChannel,
   useGuild,
-  useMemberColor,
+  useChannelMemberColor,
   useSession,
   voiceDropTargets,
   type ProfileContext,
@@ -109,7 +109,7 @@ export function VoiceStateIcons({ state, localMuted, size = 15 }: { state: Voice
 
 export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMyChannel: boolean }) {
   const user = useGuild((s) => s.users[state.userId]);
-  const color = useMemberColor(state.userId);
+  const color = useChannelMemberColor(state.userId, state.channelId);
   const speaking = useVoice((s) => inMyChannel && s.speaking[state.userId] === true);
   const localMuted = useSettings((s) => s.localMutes[state.userId] === true);
   const selfId = useSession((s) => s.user?.id);

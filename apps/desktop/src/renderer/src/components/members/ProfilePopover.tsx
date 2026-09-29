@@ -5,6 +5,7 @@ import { userProfileEffect } from '@diskort/shared';
 import {
   canMessageIn,
   showsGuildInfo,
+  showsStreamInfo,
   sortedRoles,
   useCustomStatus,
   useGuild,
@@ -82,9 +83,10 @@ export function ProfilePopover() {
   const allRoles = useGuild((s) => s.roles);
   const selfId = useSession((s) => s.user?.id);
   const canMessage = useGuild((s) => (shown ? canMessageIn(s, shown.context, shown.userId, selfId) : false));
-  // Yayın yapıyorsa kanalı (kartta "Yayını izle" düğmesi için)
+  // Yayın yapıyorsa kanalı (kartta "Yayını izle" düğmesi için): her sunucu bağlamında (seçili olmayan
+  // sunucunun ses kanalı da), DM'de değil
   const streamChannel = useGuild((s) => {
-    const v = shown && guildInfo ? s.voiceStates[shown.userId] : undefined;
+    const v = shown && showsStreamInfo(shown.context) ? s.voiceStates[shown.userId] : undefined;
     return v?.streaming ? v.channelId : null;
   });
   const ref = useRef<HTMLDivElement>(null);
@@ -189,7 +191,7 @@ export function ProfilePopover() {
           </div>
         )}
 
-        {streamChannel && !user.removed && (
+        {streamChannel && !(guildInfo && user.removed) && (
           <button
             type="button"
             className="press mt-4 flex w-full items-center justify-center gap-1.5 rounded bg-danger px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-danger-hover"

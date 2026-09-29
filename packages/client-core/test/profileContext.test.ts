@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DmChannel, Role } from '@diskort/shared';
+import type { DmChannel, Role, VoiceState } from '@diskort/shared';
 import {
   activeGuildContext,
   canMessageIn,
@@ -8,6 +8,8 @@ import {
   DM_CONTEXT,
   memberColorIn,
   showsGuildInfo,
+  showsStreamInfo,
+  voiceMemberColorOf,
   type MemberUser,
 } from '../src';
 
@@ -41,15 +43,28 @@ const user = (id: string, roles: string[]): MemberUser => ({
   removed: false,
 });
 
-// Seçili sunucu g1; ali orada "kırmızı" rolde. d1: ben–ali bire bir, d2: grup
+const voiceIn = (userId: string, channelId: string): VoiceState => ({
+  userId,
+  channelId,
+  selfMute: false,
+  selfDeaf: false,
+  serverMute: false,
+  serverDeaf: false,
+  streaming: true,
+  joinedAt: 1,
+});
+
+// Seçili sunucu g1; ali ve veli orada "kırmızı" rolde. d1: ben–ali bire bir, d2: grup
 const state = {
   activeGuildId: 'g1',
   guild: { id: 'g1', name: 'Sunucu', ownerId: 'ben' },
   roles: { g1: role('g1', 0, null), kirmizi: role('kirmizi', 2, '#ff0000') },
-  users: { ben: user('ben', []), ali: user('ali', ['kirmizi']), veli: user('veli', []) },
+  users: { ben: user('ben', []), ali: user('ali', ['kirmizi']), veli: user('veli', ['kirmizi']) },
   dms: { d1: dm('d1', ['ben', 'ali']), d2: dm('d2', ['ben', 'ali', 'veli']) },
-  channelGuild: { genel: 'g1', baska: 'g2' },
+  channelGuild: { genel: 'g1', baska: 'g2', ses1: 'g1', ses2: 'g2' },
   reachable: { ali: true, ben: true } as Record<string, true>,
+  // ali seçili sunucunun, veli başka sunucunun ses kanalında
+  voiceStates: { ali: voiceIn('ali', 'ses1'), veli: voiceIn('veli', 'ses2') },
 };
 
 describe('profil bağlamı', () => {
@@ -80,6 +95,24 @@ describe('profil bağlamı', () => {
     expect(channelMemberColorOf(state, 'ali', 'd2')).toBeNull();
     // Başka sunucunun kanalı: seçili sunucunun rolleri orada geçerli değil
     expect(channelMemberColorOf(state, 'ali', 'baska')).toBeNull();
+  });
+
+  it('yayın her sunucu bağlamında (seçili olmasa da), roller/yönetim yalnızca seçili sunucuda, DM’de hiçbiri', () => {
+    const other = { kind: 'guild', guildId: 'g2' } as const;
+    expect(showsStreamInfo({ kind: 'guild', guildId: 'g1' })).toBe(true);
+    expect(showsStreamInfo(other)).toBe(true);
+    expect(showsGuildInfo(state, other)).toBe(false);
+    expect(showsStreamInfo(DM_CONTEXT)).toBe(false);
+    expect(showsStreamInfo({ kind: 'dm', channelId: 'd1' })).toBe(false);
+  });
+
+  it('sesteki adın rengi: ses kanalının sunucusu seçiliyse onun rol rengi, değilse varsayılan', () => {
+    expect(voiceMemberColorOf(state, 'ali')).toBe('#ff0000');
+    // veli başka sunucunun ses kanalında: seçili sunucunun rengi ona uygulanmaz
+    expect(voiceMemberColorOf(state, 'veli')).toBeNull();
+    expect(voiceMemberColorOf(state, 'ben')).toBeNull();
+    expect(channelMemberColorOf(state, 'veli', 'ses2')).toBeNull();
+    expect(channelMemberColorOf(state, 'veli', 'ses1')).toBe('#ff0000');
   });
 
   it('"Mesaj gönder": kendine ve ortak sunucusu olmayana yok, bire bir konuşmadaki kişiye yok', () => {
