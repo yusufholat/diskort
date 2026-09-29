@@ -403,6 +403,28 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
   );
 
   app.get<{ Params: { id: string }; Querystring: Record<string, string> }>(
+    '/api/channels/:id/files',
+    { preHandler: auth.requireUser },
+    async (req, reply) => {
+      if (!textChannel(req.params.id, req.user.id, reply)) return reply;
+      const query = mediaQuery.safeParse(req.query);
+      if (!query.success) return sendError(reply, 400, 'invalid_query', 'Geçersiz sorgu.');
+      const cursor = query.data.before?.split('_').map(Number);
+      const page = store.listChannelFiles(
+        req.params.id,
+        cursor ? { messageId: cursor[0]!, position: cursor[1]! } : null,
+        query.data.limit ?? CHANNEL_MEDIA_PAGE_SIZE,
+      );
+      const last = page.items[page.items.length - 1];
+      const result: ChannelPanelPage<ChannelMediaItem> = {
+        items: page.items.map(({ position: _position, ...item }) => item),
+        nextCursor: page.more && last ? `${last.messageId}_${last.position}` : null,
+      };
+      return result;
+    },
+  );
+
+  app.get<{ Params: { id: string }; Querystring: Record<string, string> }>(
     '/api/channels/:id/links',
     { preHandler: auth.requireUser },
     async (req, reply) => {

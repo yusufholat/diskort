@@ -29,6 +29,7 @@ import {
 import { DmAvatar } from '../components/DmAvatar';
 import { shareInvite } from '../components/GuildMenu';
 import { HeaderButton } from '../components/HeaderButton';
+import { FileList } from '../components/channelPanel/FileList';
 import { LinkList } from '../components/channelPanel/LinkList';
 import { MediaGrid } from '../components/channelPanel/MediaGrid';
 import { MemberList, type MemberSource } from '../components/channelPanel/MemberList';
@@ -37,19 +38,20 @@ import { openChannelSettings } from '../components/serverSettings/common';
 import { showChat } from '../stores/nav';
 import { colors, createStyles, font, radius, ripple, space } from '../theme';
 
-type TabKey = 'members' | 'media' | 'pins' | 'links';
+type TabKey = 'members' | 'media' | 'pins' | 'links' | 'files';
 
 const TAB_LABELS: Record<TabKey, string> = {
   members: 'Üyeler',
   media: 'Medya',
   pins: 'Sabitlemeler',
   links: 'Bağlantılar',
+  files: 'Dosyalar',
 };
 
 /**
  * Kanal paneli (Discord'daki gibi; sohbet başlığına dokununca açılır): üstte geri, arama ve (yetkisi varsa)
  * kanal ayarları; kanalın simgesi, adı ve türü; kaydırılabilen sekmeler (Üyeler, Medya, Sabitlemeler,
- * Bağlantılar). Ses kanalında yalnızca üyeler. Grup konuşmasında sunucu bilgisi yok: katılımcılar, medya,
+ * Bağlantılar, Dosyalar). Ses kanalında yalnızca üyeler. Grup konuşmasında sunucu bilgisi yok: katılımcılar, medya,
  * sabitlemeler ve bağlantılar. Kanal bildirim ayarı olmadığından bildirim düğmesi yok.
  */
 export default function ChannelPanelScreen() {
@@ -91,7 +93,7 @@ function Panel({ channel, dm }: { channel: Channel; dm: null } | { channel: null
   const canManage = sameGuild && hasPermission(channelPerms, Permission.MANAGE_CHANNELS);
 
   const tabs = useMemo<TabKey[]>(
-    () => (channel?.type === 'voice' ? ['members'] : ['members', 'media', 'pins', 'links']),
+    () => (channel?.type === 'voice' ? ['members'] : ['members', 'media', 'pins', 'links', 'files']),
     [channel?.type],
   );
   const [index, setIndex] = useState(0);
@@ -162,8 +164,10 @@ function Panel({ channel, dm }: { channel: Channel; dm: null } | { channel: null
           <MediaGrid channelId={channelId} active />
         ) : item === 'pins' ? (
           <PinsTab channelId={channelId} />
-        ) : (
+        ) : item === 'links' ? (
           <LinkList channelId={channelId} active />
+        ) : (
+          <FileList channelId={channelId} active />
         )}
       </View>
     );

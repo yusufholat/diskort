@@ -196,6 +196,12 @@ export const api = {
       'GET',
       `/api/channels/${channelId}/media${before ? `?before=${encodeURIComponent(before)}` : ''}`,
     ),
+  /** Kanal paneli: kanalda paylaşılan resim/video dışındaki dosyalar (belge, arşiv, ses, APK…), yeniden eskiye */
+  channelFiles: (channelId: string, before?: string | null) =>
+    request<ChannelPanelPage<ChannelMediaItem>>(
+      'GET',
+      `/api/channels/${channelId}/files${before ? `?before=${encodeURIComponent(before)}` : ''}`,
+    ),
   /** Kanal paneli: mesajlardaki bağlantılar, yeniden eskiye (before: nextCursor) */
   channelLinks: (channelId: string, before?: string | null) =>
     request<ChannelPanelPage<ChannelLinkItem>>(
