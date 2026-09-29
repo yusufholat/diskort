@@ -122,6 +122,8 @@ function Panel({ channel, dm }: { channel: Channel; dm: null } | { channel: null
     [withNeighbors],
   );
   const goTo = (i: number): void => {
+    // Seçili sekmeye yeniden dokunmak: kayma olmaz, kayma sonu da gelmez (plakalar "kayıyor" diye durup kalmasın)
+    if (i === index) return;
     // Bitişik olmayan sekmeye kayarken aradaki (kurulmamış) sayfalar boş görünür; onlara doğrudan atlanır
     const far = Math.abs(i - index) > 1;
     if (!far) setMoving(true);
