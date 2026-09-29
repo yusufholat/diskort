@@ -202,6 +202,62 @@ describe('ses kalitesi ölçümleri', () => {
     expect(other.entries).toEqual([]);
   });
 
+  it('izlenen yayın, cihaz ve yeni mikrofon/yayın alanları kaydedilir; eski ve bilinmeyen alanlı özetler de kabul', async () => {
+    const member = await s.member('uye');
+    const voice = s.channel('voice');
+    s.ctx.voice.join(member.user.id, voice.id);
+    const send = (r: unknown) => s.req(member.token, 'POST', '/api/telemetry/voice', r as VoiceTelemetryReport);
+    const watch = {
+      codec: 'video/VP9',
+      decoder: 'libvpx',
+      hardware: false,
+      powerEfficient: false,
+      width: 2560,
+      height: 1440,
+      fps: 58.44,
+      decodeMs: 6.9123,
+      decodeMsMax: 11.2,
+      bitrate: 11_800_000.4,
+      framesDropped: 12,
+      freezes: 1,
+      freezeSec: 0.42,
+      jitterBufferMs: 48.26,
+      view: { mode: 'inline', width: 1080, height: 608 },
+    };
+    const res = await send({
+      ...report({ channelId: voice.id, platform: 'android' }),
+      mic: { ...report().mic!, modelFrameMs: 5.123, core: '7 (4320 MHz)' },
+      screen: { width: 1920, height: 1080, fps: 60, bitrate: 8e6, encoder: 'libvpx', codec: 'video/VP9', limitation: 'cpu', limitedRatio: 0.4, encodeMs: 9.5, hardware: false },
+      watch,
+      device: { appState: 'active', soc: 'QTI SM8850' },
+      // Sunucunun bilmediği alan yok sayılır
+      gelecek: { x: 1 },
+    });
+    expect(res.statusCode).toBe(204);
+    // Eski istemci (yeni alanlar yok) ve boş izleme
+    expect((await send(report({ channelId: voice.id }))).statusCode).toBe(204);
+    expect((await send({ ...report(), watch: null, device: null })).statusCode).toBe(204);
+    // Geçersiz değerler reddedilir
+    expect((await send({ ...report(), watch: { ...watch, decodeMs: -1 } })).statusCode).toBe(400);
+    expect((await send({ ...report(), watch: { ...watch, view: { mode: 'yan', width: 1, height: 1 } } })).statusCode).toBe(400);
+
+    const hist = (await s.req(s.owner.token, 'GET', `/api/admin/telemetry?user=${member.user.id}`)).json();
+    const first = hist.entries[0] as TelemetryEntry;
+    expect(first.watch).toMatchObject({ decoder: 'libvpx', hardware: false, fps: 58.4, decodeMs: 6.91, bitrate: 11_800_000, freezeSec: 0.4, jitterBufferMs: 48.3, view: { mode: 'inline' } });
+    expect(first.device).toEqual({ appState: 'active', soc: 'QTI SM8850' });
+    expect(first.mic).toMatchObject({ modelFrameMs: 5.123, core: '7 (4320 MHz)' });
+    expect(first.screen).toMatchObject({ encodeMs: 9.5, hardware: false });
+    expect(JSON.stringify(first)).not.toContain('gelecek');
+    expect(hist.entries[1].watch).toBeNull();
+
+    // Günlük JSONL dosyasında da
+    await s.ctx.telemetry.flush();
+    const day = dayKey(Date.now(), config.statsUtcOffsetMin);
+    const line = JSON.parse(fs.readFileSync(path.join(dir(), `${day}.jsonl`), 'utf8').split('\n')[0]!) as TelemetryEntry;
+    expect(line.watch?.decoder).toBe('libvpx');
+    expect(line.device?.soc).toBe('QTI SM8850');
+  });
+
   it('kullanıcı başına dakikada en fazla 8 özet', async () => {
     const member = await s.member('uye');
     const codes: number[] = [];

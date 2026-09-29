@@ -1,7 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
-import type { ClientPlatform, TelemetryMic, TelemetryQuality, TelemetryScreen, VoiceTelemetryReport } from '@diskort/shared';
+import type {
+  ClientPlatform,
+  TelemetryDevice,
+  TelemetryMic,
+  TelemetryQuality,
+  TelemetryScreen,
+  TelemetryWatch,
+  VoiceTelemetryReport,
+} from '@diskort/shared';
 import { dayKey } from './counters.js';
 
 // Ses kalitesi ölçümleri (yönetim paneli). İstemciler sesliyken ~30 sn'de bir özet gönderir
@@ -42,6 +50,9 @@ export interface TelemetryEntry {
   reconnects: number;
   mic: TelemetryMic | null;
   screen: TelemetryScreen | null;
+  /** İzlenen yayının çözücüsü ve çözme maliyeti; cihaz durumu (eski özetlerde yok) */
+  watch?: TelemetryWatch | null;
+  device?: TelemetryDevice | null;
   severity: TelemetrySeverity;
   causes: string[];
 }
@@ -273,7 +284,26 @@ export class VoiceTelemetryStore {
             maxFrameMs: r(report.mic.maxFrameMs, 2),
           }
         : null,
-      screen: report.screen ? { ...report.screen, fps: r(report.screen.fps, 1), bitrate: r(report.screen.bitrate) } : null,
+      screen: report.screen
+        ? {
+            ...report.screen,
+            fps: r(report.screen.fps, 1),
+            bitrate: r(report.screen.bitrate),
+            ...(report.screen.encodeMs !== undefined && { encodeMs: r(report.screen.encodeMs, 2) }),
+          }
+        : null,
+      watch: report.watch
+        ? {
+            ...report.watch,
+            fps: r(report.watch.fps, 1),
+            decodeMs: r(report.watch.decodeMs, 2),
+            decodeMsMax: r(report.watch.decodeMsMax, 2),
+            bitrate: r(report.watch.bitrate),
+            freezeSec: r(report.watch.freezeSec, 1),
+            jitterBufferMs: r(report.watch.jitterBufferMs, 1),
+          }
+        : null,
+      device: report.device ?? null,
     };
     const entry: TelemetryEntry = { ...base, ...assessReport(base, this.live.get(userId)) };
     this.received++;

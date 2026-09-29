@@ -45,6 +45,9 @@ const reportSchema = z.object({
       underruns: num(1e9),
       droppedSamples: num(1e12),
       muted: z.boolean(),
+      // Yeni istemcilerde (eskiler göndermez)
+      modelFrameMs: num(10_000).optional(),
+      core: text(48).optional(),
     })
     .nullable(),
   screen: z
@@ -57,8 +60,44 @@ const reportSchema = z.object({
       codec: text(32),
       limitation: z.enum(['none', 'cpu', 'bandwidth', 'other']),
       limitedRatio: num(1),
+      encodeMs: num(10_000).optional(),
+      hardware: z.boolean().nullable().optional(),
     })
     .nullable(),
+  // İzlenen yayın ve cihaz durumu (yeni istemcilerde; eskiler göndermez)
+  watch: z
+    .object({
+      codec: text(32),
+      decoder: text(80),
+      hardware: z.boolean().nullable(),
+      powerEfficient: z.boolean().nullable(),
+      width: num(20_000),
+      height: num(20_000),
+      fps: num(1_000),
+      decodeMs: num(10_000),
+      decodeMsMax: num(10_000),
+      bitrate: num(1e10),
+      framesDropped: num(1e9),
+      freezes: num(1e6),
+      freezeSec: num(1e6),
+      jitterBufferMs: num(60_000),
+      view: z
+        .object({
+          mode: z.enum(['fullscreen', 'inline']),
+          width: z.number().finite().min(0).max(20_000),
+          height: z.number().finite().min(0).max(20_000),
+        })
+        .nullable(),
+    })
+    .nullable()
+    .optional(),
+  device: z
+    .object({
+      appState: text(16),
+      soc: text(48),
+    })
+    .nullable()
+    .optional(),
 });
 
 /** Kullanıcı başına dakikada en fazla özet (normalde 2; kalite düşünce birkaç erken özet) */

@@ -4,11 +4,22 @@ import {
   type TelemetryLimitation,
   type TelemetryMic,
   type TelemetryQuality,
+  type TelemetryDevice,
   type TelemetryScreen,
+  type TelemetryView,
+  type TelemetryWatch,
   type VoiceTelemetryReport,
 } from '@diskort/shared';
 import { normalizeServerUrl } from './api';
-import type { RtpStream, TransportStats } from './connectionStats';
+import {
+  isHardwareCodec,
+  jitterBufferMs,
+  mainInboundVideo,
+  perFrameMs,
+  type RtpStream,
+  type TransportStats,
+  type VideoCounters,
+} from './connectionStats';
 import { env } from './env';
 import { useSession } from './session';
 
@@ -30,6 +41,9 @@ const MAX_STEP_MS = 10_000;
 export interface TelemetryContext {
   channelId: string | null;
   mic: TelemetryMic | null;
+  /** İzlenen yayının görünümü (tam ekran / küçük); bildirmeyen platformda yok */
+  view?: TelemetryView | null;
+  device?: TelemetryDevice | null;
 }
 
 export interface TelemetrySample {
@@ -59,6 +73,23 @@ class Mean {
   }
   get avg(): number | null {
     return this.n ? this.sum / this.n : null;
+  }
+}
+
+/** İki ölçüm arasında harcanan süre (sn) ve kare sayısı toplamları: ortalama ms/kare */
+class FrameTime {
+  sec = 0;
+  frames = 0;
+  add(time: number | null, prevTime: number | null, frames: number | null, prevFrames: number | null): void {
+    if (time === null || prevTime === null || frames === null || prevFrames === null) return;
+    const dFrames = frames - prevFrames;
+    const dTime = time - prevTime;
+    if (dFrames <= 0 || dTime < 0) return;
+    this.sec += dTime;
+    this.frames += dFrames;
+  }
+  get ms(): number | null {
+    return this.frames > 0 ? (this.sec / this.frames) * 1000 : null;
   }
 }
 
@@ -119,6 +150,32 @@ class Window {
   limited = 0;
   limitSamples = 0;
   limitCounts: Record<TelemetryLimitation, number> = { none: 0, cpu: 0, bandwidth: 0, other: 0 };
+  encode = new FrameTime();
+  // İzlenen (gelen) yayın
+  watchLast: RtpStream | null = null;
+  watchBits = 0;
+  watchMs = 0;
+  watchFps = new Mean();
+  decode = new FrameTime();
+  /** ~10 sn'lik ölçümlerin kare başına çözme süreleri (en yükseği için) */
+  decodeSteps = new Mean();
+  jitterBuffer = new FrameTime();
+  dropped: number | null = null;
+  freezes: number | null = null;
+  freezeSec: number | null = null;
+}
+
+/** Sayaç farkı (null: iki ölçümde de yoksa); sayaç sıfırlandıysa (yeni akış) 0 */
+const addDelta = (acc: number | null, curr: number | null | undefined, prev: number | null | undefined): number | null =>
+  curr === null || curr === undefined || prev === null || prev === undefined ? acc : (acc ?? 0) + Math.max(0, curr - prev);
+
+function addCounters(w: Window, v: VideoCounters, p: VideoCounters): void {
+  w.decode.add(v.totalTime, p.totalTime, v.frames, p.frames);
+  w.decodeSteps.add(perFrameMs(v, p));
+  w.jitterBuffer.add(v.jitterBufferDelay, p.jitterBufferDelay, v.jitterBufferEmittedCount, p.jitterBufferEmittedCount);
+  w.dropped = addDelta(w.dropped, v.framesDropped, p.framesDropped);
+  w.freezes = addDelta(w.freezes, v.freezeCount, p.freezeCount);
+  w.freezeSec = addDelta(w.freezeSec, v.totalFreezesDuration, p.totalFreezesDuration);
 }
 
 export class VoiceTelemetry {
@@ -218,6 +275,9 @@ export class VoiceTelemetry {
           w.screenBits += (screen.bytes - p.bytes) * 8;
           w.screenMs += dt;
         }
+        if (p?.video && screen.video) {
+          w.encode.add(screen.video.totalTime, p.video.totalTime, screen.video.frames, p.video.frames);
+        }
         w.screenFps.add(screen.framesPerSecond);
         w.screenLast = screen;
         const reason = limitationOf(screen.qualityLimitationReason);
@@ -247,7 +307,22 @@ export class VoiceTelemetry {
     this.lastSub = sub;
     this.lastSubAt = sub.at;
     for (const st of sub.streams) if (st.direction === 'in' && st.kind === 'audio') w.jitterIn.add(st.jitterMs);
+    // İzlenen yayın: çözücü, çözme süresi, atılan kare, donma
+    const watched = mainInboundVideo(sub.streams);
+    if (watched) {
+      w.watchLast = watched;
+      w.watchFps.add(watched.framesPerSecond);
+    }
     if (!prev) return;
+    const pw = watched ? prev.streams.find((x) => x.id === watched.id) : undefined;
+    if (watched && pw) {
+      const dt = sub.at - prev.at;
+      if (dt > 0 && watched.bytes >= pw.bytes) {
+        w.watchBits += (watched.bytes - pw.bytes) * 8;
+        w.watchMs += dt;
+      }
+      if (watched.video && pw.video) addCounters(w, watched.video, pw.video);
+    }
     const dt = sub.at - prev.at;
     if (dt > 0 && sub.bytesReceived >= prev.bytesReceived) {
       w.inBits += (sub.bytesReceived - prev.bytesReceived) * 8;
@@ -291,6 +366,29 @@ export class VoiceTelemetry {
             .sort((a, b) => b[1] - a[1])
             .find(([, n]) => n > 0)?.[0] ?? 'none',
           limitedRatio: w.limitSamples ? round(w.limited / w.limitSamples, 2) : null,
+          encodeMs: round(w.encode.ms, 2),
+          hardware: isHardwareCodec(last.implementation, last.video?.powerEfficient ?? null),
+        }
+      : null;
+    const seen = w.watchLast;
+    const watch: TelemetryWatch | null = seen
+      ? {
+          codec: seen.codec,
+          decoder: seen.implementation,
+          hardware: isHardwareCodec(seen.implementation, seen.video?.powerEfficient ?? null),
+          powerEfficient: seen.video?.powerEfficient ?? null,
+          width: seen.frameWidth,
+          height: seen.frameHeight,
+          fps: round(w.watchFps.avg, 1),
+          // Aralıkta fark alınamadıysa (ilk okuma) baştan beri ortalama
+          decodeMs: round(w.decode.ms ?? perFrameMs(seen.video, null), 2),
+          decodeMsMax: round(w.decodeSteps.max, 2),
+          bitrate: w.watchMs > 0 ? Math.round(w.watchBits / (w.watchMs / 1000)) : null,
+          framesDropped: w.dropped,
+          freezes: w.freezes,
+          freezeSec: round(w.freezeSec, 1),
+          jitterBufferMs: round(w.jitterBuffer.ms ?? jitterBufferMs(seen.video, null), 1),
+          view: ctx.view ?? null,
         }
       : null;
     const report: VoiceTelemetryReport = {
@@ -317,6 +415,8 @@ export class VoiceTelemetry {
       reconnects: w.reconnects,
       mic: ctx.mic,
       screen,
+      watch,
+      device: ctx.device ?? null,
     };
     this.lastSentAt = at;
     this.send(report);
