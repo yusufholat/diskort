@@ -61,6 +61,15 @@ async function setup(env: Record<string, string>, github = fakeGithub()) {
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Koşul sağlanana dek yoklar (sabit bekleme yerine; yük altında zamanlayıcılar geç kalabilir) */
+async function waitFor(cond: () => boolean | Promise<boolean>, timeoutMs = 10_000) {
+  const end = Date.now() + timeoutMs;
+  while (!(await cond())) {
+    if (Date.now() > end) throw new Error('waitFor: koşul zamanında sağlanmadı');
+    await wait(20);
+  }
+}
+
 describe('iPhone cihazları (yönetim)', () => {
   it('yalnızca hesap yöneticisi; eski kayıtlar "bekliyor" görünür', async () => {
     await setup({});
@@ -111,7 +120,7 @@ describe('iPhone cihazları (yönetim)', () => {
   });
 
   it('kısa sürede gelen onaylar tek derlemede toplanır; başarıyla bitince cihazlar "eklendi" olur', async () => {
-    const github = await setup({ GITHUB_DISPATCH_TOKEN: 'gizli-belirtec', IOS_DISPATCH_DELAY_SEC: '0.3', ...KEY_ENV });
+    const github = await setup({ GITHUB_DISPATCH_TOKEN: 'gizli-belirtec', IOS_DISPATCH_DELAY_SEC: '2', ...KEY_ENV });
     const set = (udid: string, status: string) => t!.req(t!.owner.token, 'PATCH', `/api/admin/ios-devices/${udid}`, { status });
     await set(U1, 'onaylandi');
     await set(U3, 'onaylandi');
@@ -121,7 +130,7 @@ describe('iPhone cihazları (yönetim)', () => {
     expect(pending.automation.pendingDispatchAt).not.toBeNull();
     expect(github.dispatches()).toHaveLength(0);
 
-    await wait(500);
+    await waitFor(() => github.dispatches().length > 0);
     const dispatches = github.dispatches();
     expect(dispatches).toHaveLength(1);
     const d = dispatches[0]!;
@@ -130,7 +139,11 @@ describe('iPhone cihazları (yönetim)', () => {
     expect(d.body.ref).toBe('main');
     expect(d.body.inputs).toMatchObject({ simulator: 'false', signed: 'true', 'attach-latest': 'true' });
     // Girdide UDID ya da ad açık görünmez; anahtarla çözülür
-    expect(JSON.stringify(d.body)).not.toMatch(/00008110|AAAAAAAA|Ali|Ay/);
+    // (şifreli `devices` base64 metninde kısa dizgiler rastgele geçebilir; onu bayt olarak, tam değerlerle denetle)
+    const { devices: cipher, ...otherInputs } = d.body.inputs as Record<string, string>;
+    expect(JSON.stringify({ ...d.body, inputs: otherInputs })).not.toMatch(/00008110|A{8}|Ali|Ayşe/);
+    const cipherBytes = Buffer.from(cipher!.split('.')[2]!, 'base64url');
+    for (const plain of [U1, U3, 'Ali', 'Ayşe']) expect(cipherBytes.includes(Buffer.from(plain))).toBe(false);
     expect(decryptDevices(d.body.inputs.devices, KEY)).toEqual([
       { udid: U3, name: 'Ali' },
       { udid: U1, name: 'Ayşe' },
@@ -140,15 +153,16 @@ describe('iPhone cihazları (yönetim)', () => {
 
     // Çalıştırma görünür, sürer, sonra başarıyla biter
     github.runs.push({ id: 7, html_url: 'https://github.com/yusufholat/diskort/actions/runs/7', status: 'in_progress', conclusion: null, display_title: `iOS · cihaz ekleme ${requestId}` });
-    await wait(100);
-    let body = (await t!.req(t!.owner.token, 'GET', '/api/admin/ios-devices')).json();
+    const get = async () => (await t!.req(t!.owner.token, 'GET', '/api/admin/ios-devices')).json();
+    await waitFor(async () => (await get()).ci?.runId === 7);
+    let body = await get();
     expect(body.ci).toMatchObject({ requestId, runId: 7, status: 'in_progress', udids: [U3, U1] });
     expect(body.devices.find((x: { udid: string }) => x.udid === U1).status).toBe('onaylandi');
 
     github.runs[0]!.status = 'completed';
     github.runs[0]!.conclusion = 'success';
-    await wait(100);
-    body = (await t!.req(t!.owner.token, 'GET', '/api/admin/ios-devices')).json();
+    await waitFor(async () => (await get()).ci?.status === 'completed');
+    body = await get();
     expect(body.ci).toMatchObject({ status: 'completed', conclusion: 'success', url: 'https://github.com/yusufholat/diskort/actions/runs/7' });
     const status = Object.fromEntries(body.devices.map((x: { udid: string; status: string }) => [x.udid, x.status]));
     expect(status).toEqual({ [U1]: 'eklendi', [U2]: 'reddedildi', [U3]: 'eklendi' });
