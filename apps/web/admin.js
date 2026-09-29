@@ -1779,6 +1779,54 @@ function infra(x) {
       ),
     ),
   );
+  const net = x.network;
+  if (net) {
+    if (!net.ok || net.history.length === 0) {
+      cards.push(
+        card({
+          label: 'Makine ağı',
+          value: net.ok ? 'Ölçülüyor…' : 'Bilgi yok',
+          compact: true,
+          tone: net.ok ? undefined : 'warn',
+          sub: net.ok ? 'İlk hız ölçümü 15 saniye içinde.' : net.error,
+        }),
+      );
+    } else {
+      const nh = net.history;
+      const last = nh[nh.length - 1];
+      const mbps = (v) => (v === null || v === undefined ? '—' : `${nf1.format(v)} Mb/sn`);
+      const top = Math.max(1, ...nh.flatMap((s) => [s.rxMbps ?? 0, s.txMbps ?? 0]));
+      const half = (arrow, name, key, color) =>
+        h(
+          'div',
+          'adm-net',
+          h('div', 'adm-net-head', h('span', 'adm-muted', name), h('b', null, `${arrow} ${mbps(last[key])}`)),
+          sparkline(series(nh, key), { max: top, format: mbps, label: `${name} trafik (makine), son 30 dakika`, color }),
+        );
+      const peak = (key) => Math.max(0, ...nh.map((s) => s[key] ?? 0));
+      const drops = peak('rxDropPerSec');
+      cards.push(
+        card({
+          label: `Makine ağı (${net.iface}, son 30 dk)`,
+          sub: [`En yüksek: ↓ ${mbps(peak('rxMbps'))} · ↑ ${mbps(peak('txMbps'))}`],
+          children: [half('↓', 'Gelen', 'rxMbps', 'brand'), half('↑', 'Giden', 'txMbps', 'pink')],
+        }),
+        card({
+          label: `Düşen paket ve UDP hataları (${net.iface})`,
+          value: perSec(last.rxDropPerSec),
+          unit: 'düşen',
+          tone: drops >= 50 ? 'bad' : drops >= 5 ? 'warn' : undefined,
+          sub: [
+            `Paket: ↓ ${dec(last.rxPps, 0)}/sn · ↑ ${dec(last.txPps, 0)}/sn · rx hata ${perSec(last.rxErrPerSec)}`,
+            `UDP: gelen ${dec(last.udpInPerSec, 0)}/sn · giden ${dec(last.udpOutPerSec, 0)}/sn`,
+            `UDP hata: alma tamponu ${perSec(last.udpRcvbufErrPerSec)} · gönderme tamponu ${perSec(last.udpSndbufErrPerSec)} · toplam ${perSec(last.udpInErrPerSec)}`,
+            `30 dk içinde en çok ${perSec(drops)} düşen paket. Dakikalık özetler diskte (telemetry/network-*.jsonl).`,
+          ],
+          children: sparkline(series(nh, 'rxDropPerSec'), { max: 5, format: perSec, label: 'Düşen paket/sn (rx_dropped)', color: 'pink', axis: true }),
+        }),
+      );
+    }
+  }
   const cd = x.caddy;
   cards.push(
     card({
