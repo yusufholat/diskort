@@ -51,6 +51,17 @@ export interface VideoCounters {
   jitterBufferEmittedCount: number | null;
 }
 
+/** Gelen ses akışının ek sayaçları (toplam); tarayıcıya/sürüme göre eksik olabilir (null) */
+export interface AudioCounters {
+  /** Gizlenen örneklerin sessizlik sırasındaki kısmı (DTX; duyulmaz) */
+  silentConcealedSamples: number | null;
+  /** Gizleme olayı: art arda gizlenen her parça bir olay */
+  concealmentEvents: number | null;
+  /** Titreşim tamponunda bekleme toplamı (sn) ve tampondan çıkan örnek sayısı */
+  jitterBufferDelay: number | null;
+  jitterBufferEmittedCount: number | null;
+}
+
 export interface RtpStream {
   id: string;
   direction: 'out' | 'in';
@@ -81,6 +92,8 @@ export interface RtpStream {
   totalSamplesReceived: number | null;
   /** Görüntü akışının kare sayaçları; ses akışında null */
   video: VideoCounters | null;
+  /** Yalnızca gelen ses: gizleme ve titreşim tamponu sayaçları */
+  audio?: AudioCounters | null;
 }
 
 /** Tek bir RTCPeerConnection'ın (yayın ya da abonelik bağlantısı) o anki toplamları */
@@ -261,6 +274,15 @@ export function parseTransportStats(report: StatsSource, at: number = Date.now()
         concealedSamples: num(s.concealedSamples),
         totalSamplesReceived: num(s.totalSamplesReceived),
         video: kindOf(s) === 'video' ? videoCounters(s, 'in') : null,
+        audio:
+          kindOf(s) === 'audio'
+            ? {
+                silentConcealedSamples: num(s.silentConcealedSamples),
+                concealmentEvents: num(s.concealmentEvents),
+                jitterBufferDelay: num(s.jitterBufferDelay),
+                jitterBufferEmittedCount: num(s.jitterBufferEmittedCount),
+              }
+            : null,
       });
     }
   }

@@ -19,6 +19,7 @@ import { AppState } from 'react-native';
 import { create } from 'zustand';
 import { getSettings } from '../stores/settings';
 import { deviceSoc, effectiveNoiseMode, noiseFilterStats } from './noiseFilter';
+import { voiceSettingsTelemetry } from './telemetrySettings';
 import { useVoice, voice } from './voice';
 
 /**
@@ -162,6 +163,7 @@ function telemetryContext(): TelemetryContext {
     },
     view: v.watching ? streamView : null,
     device: { appState: AppState.currentState ?? null, soc: deviceSoc() },
+    settings: voiceSettingsTelemetry(s),
   };
 }
 

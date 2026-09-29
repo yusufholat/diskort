@@ -100,6 +100,51 @@ const reportSchema = z.object({
     })
     .nullable()
     .optional(),
+  // Gelen seslerin ayrıntısı, JS takılması ve ses ayarları (yeni istemcilerde; eskiler göndermez)
+  audioIn: z
+    .object({
+      streams: z.number().int().transform(clamp(1_000)),
+      jitterMaxMs: num(60_000),
+      lossPct: num(100),
+      concealEvents: num(1e9),
+      jitterBufferMs: num(60_000),
+      bitrate: num(1e10),
+    })
+    .nullable()
+    .optional(),
+  jsLag: z
+    .object({
+      maxMs: num(3_600_000),
+      p95Ms: num(3_600_000),
+      stalls: z.number().int().transform(clamp(1e6)),
+    })
+    .nullable()
+    .optional(),
+  settings: z
+    .object({
+      echoCancellation: z.boolean().nullable().optional(),
+      autoGainControl: z.boolean().nullable().optional(),
+      voiceActivity: z.boolean().nullable().optional(),
+      vadAuto: z.boolean().nullable().optional(),
+      // dBFS: negatif; sıkıştırma -200–0
+      vadThresholdDb: z
+        .number()
+        .finite()
+        .transform((v) => Math.min(0, Math.max(-200, v)))
+        .nullable()
+        .optional(),
+      noiseMode: text(16).optional(),
+      noiseStrengthDb: num(1_000).optional(),
+      speaker: z.boolean().nullable().optional(),
+      userVolumesChanged: num(1e5).optional(),
+      userVolumeMax: num(100).optional(),
+      inputMode: text(16).optional(),
+      inputVolume: num(100).optional(),
+      outputVolume: num(100).optional(),
+      audioBitrateKbps: num(10_000).optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 /** Kullanıcı başına dakikada en fazla özet (normalde 2; kalite düşünce birkaç erken özet) */
