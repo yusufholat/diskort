@@ -59,15 +59,40 @@ const png = (width: number, height = width, color = '#3366cc'): Promise<Buffer> 
     .png()
     .toBuffer();
 
-/** IHDR'den hemen sonra (CRC'si doğru) bir parça ekler */
-function withChunk(image: Buffer, type: string, data: Buffer): Buffer {
+/** Tek PNG parçası (CRC'si doğru) */
+function chunk(type: string, data: Buffer): Buffer {
   const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
-  const chunk = Buffer.alloc(12 + data.length);
-  chunk.writeUInt32BE(data.length, 0);
-  body.copy(chunk, 4);
-  chunk.writeUInt32BE(crc32(body), 8 + data.length);
-  return Buffer.concat([image.subarray(0, 33), chunk, image.subarray(33)]);
+  const out = Buffer.alloc(12 + data.length);
+  out.writeUInt32BE(data.length, 0);
+  body.copy(out, 4);
+  out.writeUInt32BE(crc32(body), 8 + data.length);
+  return out;
 }
+
+/** IHDR'den hemen sonra bir parça ekler */
+const withChunk = (image: Buffer, type: string, data: Buffer): Buffer =>
+  Buffer.concat([image.subarray(0, 33), chunk(type, data), image.subarray(33)]);
+
+type Chunk = { type: string; data: Buffer };
+
+/** PNG'nin parçaları (imzadan sonra, sırayla) */
+function chunksOf(image: Buffer): Chunk[] {
+  const chunks: Chunk[] = [];
+  for (let offset = 8; offset + 12 <= image.length; ) {
+    const length = image.readUInt32BE(offset);
+    chunks.push({ type: image.toString('latin1', offset + 4, offset + 8), data: image.subarray(offset + 8, offset + 8 + length) });
+    offset += 12 + length;
+  }
+  return chunks;
+}
+
+/** Parçalardan (CRC'leri doğru) PNG kurar */
+const build = (chunks: Chunk[]): Buffer =>
+  Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), ...chunks.map((c) => chunk(c.type, c.data))]);
+
+/** Electron'un nativeImage.toPNG() çıktısı (32×32, iki IDAT'lı): masaüstünün ürettiği ikonlar böyle */
+const ELECTRON_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAALklEQVR4nOzOQQ0AAAgEIOcMbvMzhh9IwCTZetT1TEBAQEBAQEBAQEBAQEBA4AAAAP//W21OGwAAAAZJREFUAwB/jAPA3VioMwAAAABJRU5ErkJggg==';
 
 const put = (token: string | null, key: string, body: Buffer, contentType = 'image/png') =>
   s.app.inject({
@@ -182,8 +207,16 @@ describe('etkinlik', () => {
     expect(Math.abs(Date.now() - ACTIVITY_ELAPSED_MAX_MS - list[3]!.startedAt)).toBeLessThan(5000);
     expect(list.map((a) => a.icon)).toEqual([null, null, null, null]);
 
-    // Görünmez ad (yalnızca sıfır genişlikli / yön karakterleri) reddedilir; adın içindekiler atılır
-    report(ca, [game('​‏⁠­﻿'), game('‮Ha​des‬')]);
+    // Görünmez ad (yalnızca sıfır genişlikli / yön karakterleri, Hangul dolgu harfleri, boş Braille, yalın
+    // birleşen işaret) reddedilir; adın içindekiler atılır
+    report(ca, [
+      game('​‏⁠­﻿'),
+      game('ㅤᅟᅠﾠ'),
+      game('⠀ ⠀'),
+      game('؜͏᠎'),
+      game('́'),
+      game('‮Ha​desㅤ‬'),
+    ]);
     await cv.settle();
     expect(names(cv.of('PRESENCE_UPDATE').at(-1)!.activities)).toEqual(['Hades']);
   });
@@ -351,7 +384,11 @@ describe('etkinlik', () => {
     for (let i = 0; i < 40; i++) report(ca, [game(`Oyun ${i}`)]);
     await new Promise((r) => setTimeout(r, 1000));
     expect(cv.of('PRESENCE_UPDATE').map((u) => names(u.activities))).toEqual([['Oyun 0'], ['Oyun 1'], ['Oyun 2']]);
-    await new Promise((r) => setTimeout(r, 4600));
+    // Bekleyen son bildirim ~5. saniyede uygulanır; yavaş makinede pay kalsın diye gelene dek beklenir
+    for (const deadline = Date.now() + 12_000; cv.of('PRESENCE_UPDATE').length < 4 && Date.now() < deadline; ) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await cv.settle();
     expect(cv.of('PRESENCE_UPDATE').map((u) => names(u.activities))).toEqual([['Oyun 0'], ['Oyun 1'], ['Oyun 2'], ['Oyun 39']]);
   });
 });
@@ -406,7 +443,8 @@ describe('etkinlik ikonları', () => {
     phys.writeUInt32BE(2835, 0);
     phys.writeUInt32BE(2835, 4);
     phys[8] = 1;
-    const dense = withChunk(icon, 'pHYs', phys);
+    const bare = build(chunksOf(icon).filter((c) => ['IHDR', 'IDAT', 'IEND'].includes(c.type)));
+    const dense = withChunk(bare, 'pHYs', phys);
     expect((await put(ali.token, sha(dense), dense)).statusCode).toBe(201);
   });
 
@@ -500,6 +538,65 @@ describe('etkinlik ikonları', () => {
     expect(fs.readdirSync(dir).sort()).toEqual([`${sha(a)}.png`, `${sha(b)}.png`, 'notlar.txt'].sort());
     // Silinen boş dosyanın yerine ikon yeniden yüklenebilir
     expect(await reopened.save(sha(c), c)).toBe(true);
+  });
+
+  it('PNG parçaları: uzunluk, sıra, tekrar ve sıkıştırılmış verinin boyutu denetlenir', async () => {
+    const ali = await s.member('ali');
+    const icon = await png(128);
+    const parts = chunksOf(icon);
+    const ihdr = parts[0]!;
+    const iend = parts.at(-1)!;
+    const pixels = Buffer.concat(parts.filter((c) => c.type === 'IDAT').map((c) => c.data));
+    const idat: Chunk = { type: 'IDAT', data: pixels };
+    const srgb: Chunk = { type: 'sRGB', data: Buffer.from([0]) };
+    const gama: Chunk = { type: 'gAMA', data: Buffer.from([0, 0, 0xb1, 0x8f]) };
+    const phys: Chunk = { type: 'pHYs', data: Buffer.from([0, 0, 0x0e, 0xc3, 0, 0, 0x0e, 0xc3, 1]) };
+    const make = (...middle: Chunk[]): Buffer => build([ihdr, ...middle, iend]);
+    const ok = { width: 128, height: 128 };
+
+    // Masaüstü yardımcısının ürettiği düzen: IHDR sRGB gAMA pHYs IDAT IEND
+    const desktop = make(srgb, gama, phys, idat);
+    expect(chunksOf(desktop).map((c) => c.type)).toEqual(['IHDR', 'sRGB', 'gAMA', 'pHYs', 'IDAT', 'IEND']);
+    expect(inspectPng(desktop)).toEqual(ok);
+    expect((await put(ali.token, sha(desktop), desktop)).statusCode).toBe(201);
+    // Electron'un ürettiği ikon (iki IDAT'lı) ve paletli PNG de geçer
+    const electron = Buffer.from(ELECTRON_PNG, 'base64');
+    expect(chunksOf(electron).map((c) => c.type)).toEqual(['IHDR', 'IDAT', 'IDAT', 'IEND']);
+    expect(inspectPng(electron)).toEqual({ width: 32, height: 32 });
+    expect((await put(ali.token, sha(electron), electron)).statusCode).toBe(201);
+    const palette = await sharp(await png(32)).png({ palette: true }).toBuffer();
+    expect(chunksOf(palette).map((c) => c.type)).toContain('PLTE');
+    expect(inspectPng(palette)).toEqual({ width: 32, height: 32 });
+    // Veri birkaç IDAT'a bölünebilir (art arda olmak koşuluyla)
+    const half = pixels.length >> 1;
+    const first: Chunk = { type: 'IDAT', data: pixels.subarray(0, half) };
+    const second: Chunk = { type: 'IDAT', data: pixels.subarray(half) };
+    expect(inspectPng(make(first, second))).toEqual(ok);
+
+    const bad: Record<string, Buffer> = {
+      'gAMA fazla uzun': make({ type: 'gAMA', data: Buffer.alloc(8) }, idat),
+      'sRGB fazla uzun': make({ type: 'sRGB', data: Buffer.alloc(2) }, idat),
+      'pHYs fazla uzun': make({ type: 'pHYs', data: Buffer.alloc(4096) }, idat),
+      'pHYs iki kez': make(phys, phys, idat),
+      'pHYs IDATtan sonra': make(idat, phys),
+      'IDATlar arasında parça': make(first, srgb, second),
+      'PLTE çok büyük': make({ type: 'PLTE', data: Buffer.alloc(771) }, idat),
+      'PLTE üçe bölünmüyor': make({ type: 'PLTE', data: Buffer.alloc(4) }, idat),
+      'tRNS çok büyük': make({ type: 'tRNS', data: Buffer.alloc(257) }, idat),
+      'ikinci IDAT çöp': make(idat, { type: 'IDAT', data: Buffer.from('gizlice taşınan veri') }),
+      'zlib akışından sonra artık bayt': make({ type: 'IDAT', data: Buffer.concat([pixels, Buffer.from('artık')]) }),
+      'kesik veri': make({ type: 'IDAT', data: pixels.subarray(0, pixels.length - 4) }),
+      'IHDRden az veri': build([ihdr, ...chunksOf(await png(64)).filter((c) => c.type === 'IDAT'), iend]),
+      'IHDRden çok veri': build([chunksOf(await png(64))[0]!, idat, iend]),
+      'IDAT yok': make(),
+      geçişli: await sharp(icon).png({ progressive: true }).toBuffer(),
+    };
+    for (const [name, image] of Object.entries(bad)) {
+      expect(inspectPng(image), name).toBeNull();
+      const res = await put(ali.token, sha(image), image);
+      expect(res.statusCode, name).toBe(415);
+    }
+    expect(s.ctx.activityIcons.count).toBe(2);
   });
 
   it('PNG yapısı: boyutlar okunur, bozuk başlık ve izinsiz parça reddedilir', async () => {
