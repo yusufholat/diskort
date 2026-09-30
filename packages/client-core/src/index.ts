@@ -99,6 +99,7 @@ export {
   formatRemaining,
   setCustomStatus,
   setUserStatus,
+  useActivities,
   useActivity,
   useCustomStatus,
   useSelfStatus,

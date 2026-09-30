@@ -22,8 +22,8 @@ export interface Presence {
   status: PresenceStatus;
   /** Yalnızca çevrimdışı görünmeyen kullanıcılarda */
   customStatus: CustomStatus | null;
-  /** O an yaptığı şey (oynadığı oyun); eski sunucuda alan yok */
-  activity?: Activity | null;
+  /** O an yaptıkları (oynadığı oyunlar), en son başlayan ilk sırada; eski sunucuda alan yok */
+  activities?: Activity[];
 }
 
 /** Kullanıcının kendi durum ayarları (yalnızca kendi istemcilerine gider) */

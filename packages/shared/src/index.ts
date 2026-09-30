@@ -906,10 +906,10 @@ export type GatewayClientMessage =
    */
   | { t: 'STREAM_WATCH_SET'; d: { userIds: string[] } }
   /**
-   * Bu oturumun etkinliği (oynanan oyun); null: bitti. Değişince ve yeniden bağlanınca gönderilir;
-   * eski sunucular tanımaz ve yok sayar.
+   * Bu oturumun etkinliklerinin tam listesi (açık oyunlar, en fazla ACTIVITY_MAX_COUNT); boş: hiçbiri.
+   * Değişince ve yeniden bağlanınca gönderilir; eski sunucular tanımaz ve yok sayar.
    */
-  | { t: 'ACTIVITY_SET'; d: { activity: ActivityReport | null } };
+  | { t: 'ACTIVITY_SET'; d: { activities: ActivityReport[] } };
 
 // ---------- Sabitler ----------
 
