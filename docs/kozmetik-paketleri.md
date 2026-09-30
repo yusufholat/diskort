@@ -77,7 +77,8 @@ Renkler istemcide CSS'e ve çizime olduğu gibi girdiğinden biçimleri katıdı
 **İçerik denetimi.** Dosyalar olduğu gibi sunulduğundan türü içeriğinden doğrulanır (dosya imzası; uzantıya
 güvenilmez) ve yapısı sağlam olmalıdır: WebP'nin uzunluğu başlığıyla, AVIF/MP4 kutuları dosyanın tamamıyla
 uyuşmalı (sonunda artık veri taşınamaz). AVIF görüntü dizisi olmalı (`moov` kutusu), MP4'te H.264 görüntü izi
-bulunmalı. Poster yalın WebP de olabilir (`VP8 ` / `VP8L`, `VP8X` başlığı olmadan). Bildirilen ölçüler
+bulunmalı ve **ses izi olmamalı** (ffmpeg'de `-an`; iOS'ta video AVPlayer ile oynar, sesli dosya uygulamanın
+ses oturumuna katılıp süren sesli görüşmeyi bozabilir). Poster yalın WebP de olabilir (`VP8 ` / `VP8L`, `VP8X` başlığı olmadan). Bildirilen ölçüler
 dosyanınkiyle tutmalı: resimlerde `width`×`height`, videoda genişlik `stackedWidth` ve yükseklik `height`
 (kodlayıcının 16'nın katına tamamladığı en çok 15 piksel fazlası kabul edilir). AVIF'in boyutu üst düzey `meta`
 kutusundaki `ispe` özelliğinden, o yoksa iz başlıklarından (`tkhd`) okunur; hiçbiri yoksa dosya reddedilir

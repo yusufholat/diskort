@@ -84,13 +84,22 @@ export function avif(
   return Buffer.concat([ftyp, ...meta, ...moov, box('mdat', Buffer.from('kareler'))]);
 }
 
-/** MP4: tek görüntü izi (`width`×`height`), örnek girişi `codec` (H.264: avcC) */
-export function mp4(width: number, height: number, codec = 'avcC'): Buffer {
-  const hdlr = Buffer.concat([u32(0), u32(0), Buffer.from('vide'), Buffer.alloc(12)]);
+/**
+ * MP4: tek görüntü izi (`width`×`height`), örnek girişi `codec` (H.264: avcC). `audio`: görüntü izinden önce
+ * ya da sonra bir ses izi (AAC) de eklenir.
+ */
+export function mp4(width: number, height: number, codec = 'avcC', audio: false | 'before' | 'after' = false): Buffer {
+  const handler = (type: string): Buffer => box('hdlr', u32(0), u32(0), Buffer.from(type), Buffer.alloc(12));
   const entry = box(codec === 'avcC' ? 'avc1' : 'hvc1', Buffer.alloc(78), box(codec, Buffer.from([1, 0x64, 0, 0x1f])));
   const stbl = box('stbl', box('stsd', u32(0), u32(1), entry));
-  const trak = box('trak', tkhd(width, height), box('mdia', box('hdlr', hdlr), box('minf', stbl)));
-  const moov = box('moov', box('mvhd', Buffer.alloc(100)), trak);
+  const video = box('trak', tkhd(width, height), box('mdia', handler('vide'), box('minf', stbl)));
+  const sound = box(
+    'trak',
+    tkhd(0, 0),
+    box('mdia', handler('soun'), box('minf', box('stbl', box('stsd', u32(0), u32(1), box('mp4a', Buffer.alloc(28)))))),
+  );
+  const traks = audio === 'before' ? [sound, video] : audio === 'after' ? [video, sound] : [video];
+  const moov = box('moov', box('mvhd', Buffer.alloc(100)), ...traks);
   // x264/ffmpeg çıktısındaki sıra: ftyp, moov, free, mdat
   const ftyp = box('ftyp', Buffer.from('isom'), u32(0x200), Buffer.from('isomiso2avc1mp41'));
   return Buffer.concat([ftyp, moov, box('free'), box('mdat', Buffer.alloc(64))]);

@@ -193,6 +193,18 @@ function trackSizes(buf: Buffer, moov: Box): { width: number; height: number }[]
   return sizes;
 }
 
+/** "moov" kutusundaki izlerin türleri (mdia/hdlr: "vide" görüntü, "soun" ses, "pict" resim dizisi…) */
+function trackHandlers(buf: Buffer, moov: Box): string[] {
+  const handlers: string[] = [];
+  for (const trak of boxesIn(buf, moov.start, moov.end)?.filter((b) => b.type === 'trak') ?? []) {
+    const mdia = boxesIn(buf, trak.start, trak.end)?.find((b) => b.type === 'mdia');
+    const hdlr = mdia && boxesIn(buf, mdia.start, mdia.end)?.find((b) => b.type === 'hdlr');
+    // sürüm/bayraklar (4) + ön tanımlı (4) + tür (4)
+    if (hdlr && hdlr.end - hdlr.start >= 12) handlers.push(buf.toString('latin1', hdlr.start + 8, hdlr.start + 12));
+  }
+  return handlers;
+}
+
 /** AVIF'in "ftyp" kutusundaki markalar (ana marka + uyumlu markalar) */
 function ftypBrands(buf: Buffer, box: { start: number; end: number }): string[] {
   const brands: string[] = [];
@@ -258,6 +270,10 @@ export async function inspectPackFile(info: CosmeticPackFileInfo, data: Buffer):
   const meta = await mp4Metadata(async (position, length) => data.subarray(position, position + length), data.length);
   if (!meta?.video || meta.width === null || meta.height === null) return 'MP4\'te görüntü izi bulunamadı.';
   if (data.indexOf('avcC', 0, 'latin1') < 0) return 'video H.264 (AVC) olmalı.';
+  // Ses izi olmamalı: iOS'ta video AVPlayer ile oynar; sesli dosya (sesi kısılmış olsa da) uygulamanın ses
+  // oturumuna katılır ve süren sesli görüşmeyi bozabilir
+  const moov = boxes.find((b) => b.type === 'moov');
+  if (moov && trackHandlers(data, moov).includes('soun')) return 'videoda ses izi olmamalı (ffmpeg: -an).';
   if (meta.width !== info.stackedWidth) {
     return `videonun genişliği ${meta.width}, bildirilen stackedWidth ${info.stackedWidth}.`;
   }
