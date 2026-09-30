@@ -59,6 +59,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { continuityCheck, continuityFromSeries, continuitySummary, frameLevel } from './continuity.mjs';
 import { writeBundles } from './pack.mjs';
+import { accessVerdict } from './access.mjs';
 import { avifReference, decodedSeries, encodeIntraWebp, encodeVideo, findFfmpeg, parseVideoSpec, VIDEO_FORMATS, writeStacked } from './video.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -244,6 +245,13 @@ for (const stream of [process.stdout, process.stderr]) {
   });
 }
 
+/**
+ * Electron işinin toplam süre sınırı (dk): takılan bir çözücü ya da çizim aracı sonsuza dek bekletmesin.
+ * Sayfadaki her adımın ayrıca kendi sınırı var (verify.html withTimeout, 30 sn). Doğrulama bir setin bütün
+ * dosyalarını birkaç kez çözer (kartta birkaç dakika), çizim bütün parçaları çizer.
+ */
+const ELECTRON_TIMEOUT_MIN = { info: 2, render: 20, verify: 30, access: 15 };
+
 function runElectron(spec) {
   const jobsFile = path.join(TMP, 'jobs.json');
   const resultFile = path.join(TMP, 'result.json');
@@ -258,14 +266,23 @@ function runElectron(spec) {
     // biz etkileniriz). Dördüncü kanal (ipc) yalnızca "başlatan hâlâ burada" bilgisini taşır.
     const child = spawn(electron, [path.join(here, 'electron-main.cjs'), jobsFile, resultFile], { stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env, windowsHide: true });
     children.add(child);
+    const minutes = ELECTRON_TIMEOUT_MIN[spec.mode] ?? 20;
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, minutes * 60_000);
     child.stdout.on('data', (d) => process.stdout.write(d));
     child.stderr.on('data', (d) => process.stderr.write(d));
     child.on('error', (err) => {
+      clearTimeout(timer);
       children.delete(child);
       reject(err);
     });
     child.on('exit', (code) => {
+      clearTimeout(timer);
       children.delete(child);
+      if (timedOut) return reject(new Error(`Electron işi (${spec.mode}) ${minutes} dakikada bitmedi: durduruldu`));
       const result = fs.existsSync(resultFile) ? JSON.parse(fs.readFileSync(resultFile, 'utf8')) : null;
       if (code !== 0 || !result || result.error) reject(new Error(`çizim başarısız (çıkış ${code}): ${result?.error ?? 'sonuç yok'}`));
       else resolve(result.results);
@@ -720,10 +737,16 @@ async function renderSet(set, ctx) {
     for (const piece of manifest.pieces) {
       for (const f of piece.files) {
         const r = byFile.get(f.file);
-        if (!r) continue;
+        if (!r) {
+          // doğrulamaya girdiği hâlde sonucu gelmeyen dosya: sessizce geçmesin
+          if (verifyItems.some((i) => i.file === f.file)) encodedFlags.push(`${f.file.split('/').pop()} (doğrulama sonucu yok)`);
+          continue;
+        }
         f.verify = r;
         if (r.error) {
+          // çözülemeyen / ölçülemeyen dosya da başarısızlıktır (çıkış kodu 2)
           console.log(`  ${f.file}: OYNATILAMADI: ${r.error}`);
+          encodedFlags.push(`${f.file.split('/').pop()} (oynatılamadı)`);
           continue;
         }
         // Kodlanmış dosyanın kesintisizliği (tarayıcıda çözülen bütün kareler). Kaynakta zaten işaretli kareler
@@ -748,7 +771,11 @@ async function renderSet(set, ctx) {
         if (r.access) {
           const a = accessVerdict(r.access);
           console.log(`    sırasız çözme: ${a.text}`);
-          if (!a.ok) encodedFlags.push(`${f.file.split('/').pop()} (sırasız çözmede renk kayıyor)`);
+          if (!a.ok) encodedFlags.push(`${f.file.split('/').pop()} (sırasız çözme)`);
+        } else if (f.format === 'avif' && ffmpeg) {
+          // karşılaştırma tabanı verildiği hâlde sonuç yoksa denetim sessizce atlanmış demektir
+          console.log('    sırasız çözme: ÖLÇÜLEMEDİ (sonuç yok)');
+          encodedFlags.push(`${f.file.split('/').pop()} (sırasız çözme ölçülemedi)`);
         }
       }
       // Kalite karşılaştırması: aynı karenin kırpılmış parçası, kaynak ve her dosya yan yana
@@ -774,29 +801,6 @@ async function renderSet(set, ctx) {
   fs.writeFileSync(path.join(setDir, 'manifest.json'), JSON.stringify(manifest));
   if (encodedFlags.length) console.log(`\n  Sorunlu kodlanmış dosyalar: ${encodedFlags.join(', ')}`);
   return { flagged, encodedFlags };
-}
-
-/**
- * AVIF sırasız çözme kararı (verify.html accessItem'ın sonucu): atlayarak, başa dönerek ve ortadan başlayarak
- * çözülen kareler, sırayla çözülenlerden belirgin biçimde uzaklaşmamalı ve hepsi çözülebilmeli. Taban sıralı
- * çözmenin en kötü karesi (ffmpeg ile Chromium'un çözümü arasındaki olağan yuvarlama farkı); renk aralığının
- * karışması 8-14 birim ekliyordu.
- */
-const ACCESS_TOLERANCE = 2;
-function accessVerdict(access) {
-  const base = access.summary.inOrder.worstColor;
-  const parts = [];
-  let ok = true;
-  for (const [name, s] of Object.entries(access.summary)) {
-    // coldNext: Chromium çözücüsünün bilinen takılması (bkz. verify.html); yalnızca renk farkı sayılır
-    const info = name === 'coldNext';
-    const bad = (!info && s.errors.length > 0) || (name !== 'inOrder' && s.worstColor > base + ACCESS_TOLERANCE);
-    if (bad) ok = false;
-    parts.push(`${name} ${s.worstColor} (kare ${s.worstAt}${s.errors.length ? `, ${info ? 'çözücü takıldı' : 'ÇÖZÜLEMEDİ'}: ${s.errors[0]}` : ''})`);
-  }
-  const p = access.points.afterWrap;
-  const dark = p?.dark ? `; en koyu nokta başa dönüşte ${p.dark.decoded.join(',')} / ffmpeg ${p.dark.ffmpeg.join(',')}` : '';
-  return { ok, text: `${ok ? 'doğru' : 'RENK KAYIYOR'}; renk farkı (en kötü kare, alfa>½): ${parts.join(', ')}${dark}` };
 }
 
 /** Ham kareleri siler (bir sonraki set için yer açılsın) */

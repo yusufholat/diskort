@@ -77,19 +77,33 @@ process.on('exit', () => {
   }
 });
 
-function run(exe, args) {
+/**
+ * ffmpeg sürecinin süre sınırı: takılan bir süreç aracı sonsuza dek bekletmesin. En uzun gözlenen iş (600×900
+ * kart AVIF'i, yük altında) ~4 dakika; çözme işleri saniyeler.
+ */
+const FFMPEG_TIMEOUT_MS = 15 * 60_000;
+
+function run(exe, args, timeoutMs = FFMPEG_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const child = spawn(exe, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
     running.add(child);
     let err = '';
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, timeoutMs);
     child.stderr.on('data', (d) => (err = (err + d).slice(-4000)));
     child.on('error', (e) => {
+      clearTimeout(timer);
       running.delete(child);
       reject(e);
     });
     child.on('exit', (code) => {
+      clearTimeout(timer);
       running.delete(child);
-      if (code === 0) resolve();
+      if (timedOut) reject(new Error(`ffmpeg ${timeoutMs / 60_000} dakikada bitmedi, durduruldu: ffmpeg ${args.join(' ')}`));
+      else if (code === 0) resolve();
       else reject(new Error(`ffmpeg başarısız (çıkış ${code}): ffmpeg ${args.join(' ')}\n${err}`));
     });
   });
