@@ -43,7 +43,7 @@ function counters(at: number, over: Partial<HostNetCounters['dev']> = {}, udp: P
   return {
     at,
     iface: 'ens192',
-    dev: { rxBytes: 0, rxPackets: 0, rxErrs: 0, rxDrop: 0, txBytes: 0, txPackets: 0, ...over },
+    dev: { rxBytes: 0, rxPackets: 0, rxErrs: 0, rxDrop: 0, txBytes: 0, txPackets: 0, txErrs: 0, txDrop: 0, ...over },
     udp: udp === null ? null : { inDatagrams: 0, inErrors: 0, outDatagrams: 0, rcvbufErrors: 0, sndbufErrors: 0, ...udp },
   };
 }
@@ -52,7 +52,7 @@ describe('/proc ayrıştırma', () => {
   it('/proc/net/dev: bitişik sayılar dahil arayüz sayaçları', () => {
     const dev = parseNetDevDetailed(NET_DEV);
     expect(Object.keys(dev)).toEqual(['lo', 'docker0', 'ens192']);
-    expect(dev.ens192).toEqual({ rxBytes: 1_000_000_000, rxPackets: 2_000_000, rxErrs: 3, rxDrop: 40, txBytes: 2_000_000_000, txPackets: 3_000_000 });
+    expect(dev.ens192).toEqual({ rxBytes: 1_000_000_000, rxPackets: 2_000_000, rxErrs: 3, rxDrop: 40, txBytes: 2_000_000_000, txPackets: 3_000_000, txErrs: 0, txDrop: 0 });
     expect(parseNetDevDetailed('')).toEqual({});
   });
 

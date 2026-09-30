@@ -99,12 +99,24 @@ export function registerAdminStatsRoutes(app: FastifyInstance, ctx: AppContext, 
     const now = Date.now();
     const incidents = telemetry.incidentList(now - q.data.days * DAY).slice(0, 300);
     const days = await telemetry.days();
+    const freezes = ctx.freeze.list(now - q.data.days * DAY).slice(0, 100);
+    const sampler = ctx.netSampler;
     return {
       now,
       days: q.data.days,
       incidents,
-      users: usersOf(incidents.map((i) => i.userId)),
-      channels: channelNames(incidents.map((i) => i.channelId)),
+      // Yayın donmaları (ortak yol / yayıncı / kodlayıcı ayrımı); saniyelik satırlar ayrıntı ucundan
+      freezes,
+      netSampler: {
+        readable: sampler.readable,
+        iface: sampler.iface,
+        gateway: sampler.gateway,
+        persistedRows: sampler.persistedRows,
+        latest: sampler.latest(),
+        ring: sampler.recent(30 * 60).length,
+      },
+      users: usersOf([...incidents.map((i) => i.userId), ...freezes.flatMap((f) => f.users.map((u) => u.userId))]),
+      channels: channelNames([...incidents.map((i) => i.channelId), ...freezes.map((f) => f.channelId)]),
       storage: {
         retentionDays: telemetry.retentionDays,
         files: days.length,
@@ -114,6 +126,15 @@ export function registerAdminStatsRoutes(app: FastifyInstance, ctx: AppContext, 
         reports24h: ctx.counters.sum('telemetry.reports', 1),
       },
     };
+  });
+
+  // ---------- Yayın donması olayının saniyelik kanıtı (sunucu ağı + sondalar) ----------
+  app.get('/api/admin/telemetry/freezes/:id', guard, async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+    const event = ctx.freeze.list(0).find((e) => e.id === id);
+    if (!event) return sendError(reply, 404, 'not_found', 'Olay bulunamadı.');
+    noStore(reply);
+    return { event, rows: await ctx.freeze.rowsOf(id) };
   });
 
   // ---------- Ses geçmişi ----------

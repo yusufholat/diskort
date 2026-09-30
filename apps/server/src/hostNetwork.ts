@@ -17,6 +17,8 @@ export interface NetDevCounters {
   rxDrop: number;
   txBytes: number;
   txPackets: number;
+  txErrs: number;
+  txDrop: number;
 }
 
 /** /proc/net/snmp "Udp:" satırı */
@@ -73,6 +75,8 @@ export function parseNetDevDetailed(text: string): Record<string, NetDevCounters
       rxDrop: f[3]!,
       txBytes: f[8]!,
       txPackets: f[9]!,
+      txErrs: f[10]!,
+      txDrop: f[11]!,
     };
     if (Object.values(dev).every(finite)) result[name] = dev;
   }
@@ -96,6 +100,26 @@ export function parseDefaultRouteInterface(text: string): string | null {
     if (!best || rank < best.metric) best = { iface, metric: rank };
   }
   return best?.iface ?? null;
+}
+
+/** /proc/net/route: varsayılan yolun ağ geçidi (IPv4, noktalı); bulunamazsa null. Adres küçük-endian onaltılıktır. */
+export function parseDefaultGateway(text: string): string | null {
+  let best: { gw: string; metric: number } | null = null;
+  for (const line of text.split('\n').slice(1)) {
+    const c = line.trim().split(/\s+/);
+    const [iface, destination, gateway, flags, , , metric, mask] = c;
+    if (!iface || destination !== '00000000' || mask !== '00000000' || !gateway || !/^[0-9A-Fa-f]{8}$/.test(gateway)) continue;
+    const f = Number.parseInt(flags ?? '1', 16);
+    if (Number.isFinite(f) && (f & 1) === 0) continue;
+    if (gateway === '00000000') continue; // doğrudan bağlı yol: ağ geçidi yok
+    const m = Number(metric);
+    const rank = Number.isFinite(m) ? m : 0;
+    if (!best || rank < best.metric) {
+      const b = [6, 4, 2, 0].map((i) => Number.parseInt(gateway.slice(i, i + 2), 16));
+      best = { gw: b.join('.'), metric: rank };
+    }
+  }
+  return best?.gw ?? null;
 }
 
 /** /proc/net/snmp içindeki "Udp:" başlık + değer satırı çifti (UdpLite: ayrı sayılır) */

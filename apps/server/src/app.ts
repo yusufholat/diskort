@@ -10,6 +10,9 @@ import { AuthLog } from './authLog.js';
 import { DailyCounters } from './counters.js';
 import { InfraMonitor, LiveKitMetrics } from './infraStats.js';
 import { VoiceTelemetryStore } from './telemetry.js';
+import { FreezeCorrelator } from './freezeDiagnosis.js';
+import { DEFAULT_PROBE_TARGETS, parseProbeTargets, ProbeRunner } from './netProbe.js';
+import { SecondSampler } from './netSeconds.js';
 import { VoiceSessionRecorder } from './voiceHistory.js';
 import { registerAdminStatsRoutes } from './routes/adminStats.js';
 import { registerTelemetryRoutes } from './routes/telemetry.js';
@@ -195,6 +198,33 @@ export async function buildApp(
     offsetMin: config.statsUtcOffsetMin,
     log: app.log,
   });
+  const livekitMetrics =
+    opts.livekitMetrics ?? new LiveKitMetrics({ url: config.livekitMetricsUrl, fetchImpl: opts.metricsFetch, log: app.log });
+  // Yayın donması tanısı: saniyelik sunucu ağı kaydı, dış sondalar, olay toplayıcı (bkz. freezeDiagnosis.ts)
+  const netDir = opts.telemetryDir !== undefined ? opts.telemetryDir : statsFile('telemetry');
+  const netSampler = new SecondSampler({
+    procRoot: config.procRoot,
+    dir: netDir,
+    offsetMin: config.statsUtcOffsetMin,
+    livekitCpu: () => livekitMetrics.process().cpu,
+    log: app.log,
+  });
+  const netProbes = new ProbeRunner({
+    targets: parseProbeTargets(config.netProbeTargets ?? undefined) ?? DEFAULT_PROBE_TARGETS,
+    gateway: () => netSampler.gateway,
+    onResult: (label, sentAt, rtt) => netSampler.addProbe(label, sentAt, rtt),
+  });
+  const freeze = new FreezeCorrelator({
+    dir: netDir,
+    sampler: netSampler,
+    // Uyarı yolu: olay kalıcı kayda (telemetry/freeze-events.jsonl) yazılır; gözcü rutini bunu incidents.jsonl ile birlikte okur
+    onEvent: (e) =>
+      app.log.warn(
+        { cause: e.cause, channelId: e.channelId, affected: e.affected, freezes: e.freezes, probe: e.probe },
+        `yayın donması: ${e.label}`,
+      ),
+    log: app.log,
+  });
   const ctx: AppContext = {
     config,
     store,
@@ -221,6 +251,8 @@ export async function buildApp(
     authLog,
     apiStats,
     telemetry,
+    freeze,
+    netSampler,
     guild,
   };
 
@@ -249,8 +281,6 @@ export async function buildApp(
   app.addHook('onClose', async () => releases.stopPolling());
 
   // Yönetim paneli: ses kalitesi özetleri, ses geçmişi (veritabanı), LiveKit/Caddy ölçümleri, yedekler, TLS
-  const livekitMetrics =
-    opts.livekitMetrics ?? new LiveKitMetrics({ url: config.livekitMetricsUrl, fetchImpl: opts.metricsFetch, log: app.log });
   const infra =
     opts.infraMonitor ??
     new InfraMonitor(
@@ -272,6 +302,10 @@ export async function buildApp(
   voiceSessions.attach(voice);
   if (config.systemStats) {
     telemetry.start();
+    freeze.start();
+    netSampler.start();
+    // Geliştirme makinesinde dış sonda gönderilmez
+    if (!config.isDev) netProbes.start();
     livekitMetrics.start();
     infra.start();
     voiceSessions.start();
@@ -282,7 +316,8 @@ export async function buildApp(
     livekitMetrics.stop();
     infra.stop();
     apiStats.stop();
-    await Promise.all([telemetry.stop(), authLog.stop()]);
+    netProbes.stop();
+    await Promise.all([telemetry.stop(), authLog.stop(), freeze.stop(), netSampler.stop()]);
   });
 
   // Yönetim paneli: makine yükü, aylık trafik ve hesapların son görülme anı. Kalıcı sayaçlar ve düzenli

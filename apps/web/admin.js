@@ -258,7 +258,14 @@ document.addEventListener('visibilitychange', () => {
  * gelen veriyle sekmenin bölümlerini çizer.
  */
 const LOADERS = {
-  ses: { url: () => `/api/admin/telemetry/incidents?days=${ui.incidentDays}`, every: 30_000, render: (x) => draw('adm-incidents', () => incidents(x)) },
+  ses: {
+    url: () => `/api/admin/telemetry/incidents?days=${ui.incidentDays}`,
+    every: 30_000,
+    render: (x) => {
+      draw('adm-incidents', () => incidents(x));
+      draw('adm-freezes', () => freezes(x));
+    },
+  },
   'ses-gecmisi': {
     url: () => `/api/admin/voice-history?days=${ui.historyDays}&tz=${new Date().getTimezoneOffset()}`,
     every: 60_000,
@@ -321,7 +328,7 @@ async function loadExtra(force = false) {
 /** Sekme verisi gelene kadar bölümlerinde kısa bir not */
 function placeholder(tab, text) {
   const target = {
-    ses: ['adm-incidents'],
+    ses: ['adm-incidents', 'adm-freezes'],
     'ses-gecmisi': ['adm-history'],
     makine: ['adm-infra', 'adm-livekit', 'adm-usage'],
     api: ['adm-api'],
@@ -1113,6 +1120,163 @@ function incidents(x) {
       ),
     ),
   ];
+}
+
+// ---------- Yayın donmaları ----------
+
+/** Olayın en olası nedeni için rozet tonu */
+const FREEZE_TONE = { ortak_yol: 'warn', sunucu_kaynak: 'warn', yayinci_yukleme: 'warn', kodlayici: 'warn' };
+
+function freezeRow(f, x) {
+  const channel = x.channels[f.channelId]?.name;
+  const names = f.users.map((u) => userName(x.users[u.userId], 'Kullanıcı'));
+  const srv = f.server;
+  return h(
+    'li',
+    { class: 'adm-row adm-row-top adm-clickable', tabindex: 0, role: 'button', on: rowOpen(() => openFreeze(f, x)) },
+    h(
+      'div',
+      'adm-row-main',
+      h('div', 'adm-row-title', f.label, ' ', badge(`güven: ${f.confidence}`, 'muted')),
+      h('div', 'adm-sub', `${dateTime(f.start)} – ${clock(f.end)} · ${duration((f.end - f.start) / 1000)}${channel ? ` · 🔊 ${channel}` : ''}`),
+      h('div', 'adm-sub', `${num(f.affected)}/${num(f.users.length)} kullanıcı etkilendi: ${names.slice(0, 6).join(', ')}${names.length > 6 ? '…' : ''}`),
+      h(
+        'div',
+        'adm-badges',
+        badge(f.label, FREEZE_TONE[f.cause]),
+        f.freezes > 0 && badge(`${num(f.freezes)} donma · ${dec(f.freezeSec)} sn`),
+        f.probe === 'kayıp' && badge('dış sondalarda kayıp', 'warn'),
+        f.probe === 'temiz' && badge('dış sondalar temiz', 'muted'),
+        srv?.txMbpsMax != null && badge(`sunucu ↑ ${dec(srv.txMbpsMax)} Mbps`, 'muted'),
+        srv && srv.nicDrops > 0 && badge(`NIC düşüşü ${num(srv.nicDrops)}`, 'warn'),
+        f.factors.slice(0, 2).map((t) => badge(t, 'muted')),
+      ),
+    ),
+  );
+}
+
+function freezes(x) {
+  const list = x.freezes ?? [];
+  const s = x.netSampler;
+  const reads = s ? [s.readable.net && 'ağ', s.readable.snmp && 'UDP', s.readable.softnet && 'softnet', s.readable.psi && 'CPU baskısı'].filter(Boolean) : [];
+  return [
+    h(
+      'article',
+      'adm-card adm-wide',
+      h('div', 'adm-label', 'Aynı anda kayıp/donma: en olası neden ve kanıt (sunucu saniyelik ağ kaydı + dış sondalar + istemci özetleri)'),
+      list.length === 0
+        ? h('div', 'adm-sub', 'Bu dönemde yayın donması olayı yok.')
+        : h(
+            'ul',
+            'adm-rows',
+            list.slice(0, 60).map((f) => freezeRow(f, x)),
+          ),
+      h(
+        'div',
+        'adm-sub adm-note',
+        s && reads.length > 0
+          ? `Sunucu saniyelik ölçüm: ${s.iface ?? '?'} · okunan: ${reads.join(', ')} · ağ geçidi ${s.gateway ?? 'bilinmiyor'} · bellekte ${num(s.ring)} sn, diske yazılan ${num(s.persistedRows)} satır.`
+          : 'Sunucu saniyelik ağ ölçümü çalışmıyor (yalnızca Linux sunucuda /proc okunur).',
+      ),
+    ),
+  ];
+}
+
+function openFreeze(f, x) {
+  openSheet(`${f.label} · ${dateTime(f.start)}`);
+  const seq = ++sheet.seq;
+  void (async () => {
+    try {
+      const d = await apiGet(`/api/admin/telemetry/freezes/${encodeURIComponent(f.id)}`);
+      if (seq !== sheet.seq) return;
+      $('adm-sheet-body').replaceChildren(...freezeDetail(d, x));
+    } catch (err) {
+      if (err instanceof AccessError || seq !== sheet.seq) return;
+      $('adm-sheet-body').replaceChildren(h('div', 'adm-sub', `Veri alınamadı: ${err.message}`));
+    }
+  })();
+}
+
+function freezeDetail(d, x) {
+  const f = d.event;
+  const rows = d.rows;
+  const out = [];
+  out.push(
+    h(
+      'div',
+      'adm-card',
+      h('div', 'adm-label', `Olası neden: ${f.label} (güven: ${f.confidence})`),
+      f.evidence.map((t) => h('div', 'adm-sub', `• ${t}`)),
+      f.factors.length > 0 && h('div', 'adm-sub', `Diğer etkenler: ${f.factors.join(' · ')}`),
+    ),
+  );
+  const userRows = f.users.map((u) => {
+    const s = u.screen;
+    return h(
+      'li',
+      'adm-row',
+      h(
+        'div',
+        'adm-row-main',
+        h('div', 'adm-row-title', userName(x.users[u.userId], 'Kullanıcı'), ' ', badge(u.role, u.role === 'yayıncı' ? 'live' : 'muted')),
+        h(
+          'div',
+          'adm-badges',
+          u.lossOut != null && badge(`kayıp ↑ ${pct(u.lossOut)}`, u.lossOut >= 3 ? 'warn' : 'muted'),
+          u.lossIn != null && badge(`kayıp ↓ ${pct(u.lossIn)}`, u.lossIn >= 3 ? 'warn' : 'muted'),
+          u.rttAvg != null && badge(`ping ${msText(u.rttAvg)}`, 'muted'),
+          u.freezes > 0 && badge(`${num(u.freezes)} donma · ${dec(u.freezeSec)} sn`, 'warn'),
+          s && badge(`${dec(s.fpsMin)}–${dec(s.fpsMax)} fps`, s.fpsMin != null && s.fpsMin < 24 ? 'warn' : 'muted'),
+          s?.bitrate && badge(bits(s.bitrate), 'muted'),
+          s?.encoder && badge(`${s.encoder}${s.hardware ? ' (donanım)' : ''}`, 'muted'),
+          s && s.limitation !== 'none' && badge(`kısıtlama: ${s.limitation}`, 'warn'),
+          u.watchFpsMin != null && badge(`izleme ${dec(u.watchFpsMin)} fps`, 'muted'),
+          badge(`${PLATFORM[u.platform] ?? u.platform}`, 'muted'),
+        ),
+      ),
+    );
+  });
+  out.push(panel('Kullanıcılar (istemci özetleri, olay süresince en kötü değerler)', h('ul', 'adm-rows', userRows)));
+  if (rows.length < 2) {
+    out.push(h('div', 'adm-card adm-empty', 'Bu olay için sunucu saniyelik kaydı yok (sunucu ölçümü kapalıydı ya da yeni başlamıştı).'));
+    return out;
+  }
+  const chart = (label, pick, format, opts = {}) => {
+    const pts = rows.map((r) => ({ at: r.t, v: pick(r) }));
+    if (!pts.some((p) => p.v !== null && p.v !== undefined)) return null;
+    const last = pts.findLast((p) => p.v !== null && p.v !== undefined)?.v;
+    return h(
+      'div',
+      'adm-card adm-chart',
+      h('div', 'adm-net-head', h('span', 'adm-muted', label), h('b', null, format(last))),
+      sparkline(pts, { format, label, axis: true, ...opts }),
+    );
+  };
+  const external = (r) => Object.entries(r.p ?? {}).filter(([k]) => k !== 'ağ geçidi').map(([, v]) => v);
+  const probeLost = (r) => {
+    const v = external(r);
+    return v.length === 0 ? null : (v.filter((n) => n < 0).length / v.length) * 100;
+  };
+  const probeRtt = (r) => {
+    const v = external(r).filter((n) => n >= 0);
+    return v.length === 0 ? null : Math.max(...v);
+  };
+  out.push(
+    h('div', 'adm-sub', `Olay penceresi ${clock(f.start, true)} – ${clock(f.end, true)}; grafikler 30 sn öncesinden başlar. İstemci özetleri 30 sn'lik pencerelerdir: hizalama saniyeye değil pencereyedir.`),
+    h(
+      'div',
+      'adm-chart-grid',
+      chart('Sunucu giden (NIC)', (r) => r.tx, (v) => `${dec(v)} Mbps`),
+      chart('Sunucu gelen (NIC)', (r) => r.rx, (v) => `${dec(v)} Mbps`, { color: 'ok' }),
+      chart('NIC düşen/hatalı paket', (r) => r.nd, (v) => `${num(v)} paket`, { max: 5, color: 'pink' }),
+      chart('UDP tampon/giriş hatası', (r) => r.ue + r.ur + r.us, (v) => `${num(v)} paket`, { max: 5, color: 'pink' }),
+      chart('Dış sonda kaybı (saniye başına)', probeLost, (v) => pct(v, 0), { max: 100, color: 'pink' }),
+      chart('Dış sonda gecikmesi (en yüksek)', probeRtt, msText, { max: 100 }),
+      chart('LiveKit işlemcisi', (r) => r.lk, (v) => `%${dec(v * 100, 0)} çekirdek`, { max: 1, color: 'ok' }),
+      chart('CPU baskısı (PSI)', (r) => r.psi, (v) => pct(v), { max: 10, color: 'pink' }),
+    ),
+  );
+  return out;
 }
 
 function system(d, now) {
