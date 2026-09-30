@@ -1,4 +1,15 @@
-import { createContext, memo, useContext, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  createContext,
+  memo,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type FocusEvent,
+  type HTMLAttributes,
+  type ReactNode,
+} from 'react';
 import { create } from 'zustand';
 import type { CosmeticPack, CosmeticPiece, CosmeticSetId } from '@diskort/shared';
 import {
@@ -13,7 +24,6 @@ import {
 import { useReducedMotion } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import {
-  ANIMATED_DECORATION_MIN_SIZE,
   decorationBox,
   failuresIn,
   INITIAL_LOAD_STATE,
@@ -21,6 +31,7 @@ import {
   pickSource,
   PLATE_BLEND_PX,
   resolvePiece,
+  resolvePlaying,
   sourceFailed,
   sourceLoaded,
   staticCardBackground,
@@ -101,6 +112,84 @@ function useCovered(): boolean {
   return covering && !inside;
 }
 
+// ---------- Üstüne gelince oynatma ----------
+
+// Kural (Discord gibi): bir kozmetik yalnızca kullanıcı ona işaret ederken (ya da klavyeyle odaklanmışken) oynar,
+// değilse sabit posteri görünür. Üye listesi satırı gibi bir kap kendi üstüne gelinmesini izler (useHoverPlay) ve
+// içindeki plaka ile avatar dekorasyonuna PlayScope ile bildirir; kap yoksa avatar kendi üstüne gelinmesini izler.
+// Profil kartı gibi "açık olduğu sürece" oynayanlar `animate` ile açıkça oynatılır. Durum kapta yerel kalır: liste
+// yeniden çizilmez; sayaç, zamanlayıcı ya da gözlemci yoktur.
+
+/** Kapsayan kabın oynatma durumu; kap yoksa null (parça kendi kuralına bakar) */
+const CosmeticPlay = createContext<boolean | null>(null);
+
+/** İçindeki plaka ve avatar dekorasyonlarının oynayıp oynamadığını bildiren kap */
+export function PlayScope({ playing, children }: { playing: boolean; children: ReactNode }) {
+  return <CosmeticPlay.Provider value={playing}>{children}</CosmeticPlay.Provider>;
+}
+
+/** Bir kabın olay tutucuları: üstüne gelince ya da klavyeyle odaklanınca `playing` */
+export interface HoverPlayBind {
+  onPointerEnter: () => void;
+  onPointerLeave: () => void;
+  onFocus: (e: FocusEvent<HTMLElement>) => void;
+  onBlur: (e: FocusEvent<HTMLElement>) => void;
+}
+
+/** Bir kabın üstüne gelindi ya da klavyeyle odaklandı mı; `bind` kabın olay tutucularıdır */
+export function useHoverPlay(): { playing: boolean; bind: HoverPlayBind } {
+  const [hover, setHover] = useState(false);
+  const [focus, setFocus] = useState(false);
+  const bind = useMemo<HoverPlayBind>(
+    () => ({
+      onPointerEnter: () => setHover(true),
+      onPointerLeave: () => setHover(false),
+      // Fareyle tıklayıp odaklanmak sayılmaz (zaten üstünde); yalnızca klavye odağı (focus-visible)
+      onFocus: (e) => {
+        if (e.target.matches(':focus-visible')) setFocus(true);
+      },
+      // Odak kabın içinde başka yere geçtiyse sürer
+      onBlur: (e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocus(false);
+      },
+    }),
+    [],
+  );
+  return { playing: hover || focus, bind };
+}
+
+/** Parçanın oynayıp oynamadığı: açıkça verilen, yoksa kapsayan kabın durumu, o da yoksa durur */
+function usePlaying(animate: boolean | undefined): boolean {
+  return resolvePlaying(animate, useContext(CosmeticPlay));
+}
+
+/**
+ * Üstüne gelindikçe içindeki plaka ve dekorasyonları oynatan `div`. Durum burada yerel kalır: içerik (`children`)
+ * yeniden çizilmez, yalnızca oynatma durumunu okuyan parçalar poster ile hareketli dosya arasında geçer.
+ */
+export function PlayOnHover({
+  children,
+  ...rest
+}: Omit<HTMLAttributes<HTMLDivElement>, keyof HoverPlayBind>) {
+  const { playing, bind } = useHoverPlay();
+  return (
+    <div {...rest} {...bind}>
+      <PlayScope playing={playing}>{children}</PlayScope>
+    </div>
+  );
+}
+
+/**
+ * Avatarın dekorasyonu oynasın mı: açıkça verilen, yoksa kapsayan kap (satır), o da yoksa avatarın kendisine
+ * gelinmesi. `bind`: avatarın kendi üstüne gelinmesini izleyen olay tutucuları; kap ya da açık karar varsa yok.
+ */
+export function useAvatarPlaying(animate: boolean | undefined): { playing: boolean; bind: HoverPlayBind | undefined } {
+  const scope = useContext(CosmeticPlay);
+  const own = useHoverPlay();
+  const owns = animate === undefined && scope === null;
+  return { playing: owns ? own.playing : resolvePlaying(animate, scope), bind: owns ? own.bind : undefined };
+}
+
 // ---------- Parçanın resmi ----------
 
 /** Bu oturumda tamamı yüklenmiş hareketli dosyalar: yeniden gösterilirken önce posteri beklemeye gerek yok */
@@ -129,7 +218,7 @@ interface PieceImage {
 /**
  * Parçanın <img>'sinde gösterilecek dosya ve yükleme olayları. Önce poster gösterilir, yüklenince hareketli
  * dosyaya geçilir (o yüklenene kadar tarayıcı posteri göstermeyi sürdürür). "Hareketi azalt" açıkken,
- * `paused` iken ve tam ekran bir pencerenin altında kalınca poster. Yüklenemeyen dosyadan postere, o da
+ * `paused` iken (üstüne gelinmeyen plaka ve dekorasyon) ve tam ekran bir pencerenin altında kalınca poster. Yüklenemeyen dosyadan postere, o da
  * yüklenemezse sabit görünüme düşülür (kırık resim simgesi hiç görünmez). Yüklenemeyen dosya paket deposuna
  * bildirilir (bildirim eskimiş olabilir); bildirim değişince ya da bağlantı geri gelince yeniden denenir.
  * `version`: bildirimin sürümü.
@@ -227,27 +316,24 @@ export const CardEffect = memo(function CardEffect({
 });
 
 /**
- * Hareketli avatar dekorasyonu: avatarın ortasına oturan kare resim (avatar `relative` olmalı). Profil
- * boyundaki avatarda (≥ 64 piksel) ya da `animate` ile paket oynar; küçük avatarda (mesajlar, üye listesi)
- * sabit, yalnızca CSS'ten bir halka.
+ * Hareketli avatar dekorasyonu: avatarın ortasına oturan kare resim (avatar `relative` olmalı). Her boyda önce
+ * sabit posteri gösterilir; `animate` (ya da kapsayan PlayScope) açıkken paket oynar. Poster yoksa ya da paket
+ * bu istemcide oynatılmıyorsa yalnızca CSS'ten bir halka.
  */
 export function AvatarDecoration({
   id,
   size,
   animate,
-  paused,
 }: {
   id: CosmeticSetId;
   /** Avatarın kenarı (css px) */
   size: number;
-  /** Küçük avatarda da oynasın (ayarlardaki seçici) */
+  /** Oynasın mı (verilmezse kapsayan PlayScope'a bakılır; o da yoksa poster) */
   animate?: boolean;
-  /** Durdurulmuş: poster gösterilir (ör. sesli sahnede konuşmayan katılımcı) */
-  paused?: boolean;
 }) {
   const { view, version } = usePiece(id, 'deco');
-  const live = animate || size >= ANIMATED_DECORATION_MIN_SIZE;
-  const image = usePieceImage(live ? view : null, version, paused);
+  const playing = usePlaying(animate);
+  const image = usePieceImage(view, version, !playing);
   if (!view) return null;
   if (!image.source) {
     return <span aria-hidden className="pointer-events-none absolute rounded-full" style={staticRingStyle(view.info, size)} />;
@@ -259,11 +345,22 @@ export function AvatarDecoration({
 /**
  * Üye listesi satırının arkasındaki isim plakası (satır `relative isolate` olmalı: plaka yazıların altında
  * kalır). Resim satırın yüksekliğinde ve sağa yaslıdır; satır resimden genişse solda kalan yer plakanın koyu
- * rengiyle dolar ve resmin sol kenarı bu renge karışır (ek yeri görünmez), darsa resmin solu kırpılır.
+ * rengiyle dolar ve resmin sol kenarı bu renge karışır (ek yeri görünmez), darsa resmin solu kırpılır. Satırın
+ * üstüne gelinmedikçe sabit posteridir (bkz. PlayScope).
  */
-export function Nameplate({ id, className }: { id: CosmeticSetId; className?: string }) {
+export function Nameplate({
+  id,
+  className,
+  animate,
+}: {
+  id: CosmeticSetId;
+  className?: string;
+  /** Oynasın mı (verilmezse kapsayan PlayScope'a bakılır; o da yoksa poster) */
+  animate?: boolean;
+}) {
   const { view, version } = usePiece(id, 'plate');
-  const image = usePieceImage(view, version);
+  const playing = usePlaying(animate);
+  const image = usePieceImage(view, version, !playing);
   if (!view) return null;
   const fill = view.info.fallback[0];
   // Üstte ve altta 1 piksel boşluk, yuvarlak köşe: art arda plakalı satırlar birbirine yapışmaz

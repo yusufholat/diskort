@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { animatedDecorationId, STATUS_LABELS, type User } from '@diskort/shared';
 import { avatarInk, avatarUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
 import { cn, initials } from '../../lib/utils';
-import { AvatarDecoration } from '../cosmetics/Cosmetics';
+import { AvatarDecoration, useAvatarPlaying } from '../cosmetics/Cosmetics';
 import { StatusIcon } from './StatusIcon';
 
 interface Props {
@@ -19,14 +19,15 @@ interface Props {
   ringColor?: string;
   /**
    * Avatar dekorasyonunun kimliği (user.avatarDecoration): avatarın üstüne, yerleşimi değiştirmeden çizilir.
-   * Hareketli dekorasyon (anim:<set>) profil boyunda oynar, küçük avatarda sabit bir halkadır; seti
-   * tanınmıyorsa (paketi yayında değil) hiçbir şey çizilmez.
+   * Hareketli dekorasyon (anim:<set>) sabit posteridir; avatarın (ya da kapsayan satırın, bkz. PlayScope)
+   * üstüne gelinince oynar. Seti tanınmıyorsa (paketi yayında değil) hiçbir şey çizilmez.
    */
   decoration?: string | null;
-  /** Hareketli dekorasyon küçük avatarda da oynasın (ayarlardaki seçici) */
+  /**
+   * Dekorasyonun oynaması açıkça belirlenir (true: hep oynar, ör. açık profil kartının avatarı). Verilmezse
+   * üstüne gelme kuralı geçerlidir.
+   */
   animateDecoration?: boolean;
-  /** Hareketli dekorasyon yalnızca konuşurken oynasın, değilse sabit resmi dursun (sesli sahne) */
-  liteDecoration?: boolean;
   className?: string;
 }
 
@@ -40,7 +41,6 @@ export function Avatar({
   ringColor,
   decoration,
   animateDecoration,
-  liteDecoration,
   className,
 }: Props) {
   // 32 piksellik avatarda 10 piksellik nokta, 3 piksellik halka; büyük avatarda (profil) orantılı daha küçük
@@ -52,8 +52,15 @@ export function Avatar({
   // Yüklenemeyen fotoğrafın yerine baş harfler (adres değişince yeniden denenir)
   const [failed, setFailed] = useState<string | null>(null);
   const decorationSet = animatedDecorationId(decoration);
+  // Dekorasyon: açık karar, yoksa kapsayan satır, o da yoksa avatarın kendi üstüne gelinmesi (dekorasyonsuz
+  // avatara olay tutucusu bağlanmaz)
+  const play = useAvatarPlaying(animateDecoration);
   return (
-    <div className={cn('relative shrink-0', className)} style={{ width: size, height: size }}>
+    <div
+      className={cn('relative shrink-0', className)}
+      style={{ width: size, height: size }}
+      {...(decorationSet ? play.bind : undefined)}
+    >
       <div
         className={cn(
           'avatar-ring flex h-full w-full items-center justify-center rounded-full font-semibold',
@@ -78,14 +85,7 @@ export function Avatar({
           initials(name)
         )}
       </div>
-      {decorationSet && (
-        <AvatarDecoration
-          id={decorationSet}
-          size={size}
-          animate={animateDecoration}
-          paused={liteDecoration && !speaking}
-        />
-      )}
+      {decorationSet && <AvatarDecoration id={decorationSet} size={size} animate={play.playing} />}
       {shown !== undefined && (
         <span
           className={cn('absolute flex items-center justify-center rounded-full', ringClassName)}

@@ -11,6 +11,7 @@ import {
   pickSource,
   PLAYABLE_KINDS,
   resolvePiece,
+  resolvePlaying,
   sourceFailed,
   sourceLoaded,
   staticCardBackground,
@@ -240,8 +241,33 @@ describe('decorationBox: dekorasyon resminin karesi', () => {
     expect(decorationBox(64).box).toBe(106);
   });
 
-  it('hareketli dekorasyonun en küçük avatar boyu', () => {
+  it('kalın halkanın en küçük avatar boyu', () => {
     expect(ANIMATED_DECORATION_MIN_SIZE).toBe(64);
+  });
+});
+
+describe('üstüne gelince oynatma', () => {
+  it('kap yoksa ve karar verilmediyse poster (durur)', () => {
+    expect(resolvePlaying(undefined, null)).toBe(false);
+  });
+
+  it('kapsayan kabın durumu izlenir', () => {
+    expect(resolvePlaying(undefined, true)).toBe(true);
+    expect(resolvePlaying(undefined, false)).toBe(false);
+  });
+
+  it('açık karar kabın durumunun önüne geçer (açık profil kartı oynar, durdurulan durur)', () => {
+    expect(resolvePlaying(true, false)).toBe(true);
+    expect(resolvePlaying(true, null)).toBe(true);
+    expect(resolvePlaying(false, true)).toBe(false);
+  });
+
+  it('durmuş parça hareketli dosyaya geçmez, oynayan geçer; poster yüklüyse hemen', () => {
+    const files = { anim: 'http://x.test/a.avif', poster: 'http://x.test/a-poster.webp' };
+    const still = pickSource(files, { still: !resolvePlaying(undefined, false), primed: true, failed: [] });
+    expect(still).toEqual({ url: files.poster, animated: false });
+    const play = pickSource(files, { still: !resolvePlaying(undefined, true), primed: true, failed: [] });
+    expect(play).toEqual({ url: files.anim, animated: true });
   });
 });
 

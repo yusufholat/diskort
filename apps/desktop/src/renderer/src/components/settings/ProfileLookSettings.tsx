@@ -30,7 +30,15 @@ import { confirmDialog } from '../../lib/dialog';
 import { PresenceProvider, usePresence } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import { toast } from '../../stores/ui';
-import { Nameplate, SetThumb, useKnownCosmeticSet, useSelectableCosmeticSets } from '../cosmetics/Cosmetics';
+import {
+  Nameplate,
+  PlayOnHover,
+  PlayScope,
+  SetThumb,
+  useHoverPlay,
+  useKnownCosmeticSet,
+  useSelectableCosmeticSets,
+} from '../cosmetics/Cosmetics';
 import { Avatar } from '../ui/Avatar';
 import { Button, SectionTitle } from '../ui/controls';
 import { AvatarCropper } from './AvatarCropper';
@@ -244,9 +252,10 @@ export function ProfileLookSettings({ user }: { user: User }) {
           <SectionTitle>Önizleme</SectionTitle>
           <ProfilePreviewCard user={preview} />
           <div className="mt-4 mb-1.5 text-xs font-bold tracking-wide text-text-muted uppercase">Üye listesinde</div>
-          <div className="w-[300px] rounded-lg border border-edge bg-bg-side p-2">
+          {/* Üye listesindeki gibi: plaka ve dekorasyon satırın üstüne gelinince oynar */}
+          <PlayOnHover className="w-[300px] rounded-lg border border-edge bg-bg-side p-2">
             <MemberRowPreview user={preview} />
-          </div>
+          </PlayOnHover>
         </div>
       </div>
     </div>
@@ -403,27 +412,44 @@ function NameplatePicker({
   ];
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2" role="radiogroup" aria-label="İsim plakası">
-      {options.map((o) => {
-        const selected = value === o.id;
-        return (
-          <button
-            key={o.id ?? 'none'}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            aria-label={o.name}
-            data-tooltip={o.tooltip}
-            onClick={() => onPick(o.id)}
-            className={cn(
-              'press rounded-lg border-2 bg-bg-side p-1 transition-colors',
-              selected ? 'border-brand' : 'border-transparent hover:border-edge-strong hover:bg-bg-hover',
-            )}
-          >
-            <MemberRowPreview user={{ ...user, nameplate: o.id }} label={o.id ? undefined : 'Yok'} />
-          </button>
-        );
-      })}
+      {options.map((o) => (
+        <NameplateTile key={o.id ?? 'none'} option={o} user={user} selected={value === o.id} onPick={onPick} />
+      ))}
     </div>
+  );
+}
+
+/** Plaka seçicinin kutusu: plaka ve dekorasyon yalnızca kutunun üstüne gelinince (ya da odaklanınca) oynar */
+function NameplateTile({
+  option: o,
+  user,
+  selected,
+  onPick,
+}: {
+  option: { id: CosmeticSetId | null; name: string; tooltip: string };
+  user: User;
+  selected: boolean;
+  onPick: (id: CosmeticSetId | null) => void;
+}) {
+  const { playing, bind } = useHoverPlay();
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      aria-label={o.name}
+      data-tooltip={o.tooltip}
+      onClick={() => onPick(o.id)}
+      {...bind}
+      className={cn(
+        'press rounded-lg border-2 bg-bg-side p-1 transition-colors',
+        selected ? 'border-brand' : 'border-transparent hover:border-edge-strong hover:bg-bg-hover',
+      )}
+    >
+      <PlayScope playing={playing}>
+        <MemberRowPreview user={{ ...user, nameplate: o.id }} label={o.id ? undefined : 'Yok'} />
+      </PlayScope>
+    </button>
   );
 }
 
@@ -467,27 +493,42 @@ function DecorationPicker({
   ];
   return (
     <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Avatar dekorasyonu">
-      {options.map((o) => {
-        const selected = value === o.id;
-        return (
-          <button
-            key={o.id ?? 'none'}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            aria-label={o.name}
-            data-tooltip={o.tooltip}
-            onClick={() => onPick(o.id)}
-            className={cn(
-              'press flex h-[84px] w-[84px] items-center justify-center rounded-lg border-2 bg-bg-side transition-colors',
-              selected ? 'border-brand' : 'border-transparent hover:border-edge-strong hover:bg-bg-hover',
-            )}
-          >
-            <Avatar user={user} size={44} decoration={o.id} animateDecoration />
-          </button>
-        );
-      })}
+      {options.map((o) => (
+        <DecorationTile key={o.id ?? 'none'} option={o} user={user} selected={value === o.id} onPick={onPick} />
+      ))}
     </div>
+  );
+}
+
+/** Dekorasyon seçicinin kutusu: dekorasyon yalnızca kutunun üstüne gelinince (ya da odaklanınca) oynar */
+function DecorationTile({
+  option: o,
+  user,
+  selected,
+  onPick,
+}: {
+  option: { id: AnimatedDecoration | null; name: string; tooltip: string };
+  user: User;
+  selected: boolean;
+  onPick: (id: AnimatedDecoration | null) => void;
+}) {
+  const { playing, bind } = useHoverPlay();
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      aria-label={o.name}
+      data-tooltip={o.tooltip}
+      onClick={() => onPick(o.id)}
+      {...bind}
+      className={cn(
+        'press flex h-[84px] w-[84px] items-center justify-center rounded-lg border-2 bg-bg-side transition-colors',
+        selected ? 'border-brand' : 'border-transparent hover:border-edge-strong hover:bg-bg-hover',
+      )}
+    >
+      <Avatar user={user} size={44} decoration={o.id} animateDecoration={playing} />
+    </button>
   );
 }
 
