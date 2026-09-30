@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { CUSTOM_STATUS_MAX_LENGTH, STATUS_DURATION_MAX_MS, STATUS_DURATION_MIN_MS } from '@diskort/shared';
 import { parseBody, sendError, type AppContext } from '../context.js';
 import { normalizeEmoji } from '../emoji.js';
-import type { StatusChange } from '../presence.js';
+import { cleanText, type StatusChange } from '../presence.js';
 import { createRateLimiter } from './messages.js';
 
 const duration = z
@@ -12,14 +12,6 @@ const duration = z
   .min(STATUS_DURATION_MIN_MS, 'Süre çok kısa.')
   .max(STATUS_DURATION_MAX_MS, 'Süre çok uzun.')
   .nullish();
-
-/** Satır sonları ve görünmez denetim karakterleri tek boşluğa iner */
-const cleanText = (raw: string): string =>
-  raw
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\x00-\x1f\x7f-\x9f]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 
 const statusSchema = z
   .object({
