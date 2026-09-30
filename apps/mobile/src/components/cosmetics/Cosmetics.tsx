@@ -17,7 +17,7 @@ import {
   withAlpha,
 } from './packLayout';
 import type { PlaybackHandle, PlayerSpec } from './packPlayer';
-import { pieceSource, type PhoneOS, type PieceSource } from './packSource';
+import { pieceSource, type PhoneDevice, type PieceSource } from './packSource';
 import { onScreen, playback, useRetryEpoch } from './playback';
 import { reportCosmeticError } from './report';
 import { skia, useHasSkia } from './skia';
@@ -34,7 +34,8 @@ import { skia, useHasSkia } from './skia';
 export { hasSkia, useHasSkia } from './skia';
 export { ANIMATED_DECORATION_MIN_SIZE, CARD_BANNER_RATIO, decorationCanvasSize } from './packLayout';
 
-const OS: PhoneOS = Platform.OS === 'ios' ? 'ios' : 'android';
+const DEVICE: PhoneDevice =
+  Platform.OS === 'ios' ? { os: 'ios' } : { os: 'android', androidApi: typeof Platform.Version === 'number' ? Platform.Version : 0 };
 
 /** Saydam parçada canlı yüzey belirdikten bu kadar sonra (ms) altındaki sabit resim gizlenir (arada boşluk olmasın) */
 const SETTLE_MS = 120;
@@ -43,7 +44,7 @@ const SETTLE_MS = 120;
 function usePieceSource(set: CosmeticSetId | null | undefined, piece: CosmeticPiece): PieceSource {
   const manifest = useCosmeticManifest();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => pieceSource(cosmeticPacks, set, piece, OS), [manifest, set, piece]);
+  return useMemo(() => pieceSource(cosmeticPacks, set, piece, DEVICE), [manifest, set, piece]);
 }
 
 /** Bu set bu parçada gösteriliyor mu (bildirimde var ve uygulama çizebiliyor): yerleşim ve yazı renkleri için */
@@ -70,6 +71,8 @@ const specOf = (asset: ResolvedCosmeticAsset, info: CosmeticPack): PlayerSpec =>
   bytes: asset.bytes,
   fps: info.fps,
   frames: Math.max(1, Math.round(info.loopSeconds * info.fps)),
+  // Yan yana video: dosyanın tam karesi (çözülen video bundan küçükse birleştirilemez)
+  ...(asset.kind === 'stacked-h264' && isStackedLayout(asset) ? { video: { width: asset.stackedWidth, height: asset.height } } : {}),
 });
 
 /**

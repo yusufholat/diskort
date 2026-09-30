@@ -9,7 +9,9 @@ import {
   IDLE_CLOSE_MS,
   MEASURE_MS,
   RETRY_MS,
+  VIDEO_PARK_MS,
   type DriverEvents,
+  type FailureKind,
   type Playback,
   type PlaybackView,
   type PlayerSpec,
@@ -26,9 +28,18 @@ interface FakePlayer {
 
 const plate: PlayerSpec = { url: 'https://s/api/cosmetics/packs/buz/0123456789abcdef/plate.webp', kind: 'image', bytes: 10, fps: 30, frames: 180 };
 const deco: PlayerSpec = { url: 'https://s/api/cosmetics/packs/buz/0123456789abcdef/deco.webp', kind: 'image', bytes: 10, fps: 30, frames: 180 };
+const video = (set: string): PlayerSpec => ({
+  url: `https://s/api/cosmetics/packs/${set}/0123456789abcdef/card.mp4`,
+  kind: 'video',
+  bytes: 10,
+  fps: 30,
+  frames: 180,
+  video: { width: 1216, height: 900 },
+});
+const card = video('buz');
 
 let opened: FakePlayer[];
-let errors: { spec: PlayerSpec; error: unknown; permanent: boolean }[];
+let errors: { spec: PlayerSpec; error: unknown; kind: FailureKind }[];
 let playback: Playback<{ url: string }>;
 let failOpen = false;
 
@@ -53,7 +64,7 @@ beforeEach(() => {
       clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
       nextFrame: (fn) => void setTimeout(fn, 0),
     },
-    onError: (spec, error, permanent) => errors.push({ spec, error, permanent }),
+    onError: (spec, error, kind) => errors.push({ spec, error, kind }),
   });
 });
 
@@ -240,6 +251,119 @@ describe('ne zaman oynar', () => {
   });
 });
 
+describe('video çözücüsü boşta tutulmaz', () => {
+  it('uygulama arka plana geçince video hemen bırakılır, görünüm sabit resme döner; öne gelince yeniden açılır', () => {
+    const v = view();
+    playback.attach(card, v.options);
+    opened[0]!.events.ready();
+    expect(v.live).toBe(true);
+
+    playback.setAppActive(false);
+    expect(opened[0]!.closed).toBe(1);
+    expect(v.live).toBe(false);
+    expect(errors).toHaveLength(0);
+    // Arka planda yeniden açılmaz
+    vi.advanceTimersByTime(VIDEO_PARK_MS * 2);
+    expect(opened).toHaveLength(1);
+
+    playback.setAppActive(true);
+    expect(opened).toHaveLength(2);
+    expect(v.live).toBe(false);
+    opened[1]!.events.ready();
+    expect(v.live).toBe(true);
+    expect(v.frame).toBe(opened[1]!.frame);
+    // Bırakılan oynatıcıdan gelen geç olay yok sayılır
+    opened[0]!.events.failed(new Error('geç'));
+    expect(v.live).toBe(true);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('arka planda hiçbir dosya açılmaz; öne gelince açılır', () => {
+    playback.setAppActive(false);
+    playback.attach(plate, view().options);
+    playback.attach(card, view().options);
+    expect(opened).toHaveLength(0);
+    playback.setAppActive(true);
+    expect(opened.map((p) => p.spec.kind).sort()).toEqual(['image', 'video']);
+  });
+
+  it('görünümü dursa da kimse oynatmak istemiyorsa video bir süre sonra bırakılır, istenince yeniden açılır', () => {
+    const v = view();
+    const handle = playback.attach(card, v.options);
+    opened[0]!.events.ready();
+    handle.update({ focused: false });
+    expect(opened[0]!.running).toEqual([true, false]);
+    vi.advanceTimersByTime(VIDEO_PARK_MS - 1);
+    expect(opened[0]!.closed).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(opened[0]!.closed).toBe(1);
+    expect(playback.stats()).toMatchObject({ players: 1, views: 1, loaded: 0 });
+
+    handle.update({ focused: true });
+    expect(opened).toHaveLength(2);
+    opened[1]!.events.ready();
+    expect(v.live).toBe(true);
+  });
+
+  it('süre dolmadan yeniden istenirse video bırakılmaz', () => {
+    const handle = playback.attach(card, view().options);
+    opened[0]!.events.ready();
+    handle.update({ paused: true });
+    vi.advanceTimersByTime(VIDEO_PARK_MS / 2);
+    handle.update({ paused: false });
+    vi.advanceTimersByTime(VIDEO_PARK_MS * 2);
+    expect(opened).toHaveLength(1);
+    expect(opened[0]!.closed).toBe(0);
+    expect(opened[0]!.running).toEqual([true, false, true]);
+  });
+
+  it('görünümü kalmayan video resimlerden uzun bekletilir (aynı profil yeniden açılınca çözücü yeniden kurulmasın)', () => {
+    const handle = playback.attach(card, view().options);
+    opened[0]!.events.ready();
+    handle.dispose();
+    vi.advanceTimersByTime(IDLE_CLOSE_MS * 2);
+    expect(opened[0]!.closed).toBe(0);
+    const again = view();
+    playback.attach(card, again.options);
+    expect(opened).toHaveLength(1);
+    expect(again.live).toBe(true);
+  });
+
+  it('görünümü kalmayan video süre dolunca bırakılır (bir kez)', () => {
+    playback.attach(card, view().options).dispose();
+    vi.advanceTimersByTime(VIDEO_PARK_MS * 2);
+    expect(opened[0]!.closed).toBe(1);
+    expect(playback.stats().players).toBe(0);
+  });
+
+  it('yeni video açılırken boşta bekleyen diğer videolar bırakılır; oynayan bırakılmaz', () => {
+    const first = playback.attach(video('buz'), view().options);
+    opened[0]!.events.ready();
+    const playing = view();
+    playback.attach(video('neon'), playing.options);
+    opened[1]!.events.ready();
+    first.dispose();
+    expect(opened[0]!.closed).toBe(0);
+
+    playback.attach(video('sakura'), view().options);
+    expect(opened).toHaveLength(3);
+    expect(opened[0]!.closed).toBe(1);
+    expect(opened[1]!.closed).toBe(0);
+    expect(playing.live).toBe(true);
+  });
+
+  it('resim çözücüleri arka planda ve odak dışında bırakılmaz (yalnızca saat durur)', () => {
+    const handle = playback.attach(plate, view().options);
+    opened[0]!.events.ready();
+    playback.setAppActive(false);
+    playback.setAppActive(true);
+    handle.update({ focused: false });
+    vi.advanceTimersByTime(VIDEO_PARK_MS * 2);
+    expect(opened).toHaveLength(1);
+    expect(opened[0]!.closed).toBe(0);
+  });
+});
+
 describe('bırakma', () => {
   it('son görünüm kalkınca saat durur; oynatıcı bir süre bekletilip bırakılır', () => {
     const a = view();
@@ -332,7 +456,7 @@ describe('hata', () => {
     const v = view();
     playback.attach(plate, v.options);
     opened[0]!.events.failed(new Error('ağ yok'));
-    expect(errors[0]!.permanent).toBe(false);
+    expect(errors[0]!.kind).toBe('transient');
     // Bu arada bağlanan başka görünüm yeniden denetmez
     playback.attach(plate, view().options);
     vi.advanceTimersByTime(RETRY_MS - 1);
@@ -386,9 +510,9 @@ describe('hata', () => {
     const v = view();
     const handle = playback.attach(plate, v.options);
     opened[0]!.events.ready();
-    opened[0]!.events.failed(new Error('kareler yavaş'), true);
+    opened[0]!.events.failed(new Error('kareler yavaş'), 'device');
     expect(v.live).toBe(false);
-    expect(errors[0]!.permanent).toBe(true);
+    expect(errors[0]!.kind).toBe('device');
     vi.advanceTimersByTime(RETRY_MS * 3);
     playback.retry();
     playback.attach(plate, view().options);
@@ -398,6 +522,22 @@ describe('hata', () => {
     vi.advanceTimersByTime(RETRY_MS);
     playback.attach(plate, view().options);
     expect(opened).toHaveLength(1);
+  });
+
+  it('oynatılamayan video bu oturumda yeniden açılmaz (her deneme bir çözücü açar); başka adres denenir', () => {
+    const v = view();
+    playback.attach(card, v.options);
+    opened[0]!.events.failed(new Error('video açılamadı'), 'asset');
+    expect(errors[0]!.kind).toBe('asset');
+    expect(opened[0]!.closed).toBe(1);
+    vi.advanceTimersByTime(RETRY_MS * 3);
+    playback.retry();
+    playback.setAppActive(false);
+    playback.setAppActive(true);
+    expect(opened).toHaveLength(1);
+    // Yeniden yayınlanan paketin yeni adresi ayrı bir dosyadır
+    playback.attach(video('neon'), view().options);
+    expect(opened).toHaveLength(2);
   });
 
   it('bırakılmış oynatıcının hatası hatırlanır: yeniden kurulan görünüm süre dolmadan denemez, dolunca dener', () => {

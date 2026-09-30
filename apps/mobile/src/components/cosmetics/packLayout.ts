@@ -179,24 +179,46 @@ export function frameInterval(fps: number): number {
   return 1000 / f;
 }
 
-/** Videonun son karesinden sonra en çok bu kadar çağrı daha beklenir (çözücünün içinde kalan kareler) */
-export const VIDEO_TAIL_CALLS = 8;
-/** Döngü sonunda bir kare isteği bundan uzun sürdüyse (ms) çözücüde kare kalmamıştır */
-export const VIDEO_STALL_MS = 9;
+/** Çözücünün içinde bekleyebilecek en fazla kare (H.264'ün yeniden sıralama payı): döngünün "sonu" bu kadar kare */
+export const VIDEO_TAIL_FRAMES = 12;
+/**
+ * Bir kare isteği bundan uzun sürdüyse (ms) çözücü hem girdi hem çıktı için boşuna beklemiştir (ikisi de 10 ms'de
+ * zaman aşımına uğrar): dosyanın sonu verilmiş ve kare kalmamıştır. Yalnızca çıktıyı bekleyen olağan yavaş istek
+ * 10 ms sürer.
+ */
+export const VIDEO_STALL_MS = 15;
 
 /**
- * Android'de videonun başa sarılması gerekiyor mu. Oradaki Skia videosunda kareleri çağrılar ilerletir (her
- * `nextImage` en çok bir kare) ve çözücü dosyanın sonunda kendiliğinden başa dönmez: döngüyü oynatıcı kurar.
- * `calls`: son sarmadan beri kare isteği sayısı, `frames`: dosyadaki kare sayısı, `timeMs`: son çözülen karenin
- * zamanı (her karede güncellenmeyebilir), `tookMs`: son isteğin süresi. Dosyanın bütün kareleri istenmeden
- * sarılmaz; sonra şunlardan biri yeter: son karenin zamanı görüldü, istek boşuna bekledi, ya da pay doldu.
+ * Android'de videonun başa sarılması gerekiyor mu. Oradaki Skia videosunda (RNSkVideo.java) kareleri çağrılar
+ * ilerletir (her `nextImage` en çok bir kare çözer) ve çözücü dosyanın sonunda kendiliğinden başa dönmez:
+ * döngüyü oynatıcı kurar.
+ * - `calls`: son sarmadan beri kare isteği sayısı; `frames`: dosyadaki kare sayısı
+ * - `timeMs`: son çözülen karenin zamanı. Her karede güncellenmez (çözücüde hazır bekleyen kare zamanı
+ *   güncellemeden verilir; dosyanın sonunda kalan kareler böyle gelir) ve sarmanın hemen ardından eski döngünün
+ *   sonunu gösterir; `idleCalls`: zamanın kaç istektir değişmediği
+ * - `tookMs`: son isteğin süresi
+ * Kurallar: döngünün ilk yarısında sarılmaz. Son karenin zamanı görüldüyse sarılır. Son karelerdeyken istek
+ * boşuna beklediyse ya da zaman uzun süredir ilerlemiyorsa (kalan kareler de verildi) sarılır. Zaman hiç
+ * güvenilir değilse çağrı sayısına bakılır: bütün kareler istendikten sonra boşuna bekleyen istekte, en geç iki
+ * döngülük çağrıda.
  */
-export function videoShouldRewind(calls: number, frames: number, timeMs: number, durationMs: number, frameMs: number, tookMs: number): boolean {
+export function videoShouldRewind(
+  calls: number,
+  idleCalls: number,
+  frames: number,
+  timeMs: number,
+  durationMs: number,
+  frameMs: number,
+  tookMs: number,
+): boolean {
   'worklet';
-  if (!(frames > 0) || calls < frames - 2) return false;
-  if (durationMs > 0 && timeMs >= durationMs - 1.5 * frameMs) return true;
-  if (calls >= frames - 1 && tookMs >= VIDEO_STALL_MS) return true;
-  return calls >= frames + VIDEO_TAIL_CALLS;
+  if (!(frames > 0) || calls < frames / 2) return false;
+  const timed = durationMs > 0;
+  if (timed && timeMs >= durationMs - 1.5 * frameMs) return true;
+  const nearEnd = timed && timeMs >= durationMs - VIDEO_TAIL_FRAMES * frameMs;
+  if (nearEnd && (tookMs >= VIDEO_STALL_MS || idleCalls >= VIDEO_TAIL_FRAMES)) return true;
+  if (calls >= frames + VIDEO_TAIL_FRAMES && tookMs >= VIDEO_STALL_MS) return true;
+  return calls >= frames * 2;
 }
 
 /** Kare başına ortalama iş bu süreyi (ms) aşarsa oynatma bırakılır, sabit resme dönülür (arayüz takılmasın) */

@@ -4,7 +4,16 @@
 import { describe, expect, it } from 'vitest';
 import type { ClientPlatform, CosmeticPack, CosmeticPackAsset, CosmeticPackManifest, CosmeticPiece } from '@diskort/shared';
 import { cosmeticPackAsset, cosmeticPackOf, cosmeticPackPoster } from '@diskort/client-core';
-import { pieceSource, playableKinds, STACKED_VIDEO_PLATFORMS, type PackLookup, type PhoneOS } from '../src/components/cosmetics/packSource';
+import {
+  pieceSource,
+  playableKinds,
+  playsStackedVideo,
+  STACKED_VIDEO_MIN_ANDROID_API,
+  STACKED_VIDEO_PLATFORMS,
+  type PackLookup,
+  type PhoneDevice,
+  type PhoneOS,
+} from '../src/components/cosmetics/packSource';
 
 const BASE = 'https://sunucu.test';
 const VERSION = '0123456789abcdef';
@@ -61,20 +70,37 @@ const manifest: CosmeticPackManifest = {
   ],
 };
 
-const source = (id: string | null, piece: CosmeticPiece, os: PhoneOS) => pieceSource(lookup(manifest, os), id, piece, os);
+const IOS: PhoneDevice = { os: 'ios' };
+/** Güncel Android (API 34) ve yan yana videonun oynatılmadığı eski Android (Android 9, API 28) */
+const ANDROID: PhoneDevice = { os: 'android', androidApi: 34 };
+const OLD_ANDROID: PhoneDevice = { os: 'android', androidApi: 28 };
+const device = (os: PhoneOS): PhoneDevice => (os === 'ios' ? IOS : ANDROID);
+
+const source = (id: string | null, piece: CosmeticPiece, target: PhoneOS | PhoneDevice) => {
+  const phone = typeof target === 'string' ? device(target) : target;
+  return pieceSource(lookup(manifest, phone.os), id, piece, phone);
+};
 
 describe('oynatılabilen türler', () => {
   it('dekorasyon ve plaka: hareketli WebP', () => {
-    for (const os of ['android', 'ios'] as const) {
-      expect(playableKinds('deco', os)).toEqual(['webp']);
-      expect(playableKinds('plate', os)).toEqual(['webp']);
+    for (const phone of [ANDROID, OLD_ANDROID, IOS]) {
+      expect(playableKinds('deco', phone)).toEqual(['webp']);
+      expect(playableKinds('plate', phone)).toEqual(['webp']);
     }
   });
 
-  it('kart: yan yana video yalnızca desteklenen platformda; WebP her yerde', () => {
-    expect(STACKED_VIDEO_PLATFORMS).toEqual(['ios']);
-    expect(playableKinds('card', 'ios')).toEqual(['stacked-h264', 'webp']);
-    expect(playableKinds('card', 'android')).toEqual(['webp']);
+  it("kart: yan yana video iOS'ta ve Android 10'dan (API 29) itibaren; WebP her yerde", () => {
+    expect(STACKED_VIDEO_PLATFORMS).toEqual(['ios', 'android']);
+    expect(STACKED_VIDEO_MIN_ANDROID_API).toBe(29);
+    expect(playableKinds('card', IOS)).toEqual(['stacked-h264', 'webp']);
+    expect(playableKinds('card', ANDROID)).toEqual(['stacked-h264', 'webp']);
+    expect(playableKinds('card', { os: 'android', androidApi: 29 })).toEqual(['stacked-h264', 'webp']);
+    // Android 8–9: Skia'nın videosu her karede API 28'in yöntemini çağırır ve 28'de arabellek GPU için kurulmaz
+    expect(playableKinds('card', OLD_ANDROID)).toEqual(['webp']);
+    expect(playableKinds('card', { os: 'android', androidApi: 26 })).toEqual(['webp']);
+    // Sürümü okunamayan Android'de denenmez
+    expect(playsStackedVideo({ os: 'android' })).toBe(false);
+    expect(playsStackedVideo({ os: 'android', androidApi: 0 })).toBe(false);
   });
 });
 
@@ -82,7 +108,7 @@ describe('pieceSource', () => {
   it('bildirimde olmayan set ve boş kimlik: hiçbir şey', () => {
     expect(source('yok', 'deco', 'android')).toEqual({ kind: 'none' });
     expect(source(null, 'card', 'ios')).toEqual({ kind: 'none' });
-    expect(pieceSource(lookup(null, 'android'), 'buz', 'deco', 'android')).toEqual({ kind: 'none' });
+    expect(pieceSource(lookup(null, 'android'), 'buz', 'deco', ANDROID)).toEqual({ kind: 'none' });
   });
 
   it('dekorasyon ve plaka: hareketli WebP oynatılır, poster sabit resimdir; adresler tam', () => {
@@ -96,21 +122,23 @@ describe('pieceSource', () => {
     expect(plate.kind === 'pack' && plate.asset?.kind).toBe('webp');
   });
 
-  it("iOS'ta kart yan yana videoyla oynar", () => {
-    const card = source('buz', 'card', 'ios');
-    expect(card.kind === 'pack' && card.asset).toMatchObject({ kind: 'stacked-h264', width: 600, height: 900, stackedWidth: 1216, alphaX: 616 });
+  it("iOS'ta ve güncel Android'de kart yan yana videoyla oynar", () => {
+    for (const os of ['ios', 'android'] as const) {
+      const card = source('buz', 'card', os);
+      expect(card.kind === 'pack' && card.asset).toMatchObject({ kind: 'stacked-h264', width: 600, height: 900, stackedWidth: 1216, alphaX: 616 });
+    }
   });
 
-  it("Android'de kart videosu oynatılmaz: yalnızca poster", () => {
-    const card = source('buz', 'card', 'android');
+  it("eski Android'de (API 29'dan küçük) kart videosu oynatılmaz: yalnızca poster", () => {
+    const card = source('buz', 'card', OLD_ANDROID);
     expect(card.kind).toBe('pack');
     if (card.kind !== 'pack') return;
     expect(card.asset).toBeNull();
     expect(card.poster?.kind).toBe('poster');
   });
 
-  it("pakette kartın hareketli WebP'si varsa Android'de o oynar", () => {
-    const card = source('sakura', 'card', 'android');
+  it("pakette kartın yalnızca hareketli WebP'si varsa o oynar", () => {
+    const card = source('sakura', 'card', OLD_ANDROID);
     expect(card.kind === 'pack' && card.asset).toMatchObject({ kind: 'webp', width: 600, height: 900 });
   });
 
@@ -131,6 +159,6 @@ describe('pieceSource', () => {
       asset: () => ({ ...file('buz', 'card.mp4', 'stacked-h264', 600, 900), url: `${BASE}/x` }),
       poster: () => null,
     };
-    expect(pieceSource(broken, 'buz', 'card', 'ios').kind).toBe('static');
+    expect(pieceSource(broken, 'buz', 'card', IOS).kind).toBe('static');
   });
 });

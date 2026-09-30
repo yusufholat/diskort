@@ -69,7 +69,7 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
 | Oynanan oyunu algılama (Etkinlik) | ✅ | ❌ | ❌ | ❌ (başkalarınınkini gösterir) |
 | Yayına sistem sesi | ✅ | ❌ (planlı) | ❌ (planlı) | — |
 | Global kısayollar / bas-konuş | ✅ | ✅ X11 · ⚠️ Wayland | ✅ (Erişilebilirlik izni) | — |
-| Paket | NSIS kurulum (x64) | AppImage, .deb (x64) | .dmg (Apple Silicon, Intel) | APK (Android 7+) |
+| Paket | NSIS kurulum (x64) | AppImage, .deb (x64) | .dmg (Apple Silicon, Intel) | APK (Android 8+) |
 | Otomatik güncelleme | ✅ | ✅ | ❌ (Apple imzası gerekir; indirme sayfasından) | ✅ arayüz kablosuz (OTA), yerel kısım APK ile |
 | Kod imzası | ❌ şimdilik (SmartScreen uyarısı, yalnızca ilk kurulumda); SignPath Foundation hazırlığı: [docs/kod-imzalama.md](docs/kod-imzalama.md) | — | ad-hoc (ilk açılışta “Yine de Aç”) | kendi anahtarımız |
 

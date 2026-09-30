@@ -175,14 +175,18 @@ Telefon setleri kodla çizmez; oynatıcı `apps/mobile/src/components/cosmetics/
 | Parça | Oynatılan dosya | Hareket yokken |
 |---|---|---|
 | Avatar dekorasyonu (`deco`), isim plakası (`plate`) | `webp` (hareketli WebP) | `poster` |
-| Profil efekti (`card`), iOS | `stacked-h264`; yoksa `webp` | `poster` |
-| Profil efekti (`card`), Android | `webp` varsa o; yoksa yalnızca `poster` (hareketsiz) | `poster` |
+| Profil efekti (`card`), iOS ve Android 10+ | `stacked-h264`; yoksa `webp` | `poster` |
+| Profil efekti (`card`), Android 8–9 | `webp` varsa o; yoksa yalnızca `poster` (hareketsiz) | `poster` |
 
-- **Android'de kart videosu oynatılmaz:** Skia'nın videosu en az API 26 ile derlenmiş uygulama ister, uygulamanın
-  `minSdk`'si 24'tür. Açmak için yeni APK gerekir (`minSdkVersion: 26`, sonra `packSource.ts` →
-  `STACKED_VIDEO_PLATFORMS`'a `android`; cihazda denenmelidir). O zamana dek Android'de kartın hareketli olması
-  istenirse pakete kart için bir `webp` eklenebilir (kareleri arayüz iş parçacığında çözülür: ağır kalırsa
-  oynatıcı kendiliğinden postere döner).
+- **Uygulama en az Android 8 (API 26) ister.** Skia'nın videosu ancak API 26 ve üstüyle derlenen uygulamada
+  vardır (`app.config.ts` → `minSdkVersion: 26`).
+- **Android 8 ve 9'da kart videosu oynatılmaz** (`packSource.ts` → `STACKED_VIDEO_MIN_ANDROID_API = 29`): Skia'nın
+  Android videosu her karede Android 9'da gelen bir yöntemi çağırır (Android 8'de uygulamayı kapatırdı) ve kare
+  arabelleğini ancak Android 10'da GPU için açıkça ister. O telefonlarda kartın hareketli olması istenirse pakete
+  kart için bir `webp` eklenebilir (kareleri arayüz iş parçacığında çözülür: ağır kalırsa oynatıcı kendiliğinden
+  postere döner).
+- Android'de video çözücüsü telefonun donanım çözücüsüdür: uygulama arka plana geçince ve kimse oynatmıyorken
+  yarım dakika sonra bırakılır; aynı anda en çok bir boşta video tutulur.
 - `avif` telefonda kullanılmaz. Poster düz bir resim olarak gösterilir: "hareketi azalt" açıkken, durdurulmuş
   görünümde (seçicide seçili olmayan seçenek, seste konuşmayan katılımcı), ekran dışında ve dosya yüklenirken.
 - Küçük avatarlarda (64 pikselden küçük: mesajlar, listeler) dekorasyon yerine setin `accent` renginde sabit bir

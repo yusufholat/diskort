@@ -24,10 +24,11 @@ export function playback(): Playback<Frame> {
       clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
       nextFrame: (fn) => void requestAnimationFrame(fn),
     },
-    onError: (spec, error, permanent) => {
+    onError: (spec, error, kind) => {
       reportCosmeticError(spec.kind === 'video' ? 'video' : 'hareketli resim', error);
-      // İndirilemeyen ya da çözülemeyen dosya: bildirim eskimiş olabilir (paket yeniden yayınlanmış, kaldırılmış)
-      if (!permanent) cosmeticAssetFailed(spec.url);
+      // İndirilemeyen ya da çözülemeyen dosya: bildirim eskimiş olabilir (paket yeniden yayınlanmış, kaldırılmış).
+      // Telefonun kareleri yetiştirememesi dosyanın kusuru değildir.
+      if (kind !== 'device') cosmeticAssetFailed(spec.url);
     },
   });
   instance = created;

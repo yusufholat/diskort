@@ -6,8 +6,28 @@
 // - Hareketli WebP: Skia.AnimatedImage (decodeNextFrame / getCurrentFrame).
 // - Yan yana video (stacked-h264): Skia.Video. Kareleri GPU dokusudur ve onları çizen iş parçacığında alınmalıdır
 //   (Skia'nın kendi useVideo'su gibi); videonun kendisi, Skia'nın yaptığı gibi ayrı bir çalışma ortamında açılır
-//   (açılışı arayüzü bekletmesin). iOS'ta kareleri ve döngüyü AVPlayer yürütür; Android'de her istek bir kare
-//   çözer ve döngüyü oynatıcı kurar (videoShouldRewind). Android'de video şimdilik kapalıdır (bkz. packSource.ts).
+//   (açılışı arayüzü bekletmesin). iOS'ta kareleri ve döngüyü AVPlayer yürütür.
+//
+// Android'de video (Skia 2.6.2: android/src/main/java/.../RNSkVideo.java, android/cpp/rnskia-android/
+// RNSkAndroidVideo.cpp, OpenGLContext.h), bu dosyanın uyduğu kurallar:
+// - Kareleri çağrılar ilerletir: her `nextImage` çözücüye en çok bir örnek verir ve en çok bir kare alır (girdi
+//   ve çıktı için 10'ar ms'ye kadar bekleyerek, arayüz iş parçacığında). Saniyede paketin kare hızı kadar çağrı
+//   videoyu gerçek hızında oynatır. Yeni kare yoksa son kare yeniden gelir, hiç kare yoksa null.
+// - Çözücü dosyanın sonunda başa dönmez (setLooping yalnızca sessiz MediaPlayer'ı döndürür): döngüyü biz kurarız
+//   (videoShouldRewind → seek(0)). Sarmadan sonra çözücü dolana dek birkaç kare son kare gösterilir.
+// - Kare, çözücünün arabelleğine bağlı bir GPU dokusudur (EGLImage, harici doku): kopyası değildir. Arabellek
+//   belleği kare bırakılana kadar durur ama çözücü onu sonraki kareler için yeniden kullanabilir; bu yüzden hep
+//   en son kare gösterilir ve önceki kare, yerine yenisi konunca bırakılır (her çağrı yeni bir doku açar:
+//   bırakılmayan kare sızar). Kareyi çizen resimler kendi başvurularını tuttuğundan bırakmak çizimi bozmaz.
+// - Karenin boyu çözücünün arabelleğininkidir (hizalama payı olabilir); birleştirme gölgelendiricisi videoyu
+//   kendi pikselleriyle örneklediğinden pay zararsızdır (bkz. packLayout.ts STACKED_ALPHA_SKSL).
+// - Yerel taraf çözücüyü kapatmaz (RNSkVideo.release() çağrılmaz): bırakılan videonun MediaCodec'i çöp
+//   toplanınca kapanır. Bu yüzden videolar gereksiz yere açılıp kapatılmaz (packPlayer.ts VIDEO_PARK_MS) ve
+//   bırakmadan önce durdurulur.
+// - RNSkVideo'nun içinde fırlayan Java hatası yerel tarafta yakalanmaz (uygulamayı kapatabilir). Bilinen iki
+//   yolu kapalıdır: Android 10'dan (API 29) eski Android'de video hiç açılmaz (packSource.ts) ve uygulama arka
+//   plana geçince video bırakılır (sistem arka plandaki uygulamanın çözücüsünü geri alabilir: sonraki çağrı hata
+//   fırlatırdı).
 //
 // Neden arayüz iş parçacığı: kareyi çizen yerel görünüm de oradadır; kare JavaScript iş parçacığında değiştirilip
 // eskisi bırakılırsa çizim silinmiş kareyi okuyabilir (eski motorun RETIRE_MS'le çözdüğü yarış). Burada kare
@@ -55,6 +75,9 @@ interface UiPlayer {
   /** Son sarmadan beri kare isteği sayısı ve bir sonraki adımda başa sarılacak mı */
   calls: number;
   rewind: boolean;
+  /** Son çözülen karenin zamanı (ms) ve kaç istektir değişmediği */
+  lastTimeMs: number;
+  idleCalls: number;
   /** Kare aralığı (ms) ve son karenin zamanı */
   interval: number;
   last: number;
@@ -110,6 +133,7 @@ function uiStepVideo(key: number, p: UiPlayer, clip: Video, now: number): void {
   if (p.rewind) {
     clip.seek(0);
     p.calls = 0;
+    p.idleCalls = 0;
     p.rewind = false;
   }
   const counted = p.manualLoop && (!p.primed || clip.isPlaying());
@@ -126,7 +150,13 @@ function uiStepVideo(key: number, p: UiPlayer, clip: Video, now: number): void {
   } else if (!p.primed && now - p.openedAt > PRIME_TIMEOUT_MS) throw new Error('videodan kare gelmedi');
   if (counted) {
     p.calls++;
-    p.rewind = videoShouldRewind(p.calls, p.frames, clip.currentTime(), p.durationMs, p.interval, took);
+    const time = clip.currentTime();
+    if (time === p.lastTimeMs) p.idleCalls++;
+    else {
+      p.lastTimeMs = time;
+      p.idleCalls = 0;
+    }
+    p.rewind = videoShouldRewind(p.calls, p.idleCalls, p.frames, time, p.durationMs, p.interval, took);
   }
 }
 
@@ -208,6 +238,8 @@ function uiPlayer(S: SkiaApi, frame: Frame, fps: number, frames: number): UiPlay
     durationMs: 0,
     calls: 0,
     rewind: false,
+    lastTimeMs: -1,
+    idleCalls: 0,
     interval: 1000 / fps,
     last: 0,
     running: false,
@@ -246,9 +278,25 @@ function uiOpenImage(key: number, S: SkiaApi, data: SkData, frame: Frame, fps: n
   }
 }
 
-function uiOpenVideo(key: number, S: SkiaApi, clip: Video, frame: Frame, fps: number, frames: number, manualLoop: boolean): void {
+function uiOpenVideo(
+  key: number,
+  S: SkiaApi,
+  clip: Video,
+  frame: Frame,
+  fps: number,
+  frames: number,
+  manualLoop: boolean,
+  width: number,
+  height: number,
+): void {
   'worklet';
   try {
+    // Video bildirimdeki kareden küçükse ya da döndürülmüşse iki yarı yerinde değildir: birleştirilemez
+    const size = clip.size();
+    if (size.width > 0 && size.height > 0 && (size.width < width || size.height < height)) {
+      throw new Error(`video ${size.width}×${size.height}, beklenen ${width}×${height}`);
+    }
+    if (clip.rotation() !== 0) throw new Error('video döndürülmüş');
     clip.setVolume(0);
     clip.setLooping(true);
     const p = uiPlayer(S, frame, fps, frames);
@@ -363,7 +411,9 @@ function onUiEvent(key: number, type: 'ready' | 'error' | 'slow', message: strin
   const player = opened.get(key);
   if (!player) return;
   if (type === 'ready') player.events.ready();
-  else player.events.failed(new Error(message), type === 'slow');
+  // Cihazdaki dosyadan açılamayan ya da oynarken hata veren video yeniden denenmez: her deneme bir donanım
+  // çözücüsü açar ve yerel taraf onu ancak çöp toplarken kapatır. Çözülemeyen resim ucuzdur, yeniden denenir.
+  else player.events.failed(new Error(message), type === 'slow' ? 'device' : player.spec.kind === 'video' ? 'asset' : 'transient');
 }
 
 function onVideoOpened(key: number, clip: Video): void {
@@ -372,7 +422,19 @@ function onVideoOpened(key: number, clip: Video): void {
     scheduleOnUI(uiDropVideo, clip);
     return;
   }
-  scheduleOnUI(uiOpenVideo, key, player.S, clip, player.frame, player.fps, player.spec.frames, player.manualVideoLoop);
+  const { spec } = player;
+  scheduleOnUI(
+    uiOpenVideo,
+    key,
+    player.S,
+    clip,
+    player.frame,
+    player.fps,
+    spec.frames,
+    player.manualVideoLoop,
+    spec.video?.width ?? 0,
+    spec.video?.height ?? 0,
+  );
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
@@ -422,7 +484,7 @@ export function createSkiaDriver(options: { manualVideoLoop: boolean }): PlayerD
       const frame = makeMutable<SkImage | null>(null);
       const sk = skia();
       if (!sk) {
-        queueMicrotask(() => events.failed(new Error('Skia yok'), true));
+        queueMicrotask(() => events.failed(new Error('Skia yok'), 'device'));
         return { frame, setRunning: () => undefined, close: () => undefined };
       }
       const player: OpenPlayer = {

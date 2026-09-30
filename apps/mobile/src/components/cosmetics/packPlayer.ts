@@ -7,6 +7,9 @@
 //   resmini gösterir);
 // - son görünüm de kalkınca oynatıcı kısa bir süre bekletilir (liste kaydırılırken yeniden kurulmasın), sonra
 //   bırakılır;
+// - video çözücüsü pahalı ve sayılı bir kaynaktır (telefonun donanım çözücüsü): görünümleri dursa da kimse
+//   oynatmak istemiyorsa kısa süre sonra, uygulama arka plana geçince hemen bırakılır; yeniden istenince dosya
+//   (cihazdaki önbellekten) yeniden açılır. Arka planda hiçbir dosya açılmaz;
 // - dosya yüklenemez ya da çözülemezse görünümler sabit resimde kalır; geçici hata bir süre sonra kendiliğinden,
 //   bildirim değişince ya da bağlantı geri gelince hemen (`retry`) yeniden denenir: görünümün yeniden kurulması
 //   gerekmez.
@@ -23,17 +26,26 @@ export interface PlayerSpec {
   /** Kare hızı (en fazla bu hızda ilerler) ve döngüdeki kare sayısı */
   fps: number;
   frames: number;
+  /** Video: dosyanın tam karesi (piksel); çözülen video bundan küçükse oynatılmaz */
+  video?: { width: number; height: number };
 }
 
 export interface DriverEvents {
   /** İlk kare hazır */
   ready(): void;
-  /**
-   * Yüklenemedi, çözülemedi ya da oynarken hata verdi. `permanent`: yeniden denemek bir şey değiştirmez (cihaz
-   * kareleri yetiştiremiyor): bu oturumda bir daha denenmez. Diğer hatalar geçici sayılır (ağ, eskimiş adres).
-   */
-  failed(error: unknown, permanent?: boolean): void;
+  /** Yüklenemedi, çözülemedi ya da oynarken hata verdi (tür verilmezse geçici) */
+  failed(error: unknown, kind?: FailureKind): void;
 }
+
+/**
+ * Hatanın türü:
+ * - `transient`: geçici sayılır (ağ, eskimiş adres, çözülemeyen resim): bir süre sonra ve `retry()` ile yeniden
+ *   denenir
+ * - `asset`: dosya bu telefonda oynatılamıyor (video açılamadı ya da oynarken hata verdi): bu oturumda yeniden
+ *   denenmez (her deneme bir donanım çözücüsü açar); adres değişirse yeni dosya denenir
+ * - `device`: dosya sağlam ama telefon kareleri yetiştiremiyor: bu oturumda yeniden denenmez
+ */
+export type FailureKind = 'transient' | 'asset' | 'device';
 
 /** Sürücünün bir dosya için kurduğu oynatıcı; `F`: görünümlerin çizdiği kare (paylaşılan değer) */
 export interface DriverPlayer<F> {
@@ -78,14 +90,20 @@ export interface PlaybackOptions<F> {
   driver: PlayerDriver<F>;
   timers: PlaybackTimers;
   now?: () => number;
-  /** Oynatıcı hata verdi (bildirim için); görünümler sabit resme döner. `permanent`: bkz. DriverEvents.failed */
-  onError?: (spec: PlayerSpec, error: unknown, permanent: boolean) => void;
+  /** Oynatıcı hata verdi (bildirim için); görünümler sabit resme döner */
+  onError?: (spec: PlayerSpec, error: unknown, kind: FailureKind) => void;
 }
 
 /** Görünümlerin ekranda olup olmadığı bu aralıkla ölçülür (ms) */
 export const MEASURE_MS = 500;
 /** Görünümü kalmayan oynatıcı bu kadar sonra bırakılır (ms) */
 export const IDLE_CLOSE_MS = 4000;
+/**
+ * Kimsenin oynatmak istemediği videonun çözücüsü bu kadar sonra bırakılır (ms). Resimlerden uzun: Android'de
+ * bırakılan çözücüyü sistem hemen değil çöp toplarken kapatır; aynı profil art arda açılınca her seferinde yeni
+ * çözücü açılmasın. Aynı anda en çok bir boşta video tutulur (yenisi açılırken eskiler bırakılır).
+ */
+export const VIDEO_PARK_MS = 30_000;
 /**
  * Geçici hata veren dosya bu kadar sonra (ms) kendiliğinden yeniden denenir (görünümü duruyorsa); daha erken
  * yalnızca `retry()` ile (bildirim değişti, bağlantı geri geldi)
@@ -111,6 +129,8 @@ interface Player<F> {
   idleTimer: unknown;
   /** Geçici hatadan sonra kendiliğinden yeniden deneme */
   retryTimer: unknown;
+  /** Kimsenin oynatmak istemediği videonun çözücüsünü bırakma */
+  parkTimer: unknown;
 }
 
 export interface Playback<F> {
@@ -121,7 +141,7 @@ export interface Playback<F> {
   setReducedMotion(on: boolean): void;
   /**
    * Geçici hata vermiş dosyaları beklemeden yeniden dener (bildirim değişti, bağlantı geri geldi): görünümler
-   * yeniden kurulmadan, dosya açılınca canlıya döner. Kalıcı hatalar (bkz. DriverEvents.failed) denenmez.
+   * yeniden kurulmadan, dosya açılınca canlıya döner. Kalıcı hatalar (bkz. FailureKind) denenmez.
    */
   retry(): void;
   stats(): { players: number; views: number; live: number; running: number; loaded: number };
@@ -147,6 +167,53 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
     p.retryTimer = null;
   }
 
+  function cancelPark(p: Player<F>): void {
+    if (p.parkTimer === null) return;
+    timers.clearTimeout(p.parkTimer);
+    p.parkTimer = null;
+  }
+
+  const anyWanting = (p: Player<F>): boolean => {
+    for (const v of p.views) if (wants(v)) return true;
+    return false;
+  };
+
+  /**
+   * Oynatıcının çözücüsünü bırakır ama oynatıcıyı ve görünümlerini tutar: görünümler sabit resme döner, yeniden
+   * oynatmak isteyen olunca dosya yeniden açılır. Hata sayılmaz.
+   */
+  function park(p: Player<F>): void {
+    cancelPark(p);
+    const handle = p.handle;
+    if (!handle) return;
+    p.generation++;
+    p.handle = null;
+    p.running = false;
+    p.state = 'idle';
+    for (const v of p.views) notify(p, v);
+    try {
+      handle.close();
+    } catch {
+      // zaten kapalı
+    }
+  }
+
+  /** Video çözücüsü boşta tutulmaz: arka planda hemen, kimse oynatmak istemiyorsa kısa süre sonra bırakılır */
+  function syncPark(p: Player<F>, wanting: boolean): void {
+    if (p.spec.kind !== 'video' || !p.handle) {
+      cancelPark(p);
+      return;
+    }
+    if (!appActive) park(p);
+    else if (wanting) cancelPark(p);
+    else if (p.parkTimer === null) {
+      p.parkTimer = timers.setTimeout(() => {
+        p.parkTimer = null;
+        if (!anyWanting(p)) park(p);
+      }, VIDEO_PARK_MS);
+    }
+  }
+
   /** Hata vermiş oynatıcıyı yeniden denenebilir yapar; oynatmak isteyen görünümü varsa dosya yeniden açılır */
   function revive(p: Player<F>): void {
     cancelRetry(p);
@@ -168,10 +235,12 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
     }
   }
 
-  function fail(p: Player<F>, error: unknown, permanent: boolean): void {
+  function fail(p: Player<F>, error: unknown, kind: FailureKind): void {
     if (p.state === 'failed') return;
+    const permanent = kind !== 'transient';
     p.state = 'failed';
     p.generation++;
+    cancelPark(p);
     failures.delete(p.spec.url);
     failures.set(p.spec.url, { at: now(), permanent });
     if (failures.size > 64) failures.delete(failures.keys().next().value!);
@@ -179,7 +248,7 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
     p.handle = null;
     p.running = false;
     try {
-      onError?.(p.spec, error, permanent);
+      onError?.(p.spec, error, kind);
     } catch {
       // bildirim hatası: yapılacak bir şey yok
     }
@@ -201,6 +270,10 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
   }
 
   function open(p: Player<F>): void {
+    // Yeni video açılırken boşta bekleyen diğer videoların çözücüleri bırakılır (donanım çözücüsü sayılıdır)
+    if (p.spec.kind === 'video') {
+      for (const other of players.values()) if (other !== p && other.spec.kind === 'video' && !anyWanting(other)) park(other);
+    }
     p.state = 'loading';
     const generation = ++p.generation;
     const current = (): boolean => players.get(p.spec.url) === p && p.generation === generation;
@@ -211,32 +284,27 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
           p.state = 'ready';
           refresh(p);
         },
-        failed: (error, permanent) => {
-          if (current()) fail(p, error, permanent === true);
+        failed: (error, kind) => {
+          if (current()) fail(p, error, kind ?? 'transient');
         },
       });
     } catch (err) {
-      fail(p, err, false);
+      fail(p, err, 'transient');
     }
   }
 
   /** Oynatıcının durumunu görünümlerine göre günceller: dosyayı açar, saati başlatır ya da durdurur */
   function refresh(p: Player<F>): void {
-    let wanting = false;
-    for (const v of p.views) {
-      if (wants(v)) {
-        wanting = true;
-        break;
-      }
-    }
-    if (wanting && p.state === 'idle') open(p);
+    const wanting = anyWanting(p);
+    syncPark(p, wanting);
+    if (wanting && appActive && p.state === 'idle') open(p);
     const run = p.state === 'ready' && wanting && appActive;
     if (p.handle && run !== p.running) {
       p.running = run;
       try {
         p.handle.setRunning(run);
       } catch (err) {
-        fail(p, err, false);
+        fail(p, err, 'transient');
       }
     }
     for (const v of p.views) notify(p, v);
@@ -245,6 +313,7 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
   function close(p: Player<F>): void {
     if (players.get(p.spec.url) === p) players.delete(p.spec.url);
     cancelRetry(p);
+    cancelPark(p);
     p.generation++;
     const handle = p.handle;
     p.handle = null;
@@ -302,6 +371,7 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
           generation: 0,
           idleTimer: null,
           retryTimer: null,
+          parkTimer: null,
         };
         players.set(spec.url, p);
       } else if (p.state === 'failed' && !blocked(spec.url)) {
@@ -343,7 +413,7 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
             player.idleTimer = timers.setTimeout(() => {
               player.idleTimer = null;
               if (player.views.size === 0) close(player);
-            }, IDLE_CLOSE_MS);
+            }, spec.kind === 'video' ? VIDEO_PARK_MS : IDLE_CLOSE_MS);
           }
         },
       };

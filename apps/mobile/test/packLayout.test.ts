@@ -18,7 +18,7 @@ import {
   stackedUniforms,
   stepCost,
   surfaceScale,
-  VIDEO_TAIL_CALLS,
+  VIDEO_TAIL_FRAMES,
   videoShouldRewind,
   withAlpha,
 } from '../src/components/cosmetics/packLayout';
@@ -206,26 +206,134 @@ describe('Android video döngüsü', () => {
   const duration = 6000;
   const frameMs = 1000 / 30;
 
-  it('dosyanın bütün kareleri istenmeden sarılmaz', () => {
-    expect(videoShouldRewind(10, frames, 300, duration, frameMs, 2)).toBe(false);
-    // Sarmanın hemen ardından çözücünün zamanı hâlâ eski döngünün sonunu gösterir: yeniden sarılmamalı
-    expect(videoShouldRewind(1, frames, 5966, duration, frameMs, 12)).toBe(false);
-    expect(videoShouldRewind(frames - 3, frames, 5966, duration, frameMs, 12)).toBe(false);
+  it('döngünün ilk yarısında sarılmaz (sarmanın ardından çözücünün zamanı eski döngünün sonunu gösterir)', () => {
+    expect(videoShouldRewind(1, 0, frames, 5966.7, duration, frameMs, 20)).toBe(false);
+    expect(videoShouldRewind(frames / 2 - 1, 40, frames, 5966.7, duration, frameMs, 20)).toBe(false);
+    expect(videoShouldRewind(10, 0, frames, 300, duration, frameMs, 2)).toBe(false);
   });
 
   it('son karenin zamanı görülünce sarılır', () => {
-    expect(videoShouldRewind(frames - 1, frames, 5966.7, duration, frameMs, 2)).toBe(true);
-    expect(videoShouldRewind(frames - 1, frames, 5900, duration, frameMs, 2)).toBe(false);
+    expect(videoShouldRewind(frames - 1, 0, frames, 5966.7, duration, frameMs, 2)).toBe(true);
+    expect(videoShouldRewind(frames - 1, 0, frames, 5900, duration, frameMs, 2)).toBe(false);
   });
 
-  it('kareler bittikten sonra boşuna bekleyen istekte sarılır', () => {
-    expect(videoShouldRewind(frames + 1, frames, 5833, duration, frameMs, 20)).toBe(true);
-    expect(videoShouldRewind(frames + 1, frames, 5833, duration, frameMs, 1)).toBe(false);
+  it('son karelerdeyken istek boşuna beklediyse ya da zaman ilerlemiyorsa sarılır', () => {
+    // Boşuna bekleyen istek (girdi ve çıktı zaman aşımı) ≥ 15 ms; yalnızca çıktıyı bekleyen olağan istek 10 ms
+    expect(videoShouldRewind(frames + 1, 3, frames, 5833, duration, frameMs, 20)).toBe(true);
+    expect(videoShouldRewind(frames + 1, 3, frames, 5833, duration, frameMs, 10)).toBe(false);
+    expect(videoShouldRewind(frames + 1, VIDEO_TAIL_FRAMES, frames, 5833, duration, frameMs, 1)).toBe(true);
+    // Döngünün ortasındaki yavaş istek sarmaz
+    expect(videoShouldRewind(100, 3, frames, 3000, duration, frameMs, 20)).toBe(false);
   });
 
-  it('pay dolunca her durumda sarılır; kare sayısı bilinmiyorsa hiç sarılmaz', () => {
-    expect(videoShouldRewind(frames + VIDEO_TAIL_CALLS, frames, 0, 0, frameMs, 0)).toBe(true);
-    expect(videoShouldRewind(frames + VIDEO_TAIL_CALLS - 1, frames, 0, 0, frameMs, 0)).toBe(false);
-    expect(videoShouldRewind(9999, 0, 0, 0, frameMs, 0)).toBe(false);
+  it('zaman güvenilir değilse çağrı sayısına bakılır; kare sayısı bilinmiyorsa hiç sarılmaz', () => {
+    expect(videoShouldRewind(frames + VIDEO_TAIL_FRAMES, 200, frames, 0, 0, frameMs, 20)).toBe(true);
+    expect(videoShouldRewind(frames + VIDEO_TAIL_FRAMES, 200, frames, 0, 0, frameMs, 2)).toBe(false);
+    expect(videoShouldRewind(frames * 2, 0, frames, 0, 0, frameMs, 0)).toBe(true);
+    expect(videoShouldRewind(9999, 0, 0, 0, 0, frameMs, 0)).toBe(false);
+  });
+
+  /**
+   * Skia'nın Android videosunun (RNSkVideo.java) modeli: her istek, hazır bekleyen kare varsa onu verir (zamanı
+   * güncellemeden, girdi vermeden); yoksa çözücüye bir örnek verir ve bir kare bekler. Çözücü `latency` örnek
+   * geriden gelir; dosyanın sonu verilince kalan kareleri birden çıkarır, sonra her istek boşuna bekler (20 ms).
+   * `slow(i)`: i. örneğin karesi 10 ms'de yetişmez (bir sonraki istekte hazır bekler).
+   */
+  function simulate(latency: number, loops: number, slow: (sample: number) => boolean = () => false) {
+    let fed = 0;
+    let eos = false;
+    let decoded = 0;
+    const pending: number[] = [];
+    let late: number | null = null;
+    let timeMs = 0;
+    const decode = (): void => {
+      const available = eos ? fed : Math.max(0, fed - latency);
+      while (decoded < available) pending.push(decoded++);
+    };
+    const feed = (): number => {
+      if (eos) return 10;
+      if (fed < frames) fed++;
+      else eos = true;
+      return 0;
+    };
+    const nextImage = (): { frame: number | null; took: number } => {
+      if (late !== null) {
+        pending.unshift(late);
+        late = null;
+      }
+      if (pending.length > 0) return { frame: pending.shift()!, took: 0 };
+      let took = feed();
+      decode();
+      if (pending.length === 0) return { frame: null, took: took + 10 };
+      const frame = pending.shift()!;
+      if (slow(frame)) {
+        late = frame;
+        return { frame: null, took: took + 10 };
+      }
+      timeMs = frame * frameMs;
+      took += 3;
+      return { frame, took };
+    };
+    const seek = (): void => {
+      fed = 0;
+      eos = false;
+      decoded = 0;
+      pending.length = 0;
+      late = null;
+      feed();
+      decode();
+    };
+
+    const shown: number[][] = [[]];
+    let stalls = 0;
+    let calls = 0;
+    let idle = 0;
+    let last = -1;
+    let rewind = false;
+    for (let step = 0; step < frames * loops * 3 && shown.length <= loops; step++) {
+      if (rewind) {
+        seek();
+        calls = 0;
+        idle = 0;
+        rewind = false;
+        shown.push([]);
+      }
+      const { frame, took } = nextImage();
+      if (frame !== null) shown[shown.length - 1]!.push(frame);
+      if (took >= 20) stalls++;
+      calls++;
+      if (timeMs === last) idle++;
+      else {
+        last = timeMs;
+        idle = 0;
+      }
+      rewind = videoShouldRewind(calls, idle, frames, timeMs, duration, frameMs, took);
+    }
+    return { loops: shown.slice(0, loops), stalls };
+  }
+
+  const all = Array.from({ length: frames }, (_, i) => i);
+
+  it('çözücü modeliyle: her döngüde bütün kareler sırayla gösterilir, döngü başına en çok bir boş bekleyiş', () => {
+    for (const latency of [0, 1, 3, 8]) {
+      const run = simulate(latency, 4);
+      expect(run.loops).toHaveLength(4);
+      for (const loop of run.loops) expect(loop, `gecikme ${latency}`).toEqual(all);
+      expect(run.stalls, `gecikme ${latency}`).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it('çözücü modeliyle: ara sıra geç kalan karelerde de döngü tam oynar', () => {
+    const run = simulate(3, 3, (sample) => sample % 7 === 5);
+    for (const loop of run.loops) expect(loop).toEqual(all);
+  });
+
+  it('çözücü modeliyle: çok yavaş çözücüde döngü en çok son birkaç karesini yitirir, takılıp kalmaz', () => {
+    const run = simulate(4, 3, (sample) => sample % 2 === 0);
+    expect(run.loops).toHaveLength(3);
+    for (const loop of run.loops) {
+      expect(loop.length).toBeGreaterThanOrEqual(frames - VIDEO_TAIL_FRAMES);
+      expect(loop).toEqual(all.slice(0, loop.length));
+    }
   });
 });

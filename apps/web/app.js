@@ -4,7 +4,7 @@
     windows: { label: 'Windows için İndir', icon: '#i-windows', req: 'Windows 10 / 11 · 64-bit', asset: 'windows' },
     linux: { label: 'Linux için İndir', icon: '#i-linux', req: 'AppImage · 64-bit', asset: 'linux-appimage' },
     mac: { label: 'macOS için İndir', icon: '#i-mac', req: 'Apple Silicon · macOS 12 ve üzeri', asset: 'mac-arm64' },
-    android: { label: 'Android için İndir', icon: '#i-phone', req: 'Android 7 ve üzeri · APK', asset: 'android' },
+    android: { label: 'Android için İndir', icon: '#i-phone', req: 'Android 8 ve üzeri · APK', asset: 'android' },
   };
 
   function detectOS() {
