@@ -1,7 +1,9 @@
 import {
+  ACTIVITY_ELAPSED_MAX_MS,
   CLIENT_FEATURE_DM,
   CLIENT_FEATURE_PRESENCE,
   GATEWAY_CLOSE_UPDATE_REQUIRED,
+  type ActivityReport,
   type GatewayClientMessage,
   type GatewayServerMessage,
 } from '@diskort/shared';
@@ -14,7 +16,13 @@ const RECONNECT_DELAYS_MS = [500, 1000, 2000, 5000, 10000];
 /** Öne gelince açık görünen bağlantının yoklaması: bu sürede HEARTBEAT_ACK gelmezse bağlantı ölü sayılır */
 const RESUME_PROBE_MS = 5000;
 
+/** Aynı etkinliğin başlangıcı bu kadar oynarsa (saat düzeltmesi, yuvarlama) yeniden bildirilmez */
+const ACTIVITY_START_TOLERANCE_MS = 2000;
+
 type Listener = (msg: GatewayServerMessage) => void;
+
+/** Bu cihazın etkinliği; süre yerine başlangıç anı (bu cihazın saatiyle) tutulur */
+type LocalActivity = Omit<ActivityReport, 'elapsedMs'> & { startedAt: number };
 
 /** Sunucuyla gerçek zamanlı bağlantı; kopunca otomatik yeniden bağlanır ve durumu tazeler. */
 class GatewayClient {
@@ -29,6 +37,8 @@ class GatewayClient {
   private listeners = new Set<Listener>();
   /** Bu cihaz boşta mı (masaüstünde girdi yok / ekran kilitli, telefonda uygulama arka planda) */
   private idle = false;
+  /** Bu cihazın etkinliği (oynanan oyun); yoksa null */
+  private activity: LocalActivity | null = null;
   /** Bu cihazın izlediği yayınlar (yayıncı kimlikleri, sıralı) */
   private watching: string[] = [];
   /** Bu bağlantıda READY geldi (kimlik doğrulandı) */
@@ -92,6 +102,32 @@ class GatewayClient {
   }
 
   /**
+   * Bu cihazın etkinliğini (oynanan oyun) bildirir; null: bitti. Yalnızca değişince gönderilir. Geçen süre
+   * her gönderimde baştan hesaplanır: yeniden bağlanınca aynı başlangıç anı bildirilir. Oturum kapansa da
+   * hatırlanır (cihazın durumudur); yeniden girişte READY ile gönderilir.
+   */
+  setActivity(report: ActivityReport | null): void {
+    const next: LocalActivity | null = report
+      ? { type: report.type, name: report.name, icon: report.icon, startedAt: Date.now() - Math.max(0, report.elapsedMs) }
+      : null;
+    const prev = this.activity;
+    if (!prev && !next) return;
+    if (
+      prev &&
+      next &&
+      prev.type === next.type &&
+      prev.name === next.name &&
+      prev.icon === next.icon &&
+      Math.abs(prev.startedAt - next.startedAt) <= ACTIVITY_START_TOLERANCE_MS
+    ) {
+      return;
+    }
+    this.activity = next;
+    // Kimlik doğrulanmadan gönderilen mesaj bağlantıyı kapatır (4003); READY gelince zaten gönderilir
+    if (this.identified) this.sendActivity();
+  }
+
+  /**
    * İzlenen yayınların tam listesini bildirir (yayıncı kimlikleri; boş liste izlemeyi bırakır). Yalnızca
    * değişince gönderilir; yeniden bağlanınca liste boş değilse yeniden bildirilir (sunucu kopan bağlantının
    * izlemesini siler). Seste olmayan cihaz hiç çağırmaz, böylece sesteki cihazın listesini ezmez.
@@ -106,6 +142,17 @@ class GatewayClient {
 
   send(msg: GatewayClientMessage): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
+  }
+
+  private sendActivity(): void {
+    const a = this.activity;
+    const activity: ActivityReport | null = a && {
+      type: a.type,
+      name: a.name,
+      icon: a.icon,
+      elapsedMs: Math.min(ACTIVITY_ELAPSED_MAX_MS, Math.max(0, Date.now() - a.startedAt)),
+    };
+    this.send({ t: 'ACTIVITY_SET', d: { activity } });
   }
 
   /** READY dahil tüm olayları dinle. */
@@ -168,6 +215,8 @@ class GatewayClient {
         // Yeni oturum etkin sayılır; boştaysak hemen bildir
         if (this.idle) this.send({ t: 'IDLE_SET', d: { idle: true } });
         if (this.watching.length > 0) this.send({ t: 'STREAM_WATCH_SET', d: { userIds: this.watching } });
+        // Yeni oturumun etkinliği yoktur; varsa bildir
+        if (this.activity) this.sendActivity();
         break;
       case 'HEARTBEAT_ACK':
         this.awaitingAck = false;

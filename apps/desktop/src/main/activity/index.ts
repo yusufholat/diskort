@@ -1,0 +1,305 @@
+// Etkinlik: oynanan oyunun algılanması (yalnızca Windows). Tarayıcının bulduğu süreçler sınıflandırılır,
+// en son başlatılan oyun arayüze bildirilir; arayüz de sunucuya iletir. Ayarlar (açık/kapalı, elle eklenen
+// ve gizlenen oyunlar, daha önce algılananlar) bu bilgisayara özgüdür: kullanıcı verilerinde activity.json.
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { access } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { app, ipcMain } from 'electron';
+import type { ActivityGame, ActivityProgram, ActivitySettings, ActivityState } from '../../shared/bridge';
+import { createLogger } from '../log';
+import { detectGames, exeBaseName, pickCurrentGame, programName, type DetectedGame, type ScannedProcess } from './classify';
+import { IconStore } from './icons';
+import { EMPTY_LIBRARIES, loadGameLibraries, pathKey, type GameLibraries, type LibraryGame } from './libraries';
+import {
+  addManualGame,
+  defaultPrefs,
+  knownGames,
+  rememberSeenGame,
+  removeManualGame,
+  sanitizePrefs,
+  setGameHidden,
+  type ActivityPrefs,
+} from './prefs';
+import { ActivityScanner } from './scanner';
+
+/** Kurulu oyun kayıtları bu sıklıkta yeniden okunur (yeni kurulan oyun) */
+const LIBRARY_REFRESH_MS = 10 * 60_000;
+/** "Oyun ekle" açılınca taze tarama bu kadar beklenir */
+const PROGRAM_SCAN_WAIT_MS = 2500;
+/** Blizzard oyunlarının kurulum klasöründe bulunan dosya (Battle.net oyunları ortak bir klasöre kurulmaz) */
+const BLIZZARD_MARKER = '.build.info';
+
+const log = createLogger('activity');
+
+export class ActivityMonitor {
+  readonly supported = process.platform === 'win32';
+  private prefs: ActivityPrefs = defaultPrefs();
+  private started = false;
+  private procs: ScannedProcess[] = [];
+  private game: ActivityGame | null = null;
+  private gamePid = 0;
+  private steamPath: string | null = null;
+  private libraries: GameLibraries = EMPTY_LIBRARIES;
+  private librariesAt = 0;
+  /** exe yolu → Blizzard oyun klasörü (yoksa null); her yol bir kez yoklanır */
+  private readonly blizzardDirs = new Map<string, string | null>();
+  /** Başlangıç zamanı okunamayan süreçler için ilk görülme anı */
+  private readonly firstSeen = new Map<string, number>();
+  /** Taramalar sırayla işlenir */
+  private queue: Promise<void> = Promise.resolve();
+  private scanWaiters: (() => void)[] = [];
+  private readonly scanner: ActivityScanner;
+  private readonly icons: IconStore;
+
+  constructor(private readonly emit: (state: ActivityState) => void) {
+    this.scanner = new ActivityScanner({
+      onReady: (steamPath) => {
+        this.steamPath = steamPath;
+        this.librariesAt = 0;
+      },
+      onScan: (procs) => {
+        this.queue = this.queue.then(() => this.handleScan(procs)).catch((err) => log.warn(err));
+      },
+      onLog: (message) => log.info(message),
+    });
+    this.icons = new IconStore(join(app.getPath('userData'), 'activity-icons'), (path) => this.scanner.icon(path));
+  }
+
+  get state(): ActivityState {
+    return { enabled: this.prefs.enabled, game: this.game };
+  }
+
+  start(): void {
+    this.started = true;
+    this.prefs = this.loadPrefs();
+    this.updateRunning();
+  }
+
+  stop(): void {
+    this.started = false;
+    this.scanner.stop();
+  }
+
+  async settings(): Promise<ActivitySettings> {
+    const games = await Promise.all(
+      knownGames(this.prefs).map(async (game) => ({ ...game, icon: await this.icons.preview(game.path) })),
+    );
+    return { enabled: this.prefs.enabled, games };
+  }
+
+  setEnabled(enabled: boolean): void {
+    if (this.prefs.enabled === enabled) return;
+    this.update({ ...this.prefs, enabled });
+    this.updateRunning();
+  }
+
+  /** Çalışan programlardan birini oyun olarak ekler; yalnızca son taramada görülen yollar kabul edilir */
+  addGame(path: string): void {
+    const proc = this.procs.find((p) => pathKey(p.path) === pathKey(path));
+    if (!proc || this.isSelf(proc)) return;
+    this.update(addManualGame(this.prefs, { path: proc.path, name: programName(proc) }));
+    this.rescan();
+  }
+
+  removeGame(path: string): void {
+    this.update(removeManualGame(this.prefs, path));
+    this.rescan();
+  }
+
+  setHidden(path: string, hidden: boolean): void {
+    this.update(setGameHidden(this.prefs, path, hidden));
+    this.rescan();
+  }
+
+  /** Görünür penceresi olan, henüz oyun sayılmayan programlar (taze bir taramadan) */
+  async programs(): Promise<ActivityProgram[]> {
+    if (!this.supported || !this.prefs.enabled) return [];
+    await this.freshScan();
+    const games = new Set(detectGames(this.procs, this.context()).map((g) => pathKey(g.path)));
+    const hidden = new Set(this.prefs.hidden.map(pathKey));
+    const seen = new Set<string>();
+    const list = this.procs.filter((proc) => {
+      const key = pathKey(proc.path);
+      if (seen.has(key) || games.has(key) || hidden.has(key) || this.isSelf(proc)) return false;
+      seen.add(key);
+      return true;
+    });
+    const programs = await Promise.all(
+      list.map(async (proc) => ({ path: proc.path, name: programName(proc), icon: await this.icons.preview(proc.path) })),
+    );
+    return programs.sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+  }
+
+  iconBytes(key: string): Promise<Buffer | null> {
+    return this.icons.bytes(key);
+  }
+
+  private isSelf(proc: ScannedProcess): boolean {
+    return pathKey(proc.path) === pathKey(process.execPath) || exeBaseName(proc.path).toLowerCase() === 'diskort';
+  }
+
+  private context() {
+    return { libraries: this.libraries, manual: this.prefs.manual, hidden: this.prefs.hidden, selfPath: process.execPath };
+  }
+
+  private updateRunning(): void {
+    if (!this.started || !this.supported) return;
+    if (this.prefs.enabled) this.scanner.start();
+    else {
+      this.scanner.stop();
+      this.procs = [];
+      this.setGame(null, 0);
+    }
+  }
+
+  /** Ayar değişti: aynı süreçler yeni ayarlarla yeniden değerlendirilir */
+  private rescan(): void {
+    const procs = this.procs;
+    this.queue = this.queue.then(() => this.handleScan(procs)).catch((err) => log.warn(err));
+  }
+
+  private freshScan(): Promise<void> {
+    return new Promise((resolve) => {
+      const done = (): void => {
+        clearTimeout(timer);
+        this.scanWaiters = this.scanWaiters.filter((w) => w !== done);
+        resolve();
+      };
+      const timer = setTimeout(done, PROGRAM_SCAN_WAIT_MS);
+      this.scanWaiters.push(done);
+      this.scanner.requestScan();
+    });
+  }
+
+  private async handleScan(procs: ScannedProcess[]): Promise<void> {
+    if (!this.prefs.enabled) return;
+    const now = Date.now();
+    // Başlangıcı okunamayan süreç ilk görüldüğü anda başlamış sayılır
+    const live = new Set<string>();
+    this.procs = procs.map((proc) => {
+      if (proc.startedAt > 0 && proc.startedAt <= now) return proc;
+      const id = `${proc.pid}|${pathKey(proc.path)}`;
+      live.add(id);
+      if (!this.firstSeen.has(id)) this.firstSeen.set(id, now);
+      return { ...proc, startedAt: this.firstSeen.get(id)! };
+    });
+    for (const id of [...this.firstSeen.keys()]) if (!live.has(id)) this.firstSeen.delete(id);
+
+    await this.refreshLibraries(now);
+    const found = pickCurrentGame(detectGames(this.procs, this.context()));
+    if (found && found.source !== 'manual') {
+      this.update(rememberSeenGame(this.prefs, { path: found.path, name: found.name }, now));
+    }
+    this.setGame(found, found?.pid ?? 0);
+    for (const waiter of [...this.scanWaiters]) waiter();
+  }
+
+  /** Mağaza kayıtlarını (gerekirse) yeniden okur; Blizzard klasörleri yeni görülen exe'ler için yoklanır */
+  private async refreshLibraries(now: number): Promise<void> {
+    let changed = false;
+    let stores = this.libraries.games.filter((g) => g.source !== 'battlenet');
+    if (!this.librariesAt || now - this.librariesAt > LIBRARY_REFRESH_MS) {
+      stores = [...(await loadGameLibraries(this.steamPath, process.env.ProgramData)).games];
+      this.librariesAt = now;
+      changed = true;
+    }
+    for (const proc of this.procs) {
+      const key = pathKey(proc.path);
+      if (this.blizzardDirs.has(key)) continue;
+      if (this.blizzardDirs.size > 2000) this.blizzardDirs.clear();
+      this.blizzardDirs.set(key, await blizzardGameDir(proc.path));
+      changed = true;
+    }
+    if (!changed) return;
+    const blizzard = new Set([...this.blizzardDirs.values()].filter((dir) => dir !== null));
+    const games: LibraryGame[] = [...stores, ...[...blizzard].map((dir) => ({ dir, name: null, source: 'battlenet' as const }))];
+    this.libraries = { games };
+  }
+
+  private setGame(found: DetectedGame | null, pid: number): void {
+    const previous = this.game;
+    if (!found) {
+      this.gamePid = 0;
+      if (!previous) return;
+      this.game = null;
+      this.emit(this.state);
+      return;
+    }
+    // Aynı oyun sürüyor: ikon ve başlangıç korunur
+    if (previous && this.gamePid === pid && pathKey(previous.path) === pathKey(found.path) && previous.name === found.name) return;
+    const game: ActivityGame = { path: found.path, name: found.name, startedAt: found.startedAt, icon: null };
+    this.game = game;
+    this.gamePid = pid;
+    this.emit(this.state);
+    void this.icons.keyFor(found.path).then((icon) => {
+      if (!icon || this.game !== game) return;
+      this.game = { ...game, icon };
+      this.emit(this.state);
+    });
+  }
+
+  private update(prefs: ActivityPrefs): void {
+    if (prefs === this.prefs) return;
+    this.prefs = prefs;
+    try {
+      writeFileSync(this.prefsFile(), JSON.stringify(prefs, null, 2));
+    } catch (err) {
+      log.warn(err); // kaydedilemezse ayar bu oturumda geçerli kalır
+    }
+  }
+
+  private prefsFile(): string {
+    return join(app.getPath('userData'), 'activity.json');
+  }
+
+  private loadPrefs(): ActivityPrefs {
+    try {
+      const file = this.prefsFile();
+      return existsSync(file) ? sanitizePrefs(JSON.parse(readFileSync(file, 'utf8'))) : defaultPrefs();
+    } catch {
+      return defaultPrefs();
+    }
+  }
+}
+
+/** Exe'nin kendi klasöründe ya da en çok iki üstünde Blizzard kurulum dosyası varsa o klasör (pathKey) */
+async function blizzardGameDir(exePath: string): Promise<string | null> {
+  let dir = dirname(exePath);
+  for (let depth = 0; depth < 3; depth++) {
+    const parent = dirname(dir);
+    if (parent === dir) return null; // sürücünün kökü
+    try {
+      await access(join(dir, BLIZZARD_MARKER));
+      return pathKey(dir);
+    } catch {
+      dir = parent;
+    }
+  }
+  return null;
+}
+
+export function registerActivityIpc(monitor: ActivityMonitor): void {
+  ipcMain.handle('activity:get-state', () => monitor.state);
+  ipcMain.handle('activity:get-settings', () => monitor.settings());
+  ipcMain.handle('activity:set-enabled', (_e, enabled: unknown) => {
+    if (typeof enabled === 'boolean') monitor.setEnabled(enabled);
+    return monitor.settings();
+  });
+  ipcMain.handle('activity:list-programs', () => monitor.programs());
+  ipcMain.handle('activity:add-game', (_e, path: unknown) => {
+    if (typeof path === 'string') monitor.addGame(path);
+    return monitor.settings();
+  });
+  ipcMain.handle('activity:remove-game', (_e, path: unknown) => {
+    if (typeof path === 'string') monitor.removeGame(path);
+    return monitor.settings();
+  });
+  ipcMain.handle('activity:set-hidden', (_e, path: unknown, hidden: unknown) => {
+    if (typeof path === 'string' && typeof hidden === 'boolean') monitor.setHidden(path, hidden);
+    return monitor.settings();
+  });
+  ipcMain.handle('activity:icon', async (_e, key: unknown): Promise<Uint8Array | null> => {
+    const png = typeof key === 'string' ? await monitor.iconBytes(key) : null;
+    return png ? new Uint8Array(png) : null;
+  });
+}

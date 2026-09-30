@@ -1,11 +1,13 @@
 import { useEffect } from 'react';
-import { gateway, setPendingInvite } from '@diskort/client-core';
+import { gateway, setPendingInvite, useSession } from '@diskort/client-core';
+import type { ActivityState } from '../../../../shared/bridge';
 import { bridge } from '../../lib/bridge';
 import { useSettings } from '../../stores/settings';
 import { toast } from '../../stores/ui';
 import { useUpdate } from '../../stores/update';
 import { useVoice } from '../../stores/voice';
 import { voice } from '../voice/voiceClient';
+import { reportActivity } from './activityReporter';
 
 /** Electron ana süreciyle entegrasyon: global kısayollar, tepsi menüsü, tercihler, güncellemeler. */
 export function useDesktopIntegration(): void {
@@ -17,6 +19,17 @@ export function useDesktopIntegration(): void {
     void idle.get().then((value) => gateway.setIdle(value), () => undefined);
     return idle.onChange((value) => gateway.setIdle(value));
   }, []);
+
+  // Etkinlik: ana süreç oynanan oyunu algılar (Windows), sunucuya iletilir; ayar kapalıyken oyun gelmez ve
+  // etkinlik silinir. Giriş yapılınca yeniden bildirilir (ikon yalnızca oturum açıkken yüklenebilir).
+  const loggedIn = useSession((s) => s.token !== null);
+  useEffect(() => {
+    const activity = bridge?.activity;
+    if (!activity) return;
+    const report = (state: ActivityState): void => reportActivity(state.game, activity.icon);
+    void activity.getState().then(report, () => undefined);
+    return activity.onState(report);
+  }, [loggedIn]);
 
   // Davet bağlantısı (diskort://davet/<kod>): kod bekletilir; oturum açıksa katılma penceresi açılır,
   // değilse giriş ekranı "giriş yapınca katılacaksın" notunu gösterir (MainLayout, AuthScreen)

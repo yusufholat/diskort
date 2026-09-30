@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Bell,
   Check,
+  Gamepad2,
   Globe,
   Inbox,
   Keyboard,
@@ -46,6 +47,7 @@ import { toast, useUi, type SettingsSection } from '../../stores/ui';
 import { Avatar } from '../ui/Avatar';
 import { useCosmeticsCover } from '../cosmetics/Cosmetics';
 import { Button, Divider, Field, SectionTitle, Select, TextInput, Toggle } from '../ui/controls';
+import { ActivitySettings } from './ActivitySettings';
 import { ChangePassword } from './ChangePassword';
 import { DeleteAccount } from './DeleteAccount';
 import { KeybindInput } from './KeybindInput';
@@ -72,6 +74,7 @@ const ICONS: Record<string, LucideIcon> = {
   SunMoon,
   Bell,
   Keyboard,
+  Gamepad2,
   SlidersHorizontal,
   Inbox,
   UsersRound,
@@ -220,6 +223,8 @@ function SectionContent({ id }: { id: SettingsSection }) {
       return <NotificationsSection />;
     case 'keybinds':
       return <KeybindsSection />;
+    case 'activity':
+      return <ActivitySettings />;
     case 'advanced':
       return <AdvancedSection />;
     case 'feedbackAdmin':

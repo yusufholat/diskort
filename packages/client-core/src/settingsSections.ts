@@ -12,6 +12,7 @@ export type SettingsSectionId =
   | 'appearance'
   | 'notifications'
   | 'keybinds'
+  | 'activity'
   | 'advanced'
   | 'feedbackAdmin'
   | 'accountAdmin'
@@ -149,6 +150,16 @@ export const SETTINGS_GROUPS: readonly SettingsGroupInfo[] = [
         keywords: ['kısayol', 'tuş', 'susturma', 'sağırlaştırma', 'bas-konuş'],
         icon: { mobile: 'keypad', desktop: 'Keyboard' },
         color: '#747f8d',
+        platforms: desktopOnly,
+        kind: 'page',
+      },
+      {
+        id: 'activity',
+        label: 'Etkinlik',
+        keywords: ['oyun', 'oynuyor', 'oynadığım oyun', 'oyun algılama', 'oyun ekle', 'durum'],
+        icon: { mobile: 'game-controller', desktop: 'Gamepad2' },
+        color: '#5865f2',
+        // Oyun algılama yalnızca masaüstünde (şimdilik Windows) var
         platforms: desktopOnly,
         kind: 'page',
       },
