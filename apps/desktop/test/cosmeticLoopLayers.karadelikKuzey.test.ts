@@ -100,7 +100,8 @@ beforeAll(async () => {
   );
   vi.stubGlobal('document', { createElement: () => ({ width: 0, height: 0, getContext: () => fakeContext().ctx }) });
   LAYERS = (await import('../src/renderer/src/components/cosmetics/layers.js')).LAYERS;
-});
+  // Yük altında ilk içe aktarma (dönüştürme) 10 sn'lik varsayılan sınırı aşabiliyor
+}, 60_000);
 
 function draw(set: 'karadelik' | 'kuzey', v: LayerView, t: number, record = true): Summary {
   const { ctx, take } = fakeContext(record);
