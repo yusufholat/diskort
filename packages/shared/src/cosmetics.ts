@@ -41,8 +41,13 @@ export const isCosmeticSet = (v: unknown): v is CosmeticSet =>
  */
 export type CosmeticSetId = string;
 export const COSMETIC_SET_ID_PATTERN = /^[a-z][a-z0-9-]{1,23}$/;
+/**
+ * Her nesnede zaten bulunan adlar (constructor, toString, __proto__…): set kimliği olamazlar. Böylece
+ * kimlikle düz bir nesneye bakan kod (ör. `tablo[kimlik]`) kalıtılan bir üyeyi set sanmaz.
+ */
+const isObjectMember = (v: string): boolean => v in Object.prototype;
 export const isCosmeticSetId = (v: unknown): v is CosmeticSetId =>
-  typeof v === 'string' && COSMETIC_SET_ID_PATTERN.test(v);
+  typeof v === 'string' && COSMETIC_SET_ID_PATTERN.test(v) && !isObjectMember(v);
 /**
  * Paket kimliği olamayan adlar: kaldırılan parçacıklı profil efektleri. 0.8.x istemcilerin seçicisi bunları
  * hâlâ gönderebilir (sunucu sessizce yok sayar); aynı adla paket yayınlanırsa o istek paketi seçerdi.
@@ -257,8 +262,10 @@ export function parseCosmeticPlatforms(v: unknown): CosmeticPlatform[] | null {
 export function validateCosmeticPackInfo(value: unknown): CosmeticValidation<CosmeticPackInfo> {
   if (!isRecord(value)) return fail('pack: nesne olmalı.');
   const { id } = value;
+  if (typeof id === 'string' && (RESERVED_COSMETIC_SET_IDS.includes(id) || isObjectMember(id))) {
+    return fail(`pack.id: "${id}" ayrılmış bir ad, kullanılamaz.`);
+  }
   if (!isCosmeticSetId(id)) return fail('pack.id: küçük harfle başlamalı; 2-24 karakter; küçük harf, rakam ve tire.');
-  if (RESERVED_COSMETIC_SET_IDS.includes(id)) return fail(`pack.id: "${id}" ayrılmış bir ad, kullanılamaz.`);
   const label = text(value.label, COSMETIC_PACK_LABEL_MAX_LENGTH);
   if (label === null) return fail(`pack.label: 1-${COSMETIC_PACK_LABEL_MAX_LENGTH} karakterlik metin olmalı.`);
   const accent = hexColor(value.accent);
@@ -345,7 +352,9 @@ export function validateCosmeticPackFileInfo(value: unknown, where = 'file'): Co
 /**
  * Dosya listesinin bütününü doğrular: adlar tekrarsız, parça başına her türden en fazla bir dosya ve her
  * parçada (kart, dekorasyon, plaka) en az bir resim (poster, avif ya da webp: "hareketi azalt" ve yüklenme
- * anı için; yalnızca video yetmez). Hata varsa iletisi, yoksa null.
+ * anı için; yalnızca video yetmez). Bir parçanın bütün dosyaları aynı görünen boyutu bildirmelidir: oynatıcı
+ * kutuyu hareketli dosyanın boyutundan kurar ve posteri aynı kutuda gösterir (farklı boyutlu poster esnerdi).
+ * Hata varsa iletisi, yoksa null.
  */
 export function cosmeticPackFileSetError(files: readonly CosmeticPackFileInfo[]): string | null {
   const names = new Set<string>();
@@ -360,6 +369,14 @@ export function cosmeticPackFileSetError(files: readonly CosmeticPackFileInfo[])
   for (const piece of COSMETIC_PIECES) {
     if (!files.some((f) => f.piece === piece && COSMETIC_IMAGE_KINDS.includes(f.kind))) {
       return `files: "${piece}" parçasında en az bir resim (poster, avif ya da webp) olmalı.`;
+    }
+    const [first, ...rest] = files.filter((f) => f.piece === piece);
+    const other = first && rest.find((f) => f.width !== first.width || f.height !== first.height);
+    if (first && other) {
+      return (
+        `files: "${piece}" parçasının dosyaları aynı görünen boyutu (width × height) bildirmeli: ` +
+        `"${first.name}" ${first.width}×${first.height}, "${other.name}" ${other.width}×${other.height}.`
+      );
     }
   }
   return null;

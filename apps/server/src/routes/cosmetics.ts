@@ -1,6 +1,5 @@
-import fs from 'node:fs';
+import { Readable } from 'node:stream';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { COSMETIC_KIND_CONTENT_TYPE } from '@diskort/shared';
 import { sendError, type AppContext } from '../context.js';
 import { parseRange } from '../fileInfo.js';
 
@@ -41,46 +40,62 @@ export function registerCosmeticRoutes(app: FastifyInstance, ctx: AppContext): v
   });
 
   // Paket dosyası. Adres paketin sürümünü (içerik özeti) taşır: içerik hiç değişmez, süresiz önbelleklenir.
+  // Yeniden yayında yerini bırakan sürümün dosyaları da bir süre sunulur (bkz. CosmeticPackStore.fileOf):
+  // bağlı istemciler bildirimi tazeleyene dek eski adresleri kullanır.
   app.get<PackFileRoute>('/api/cosmetics/packs/:id/:version/:name', async (req, reply) => {
     const { id, version, name } = req.params;
-    // Yol yalnızca biçimi doğrulanmış ve bildirimde kayıtlı dosya için kurulur (bkz. CosmeticPackStore.fileOf)
-    const found = cosmeticPacks.fileOf(id, version, name);
-    const stat = found ? await fs.promises.stat(found.path).catch(() => null) : null;
-    if (!found || !stat?.isFile()) return sendError(reply, 404, 'not_found', 'Dosya bulunamadı.');
+    // Önce dosya açılır; boyut açık dosyadan okunur. Açılamayan (yok, silinmiş, okunamıyor) her şey 404'tür:
+    // önbellek başlıkları yalnızca başarıyla açılan dosyaya verilir, yanıtta dosya yolu hiç geçmez.
+    const file = await cosmeticPacks.openFile(id, version, name);
+    if (!file) return sendError(reply, 404, 'not_found', 'Dosya bulunamadı.');
+    const { handle, size } = file;
+    // Gövdesi dosyadan okunmayan yanıtlarda (304, 416, HEAD, hata) tutamaç burada kapanır; dosya akışı
+    // gönderilirse akış bitince, koparsa ya da hata verirse kendisi kapatır (autoClose).
+    const close = (): Promise<void> => handle.close().catch(() => undefined);
+    try {
+      const etag = `"${version}-${name}"`;
+      void reply
+        .header('Cache-Control', 'public, max-age=31536000, immutable')
+        .header('ETag', etag)
+        .header('Accept-Ranges', 'bytes')
+        .header('X-Content-Type-Options', 'nosniff')
+        // Tarayıcıda doğrudan açılsa bile betik çalışamaz (resim ve video kendi sayfasında gösterilebilir)
+        .header(
+          'Content-Security-Policy',
+          "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox",
+        )
+        .header('Cross-Origin-Resource-Policy', 'cross-origin')
+        .header('Content-Type', file.contentType);
+      if (req.headers['if-none-match'] === etag) {
+        await close();
+        return reply.code(304).send();
+      }
 
-    const etag = `"${version}-${name}"`;
-    void reply
-      .header('Cache-Control', 'public, max-age=31536000, immutable')
-      .header('ETag', etag)
-      .header('Accept-Ranges', 'bytes')
-      .header('X-Content-Type-Options', 'nosniff')
-      // Tarayıcıda doğrudan açılsa bile betik çalışamaz (resim ve video kendi sayfasında gösterilebilir)
-      .header(
-        'Content-Security-Policy',
-        "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox",
-      )
-      .header('Cross-Origin-Resource-Policy', 'cross-origin')
-      .header('Content-Type', COSMETIC_KIND_CONTENT_TYPE[found.kind]);
-    if (req.headers['if-none-match'] === etag) return reply.code(304).send();
-
-    // Parça parça okuma (video oynatıcıları ister; iOS'ta zorunlu). If-Range başka sürümü gösteriyorsa tüm
-    // dosya gönderilir; dosyalar değişmediğinden ETag hep aynıdır.
-    const ifRange = req.headers['if-range'];
-    const range = ifRange === undefined || ifRange === etag ? parseRange(req.headers.range, stat.size) : null;
-    if (range?.kind === 'invalid') {
-      return reply
-        .code(416)
-        .header('Content-Range', `bytes */${stat.size}`)
-        .header('Content-Type', 'application/json; charset=utf-8')
-        .send({ error: 'range_not_satisfiable', message: 'İstenen aralık dosyada yok.' });
+      // Parça parça okuma (video oynatıcıları ister; iOS'ta zorunlu). If-Range başka sürümü gösteriyorsa tüm
+      // dosya gönderilir; dosyalar değişmediğinden ETag hep aynıdır.
+      const ifRange = req.headers['if-range'];
+      const range = ifRange === undefined || ifRange === etag ? parseRange(req.headers.range, size) : null;
+      if (range?.kind === 'invalid') {
+        await close();
+        reply.removeHeader('Cache-Control');
+        return reply
+          .code(416)
+          .header('Content-Range', `bytes */${size}`)
+          .header('Content-Type', 'application/json; charset=utf-8')
+          .send({ error: 'range_not_satisfiable', message: 'İstenen aralık dosyada yok.' });
+      }
+      const part = range?.kind === 'range' ? { start: range.start, end: range.end } : null;
+      if (part) void reply.code(206).header('Content-Range', `bytes ${part.start}-${part.end}/${size}`);
+      void reply.header('Content-Length', part ? part.end - part.start + 1 : size);
+      // HEAD: yalnızca başlıklar; dosya okunmaz
+      if (req.method === 'HEAD') {
+        await close();
+        return reply.send(Readable.from([]));
+      }
+      return reply.send(handle.createReadStream(part ?? {}));
+    } catch (err) {
+      await close();
+      throw err;
     }
-    if (range?.kind === 'range') {
-      return reply
-        .code(206)
-        .header('Content-Range', `bytes ${range.start}-${range.end}/${stat.size}`)
-        .header('Content-Length', range.end - range.start + 1)
-        .send(fs.createReadStream(found.path, { start: range.start, end: range.end }));
-    }
-    return reply.header('Content-Length', stat.size).send(fs.createReadStream(found.path));
   });
 }

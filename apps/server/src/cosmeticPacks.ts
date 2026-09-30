@@ -1,6 +1,7 @@
 // Kozmetik paketleri deposu: <DATA_DIR>/cosmetic-packs/
 //   manifest.json                     yayınlanmış paketler (gösterim sırasıyla) ve dosyalarının bilgisi
-//   <kimlik>/<sürüm>/<dosya adı>      paketin dosyaları; sürüm dosyaların içerik özetidir
+//   <kimlik>/<sürüm>/<dosya adı>      paketin dosyaları; sürüm dosyaların içerik özetidir. Yayındaki sürümün
+//                                     yanında en fazla bir önceki sürüm durur (yeniden yayından sonra 24 saat)
 //
 // Yayınlama yalnızca sunucudaki komut satırı aracıyla yapılır (cosmetics-cli.ts): yükleme için HTTP ucu
 // yoktur. Çalışan sunucu manifest.json'un değiştiğini kendisi fark eder (bkz. CosmeticPackStore.current).
@@ -8,8 +9,11 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
+  COSMETIC_KIND_CONTENT_TYPE,
+  COSMETIC_KIND_EXTENSION,
   COSMETIC_PACK_FILE_NAME_PATTERN,
   COSMETIC_PACK_FORMAT,
   COSMETIC_PACK_MAX_BUNDLE_BYTES,
@@ -58,10 +62,74 @@ export interface ParsedBundle {
   files: { info: StoredPackFile; data: Buffer }[];
 }
 
+/** Sunulmak üzere açılmış paket dosyası; tutamacı alan kapatır */
+export interface OpenedPackFile {
+  handle: fs.promises.FileHandle;
+  size: number;
+  contentType: string;
+}
+
+/**
+ * Yeniden yayında yerini bırakan sürümün klasörü bu süre boyunca durur ve sunulur: bağlı istemciler bildirimi
+ * tazeleyene dek (en geç 10 dakikada bir) eski adresleri kullanır.
+ */
+export const COSMETIC_PACK_GRACE_MS = 24 * 60 * 60_000;
+
 const MANIFEST_FILE = 'manifest.json';
 const LOCK_FILE = '.lock';
 /** Bu kadar eski kilit, yarıda kalmış bir işlemden kalmadır */
 const STALE_LOCK_MS = 10 * 60_000;
+
+/** Kilit dosyasının içeriği: kilidi tutan süreç */
+interface LockInfo {
+  token: string;
+  pid: number;
+  host: string;
+  /** Alındığı an (ms) */
+  at: number;
+}
+
+function readLock(file: string): { raw: string; info: LockInfo | null; mtimeMs: number } | null {
+  try {
+    const raw = fs.readFileSync(file, 'utf8');
+    const { mtimeMs } = fs.statSync(file);
+    let info: LockInfo | null = null;
+    try {
+      const v = JSON.parse(raw) as Partial<LockInfo> | null;
+      if (v && typeof v.token === 'string' && typeof v.pid === 'number' && typeof v.host === 'string' && typeof v.at === 'number') {
+        info = { token: v.token, pid: v.pid, host: v.host, at: v.at };
+      }
+    } catch {
+      // eski biçimli (boş) ya da yazılmakta olan kilit: yaşı dosyanın zamanından
+    }
+    return { raw, info, mtimeMs };
+  } catch {
+    return null;
+  }
+}
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM: süreç var ama başkasının
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+function lockIsStale(lock: { info: LockInfo | null; mtimeMs: number }): boolean {
+  if (Date.now() - (lock.info?.at ?? lock.mtimeMs) >= STALE_LOCK_MS) return true;
+  // Aynı makinede (kapsayıcıda) sahibi artık çalışmıyorsa (araç öldürülmüş) beklemeye gerek yok
+  return lock.info !== null && lock.info.host === os.hostname() && !pidAlive(lock.info.pid);
+}
+
+/** Dosya adının uzantısından türü (yerini bırakmış sürümün dosyaları için; kayıt tutulmaz) */
+function kindOfName(name: string): CosmeticAssetKind | null {
+  // poster de .webp'tir: sunulan Content-Type aynıdır
+  for (const kind of ['avif', 'webp', 'stacked-h264'] as const) if (name.endsWith(COSMETIC_KIND_EXTENSION[kind])) return kind;
+  return null;
+}
 /** Çalışan sunucu manifest.json'a en çok bu sıklıkta bakar */
 const DEFAULT_RECHECK_MS = 2000;
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -73,29 +141,53 @@ const formatMb = (bytes: number): string => `${Math.round((bytes / 1024 / 1024) 
 
 // ---------- Dosya içeriğinin denetimi ----------
 
-/** ISO-BMFF (MP4, AVIF) üst düzey kutuları; kutular dosyayı tam kaplamıyorsa (kırpık, sonunda artık veri) null */
-function topLevelBoxes(buf: Buffer): { type: string; start: number; end: number }[] | null {
-  const result: { type: string; start: number; end: number }[] = [];
-  let pos = 0;
-  while (pos < buf.length) {
-    if (pos + 8 > buf.length) return null;
+type Box = { type: string; start: number; end: number };
+
+/**
+ * ISO-BMFF (MP4, AVIF) kutuları: `from`-`to` aralığındaki art arda kutular (start/end kutunun içeriği).
+ * Kutular aralığı tam kaplamıyorsa (kırpık, sonunda artık veri) null.
+ */
+function boxesIn(buf: Buffer, from: number, to: number): Box[] | null {
+  const result: Box[] = [];
+  let pos = from;
+  while (pos < to) {
+    if (pos + 8 > to) return null;
     let size = buf.readUInt32BE(pos);
     let header = 8;
     if (size === 1) {
-      if (pos + 16 > buf.length) return null;
+      if (pos + 16 > to) return null;
       const big = buf.readBigUInt64BE(pos + 8);
       if (big > BigInt(buf.length)) return null;
       size = Number(big);
       header = 16;
     } else if (size === 0) {
-      size = buf.length - pos;
+      size = to - pos;
     }
-    if (size < header || pos + size > buf.length) return null;
+    if (size < header || pos + size > to) return null;
     result.push({ type: buf.toString('latin1', pos + 4, pos + 8), start: pos + header, end: pos + size });
     pos += size;
     if (result.length > 4096) return null;
   }
   return result;
+}
+
+/** Üst düzey kutular; dosyayı tam kaplamıyorlarsa null */
+const topLevelBoxes = (buf: Buffer): Box[] | null => boxesIn(buf, 0, buf.length);
+
+/** "moov" kutusundaki izlerin boyutları (tkhd; 16.16 sabit noktalı). Görüntü dizisinde karenin boyutudur. */
+function trackSizes(buf: Buffer, moov: Box): { width: number; height: number }[] {
+  const sizes: { width: number; height: number }[] = [];
+  for (const trak of boxesIn(buf, moov.start, moov.end)?.filter((b) => b.type === 'trak') ?? []) {
+    const tkhd = boxesIn(buf, trak.start, trak.end)?.find((b) => b.type === 'tkhd');
+    if (!tkhd) continue;
+    // Sürüm 1'de zaman alanları 64 bittir: boyutlar 12 bayt ileride
+    const at = tkhd.start + (buf[tkhd.start] === 1 ? 88 : 76);
+    if (at + 8 > tkhd.end) continue;
+    const width = buf.readUInt32BE(at) / 65536;
+    const height = buf.readUInt32BE(at + 4) / 65536;
+    if (width > 0 && height > 0) sizes.push({ width, height });
+  }
+  return sizes;
 }
 
 /** AVIF'in "ftyp" kutusundaki markalar (ana marka + uyumlu markalar) */
@@ -145,10 +237,15 @@ export async function inspectPackFile(info: CosmeticPackFileInfo, data: Buffer):
   if (kind === 'avif') {
     const brands = ftypBrands(data, boxes[0]);
     if (!brands.includes('avif') && !brands.includes('avis')) return 'içerik AVIF değil.';
-    if (!boxes.some((b) => b.type === 'moov')) return 'hareketli AVIF (görüntü dizisi) olmalı.';
+    const moov = boxes.find((b) => b.type === 'moov');
+    if (!moov) return 'hareketli AVIF (görüntü dizisi) olmalı.';
+    // Boyut doğrulanamıyorsa dosya alınmaz (denetim atlanmaz). Kaynak: üst düzey "meta" kutusundaki "ispe"
+    // özellikleri; kodlayıcı dizide "meta" yazmamışsa izlerin başlıkları (tkhd).
     const meta = boxes.find((b) => b.type === 'meta');
-    const sizes = meta ? avifSizes(data, meta) : [];
-    if (sizes.length > 0 && !sizes.some((s) => s.width === width && s.height === height)) {
+    let sizes = meta ? avifSizes(data, meta) : [];
+    if (sizes.length === 0) sizes = trackSizes(data, moov);
+    if (sizes.length === 0) return 'AVIF\'in boyutu okunamadı ("ispe" özelliği de iz başlığı da yok).';
+    if (!sizes.some((s) => s.width === width && s.height === height)) {
       return `boyutu ${sizes[0]!.width}×${sizes[0]!.height}, bildirilen ${width}×${height}.`;
     }
     return null;
@@ -297,8 +394,6 @@ interface Snapshot {
   stamp: string;
   packs: StoredPack[];
   byId: Map<string, StoredPack>;
-  /** Yerleşik setlerden olmayan paket var mı */
-  custom: boolean;
   manifest: CosmeticPackManifest;
   /** Sunulan bildirimin JSON'u ve ETag'i */
   json: string;
@@ -313,7 +408,6 @@ function snapshotOf(packs: StoredPack[], stamp: string): Snapshot {
     stamp,
     packs,
     byId: new Map(packs.map((p) => [p.id, p])),
-    custom: packs.some((p) => !isCosmeticSet(p.id)),
     manifest,
     json: JSON.stringify(manifest),
     etag: `"${version}"`,
@@ -414,11 +508,6 @@ export class CosmeticPackStore {
     return typeof id === 'string' && (isCosmeticSet(id) || this.current().byId.has(id));
   }
 
-  /** Yerleşik setlerden olmayan paket yayında mı (yoksa eski istemciler için süzmeye gerek kalmaz) */
-  hasCustomIds(): boolean {
-    return this.current().custom;
-  }
-
   /** İstemcilere sunulan bildirim */
   served(): { manifest: CosmeticPackManifest; json: string; etag: string } {
     return this.current();
@@ -430,39 +519,129 @@ export class CosmeticPackStore {
   }
 
   /**
-   * Sunulacak dosyanın yolu. Yol yalnızca biçimi doğrulanmış parçalardan ve yalnızca manifest.json'da
-   * kayıtlı (o sürümün) dosyası için kurulur; aksi halde null.
+   * Sunulacak dosyanın yolu ve türü; sunulamayacaksa null. Yol yalnızca biçimi doğrulanmış parçalardan
+   * kurulur ve yalnızca şunlar için:
+   * - Yayındaki sürüm: manifest.json'da kayıtlı dosyalar (türü kayıttan).
+   * - Yerini yenisine bırakmış sürüm (yeniden yayından sonra, bkz. COSMETIC_PACK_GRACE_MS): paket hâlâ
+   *   yayında olmalı; tür yalnızca dosya adının uzantısından (.avif / .webp / .mp4) çıkar. Klasörün var
+   *   olduğuna ve dosyanın düz bir dosya olduğuna openFile bakar.
+   * Yayından kaldırılan paketin hiçbir dosyası sunulmaz.
    */
-  fileOf(id: string, version: string, name: string): { path: string; kind: CosmeticAssetKind; bytes: number } | null {
+  fileOf(id: string, version: string, name: string): { path: string; kind: CosmeticAssetKind; superseded: boolean } | null {
     if (!COSMETIC_SET_ID_PATTERN.test(id) || !COSMETIC_PACK_VERSION_PATTERN.test(version)) return null;
     if (!COSMETIC_PACK_FILE_NAME_PATTERN.test(name)) return null;
     const pack = this.current().byId.get(id);
-    const file = pack?.version === version ? pack.files.find((f) => f.name === name) : undefined;
-    return file ? { path: path.join(this.dir, id, version, name), kind: file.kind, bytes: file.bytes } : null;
+    if (!pack) return null;
+    const superseded = pack.version !== version;
+    const kind = superseded ? kindOfName(name) : pack.files.find((f) => f.name === name)?.kind;
+    return kind ? { path: path.join(this.dir, id, version, name), kind, superseded } : null;
+  }
+
+  /**
+   * Sunulacak dosyayı açar (bkz. fileOf); açılamıyorsa null. Önce açılır, boyut açık dosyadan okunur: dosya
+   * arada silinse de yanıt tutarlı kalır. Sürüm klasörü gerçek bir klasör, dosya da doğrudan onun içindeki
+   * düz bir dosya olmalı (sembolik bağ izlenmez). Dönen tutamacı çağıran kapatır.
+   */
+  async openFile(id: string, version: string, name: string): Promise<OpenedPackFile | null> {
+    const found = this.fileOf(id, version, name);
+    if (!found) return null;
+    let handle: fs.promises.FileHandle | null = null;
+    try {
+      const [folder, entry] = await Promise.all([fs.promises.lstat(path.dirname(found.path)), fs.promises.lstat(found.path)]);
+      if (!folder.isDirectory() || !entry.isFile()) return null;
+      handle = await fs.promises.open(found.path, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+      const stat = await handle.stat();
+      if (!stat.isFile()) throw new Error('düz dosya değil');
+      return { handle, size: stat.size, contentType: COSMETIC_KIND_CONTENT_TYPE[found.kind] };
+    } catch {
+      // Yok, okunamıyor ya da düz dosya değil: çağıran 404 döner (yol hiçbir yere yazılmaz)
+      await handle?.close().catch(() => undefined);
+      return null;
+    }
   }
 
   // ---------- Yazma (komut satırı aracı) ----------
 
-  /** Aynı anda tek yazan: kilit dosyası (yarıda kalmış işlemin eski kilidi yok sayılır) */
-  private async locked<T>(work: () => Promise<T> | T): Promise<T> {
+  private get lockFile(): string {
+    return path.join(this.dir, LOCK_FILE);
+  }
+
+  /**
+   * Yazma kilidini alır; alınamıyorsa CosmeticPackError atar. Kilit dosyası sahibini taşır (süreç, makine,
+   * an). Eski kilit devralınır: 10 dakikadan eskiyse ya da aynı makinede (kapsayıcıda) sahibi artık
+   * çalışmıyorsa (araç öldürülmüş). Devralma atomiktir: eski kilit yeniden adlandırılarak kenara çekilir,
+   * aynı anda deneyenlerden yalnızca biri başarır.
+   */
+  private acquireLock(): string {
     fs.mkdirSync(this.dir, { recursive: true });
-    const lock = path.join(this.dir, LOCK_FILE);
-    const take = (): void => fs.closeSync(fs.openSync(lock, 'wx'));
-    try {
-      take();
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-      const age = Date.now() - (fs.statSync(lock, { throwIfNoEntry: false })?.mtimeMs ?? 0);
-      if (age < STALE_LOCK_MS) throw new CosmeticPackError('Başka bir yayınlama işlemi sürüyor; bitince yeniden dene.');
-      fs.rmSync(lock, { force: true });
-      take();
+    const lock = this.lockFile;
+    const token = randomBytes(8).toString('hex');
+    const body = JSON.stringify({ token, pid: process.pid, host: os.hostname(), at: Date.now() } satisfies LockInfo);
+    const take = (): boolean => {
+      try {
+        fs.writeFileSync(lock, body, { flag: 'wx' });
+        return true;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
+        throw err;
+      }
+    };
+    const busy = (): CosmeticPackError =>
+      new CosmeticPackError(
+        'Başka bir yayınlama işlemi sürüyor; bitince yeniden dene. (Araç yarıda kesildiyse ve kilit takılı kaldıysa: --force-unlock)',
+      );
+    if (take()) return token;
+    const held = readLock(lock);
+    if (held) {
+      if (!lockIsStale(held)) throw busy();
+      const aside = `${lock}.${token}`;
+      try {
+        fs.renameSync(lock, aside);
+      } catch (err) {
+        // Kilit bu arada kalkmış (bırakılmış ya da başkası kenara çekmiş): aşağıda yeniden denenir
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      }
+      if (fs.existsSync(aside)) {
+        // Kenara çekilen, az önce bakılan eski kilit olmalı. Arada başkası devralıp kendi kilidini koyduysa o
+        // kilit yerine geri konur (yerinde yenisi yoksa) ve vazgeçilir.
+        const moved = fs.readFileSync(aside, 'utf8');
+        if (moved !== held.raw) {
+          try {
+            fs.linkSync(aside, lock);
+          } catch {
+            // yerine başka kilit konmuş
+          }
+          fs.rmSync(aside, { force: true });
+          throw busy();
+        }
+        fs.rmSync(aside, { force: true });
+      }
     }
+    if (take()) return token;
+    throw busy();
+  }
+
+  /** Kilidi bırakır; yalnızca hâlâ bizimse (zorla açılıp başkasınca alınmış kilide dokunulmaz) */
+  private releaseLock(token: string): void {
+    if (readLock(this.lockFile)?.info?.token === token) fs.rmSync(this.lockFile, { force: true });
+  }
+
+  /** Takılı kalmış kilidi kaldırır (komut satırı: --force-unlock). Kilit var mıydı döner. */
+  forceUnlock(): boolean {
+    const existed = fs.existsSync(this.lockFile);
+    fs.rmSync(this.lockFile, { force: true });
+    return existed;
+  }
+
+  /** Aynı anda tek yazan (bkz. acquireLock) */
+  private async locked<T>(work: () => Promise<T> | T): Promise<T> {
+    const token = this.acquireLock();
     try {
       // Kilit altında en güncel hal: başka bir süreç az önce yazmış olabilir
       this.reload(true);
       return await work();
     } finally {
-      fs.rmSync(lock, { force: true });
+      this.releaseLock(token);
     }
   }
 
@@ -479,17 +658,49 @@ export class CosmeticPackStore {
     this.reload(true);
   }
 
-  /** Paketin klasöründe geçerli sürüm dışındaki her şeyi (eski sürümler, yarım kalmış hazırlıklar) siler */
-  private prune(id: string, keepVersion: string | null): void {
-    const packDir = path.join(this.dir, id);
-    if (keepVersion === null) return rmQuiet(packDir);
-    let entries: string[] = [];
+  /**
+   * Diski bildirimle eşitler (kilit altında, manifest.json yazıldıktan sonra). Kalanlar: yayındaki her paketin
+   * geçerli sürüm klasörü ve en fazla BİR önceki sürümü (yerini bırakalı COSMETIC_PACK_GRACE_MS geçmemişse;
+   * `all` ile o da silinir). Gerisi silinir: yayında olmayan kimliklerin klasörleri, daha eski sürümler,
+   * yarım kalmış hazırlıklar. Silinen önceki sürüm sayısını döner.
+   *
+   * Önceki sürümün ne zaman yerini bıraktığı klasörünün değişiklik zamanından okunur (publish o an damgalar);
+   * ayrı bir kayıt tutulmaz.
+   */
+  private sweep(all = false): number {
+    const now = Date.now();
+    let removed = 0;
+    let entries: fs.Dirent[] = [];
     try {
-      entries = fs.readdirSync(packDir);
+      entries = fs.readdirSync(this.dir, { withFileTypes: true });
     } catch {
-      return;
+      return 0;
     }
-    for (const entry of entries) if (entry !== keepVersion) rmQuiet(path.join(packDir, entry));
+    for (const entry of entries) {
+      // Yalnızca paket klasörleri: manifest.json, kilit ve tanınmayan adlara dokunulmaz
+      if (!entry.isDirectory() || !COSMETIC_SET_ID_PATTERN.test(entry.name)) continue;
+      const packDir = path.join(this.dir, entry.name);
+      const pack = this.snapshot.byId.get(entry.name);
+      if (!pack) {
+        rmQuiet(packDir);
+        continue;
+      }
+      const previous: { full: string; at: number }[] = [];
+      for (const name of fs.readdirSync(packDir)) {
+        if (name === pack.version) continue;
+        const full = path.join(packDir, name);
+        const st = fs.lstatSync(full, { throwIfNoEntry: false });
+        if (st?.isDirectory() && COSMETIC_PACK_VERSION_PATTERN.test(name)) previous.push({ full, at: st.mtimeMs });
+        else rmQuiet(full);
+      }
+      previous.sort((a, b) => b.at - a.at);
+      previous.forEach((p, i) => {
+        if (!all && i === 0 && now - p.at < COSMETIC_PACK_GRACE_MS) return;
+        rmQuiet(p.full);
+        removed++;
+      });
+    }
+    return removed;
   }
 
   /** Saklanan sürüm klasörü eksiksiz mi (her dosya var ve boyutu tutuyor) */
@@ -500,7 +711,11 @@ export class CosmeticPackStore {
   /**
    * Paketi yayınlar; aynı kimlikte paket varsa yerine geçer (sıradaki yeri korunur). Önce her şey bellekte
    * doğrulanır, sonra dosyalar yeni sürüm klasörüne yazılır, en son manifest.json değiştirilir: herhangi bir
-   * adımda hata olursa depo olduğu gibi kalır. Eski sürümün klasörü manifest değiştikten sonra silinir.
+   * adımda hata olursa depo olduğu gibi kalır.
+   *
+   * Yerini bırakan sürümün klasörü hemen silinmez: bağlı istemciler bildirimi tazeleyene dek eski adresleri
+   * kullanır. Bir önceki sürüm COSMETIC_PACK_GRACE_MS boyunca sunulmaya devam eder ve sonraki yayında (ya da
+   * `prune` ile) silinir; kimlik başına en fazla bir önceki sürüm tutulur.
    */
   async publish(input: unknown): Promise<StoredPack> {
     const bundle = await parseBundle(input);
@@ -523,7 +738,7 @@ export class CosmeticPackStore {
         try {
           fs.mkdirSync(staging);
           for (const f of bundle.files) writeDurable(path.join(staging, f.info.name), f.data);
-          // Hedef varsa yayında değildir (ya da bozuktur): yerini yenisi alır
+          // Hedef varsa yayında değildir (önceki sürüm ya da bozuk bir klasör): yerini yenisi alır
           rmQuiet(target);
           fs.renameSync(staging, target);
         } catch (err) {
@@ -531,7 +746,9 @@ export class CosmeticPackStore {
           throw err;
         }
       }
-      const pack: StoredPack = { ...info, version, publishedAt: Date.now(), files };
+      const now = Date.now();
+      const previous = packs[index]?.version;
+      const pack: StoredPack = { ...info, version, publishedAt: now, files };
       try {
         this.writeManifest(index < 0 ? [...packs, pack] : packs.map((p, i) => (i === index ? pack : p)));
       } catch (err) {
@@ -539,19 +756,39 @@ export class CosmeticPackStore {
         if (!reuse) rmQuiet(target);
         throw err;
       }
-      this.prune(info.id, version);
+      // Yerini bırakan sürümün süresi şimdi başlar (bkz. sweep)
+      if (previous !== undefined && previous !== version) {
+        try {
+          fs.utimesSync(path.join(packDir, previous), new Date(now), new Date(now));
+        } catch {
+          // klasör yok: tutulacak bir şey de yok
+        }
+      }
+      this.sweep();
       return pack;
     });
   }
 
-  /** Paketi yayından kaldırır: önce manifest.json'dan düşer, sonra dosyaları silinir */
+  /**
+   * Paketi yayından kaldırır: önce manifest.json'dan düşer, sonra bütün sürümlerinin dosyaları HEMEN silinir
+   * (bekleme süresi yok: kaldırılan paketin dosyaları sunulmaya devam etmez).
+   */
   async remove(id: string): Promise<void> {
     await this.locked(() => {
       const packs = this.snapshot.packs;
       if (!packs.some((p) => p.id === id)) throw new CosmeticPackError(`"${id}" adlı paket yok.`);
       this.writeManifest(packs.filter((p) => p.id !== id));
-      this.prune(id, null);
+      rmQuiet(path.join(this.dir, id));
+      this.sweep();
     });
+  }
+
+  /**
+   * Yerini yenisine bırakmış, süresi dolmuş önceki sürümleri (ve artık klasörleri) siler; `all`: süresi
+   * dolmamış önceki sürümleri de. Silinen önceki sürüm sayısını döner.
+   */
+  async prune(all = false): Promise<number> {
+    return this.locked(() => this.sweep(all));
   }
 
   /** Paketin oynatıldığı platformları değiştirir (dosyalara dokunmaz) */
