@@ -26,6 +26,15 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const frame = () => new Promise((r) => requestAnimationFrame(r));
   const round = (x, d = 3) => Number(x.toFixed(d));
+  /** Çözücü takılırsa araç sonsuza dek beklemesin: her adım en çok `ms` sürer */
+  const STEP_MS = 30000;
+  function withTimeout(promise, label, ms = STEP_MS) {
+    let timer;
+    const limit = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`zaman aşımı (${ms / 1000} sn): ${label}`)), ms);
+    });
+    return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
+  }
   const blobUrl = (item) => URL.createObjectURL(new Blob([fs.readFileSync(item.path)], { type: item.mime }));
 
   function readSource(item, index) {
@@ -132,10 +141,10 @@
     video.playsInline = true;
     video.preload = 'auto';
     video.src = blobUrl(item);
-    await new Promise((resolve, reject) => {
+    await withTimeout(new Promise((resolve, reject) => {
       video.addEventListener('loadeddata', resolve, { once: true });
       video.addEventListener('error', () => reject(new Error('video açılamadı: ' + (video.error ? video.error.message || 'kod ' + video.error.code : 'bilinmiyor'))), { once: true });
-    });
+    }), 'video açılışı');
     const ew = item.stacked ? item.stacked.width : item.width;
     const eh = item.stacked ? item.stacked.height : item.height;
     if (video.videoWidth !== ew || video.videoHeight !== eh) throw new Error(`video boyutu ${video.videoWidth}×${video.videoHeight}, beklenen ${ew}×${eh}`);
@@ -197,11 +206,11 @@
     if (item.tag === 'img') {
       // Hareketli resim: tarayıcının resim çözücüsü (WebCodecs ImageDecoder), kareler zaman damgasıyla eşlenir
       const dec = new ImageDecoder({ data: fs.readFileSync(item.path), type: item.mime });
-      await dec.tracks.ready;
-      await dec.completed;
+      await withTimeout(dec.tracks.ready, 'çözücü izleri');
+      await withTimeout(dec.completed, 'çözücü veri');
       frames = dec.tracks.selectedTrack.frameCount;
       for (let i = 0; i < frames; i++) {
-        const { image } = await dec.decode({ frameIndex: i });
+        const { image } = await withTimeout(dec.decode({ frameIndex: i }), `kare ${i}`);
         // kodlayıcı aynı kareleri birleştirmiş olabilir: son kare kaynağın son karesine denk gelir
         const index = i === frames - 1 ? lastIndex : Math.round((image.timestamp / 1e6) * item.fps);
         durationMs = (image.timestamp + (image.duration ?? 0)) / 1000;
@@ -221,7 +230,7 @@
       }
       for (let index = 0; index < item.sourceFrames; index++) {
         video.currentTime = (index + 0.5) / item.fps;
-        await new Promise((resolve) => video.addEventListener('seeked', resolve, { once: true }));
+        await withTimeout(new Promise((resolve) => video.addEventListener('seeked', resolve, { once: true })), `video kare ${index}`);
         await frame();
         await frame();
         let decoded;
@@ -262,23 +271,34 @@
    * - atlayarak: 0, 1, 2, 4, 8, … ve son kare;
    * - tam tur: 0'dan sona sırayla, sonra yeniden 0, 1, 2;
    * - ortadan: yeni bir çözücüyle ortadaki kare, iki sonraki, sonra 0 ve çeyrek (bir sonraki için aşağıya bakın).
-   * Ölçü: alfanın yarıdan fazla olduğu piksellerde düz rengin ortalama mutlak farkı (0-255) ve alfa farkı;
-   * ayrıca başta sabitlenen birkaç nokta (en koyu, en açık, en doygun) iki çözümde yan yana.
+   * Ölçü: ffmpeg'e göre alfanın yarıdan fazla olduğu piksellerde düz rengin ortalama mutlak farkı (0-255;
+   * çözülen karede orası saydamsa renk 0 okunur, fark büyür) ve bütün piksellerde alfa farkı; ayrıca başta
+   * sabitlenen birkaç nokta (en koyu, en açık, en doygun) iki çözümde yan yana. Karşılaştırma tabanı eksikse
+   * (kare sayısı tutmuyor, okuma kısa, hiç dolu piksel yok) hata verir: boş bir taban her şeyi geçirirdi.
    */
   async function accessItem(item) {
     const w = item.width;
     const h = item.height;
     const n = item.sourceFrames;
     const px = w * h;
+    for (const [key, per] of [['color', px * 3], ['alpha', px]]) {
+      const size = fs.statSync(item.reference[key]).size;
+      if (size !== per * n) throw new Error(`ffmpeg karşılaştırma tabanı (${key}) ${size} bayt, beklenen ${per * n} (${n} kare)`);
+    }
+    const readExact = (file, buf, index) => {
+      const fd = fs.openSync(file, 'r');
+      try {
+        const got = fs.readSync(fd, buf, 0, buf.length, index * buf.length);
+        if (got !== buf.length) throw new Error(`karşılaştırma tabanı kısa: kare ${index}, ${got}/${buf.length} bayt`);
+      } finally {
+        fs.closeSync(fd);
+      }
+    };
     const readRef = (index) => {
       const color = new Uint8Array(px * 3);
       const alpha = new Uint8Array(px);
-      const fc = fs.openSync(item.reference.color, 'r');
-      fs.readSync(fc, color, 0, color.length, index * color.length);
-      fs.closeSync(fc);
-      const fa = fs.openSync(item.reference.alpha, 'r');
-      fs.readSync(fa, alpha, 0, alpha.length, index * alpha.length);
-      fs.closeSync(fa);
+      readExact(item.reference.color, color, index);
+      readExact(item.reference.alpha, alpha, index);
       return { color, alpha };
     };
     // sabit noktalar: ilk karede alfası yüksek pikseller arasından en koyu, en açık, en doygun
@@ -308,10 +328,12 @@
       let as = 0;
       for (let p = 0; p < px; p++) {
         as += Math.abs(d[p * 4 + 3] - ref.alpha[p]);
-        if (ref.alpha[p] < 128 || d[p * 4 + 3] < 128) continue;
+        // yalnızca ffmpeg'e göre dolu pikseller (çözülen kareye bakılmaz: boş bir çözüm burada fark verir)
+        if (ref.alpha[p] < 128) continue;
         cs += (Math.abs(d[p * 4] - ref.color[p * 3]) + Math.abs(d[p * 4 + 1] - ref.color[p * 3 + 1]) + Math.abs(d[p * 4 + 2] - ref.color[p * 3 + 2])) / 3;
         cn++;
       }
+      if (cn === 0) throw new Error(`kare ${index}: karşılaştırma tabanında dolu piksel yok`);
       const points = {};
       if (index === 0) {
         for (const [k, p] of Object.entries(pick)) {
@@ -323,19 +345,29 @@
     };
     const open = async () => {
       const dec = new ImageDecoder({ data: fs.readFileSync(item.path), type: item.mime });
-      await dec.tracks.ready;
-      await dec.completed;
+      await withTimeout(dec.tracks.ready, 'çözücü izleri');
+      await withTimeout(dec.completed, 'çözücü veri');
+      const count = dec.tracks.selectedTrack.frameCount;
+      if (count !== n) throw new Error(`çözücü ${count} kare görüyor, beklenen ${n}`);
       return dec;
     };
     const run = async (dec, order) => {
       const out = [];
       for (const index of order) {
+        let image;
         try {
-          const { image } = await dec.decode({ frameIndex: index });
-          out.push(compare(image, index));
-          image.close();
+          image = (await withTimeout(dec.decode({ frameIndex: index }), `kare ${index}`)).image;
         } catch (err) {
+          // çözücünün hatası kayda geçer (karar render.mjs'te); karşılaştırmanın kendi hatası aşağıda fırlar
           out.push({ index, error: String(err && err.message ? err.message : err) });
+          // takılan çözücüye yeni kare sorulmaz (her biri yine süre sınırını beklerdi)
+          if (/zaman aşımı/.test(String(err && err.message))) break;
+          continue;
+        }
+        try {
+          out.push(compare(image, index));
+        } finally {
+          image.close();
         }
       }
       return out;
@@ -381,7 +413,14 @@
     for (const item of items) {
       try {
         const r = { file: item.file, ...(await decodeItem(item)) };
-        if (item.reference) r.access = await accessItem(item);
+        if (item.reference) {
+          // sırasız çözmenin hatası dosyanın öbür ölçülerini silmez; render.mjs hatayı dosyanın başarısızlığı sayar
+          try {
+            r.access = await accessItem(item);
+          } catch (err) {
+            r.access = { error: String(err && err.message ? err.message : err) };
+          }
+        }
         out.push(r);
       } catch (err) {
         out.push({ file: item.file, error: String(err && err.message ? err.message : err) });
@@ -490,7 +529,7 @@
       try {
         out.push({ file: item.file, access: await accessItem(item) });
       } catch (err) {
-        out.push({ file: item.file, error: String(err && err.message ? err.message : err) });
+        out.push({ file: item.file, access: { error: String(err && err.message ? err.message : err) } });
       }
     }
     return out;
