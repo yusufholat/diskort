@@ -21,6 +21,8 @@ import {
   removeBanner,
   updateProfileLook,
   uploadBanner,
+  useCosmeticManifest,
+  useCosmeticPacks,
   useCustomStatus,
   useStatus,
 } from '@diskort/client-core';
@@ -119,6 +121,12 @@ export function ProfileLookSettings({ user }: { user: User }) {
   const appliedSet = sets.find(
     (set) => effect === set.id && animatedDecorationId(decoration) === set.id && nameplate === set.id,
   );
+  // Seçili kimlik bildirimde yoksa (paketi yayından kalkmış) hiçbir şey çizilmez: seçicilerde "Yok" işaretlidir
+  // (grubun hep bir seçimi olur); "Yok"a tıklamak kaydedilmiş seçimi de temizler
+  const known = (id: CosmeticSetId | null): boolean => id !== null && sets.some((set) => set.id === id);
+  const shownEffect = known(effect) ? effect : null;
+  const shownDecoration = known(animatedDecorationId(decoration)) ? decoration : null;
+  const shownNameplate = known(nameplate) ? nameplate : null;
 
   return (
     <div className="flex flex-wrap-reverse items-start gap-x-8">
@@ -177,16 +185,14 @@ export function ProfileLookSettings({ user }: { user: User }) {
         {sets.length > 0 ? (
           <SetPicker sets={sets} applied={appliedSet?.id ?? null} onApply={(set) => void pick(setPatch(set))} />
         ) : (
-          <p className="rounded-lg border border-edge bg-bg-side px-3 py-2.5 text-sm text-text-muted">
-            Şu anda yayında bir set yok.
-          </p>
+          <NoSetsNote />
         )}
 
         <SectionTitle>Profil Efekti</SectionTitle>
         <p className="mb-3 text-sm text-text-muted">Profil kartında oynayan süs.</p>
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Profil efekti">
           {[null, ...sets].map((set) => {
-            const selected = effect === (set?.id ?? null);
+            const selected = shownEffect === (set?.id ?? null);
             return (
               <button
                 key={set?.id ?? 'none'}
@@ -217,11 +223,16 @@ export function ProfileLookSettings({ user }: { user: User }) {
           Avatarının çevresindeki süs; mesajlarda ve üye listesinde de görünür (hareketli olanlar küçük avatarda sabit bir
           halka olur).
         </p>
-        <DecorationPicker sets={sets} user={user} value={decoration} onPick={(id) => void pick({ avatarDecoration: id })} />
+        <DecorationPicker
+          sets={sets}
+          user={user}
+          value={shownDecoration}
+          onPick={(id) => void pick({ avatarDecoration: id })}
+        />
 
         <SectionTitle>İsim Plakası</SectionTitle>
         <p className="mb-3 text-sm text-text-muted">Üye listesinde adının arkasında oynayan zemin.</p>
-        <NameplatePicker sets={sets} user={user} value={nameplate} onPick={(id) => void pick({ nameplate: id })} />
+        <NameplatePicker sets={sets} user={user} value={shownNameplate} onPick={(id) => void pick({ nameplate: id })} />
       </div>
 
       {/* Önizleme seçicilerin yanında kaydırılırken görünür kalır */}
@@ -288,6 +299,29 @@ function useLook(user: User) {
     }
   };
   return { effect, decoration, nameplate, pick };
+}
+
+/**
+ * Gösterilecek set yokken kutuların yerine: bildirim hiç alınamadıysa yeniden deneme, alınıyorsa bekleme,
+ * alındı ama boşsa kısa bir not.
+ */
+function NoSetsNote() {
+  const loaded = useCosmeticManifest() !== null;
+  const status = useCosmeticPacks((s) => s.status);
+  const failed = !loaded && status === 'error';
+  return (
+    <div
+      className="flex min-h-[54px] items-center justify-between gap-3 rounded-lg border border-edge bg-bg-side px-3 py-2 text-sm text-text-muted"
+      role="status"
+    >
+      <span>{loaded ? 'Şu anda yayında bir set yok.' : failed ? 'Setler yüklenemedi.' : 'Setler yükleniyor…'}</span>
+      {failed && (
+        <Button type="button" variant="secondary" className="shrink-0" onClick={() => void refreshCosmeticPacks()}>
+          Yeniden dene
+        </Button>
+      )}
+    </div>
+  );
 }
 
 /** Hareketli setler: küçük resimli kutular; tıklayınca setin üç parçası birden uygulanır */

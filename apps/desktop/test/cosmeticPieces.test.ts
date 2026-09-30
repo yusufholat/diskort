@@ -4,10 +4,15 @@ import { cosmeticPackAsset, cosmeticPackPoster, cosmeticRenderMode, cosmeticSetI
 import {
   ANIMATED_DECORATION_MIN_SIZE,
   decorationBox,
+  failuresIn,
+  INITIAL_LOAD_STATE,
+  loadEpoch,
   nameplateNameColor,
   pickSource,
   PLAYABLE_KINDS,
   resolvePiece,
+  sourceFailed,
+  sourceLoaded,
   staticCardBackground,
   staticPlateBackground,
   staticRingStyle,
@@ -143,6 +148,79 @@ describe('pickSource: gösterilecek dosya ve yedek zinciri', () => {
   it('yeni sürümün adresleri eski hatalardan etkilenmez', () => {
     const next = { anim: 'a2.avif', poster: 'p2.webp' };
     expect(pickSource(next, { ...playing, failed: ['a.avif', 'p.webp'] })).toEqual({ url: 'a2.avif', animated: true });
+  });
+});
+
+describe('yükleme durumu: olaylar kendi adresleriyle kaydedilir', () => {
+  const v1 = { anim: 'v1/a.avif', poster: 'v1/p.webp' };
+  const v2 = { anim: 'v2/a.avif', poster: 'v2/p.webp' };
+  const epoch = loadEpoch('surum1', 1);
+  /** Durumdan, oynatıcının yaptığı gibi gösterilecek dosya */
+  const shown = (state: typeof INITIAL_LOAD_STATE, files: typeof v1, at = epoch) =>
+    pickSource(files, {
+      still: false,
+      primed: files.poster !== null && state.loadedPoster === files.poster,
+      failed: failuresIn(state, at),
+    });
+
+  it('poster yüklenince hareketli dosyaya geçilir', () => {
+    expect(shown(INITIAL_LOAD_STATE, v1)?.url).toBe('v1/p.webp');
+    const state = sourceLoaded(INITIAL_LOAD_STATE, v1, 'v1/p.webp');
+    expect(shown(state, v1)).toEqual({ url: 'v1/a.avif', animated: true });
+  });
+
+  it('hareketli dosyanın (ya da tanınmayan bir adresin) yüklenmesi durumu değiştirmez', () => {
+    expect(sourceLoaded(INITIAL_LOAD_STATE, v1, 'v1/a.avif')).toBe(INITIAL_LOAD_STATE);
+    expect(sourceLoaded(INITIAL_LOAD_STATE, v1, null)).toBe(INITIAL_LOAD_STATE);
+    const state = sourceLoaded(INITIAL_LOAD_STATE, v1, 'v1/p.webp');
+    expect(sourceLoaded(state, v1, 'v1/p.webp')).toBe(state);
+  });
+
+  it('yüklenemeyen hareketli dosya postere, poster de yüklenemezse sabit görünüme düşürür', () => {
+    let state = sourceLoaded(INITIAL_LOAD_STATE, v1, 'v1/p.webp');
+    state = sourceFailed(state, v1, epoch, 'v1/a.avif');
+    expect(shown(state, v1)).toEqual({ url: 'v1/p.webp', animated: false });
+    state = sourceFailed(state, v1, epoch, 'v1/p.webp');
+    expect(shown(state, v1)).toBeNull();
+    // Aynı hata yeniden bildirilirse durum aynı kalır (gereksiz yeniden çizim olmaz)
+    expect(sourceFailed(state, v1, epoch, 'v1/a.avif')).toBe(state);
+  });
+
+  it('eski adresin gecikmiş olayı yeni dosyayı etkilemez (paketin sürümü değişti)', () => {
+    // v1'in posteri yüklenmiş, hareketli dosyası yolda; bu sırada paket v2 oldu
+    const state = sourceLoaded(INITIAL_LOAD_STATE, v1, 'v1/p.webp');
+    // v1'in hata olayı v2 gösterilirken gelir: yok sayılır
+    const afterError = sourceFailed(state, v2, epoch, 'v1/a.avif');
+    expect(afterError).toBe(state);
+    expect(failuresIn(afterError, epoch)).toEqual([]);
+    // v1'in posterinin yüklenme olayı da v2'yi "posteri gösterildi" yapmaz: v2 kendi posterinden başlar
+    expect(sourceLoaded(INITIAL_LOAD_STATE, v2, 'v1/p.webp')).toBe(INITIAL_LOAD_STATE);
+    expect(shown(afterError, v2)).toEqual({ url: 'v2/p.webp', animated: false });
+    expect(shown(sourceLoaded(afterError, v2, 'v2/p.webp'), v2)).toEqual({ url: 'v2/a.avif', animated: true });
+  });
+
+  it('bağlantı geri gelince yüklenemeyen dosyalar yeniden denenir', () => {
+    let state = sourceLoaded(INITIAL_LOAD_STATE, v1, 'v1/p.webp');
+    state = sourceFailed(state, v1, epoch, 'v1/a.avif');
+    state = sourceFailed(state, v1, epoch, 'v1/p.webp');
+    expect(shown(state, v1)).toBeNull();
+    const reconnected = loadEpoch('surum1', 2);
+    expect(failuresIn(state, reconnected)).toEqual([]);
+    expect(shown(state, v1, reconnected)).toEqual({ url: 'v1/a.avif', animated: true });
+    // Yeni dönemde yine yüklenemezse yalnızca o dönemin hatası tutulur (eskiler taşınmaz)
+    const again = sourceFailed(state, v1, reconnected, 'v1/a.avif');
+    expect(again).toMatchObject({ epoch: reconnected, failed: ['v1/a.avif'] });
+    expect(shown(again, v1, reconnected)).toEqual({ url: 'v1/p.webp', animated: false });
+  });
+
+  it('bildirimin sürümü değişince de hatalar unutulur', () => {
+    const state = sourceFailed(INITIAL_LOAD_STATE, v1, epoch, 'v1/a.avif');
+    expect(failuresIn(state, epoch)).toEqual(['v1/a.avif']);
+    expect(failuresIn(state, loadEpoch('surum2', 1))).toEqual([]);
+    expect(loadEpoch('surum1', 1)).not.toBe(loadEpoch('surum2', 1));
+    expect(loadEpoch('surum1', 1)).not.toBe(loadEpoch('surum1', 2));
+    // Bildirim henüz yokken de dönem tanımlı
+    expect(loadEpoch(null, 0)).toBe(loadEpoch(undefined, 0));
   });
 });
 

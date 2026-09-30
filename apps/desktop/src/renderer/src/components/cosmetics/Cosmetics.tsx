@@ -2,24 +2,32 @@ import { createContext, memo, useContext, useEffect, useMemo, useState, type CSS
 import { create } from 'zustand';
 import type { CosmeticPack, CosmeticPiece, CosmeticSetId } from '@diskort/shared';
 import {
+  cosmeticAssetFailed,
   cosmeticPacks,
   cosmeticSetInfo,
   isKnownCosmeticSet,
   selectableCosmeticSets,
-  useCosmeticPacks,
+  useCosmeticManifest,
+  useGuild,
 } from '@diskort/client-core';
 import { useReducedMotion } from '../../lib/motion';
 import { cn } from '../../lib/utils';
 import {
   ANIMATED_DECORATION_MIN_SIZE,
   decorationBox,
+  failuresIn,
+  INITIAL_LOAD_STATE,
+  loadEpoch,
   pickSource,
   PLATE_BLEND_PX,
   resolvePiece,
+  sourceFailed,
+  sourceLoaded,
   staticCardBackground,
   staticPlateBackground,
   staticRingStyle,
   staticThumbBackground,
+  type PieceFiles,
   type PieceSource,
   type PieceView,
 } from './pieces';
@@ -36,17 +44,17 @@ export { nameplateNameColor } from './pieces';
 
 /** Kimlik bildirimde varsa kendisi, yoksa null (tanınmayan set gösterilmez; bildirim gelince yeniden çizilir) */
 export function useKnownCosmeticSet(id: CosmeticSetId | null | undefined): CosmeticSetId | null {
-  return useCosmeticPacks((s) => (isKnownCosmeticSet(s.manifest, id) ? id : null));
+  return isKnownCosmeticSet(useCosmeticManifest(), id) ? id : null;
 }
 
 /** Setin bilgisi (ad, renkler, açıklamalar); set bildirimde yoksa null */
 export function useCosmeticSetInfo(id: CosmeticSetId | null | undefined): CosmeticPack | null {
-  return useCosmeticPacks((s) => cosmeticSetInfo(s.manifest, id));
+  return cosmeticSetInfo(useCosmeticManifest(), id);
 }
 
 /** Seçicide gösterilecek setler, bildirimdeki sırayla (bildirim yoksa boş) */
 export function useSelectableCosmeticSets(): CosmeticPack[] {
-  const manifest = useCosmeticPacks((s) => s.manifest);
+  const manifest = useCosmeticManifest();
   return useMemo(
     () =>
       selectableCosmeticSets(manifest).flatMap((id) => {
@@ -57,11 +65,16 @@ export function useSelectableCosmeticSets(): CosmeticPack[] {
   );
 }
 
-function usePiece(id: CosmeticSetId | null | undefined, piece: CosmeticPiece): PieceView | null {
+/** Setin parçası (set bildirimde yoksa `view` null) ve bildirimin sürümü */
+function usePiece(
+  id: CosmeticSetId | null | undefined,
+  piece: CosmeticPiece,
+): { view: PieceView | null; version: string | null } {
   // Seçiciler depodaki güncel bildirimi okur: bildirim değişince yeniden hesaplanır
-  const manifest = useCosmeticPacks((s) => s.manifest);
+  const manifest = useCosmeticManifest();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => resolvePiece(cosmeticPacks, id, piece), [manifest, id, piece]);
+  const view = useMemo(() => resolvePiece(cosmeticPacks, id, piece), [manifest, id, piece]);
+  return { view, version: manifest?.version ?? null };
 }
 
 // ---------- Örtüler ----------
@@ -92,7 +105,15 @@ function useCovered(): boolean {
 
 /** Bu oturumda tamamı yüklenmiş hareketli dosyalar: yeniden gösterilirken önce posteri beklemeye gerek yok */
 const loadedUrls = new Set<string>();
-const NO_FAILURES: readonly string[] = [];
+
+/**
+ * Gateway'in kaçıncı kez bağlandığı (READY). Bağlantı geri gelince yüklenemeyen dosyalar yeniden denenir:
+ * geçici bir ağ hatası parçayı yeniden kurulana kadar posterde / sabit görünümde bırakmaz (bkz. loadEpoch).
+ */
+const useConnections = create<{ count: number }>(() => ({ count: 0 }));
+useGuild.subscribe((s, prev) => {
+  if (s.status === 'ready' && prev.status !== 'ready') useConnections.setState((c) => ({ count: c.count + 1 }));
+});
 
 interface PieceImage {
   /** Gösterilecek dosya; null ise sabit görünüm */
@@ -100,47 +121,57 @@ interface PieceImage {
   /** Resmin kendi ölçüleri (yer tutar: yüklenene kadar yerleşim oynamaz) */
   width: number;
   height: number;
-  onLoad: () => void;
-  onError: () => void;
+  /** `url`: olayın ait olduğu adres (<img>'nin o anki dosyası) */
+  onLoad: (url: string) => void;
+  onError: (url: string) => void;
 }
 
 /**
  * Parçanın <img>'sinde gösterilecek dosya ve yükleme olayları. Önce poster gösterilir, yüklenince hareketli
  * dosyaya geçilir (o yüklenene kadar tarayıcı posteri göstermeyi sürdürür). "Hareketi azalt" açıkken,
  * `paused` iken ve tam ekran bir pencerenin altında kalınca poster. Yüklenemeyen dosyadan postere, o da
- * yüklenemezse sabit görünüme düşülür (kırık resim simgesi hiç görünmez).
+ * yüklenemezse sabit görünüme düşülür (kırık resim simgesi hiç görünmez). Yüklenemeyen dosya paket deposuna
+ * bildirilir (bildirim eskimiş olabilir); bildirim değişince ya da bağlantı geri gelince yeniden denenir.
+ * `version`: bildirimin sürümü.
  */
-function usePieceImage(view: PieceView | null, paused = false): PieceImage {
+function usePieceImage(view: PieceView | null, version: string | null, paused = false): PieceImage {
   const reduced = useReducedMotion();
   const covered = useCovered();
-  const anim = view?.anim?.url ?? null;
-  const poster = view?.poster?.url ?? null;
-  // Posteri gösterilmiş hareketli dosya (adres değişince, ör. önizlemede başka set, yeniden posterden başlanır)
-  const [primedFor, setPrimedFor] = useState<string | null>(null);
-  const [failed, setFailed] = useState(NO_FAILURES);
-  const primed = anim !== null && (primedFor === anim || loadedUrls.has(anim));
-  const source = pickSource({ anim, poster }, { still: reduced || covered || paused, primed, failed });
+  const epoch = loadEpoch(version, useConnections((s) => s.count));
+  const files: PieceFiles = { anim: view?.anim?.url ?? null, poster: view?.poster?.url ?? null };
+  // Olaylar kendi adresleriyle kaydedilir: eski bir adresin olayı (paketin sürümü değişti) yenisini etkilemez
+  const [load, setLoad] = useState(INITIAL_LOAD_STATE);
+  // Posteri gösterildi (adres değişince, ör. önizlemede başka set, yeniden posterden başlanır) ya da hareketli
+  // dosyası zaten yüklü
+  const primed =
+    files.anim !== null && ((files.poster !== null && load.loadedPoster === files.poster) || loadedUrls.has(files.anim));
+  const source = pickSource(files, { still: reduced || covered || paused, primed, failed: failuresIn(load, epoch) });
   const asset = view?.anim ?? view?.poster;
   return {
     source,
     width: asset?.width ?? 0,
     height: asset?.height ?? 0,
-    onLoad: () => {
-      if (!source) return;
-      if (source.animated) loadedUrls.add(source.url);
-      else if (anim) setPrimedFor(anim);
+    onLoad: (url) => {
+      if (url === files.anim) loadedUrls.add(url);
+      else setLoad((s) => sourceLoaded(s, files, url));
     },
-    onError: () => {
-      if (source) setFailed((f) => (f.includes(source.url) ? f : [...f, source.url]));
+    onError: (url) => {
+      if (url !== files.anim && url !== files.poster) return;
+      // Paket yeniden yayınlanmış ya da kaldırılmış olabilir: depo bildirimi (en çok dakikada bir) yeniden ister
+      cosmeticAssetFailed(url);
+      setLoad((s) => sourceFailed(s, files, epoch, url));
     },
   };
 }
 
 function PieceImg({ image, className, style }: { image: PieceImage; className?: string; style?: CSSProperties }) {
-  if (!image.source) return null;
+  const { source } = image;
+  if (!source) return null;
+  // Olay <img>'nin şu anki dosyasına ait değilse (yerini yenisine bırakmış adresin gecikmiş olayı) yok sayılır
+  const current = (img: HTMLImageElement): boolean => img.getAttribute('src') === source.url;
   return (
     <img
-      src={image.source.url}
+      src={source.url}
       width={image.width}
       height={image.height}
       alt=""
@@ -150,14 +181,16 @@ function PieceImg({ image, className, style }: { image: PieceImage; className?: 
       className={cn('pointer-events-none max-w-none select-none', className)}
       style={style}
       onLoad={(e) => {
+        if (!current(e.currentTarget)) return;
         e.currentTarget.style.visibility = '';
-        image.onLoad();
+        image.onLoad(source.url);
       }}
       // Ölçüsü belli <img> yüklenemeyince tarayıcı kırık resim simgesi çizer: sıradaki dosya yüklenene (ya da
       // sabit görünüme geçilene) kadar resim hemen gizlenir
       onError={(e) => {
+        if (!current(e.currentTarget)) return;
         e.currentTarget.style.visibility = 'hidden';
-        image.onError();
+        image.onError(source.url);
       }}
     />
   );
@@ -179,8 +212,8 @@ export const CardEffect = memo(function CardEffect({
   /** Kart taşanı kırpmıyorsa katmanın köşeleri (ör. rounded-lg) */
   className?: string;
 }) {
-  const view = usePiece(id, 'card');
-  const image = usePieceImage(view);
+  const { view, version } = usePiece(id, 'card');
+  const image = usePieceImage(view, version);
   if (!view) return null;
   return (
     <div
@@ -212,9 +245,9 @@ export function AvatarDecoration({
   /** Durdurulmuş: poster gösterilir (ör. sesli sahnede konuşmayan katılımcı) */
   paused?: boolean;
 }) {
-  const view = usePiece(id, 'deco');
+  const { view, version } = usePiece(id, 'deco');
   const live = animate || size >= ANIMATED_DECORATION_MIN_SIZE;
-  const image = usePieceImage(live ? view : null, paused);
+  const image = usePieceImage(live ? view : null, version, paused);
   if (!view) return null;
   if (!image.source) {
     return <span aria-hidden className="pointer-events-none absolute rounded-full" style={staticRingStyle(view.info, size)} />;
@@ -229,8 +262,8 @@ export function AvatarDecoration({
  * rengiyle dolar ve resmin sol kenarı bu renge karışır (ek yeri görünmez), darsa resmin solu kırpılır.
  */
 export function Nameplate({ id, className }: { id: CosmeticSetId; className?: string }) {
-  const view = usePiece(id, 'plate');
-  const image = usePieceImage(view);
+  const { view, version } = usePiece(id, 'plate');
+  const image = usePieceImage(view, version);
   if (!view) return null;
   const fill = view.info.fallback[0];
   // Üstte ve altta 1 piksel boşluk, yuvarlak köşe: art arda plakalı satırlar birbirine yapışmaz
@@ -264,8 +297,8 @@ export function Nameplate({ id, className }: { id: CosmeticSetId; className?: st
  * kısmı. `paused` iken poster (kutunun üstüne gelinmediyse).
  */
 export function SetThumb({ id, paused, className }: { id: CosmeticSetId; paused?: boolean; className?: string }) {
-  const view = usePiece(id, 'card');
-  const image = usePieceImage(view, paused);
+  const { view, version } = usePiece(id, 'card');
+  const image = usePieceImage(view, version, paused);
   if (!view) return null;
   return (
     <span

@@ -58,13 +58,66 @@ export interface PieceSource {
  * - `failed`: yüklenemeyen adresler. Hareketli dosya yüklenemezse poster, o da yüklenemezse sabit görünüm.
  */
 export function pickSource(
-  files: { anim: string | null; poster: string | null },
+  files: PieceFiles,
   state: { still: boolean; primed: boolean; failed: readonly string[] },
 ): PieceSource | null {
   const anim = files.anim && !state.failed.includes(files.anim) ? files.anim : null;
   const poster = files.poster && !state.failed.includes(files.poster) ? files.poster : null;
   if (anim && !state.still && (state.primed || !poster)) return { url: anim, animated: true };
   return poster ? { url: poster, animated: false } : null;
+}
+
+/** Parçanın dosyalarının adresleri (tam adres; yoksa null) */
+export interface PieceFiles {
+  anim: string | null;
+  poster: string | null;
+}
+
+/**
+ * Bir <img>'nin yükleme durumu. Olaylar (load / error) kendi adresleriyle işlenir: durum "şu adres yüklendi /
+ * yüklenemedi" bilgisini tutar, o an gösterilen dosyaya bakmaz. Böylece yerini başka dosyaya bırakmış bir
+ * adresin gecikmiş olayı yeni dosyayı etkilemez.
+ */
+export interface PieceLoadState {
+  /** Yüklenmiş poster: hareketli dosyaya geçilebilir (bkz. pickSource `primed`) */
+  loadedPoster: string | null;
+  /** `failed` listesinin ait olduğu dönem (bkz. loadEpoch) */
+  epoch: string;
+  /** Bu dönemde yüklenemeyen adresler */
+  failed: readonly string[];
+}
+
+export const INITIAL_LOAD_STATE: PieceLoadState = { loadedPoster: null, epoch: '', failed: [] };
+
+/**
+ * Yüklenemeyen dosyaların hatırlandığı dönem: bildirimin sürümü ve bağlantının kaçıncı kez kurulduğu. İkisinden
+ * biri değişince (bildirim tazelendi ya da bağlantı geri geldi) eski hatalar unutulur ve dosyalar yeniden
+ * denenir: geçici bir ağ hatası parçayı kalıcı olarak postere / sabit görünüme düşürmez.
+ */
+export const loadEpoch = (manifestVersion: string | null | undefined, connections: number): string =>
+  `${manifestVersion ?? ''}#${connections}`;
+
+const NO_URLS: readonly string[] = [];
+
+/** Bu dönemde yüklenemeyen adresler (durum eski bir dönemdense boş) */
+export const failuresIn = (state: PieceLoadState, epoch: string): readonly string[] =>
+  state.epoch === epoch ? state.failed : NO_URLS;
+
+/** `url` yüklendi. Parçanın güncel posteri değilse (hareketli dosya ya da eski bir adres) durum değişmez. */
+export function sourceLoaded(state: PieceLoadState, files: PieceFiles, url: string | null): PieceLoadState {
+  if (!url || url !== files.poster || state.loadedPoster === url) return state;
+  return { ...state, loadedPoster: url };
+}
+
+/**
+ * `url` yüklenemedi. Parçanın güncel dosyalarından biri değilse (yerini yenisine bırakmış eski adresin
+ * gecikmiş olayı) yok sayılır. Eski dönemin hataları taşınmaz.
+ */
+export function sourceFailed(state: PieceLoadState, files: PieceFiles, epoch: string, url: string | null): PieceLoadState {
+  if (!url || (url !== files.anim && url !== files.poster)) return state;
+  const failed = failuresIn(state, epoch);
+  if (state.epoch === epoch && failed.includes(url)) return state;
+  return { ...state, epoch, failed: [...failed, url] };
 }
 
 // ---------- Ölçüler ----------
