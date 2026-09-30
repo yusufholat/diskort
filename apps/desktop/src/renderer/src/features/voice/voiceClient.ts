@@ -136,6 +136,10 @@ const MIC_TEST_RESUME_SEND_MS = 300;
 
 /** Model düşünce LiveKit'in süren yeniden kurulumunun bitmesi en çok bu kadar beklenir */
 const LIVEKIT_RESTART_WAIT_MS = 3000;
+/** Bekleme süresi, kurulum sürerken dolduysa yeniden deneme en erken bu kadar sonra */
+const REUPGRADE_MIN_DELAY_MS = 5000;
+/** Kendiliğinden yeniden kurulumda mikrofon açılamadıysa bir kez daha denemeden önce */
+const AUTO_REBUILD_RETRY_MS = 2000;
 
 /** "Katıldın" sesi mikrofonun hazır olmasını en çok bu kadar bekler */
 const JOIN_SOUND_MAX_WAIT_MS = 1500;
@@ -164,6 +168,12 @@ class VoiceClient {
   private readonly micSeq = new MicSequencer<MicProcessor>();
   /** Seçili model düştüyse bekleme süresi dolunca (görüşme ortasında da) yeniden denenir */
   private reupgradeTimer: number | null = null;
+  /** Denenmiş son yeniden deneme zamanı (her bekleme süresi bir kez denenir) */
+  private attemptedRetryAt = 0;
+  /** Kendiliğinden yeniden kurulum mikrofonu açamadıysa bir kezlik yeniden deneme */
+  private autoRetryTimer: number | null = null;
+  /** LiveKit'in yeniden kurulumunun bitmesini bekleyen dinleyiciyi kaldırır */
+  private restartWait: (() => void) | null = null;
   private reupgrading = false;
   /** Bildirilen son düşüş (her düşüş bir kez bildirilir) */
   private lastNotifiedFailure = 0;
@@ -349,6 +359,8 @@ class VoiceClient {
     this.channelSounds.cancel();
     this.clearReconnectTimer();
     this.scheduleReupgrade(null);
+    this.clearAutoRetry();
+    this.clearRestartWait();
     this.micSeq.clearDeferred();
     this.stopStats();
     // Yarım kalan ses kalitesi özeti (kanal ve mikrofon bilgisi henüz duruyor)
@@ -637,7 +649,7 @@ class VoiceClient {
    * Gürültü engelleme vb. değişince (ya da model düşünce / yeniden denenince) mikrofonu yeni ayarlarla yeniden
    * yayınla. İstekler sıraya girer ve birleşir; bağlantı o an yoksa yeniden bağlanınca yapılır.
    */
-  private republishMic(): Promise<void> {
+  private republishMic(opts: { auto?: boolean; retry?: boolean } = {}): Promise<void> {
     return this.micSeq.requestRebuild(
       () => this.room !== null && useVoice.getState().status === 'connected',
       async () => {
@@ -647,8 +659,29 @@ class VoiceClient {
         await this.publishMic(room);
         // Yayınlanamadıysa (hata, izin yok) düşüş durumu da temizlenir
         if (!this.mic) this.updateNoiseState();
+        // Kendiliğinden yapılan yeniden kurulum (düşüş, yeniden deneme) çalışan mikrofonu söktü ama yenisi
+        // açılamadı (ör. aygıt o an meşgul): kullanıcı mikrofonsuz kalmasın, kısa süre sonra bir kez daha denenir.
+        if (!this.mic && this.micFailed && opts.auto && !opts.retry && room === this.room) {
+          this.clearAutoRetry();
+          this.autoRetryTimer = window.setTimeout(() => {
+            this.autoRetryTimer = null;
+            if (room !== this.room || this.mic) return;
+            setVoice({ error: null });
+            void this.republishMic({ auto: true, retry: true });
+          }, AUTO_REBUILD_RETRY_MS);
+        }
       },
     );
+  }
+
+  private clearAutoRetry(): void {
+    if (this.autoRetryTimer !== null) window.clearTimeout(this.autoRetryTimer);
+    this.autoRetryTimer = null;
+  }
+
+  private clearRestartWait(): void {
+    this.restartWait?.();
+    this.restartWait = null;
   }
 
   /**
@@ -659,20 +692,24 @@ class VoiceClient {
   private onDenoiserFailed(failure: DenoiserFailure | null, stats: MicProcessingStats | null, restarting: boolean): void {
     if (failure) this.failureStats = { id: failure.id, stats };
     const track = this.mic;
+    this.clearRestartWait();
     if (!restarting || !track) {
-      void this.republishMic();
+      void this.republishMic({ auto: true });
       return;
     }
-    let done = false;
-    const go = (): void => {
-      if (done) return;
-      done = true;
+    const stop = (): void => {
       window.clearTimeout(timer);
       track.off(TrackEvent.Restarted, go);
-      void this.republishMic();
+    };
+    const go = (): void => {
+      stop();
+      if (this.restartWait === stop) this.restartWait = null;
+      void this.republishMic({ auto: true });
     };
     const timer = window.setTimeout(go, LIVEKIT_RESTART_WAIT_MS);
     track.on(TrackEvent.Restarted, go);
+    // Oda kapanırsa (teardownRoom) bekleme iptal edilir
+    this.restartWait = stop;
   }
 
   /**
@@ -738,13 +775,16 @@ class VoiceClient {
   private scheduleReupgrade(at: number | null): void {
     if (this.reupgradeTimer !== null) window.clearTimeout(this.reupgradeTimer);
     this.reupgradeTimer = null;
-    if (at === null) return;
+    // Her bekleme süresi bir kez denenir (süresi dolmuş zaman yeniden gelse de döngü olmaz); yeni düşüş yeni zaman verir
+    if (at === null || at <= this.attemptedRetryAt) return;
     this.reupgradeTimer = window.setTimeout(
       () => {
         this.reupgradeTimer = null;
+        this.attemptedRetryAt = at;
         void this.tryReupgrade();
       },
-      Math.max(0, at - Date.now()) + 1000,
+      // Süresi kurulum sürerken dolduysa hemen değil, en az birkaç saniye sonra
+      Math.max(REUPGRADE_MIN_DELAY_MS, at - Date.now() + 1000),
     );
   }
 
@@ -757,7 +797,7 @@ class VoiceClient {
     }
     this.reupgrading = true;
     try {
-      await this.republishMic();
+      await this.republishMic({ auto: true });
     } finally {
       this.reupgrading = false;
     }

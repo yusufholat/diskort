@@ -76,7 +76,9 @@ describe('model sağlığı (bekleme süresi ve yeniden deneme)', () => {
     expect(h.nextRetryAt(['dpdfnet', 'deepfilter'])).toBe(now + COOLDOWN_BASE_MS);
     now += COOLDOWN_BASE_MS;
     expect(h.available('dpdfnet')).toBe(true);
-    expect(h.nextRetryAt(['dpdfnet'])).toBeNull();
+    // Süresi dolan bekleme de yeniden deneme zamanı verir (uzun bir kurulum sürerken dolmuş olabilir)
+    expect(h.nextRetryAt(['dpdfnet'])).toBe(now);
+    expect(h.nextRetryAt(['deepfilter'])).toBeNull();
     // Yeniden denendi, yine düştü: bekleme ikiye katlanır, en fazla COOLDOWN_MAX_MS
     const f2 = h.record('dpdfnet', 'overload', 'yük');
     expect(f2.retryAt! - f2.at).toBe(2 * COOLDOWN_BASE_MS);

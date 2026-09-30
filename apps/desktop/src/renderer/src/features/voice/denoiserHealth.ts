@@ -102,12 +102,16 @@ export class DenoiserHealth {
     return this.entries.get(which)?.last ?? null;
   }
 
-  /** Verilen modellerden bekleme süresi dolmamış geçici düşüşü olanların en yakın yeniden deneme zamanı */
+  /**
+   * Verilen modellerden geçici düşüşü olanların en yakın yeniden deneme zamanı. Süresi dolmuş olan da sayılır
+   * (geçmişte kalan zaman: hemen denenebilir); yoksa bekleme, uzun bir kurulum sürerken dolduğunda model hiç
+   * yeniden denenmezdi. Aynı zamanın bir kez denenmesini çağıran sağlar.
+   */
   nextRetryAt(which: readonly Denoiser[]): number | null {
     let next: number | null = null;
     for (const w of which) {
       const e = this.entries.get(w);
-      if (!e || e.permanent || e.until <= this.now()) continue;
+      if (!e || e.permanent) continue;
       next = next === null ? e.until : Math.min(next, e.until);
     }
     return next;
