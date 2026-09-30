@@ -194,6 +194,19 @@ export function frameInterval(fps: number): number {
   return 1000 / f;
 }
 
+/**
+ * Yamalı Skia videosunun (patches/@shopify__react-native-skia@2.6.2.patch, RNSkVideo.BROKEN_TIME) bozulan
+ * çözücüde verdiği zaman: hiçbir karenin zamanı olamaz (karelerin zamanı B-kareleri ve düzenleme listeleri
+ * yüzünden biraz eksi olabilir; -1 olamazdı).
+ */
+export const VIDEO_BROKEN_TIME = -1e9;
+
+/** Video çözücüsü bozuldu mu (yamalı Skia videosunun zamanı tam olarak VIDEO_BROKEN_TIME) */
+export function videoBroken(timeMs: number): boolean {
+  'worklet';
+  return timeMs === VIDEO_BROKEN_TIME;
+}
+
 /** Çözücünün içinde bekleyebilecek en fazla kare (H.264'ün yeniden sıralama payı): döngünün "sonu" bu kadar kare */
 export const VIDEO_TAIL_FRAMES = 12;
 /**

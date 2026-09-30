@@ -24,6 +24,8 @@ import {
   stackedUniforms,
   stepCost,
   surfaceScale,
+  VIDEO_BROKEN_TIME,
+  videoBroken,
   VIDEO_TAIL_FRAMES,
   videoShouldRewind,
   withAlpha,
@@ -298,6 +300,15 @@ describe('iş bütçesi', () => {
     expect(shed.slice(0, 3)).toEqual([11, 10, 9]);
     // Bütçeye inince daha fazlası bırakılmaz
     expect(left).toBeGreaterThan(TICK_BUDGET_MS - 2);
+  });
+});
+
+describe('bozulan video çözücüsü', () => {
+  it('yalnızca yamalı Skia videosunun işareti bozukluk sayılır; eksi kare zamanları değil', () => {
+    expect(VIDEO_BROKEN_TIME).toBe(-1e9);
+    expect(videoBroken(VIDEO_BROKEN_TIME)).toBe(true);
+    // B-kareleri ve düzenleme listeleri yüzünden kare zamanı biraz eksi olabilir
+    for (const time of [-1, -33.3, -66.7, -1000, 0, 5966.7]) expect(videoBroken(time)).toBe(false);
   });
 });
 

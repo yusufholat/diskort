@@ -28,8 +28,9 @@
 //   kendi pikselleriyle örneklediğinden pay zararsızdır (bkz. packLayout.ts STACKED_ALPHA_SKSL).
 // - Skia yamalıdır (patches/@shopify__react-native-skia@2.6.2.patch): RNSkVideo'nun yerel taraftan çağrılan
 //   yöntemleri Java hatalarını yakalar (yamasız hali yakalamaz, uygulama kapanırdı); bozulan çözücüde kare null,
-//   zaman -1 gelir ve burada sabit resme dönülür. Video bırakılınca (dispose) çözücü hemen kapatılır (yamasız
-//   hali çöp toplanana dek açık tutardı). Yine de videolar gereksiz yere açılıp kapatılmaz (packPlayer.ts
+//   zaman VIDEO_BROKEN_TIME gelir ve burada sabit resme dönülür. Video bırakılınca (dispose) çözücü hemen, ayrı
+//   bir iş parçacığında kapatılır (yamasız hali çöp toplanana dek açık tutardı; kapatma çağrıları arayüzü
+//   bekletmez). Yine de videolar gereksiz yere açılıp kapatılmaz (packPlayer.ts
 //   VIDEO_PARK_MS), bırakmadan önce durdurulur, açılamayan video oturumda yeniden denenmez, Android 10'dan (API
 //   29) eski Android'de hiç açılmaz (packSource.ts) ve uygulama arka plana geçince bırakılır (sistem arka plandaki
 //   uygulamanın çözücüsünü geri alabilir).
@@ -57,6 +58,7 @@ import {
   STEP_BUDGET_MS,
   stepCost,
   TICK_BUDGET_MS,
+  videoBroken,
   videoShouldRewind,
 } from './packLayout';
 import { packFiles } from './packFiles';
@@ -190,9 +192,9 @@ function uiStepVideo(key: number, p: UiPlayer, clip: Video, now: number): void {
     p.idleCalls = 0;
     p.rewind = false;
   }
-  // Android: yamalı Skia videosu (patches/) bozulan çözücüde (Java hatası yakalandı) zamanı -1 verir; son karede
-  // donup kalmak yerine sabit resme dönülür
-  if (p.manualLoop && clip.currentTime() < 0) throw new Error('video çözücüsü hata verdi');
+  // Android: yamalı Skia videosu (patches/) bozulan çözücüde (Java hatası yakalandı) zamanı VIDEO_BROKEN_TIME
+  // verir; son karede donup kalmak yerine sabit resme dönülür
+  if (p.manualLoop && videoBroken(clip.currentTime())) throw new Error('video çözücüsü hata verdi');
   const counted = p.manualLoop && (!p.primed || clip.isPlaying());
   const started = performance.now();
   const next = clip.nextImage();

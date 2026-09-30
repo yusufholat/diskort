@@ -1,8 +1,8 @@
 diff --git a/android/cpp/rnskia-android/RNSkAndroidVideo.cpp b/android/cpp/rnskia-android/RNSkAndroidVideo.cpp
-index e4608b3eef6cec9f6a634f76524d962f9b1dcb2d..498862b9fd252073c8f36eb438036c94ab84fbdf 100644
+index e4608b3eef6cec9f6a634f76524d962f9b1dcb2d..593a617442536a2ee16772bebaa55971b25b0b45 100644
 --- a/android/cpp/rnskia-android/RNSkAndroidVideo.cpp
 +++ b/android/cpp/rnskia-android/RNSkAndroidVideo.cpp
-@@ -35,7 +35,29 @@ RNSkAndroidVideo::RNSkAndroidVideo(jni::global_ref<jobject> jniVideo)
+@@ -35,7 +35,32 @@ RNSkAndroidVideo::RNSkAndroidVideo(jni::global_ref<jobject> jniVideo)
  #endif
  }
  
@@ -13,6 +13,9 @@ index e4608b3eef6cec9f6a634f76524d962f9b1dcb2d..498862b9fd252073c8f36eb438036c94
 +  try {
 +    jni::ThreadScope ts;
 +    JNIEnv *env = facebook::jni::Environment::current();
++    if (env != nullptr && env->ExceptionCheck()) {
++      env->ExceptionClear();
++    }
 +    if (env != nullptr && _jniVideo) {
 +      jclass cls = env->GetObjectClass(_jniVideo.get());
 +      jmethodID mid =
@@ -34,10 +37,36 @@ index e4608b3eef6cec9f6a634f76524d962f9b1dcb2d..498862b9fd252073c8f36eb438036c94
  sk_sp<SkImage> RNSkAndroidVideo::nextImage(double *timeStamp) {
  #if __ANDROID_API__ >= 26
 diff --git a/android/src/main/java/com/shopify/reactnative/skia/RNSkVideo.java b/android/src/main/java/com/shopify/reactnative/skia/RNSkVideo.java
-index ed6d0b7a6e771841108a179d44f86c842314d5e0..8b5786c4567dbe70154388b0abc84ac23427f014 100644
+index ed6d0b7a6e771841108a179d44f86c842314d5e0..9b2b5dee754cd448263db079b6b95c1d47fff2d1 100644
 --- a/android/src/main/java/com/shopify/reactnative/skia/RNSkVideo.java
 +++ b/android/src/main/java/com/shopify/reactnative/skia/RNSkVideo.java
-@@ -48,10 +48,25 @@ public class RNSkVideo {
+@@ -23,8 +23,25 @@ import com.facebook.jni.annotations.DoNotStrip;
+ 
+ import java.io.IOException;
+ import java.nio.ByteBuffer;
++import java.util.concurrent.ExecutorService;
++import java.util.concurrent.Executors;
+ 
+ public class RNSkVideo {
++    // Diskort: release() is called from the native destructor on the UI thread; the blocking media calls
++    // (MediaPlayer/MediaCodec release, ImageReader close) run here instead.
++    private static ExecutorService releaseExecutor;
++
++    private static synchronized ExecutorService releaseExecutor() {
++        if (releaseExecutor == null) {
++            releaseExecutor = Executors.newSingleThreadExecutor(runnable -> {
++                Thread thread = new Thread(runnable, "RNSkVideo-release");
++                thread.setDaemon(true);
++                return thread;
++            });
++        }
++        return releaseExecutor;
++    }
++
+     private final Uri uri;
+     private final Context context;
+ 
+@@ -48,10 +65,26 @@ public class RNSkVideo {
      private boolean pendingSeek = false;
      private double lastFrameTimeMs = 0;
  
@@ -45,9 +74,10 @@ index ed6d0b7a6e771841108a179d44f86c842314d5e0..8b5786c4567dbe70154388b0abc84ac2
 +    // Java exceptions, so a throw here (codec error, codec reclaimed by the system) would kill the app when the
 +    // native frame returns to Java. Every method it calls (and the prepared listener) catches exceptions and
 +    // marks the video broken: after that no codec method is called again, nextImage() returns null,
-+    // getCurrentTime() returns -1 and getIsPlaying() returns false (the JS side then shows a still image).
-+    // release() is called from the native destructor so the decoder is freed immediately; after it every
-+    // method is a no-op.
++    // getCurrentTime() returns BROKEN_TIME and getIsPlaying() returns false (the JS side then shows a still
++    // image). release() is called from the native destructor so the decoder is freed right away (on the release
++    // thread); after it every method is a no-op.
++    private static final double BROKEN_TIME = -1e9;
 +    private volatile boolean broken = false;
 +    private volatile boolean released = false;
 +
@@ -64,7 +94,7 @@ index ed6d0b7a6e771841108a179d44f86c842314d5e0..8b5786c4567dbe70154388b0abc84ac2
      }
  
      private void initializeReader() {
-@@ -70,15 +85,22 @@ public class RNSkVideo {
+@@ -70,15 +103,22 @@ public class RNSkVideo {
              mediaPlayer.setDataSource(context, uri);
              mediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
              mediaPlayer.setOnPreparedListener(mp -> {
@@ -96,7 +126,7 @@ index ed6d0b7a6e771841108a179d44f86c842314d5e0..8b5786c4567dbe70154388b0abc84ac2
                  }
              });
              // Note: When setLooping(true) is used, this listener won't fire as
-@@ -144,51 +166,66 @@ public class RNSkVideo {
+@@ -144,51 +184,66 @@ public class RNSkVideo {
  
      @DoNotStrip
      public HardwareBuffer nextImage() {
@@ -196,7 +226,7 @@ index ed6d0b7a6e771841108a179d44f86c842314d5e0..8b5786c4567dbe70154388b0abc84ac2
      }
  
      @DoNotStrip
-@@ -254,36 +291,54 @@ public class RNSkVideo {
+@@ -254,36 +309,55 @@ public class RNSkVideo {
  
      @DoNotStrip
      public void play() {
@@ -254,14 +284,15 @@ index ed6d0b7a6e771841108a179d44f86c842314d5e0..8b5786c4567dbe70154388b0abc84ac2
  
      @DoNotStrip
      public double getCurrentTime() {
-+        // -1: the video is broken (see the note on `broken`)
++        // BROKEN_TIME: the video is broken (see the note on `broken`); frame times can be slightly negative
++        // (B-frames, edit lists), so the signal is a value no frame time can have
 +        if (broken) {
-+            return -1;
++            return BROKEN_TIME;
 +        }
          // Return the timestamp of the last decoded frame for accurate synchronization
          return lastFrameTimeMs;
      }
-@@ -291,30 +346,64 @@ public class RNSkVideo {
+@@ -291,30 +365,81 @@ public class RNSkVideo {
      @DoNotStrip
      public void setLooping(boolean looping) {
          isLooping = looping;
@@ -284,51 +315,74 @@ index ed6d0b7a6e771841108a179d44f86c842314d5e0..8b5786c4567dbe70154388b0abc84ac2
  
 +    @DoNotStrip
      public void release() {
++        // The state change is immediate; the blocking release calls run on the release thread
 +        released = true;
 +        isPlaying = false;
 +        playWhenReady = false;
          lastBuffer = null;
-         if (mediaPlayer != null) {
+-        if (mediaPlayer != null) {
 -            mediaPlayer.release();
+-            mediaPlayer = null;
++        final MediaPlayer player = mediaPlayer;
++        final MediaCodec codec = decoder;
++        final MediaExtractor source = extractor;
++        final ImageReader reader = imageReader;
++        mediaPlayer = null;
++        decoder = null;
++        extractor = null;
++        imageReader = null;
++        outputSurface = null;
++        if (player == null && codec == null && source == null && reader == null) {
++            return;
++        }
++        Runnable task = () -> releaseResources(player, codec, source, reader);
++        try {
++            releaseExecutor().execute(task);
++        } catch (Exception e) {
++            task.run();
+         }
+-        if (decoder != null) {
+-            decoder.stop();
+-            decoder.release();
+-            decoder = null;
++    }
++
++    private static void releaseResources(MediaPlayer player, MediaCodec codec, MediaExtractor source, ImageReader reader) {
++        if (player != null) {
 +            try {
-+                mediaPlayer.release();
++                player.release();
 +            } catch (Exception e) {
 +                // already released
 +            }
-             mediaPlayer = null;
          }
-         if (decoder != null) {
--            decoder.stop();
--            decoder.release();
+-        if (extractor != null) {
+-            extractor.release();
+-            extractor = null;
++        if (codec != null) {
 +            try {
-+                decoder.stop();
++                codec.stop();
 +            } catch (Exception e) {
 +                // not started or in error state: release() below still frees it
 +            }
 +            try {
-+                decoder.release();
++                codec.release();
 +            } catch (Exception e) {
 +                // already released
 +            }
-             decoder = null;
-         }
-         if (extractor != null) {
--            extractor.release();
++        }
++        if (source != null) {
 +            try {
-+                extractor.release();
++                source.release();
 +            } catch (Exception e) {
 +                // already released
 +            }
-             extractor = null;
-         }
-+        if (imageReader != null) {
++        }
++        if (reader != null) {
 +            try {
-+                imageReader.close();
++                reader.close();
 +            } catch (Exception e) {
 +                // already closed
 +            }
-+            imageReader = null;
-+        }
-+        outputSurface = null;
+         }
      }
  }
