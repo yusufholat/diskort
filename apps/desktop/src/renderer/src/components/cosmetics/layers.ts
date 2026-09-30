@@ -3,7 +3,7 @@
 // kullanılamazken sade 2B zeminler. Onaylanan vitrinden (kozmetik-vitrini.html) aktarıldı.
 
 import type { CosmeticSet } from '@diskort/shared';
-import { buzLoopG, COSMETIC_SET_INFO, loopRate, type ShaderViewKind } from '@diskort/client-core';
+import { BUZ_LOOP, buzLoopG, COSMETIC_SET_INFO, loopRate, type ShaderViewKind } from '@diskort/client-core';
 
 /** Profil kartının ölçüleri (css px): afiş yüksekliği, avatar merkezi ve dış yarıçapı */
 export interface CardGeo {
@@ -62,12 +62,8 @@ function rng(seed: number): () => number {
 }
 const hash = (n: number): number => rng((n * 2654435761) >>> 0)();
 
-/**
- * Kristal Buz döngüsü (gölgelendiricideki iceG ile aynı): 0→1 büyür, durur, erir. `loop` verilirse döngü
- * biçiminin eğrisi (o kadar saniyede bir tur); verilmezse canlıdaki 14 saniyelik eğri.
- */
-export function iceG(t: number, loop?: number): number {
-  if (loop) return buzLoopG(t, loop);
+/** Kristal Buz döngüsü (gölgelendiricideki iceG ile aynı): 0→1 büyür, durur, erir */
+export function iceG(t: number): number {
   const s = posmod(t, 14) / 14;
   if (s < 0.45) return 1 - Math.pow(1 - s / 0.45, 3);
   if (s < 0.84) return 1;
@@ -803,11 +799,15 @@ interface Seg {
   b0: number;
   b1: number;
   d: number;
+  /** Hangi kökten büyüdü (yalnızca döngü biçimi kullanır) */
+  r: number;
 }
 interface Dendrites {
   segs: Seg[];
   maxB: number;
   gl: { sg: Seg; ph: number; rate: number; L: number }[];
+  /** Kök başına: yeri, ilk ve son doğum anı (yalnızca döngü biçimi kullanır) */
+  spans: { x: number; y: number; b0: number; b1: number }[];
 }
 interface Root {
   x: number;
@@ -821,6 +821,7 @@ function buildDendrites(roots: Root[], seed: number, maxDepth: number): Dendrite
   const r = rng(seed);
   const segs: Seg[] = [];
   let maxB = 0;
+  const spans: Dendrites['spans'] = [];
   const arm = (x: number, y: number, ang: number, len: number, depth: number, birth: number): void => {
     const steps = depth === 0 ? 6 : depth === 1 ? 4 : 2;
     const sl = len / steps;
@@ -831,9 +832,11 @@ function buildDendrites(roots: Root[], seed: number, maxDepth: number): Dendrite
       const a = ang + (r() - 0.5) * 0.12;
       const nx = px + Math.cos(a) * sl;
       const ny = py + Math.sin(a) * sl;
-      segs.push({ x1: px, y1: py, x2: nx, y2: ny, b0: b, b1: b + sl, d: depth });
+      const span = spans[spans.length - 1]!;
+      segs.push({ x1: px, y1: py, x2: nx, y2: ny, b0: b, b1: b + sl, d: depth, r: spans.length - 1 });
       b += sl;
       maxB = Math.max(maxB, b);
+      span.b1 = Math.max(span.b1, b);
       if (depth < maxDepth) {
         const side = len * (depth === 0 ? 0.42 : 0.36) * (1 - (i / steps) * 0.6) * (0.7 + 0.5 * r());
         if (r() < 0.8) arm(nx, ny, a + Math.PI / 3, side, depth + 1, b);
@@ -843,14 +846,17 @@ function buildDendrites(roots: Root[], seed: number, maxDepth: number): Dendrite
       py = ny;
     }
   };
-  for (const o of roots) arm(o.x, o.y, o.a, o.len, 0, o.delay ?? 0);
+  for (const o of roots) {
+    spans.push({ x: o.x, y: o.y, b0: o.delay ?? 0, b1: o.delay ?? 0 });
+    arm(o.x, o.y, o.a, o.len, 0, o.delay ?? 0);
+  }
   const gl: Dendrites['gl'] = [];
   const rr = rng(seed + 9);
   for (let i = 0; i < 16 && segs.length; i++) {
     const sg = segs[Math.floor(rr() * segs.length)]!;
     gl.push({ sg, ph: rr() * TAU, rate: 1.2 + rr() * 1.8, L: 4 + rr() * 6 });
   }
-  return { segs, maxB, gl };
+  return { segs, maxB, gl, spans };
 }
 
 function iceRoots(v: LayerView): Root[] {
@@ -888,9 +894,74 @@ function iceRoots(v: LayerView): Root[] {
   return out;
 }
 
+/**
+ * Döngü biçimi (yalnızca dosyaya çizim aracı; bkz. client-core cosmeticShaders/buz.ts BUZ_LOOP). Canlıda bütün
+ * dendritler aynı eğriyle birlikte büyür ve birlikte erir; döngüde her kök kendi evresiyle büyür, durur, erir
+ * (evre, gölgelendiricideki kırağı dalgasıyla aynı: köke en yakın kırağı kalınlaşırken dendrit de uzar). Bir
+ * kök erirken başkası büyür: hiçbir an boş değildir. Hiçbir şey tek karede belirmez ya da kaybolmaz: kökün
+ * çizgileri, uçtaki parıltı ve pırıltılar büyümeyle birlikte yumuşakça açılır.
+ */
+function drawIceLoop(ctx: Ctx, v: LayerView, t: number, D: Dendrites, loop: number): void {
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'round';
+  const dim = v.kind === 'card' ? 0.75 : v.kind === 'plate' ? 0.8 : 1;
+  const W1 = [3.4, 2.2, 1.4];
+  const W2 = [1.1, 0.8, 0.6];
+  const A1 = [0.1, 0.08, 0.06];
+  const A2 = [0.85, 0.65, 0.5];
+  // Kök başına: büyüme (0-1), doğum ölçeğindeki karşılığı ve yumuşak açılma
+  const roots = D.spans.map((s) => {
+    const turn = Math.atan2(s.y - v.h / 2, s.x - v.w / 2) / TAU;
+    const phase = v.kind === 'plate' ? (s.y / v.h) * BUZ_LOOP.platePhase : v.kind === 'card' ? turn * BUZ_LOOP.cardWaves : turn;
+    const L = buzLoopG(t, loop, phase);
+    return { G: s.b0 + L * (s.b1 - s.b0), span: s.b1 - s.b0, fade: smooth(0, 0.12, L), paths: [new Path2D(), new Path2D(), new Path2D()], tips: [] as Pt[] };
+  });
+  for (const sg of D.segs) {
+    const R = roots[sg.r]!;
+    if (sg.b0 >= R.G) continue;
+    const f = Math.min(1, (R.G - sg.b0) / (sg.b1 - sg.b0));
+    const x2 = sg.x1 + (sg.x2 - sg.x1) * f;
+    const y2 = sg.y1 + (sg.y2 - sg.y1) * f;
+    R.paths[sg.d]!.moveTo(sg.x1, sg.y1);
+    R.paths[sg.d]!.lineTo(x2, y2);
+    if (f < 1 && sg.d === 0) R.tips.push([x2, y2]);
+  }
+  for (const R of roots) {
+    if (R.fade <= 0) continue;
+    for (let d = 0; d < 3; d++) {
+      ctx.strokeStyle = '#8fdcff';
+      ctx.lineWidth = W1[d]!;
+      ctx.globalAlpha = A1[d]! * dim * R.fade;
+      ctx.stroke(R.paths[d]!);
+      ctx.strokeStyle = '#effbff';
+      ctx.lineWidth = W2[d]!;
+      ctx.globalAlpha = A2[d]! * dim * R.fade;
+      ctx.stroke(R.paths[d]!);
+    }
+    for (const p of R.tips) sprite(ctx, SPR.cool(), p[0], p[1], 9, 0.8 * dim * R.fade);
+  }
+  for (const g of D.gl) {
+    const R = roots[g.sg.r]!;
+    // pırıltı, parçası tamamlandıktan sonra yumuşakça açılır; hızı döngüye tam sayıda sığan en yakın hız
+    const grown = smooth(g.sg.b1, g.sg.b1 + 0.1 * R.span, R.G) * R.fade;
+    if (grown <= 0) continue;
+    const env = Math.pow(Math.max(0, Math.sin(t * loopRate(g.rate, loop) + g.ph)), 14) * grown;
+    if (env < 0.02) continue;
+    sparkle(ctx, g.sg.x2, g.sg.y2, g.L * (0.6 + 0.4 * env), env, '#ffffff', 0.15);
+    sparkle(ctx, g.sg.x2, g.sg.y2, g.L * 0.45, env * 0.7, '#bff0ff', Math.PI / 4 + 0.15);
+    sprite(ctx, SPR.cool(), g.sg.x2, g.sg.y2, g.L * 3, env * 0.7);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+}
+
 function drawIce(ctx: Ctx, v: LayerView, t: number): void {
   const D = cached(v, 'ice', () => buildDendrites(iceRoots(v), 7, v.kind === 'deco' ? 1 : 2));
-  const G = iceG(t, v.loop) * D.maxB;
+  if (v.loop) {
+    drawIceLoop(ctx, v, t, D, v.loop);
+    return;
+  }
+  const G = iceG(t) * D.maxB;
   if (G <= 0) return;
   ctx.globalCompositeOperation = 'lighter';
   ctx.lineCap = 'round';
@@ -923,9 +994,7 @@ function drawIce(ctx: Ctx, v: LayerView, t: number): void {
   for (const p of tips) sprite(ctx, SPR.cool(), p[0], p[1], 9, 0.8 * dim);
   for (const g of D.gl) {
     if (g.sg.b1 > G) continue;
-    // döngü biçiminde pırıltının hızı döngüye tam sayıda sığan en yakın hıza yuvarlanır
-    const rate = v.loop ? loopRate(g.rate, v.loop) : g.rate;
-    const env = Math.pow(Math.max(0, Math.sin(t * rate + g.ph)), 14);
+    const env = Math.pow(Math.max(0, Math.sin(t * g.rate + g.ph)), 14);
     if (env < 0.02) continue;
     sparkle(ctx, g.sg.x2, g.sg.y2, g.L * (0.6 + 0.4 * env), env, '#ffffff', 0.15);
     sparkle(ctx, g.sg.x2, g.sg.y2, g.L * 0.45, env * 0.7, '#bff0ff', Math.PI / 4 + 0.15);
@@ -937,7 +1006,132 @@ function drawIce(ctx: Ctx, v: LayerView, t: number): void {
 
 // ---------- 6. Neon Yağmur: halkaya çarpan damlalar, cam üstünde kayan damlalar ----------
 
+/**
+ * Döngü biçimi (yalnızca dosyaya çizim aracı; bkz. client-core cosmeticShaders/neon.ts neonLoopShader).
+ * - Dekorasyon: damlaların ve alttaki damlanın süreleri döngüye tam sayıda sığar; tur numarası döngü içinde
+ *   sayıldığından aynı damlalar her döngüde aynı yere düşer.
+ * - Kart: cam üstünde kayan damlalar canlıda kartın boyunu sarmalayarak sonsuza dek iner. Döngüde her damlanın
+ *   bir ömrü var: belirir, birkaç adım kayar, söner, başladığı yerde yeniden belirir. Damlaların evreleri dağınık
+ *   olduğundan hepsi birden yenilenmez. Avatarın yerine bakılmaz (standart tuvalde avatar efektin üstündedir).
+ */
+function drawNeonLoop(ctx: Ctx, v: LayerView, t: number, loop: number): void {
+  if (v.kind === 'deco') {
+    const cx = v.w / 2;
+    const cy = v.h / 2;
+    const Rr = v.R * 1.22;
+    const k = v.R / 46;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 5; i++) {
+      const turns = Math.max(1, Math.round(loop / (1.3 + i * 0.23)));
+      const D = loop / turns;
+      const u = posmod(t + i * 0.71, D) / D;
+      const cyc = posmod(Math.floor((t + i * 0.71) / D), turns);
+      const dx = (hash(cyc * 13 + i * 101) - 0.5) * 1.5 * Rr * 0.85;
+      const hitY = cy - Math.sqrt(Math.max(0, Rr * Rr - dx * dx));
+      if (u < 0.45) {
+        const q = u / 0.45;
+        const y = -6 + (hitY + 6) * q * q;
+        ctx.globalAlpha = 0.65 * smooth(0, 0.15, q);
+        ctx.strokeStyle = '#d8f4ff';
+        ctx.lineWidth = 1.1;
+        ctx.beginPath();
+        ctx.moveTo(cx + dx, y - 7 * k * q - 2);
+        ctx.lineTo(cx + dx, y);
+        ctx.stroke();
+      } else if (u < 0.8) {
+        const tau = (u - 0.45) * D;
+        const fade = 1 - (u - 0.45) / 0.35;
+        ctx.globalCompositeOperation = 'lighter';
+        sprite(ctx, dx < 0 ? SPR.mag() : SPR.cyan(), cx + dx, hitY, 16 * k * (1 - fade * 0.3), fade * 0.8);
+        ctx.fillStyle = '#e8fbff';
+        for (let j = 0; j < 3; j++) {
+          const vx = (j - 1) * 24 + (hash(j + cyc * 7) - 0.5) * 14;
+          const vy = -26 - 18 * hash(j * 3 + cyc);
+          ctx.globalAlpha = fade * 0.9;
+          ctx.beginPath();
+          ctx.arc(cx + dx + vx * k * tau, hitY + (vy * tau + 160 * tau * tau) * k, 0.9, 0, TAU);
+          ctx.fill();
+        }
+        ctx.globalCompositeOperation = 'source-over';
+      }
+    }
+    const Dd = loop / Math.max(1, Math.round(loop / 2.6));
+    const u = posmod(t, Dd) / Dd;
+    const bx = cx + 6 * k;
+    const by = cy + Rr;
+    ctx.fillStyle = '#cfefff';
+    if (u < 0.7) {
+      const r = 2.3 * k * easeOutBack(u / 0.7);
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+      ctx.ellipse(bx, by + r * 0.9, Math.max(0, r * 0.8), Math.max(0, r), 0, 0, TAU);
+      ctx.fill();
+    } else {
+      const tau = (u - 0.7) * Dd;
+      ctx.globalAlpha = 0.8 * (1 - (u - 0.7) / 0.3);
+      ctx.beginPath();
+      ctx.ellipse(bx, by + 2 + 200 * k * tau * tau, 1.6 * k, 2.4 * k, 0, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    return;
+  }
+  if (v.kind !== 'card') return;
+  const list = cached(v, 'dropsLoop', () => {
+    const r = rng(61);
+    return Array.from({ length: 12 }, () => ({ x: 0.04 + r() * 0.92, y: r(), f: 0.25 + r() * 0.35, st: 18 + r() * 30, rad: 1.6 + r() * 1.8, ph: r() }));
+  });
+  for (const o of list) {
+    // ömür: döngü boyunca tam sayıda adım; başta belirir, sonda söner
+    const steps = Math.max(1, Math.round(o.f * loop));
+    const s = posmod(t / loop + o.ph, 1);
+    const env = smooth(0, 0.07, s) * (1 - smooth(0.9, 1, s));
+    if (env <= 0.003) continue;
+    const tt = s * steps;
+    const step = Math.floor(tt);
+    const e = easeOutBack(clamp((tt - step) / 0.35));
+    const jitter = (n: number): number => Math.sin(n * 1.7 + o.ph * 10) * 2;
+    const x = o.x * v.w + mix(jitter(step), jitter(step + 1), clamp(e));
+    const yy = -10 + o.y * Math.max(40, v.h * 0.8 - steps * o.st) + (step + e) * o.st;
+    const trail = ctx.createLinearGradient(x, yy - 40, x, yy);
+    trail.addColorStop(0, 'rgba(180,220,255,0)');
+    trail.addColorStop(1, 'rgba(180,220,255,.16)');
+    ctx.globalAlpha = env;
+    ctx.strokeStyle = trail;
+    ctx.lineWidth = o.rad * 0.8;
+    ctx.beginPath();
+    ctx.moveTo(x, yy - 40);
+    ctx.lineTo(x, yy);
+    ctx.stroke();
+    ctx.globalAlpha = 0.22 * env;
+    ctx.fillStyle = '#bfe3ff';
+    ctx.beginPath();
+    ctx.ellipse(x, yy, o.rad, o.rad * 1.18, 0, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = 0.75 * env;
+    ctx.strokeStyle = '#ff5bd8';
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.arc(x, yy + o.rad * 0.15, o.rad * 0.85, 0.3, 1.4);
+    ctx.stroke();
+    ctx.strokeStyle = '#5fe8ff';
+    ctx.beginPath();
+    ctx.arc(x, yy + o.rad * 0.15, o.rad * 0.85, 1.7, 2.8);
+    ctx.stroke();
+    ctx.globalAlpha = 0.9 * env;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(x - o.rad * 0.35, yy - o.rad * 0.4, o.rad * 0.28, 0, TAU);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
 function drawNeon(ctx: Ctx, v: LayerView, t: number): void {
+  if (v.loop) {
+    drawNeonLoop(ctx, v, t, v.loop);
+    return;
+  }
   if (v.kind === 'deco') {
     const cx = v.w / 2;
     const cy = v.h / 2;

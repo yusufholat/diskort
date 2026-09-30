@@ -43,6 +43,11 @@ export interface RenderJob {
   /** Döngü süresi (sn); null: canlı biçim (uygulamadaki zamanlama, karşılaştırma kareleri için) */
   loop: number | null;
   dither: CosmeticDither;
+  /**
+   * Döngü gölgelendiricisinin sete özgü seçenekleri (ör. neon: { flicker: false }): kesintisizlik denetimi,
+   * bilerek konmuş ani olaylar kapalıyken de çizebilsin diye (sets/<set>.mjs continuity.shaderOptions)
+   */
+  shaderOptions?: Record<string, unknown>;
   /** Karelerin zamanları (sn) */
   times: number[];
   /** Ham çıktı: kareler art arda, düz RGBA, her biri (w*dpr)×(h*dpr) */
@@ -65,7 +70,9 @@ const fs = nodeRequire('node:fs') as typeof import('node:fs');
 function compile(gl: WebGLRenderingContext, job: RenderJob): WebGLProgram {
   const hp = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
   const precision = hp && hp.precision > 0 ? 'highp' : 'mediump';
-  const effect = job.loop === null ? COSMETIC_SHADERS[job.set] : COSMETIC_LOOP_SHADERS[job.set]?.(job.loop);
+  // Döngü biçiminin üreticisi ikinci bir parametre (sete özgü seçenekler) alabilir
+  const make = COSMETIC_LOOP_SHADERS[job.set] as ((period: number, options?: Record<string, unknown>) => string) | undefined;
+  const effect = job.loop === null ? COSMETIC_SHADERS[job.set] : make?.(job.loop, job.shaderOptions);
   if (!effect) throw new Error(`"${job.set}" setinin döngü biçimi yok (client-core cosmeticShaders COSMETIC_LOOP_SHADERS)`);
   const shader = (type: number, src: string): WebGLShader => {
     const s = gl.createShader(type);
@@ -200,4 +207,6 @@ async function run(job: RenderJob): Promise<RenderResult> {
   return { width: canvas.width, height: canvas.height, frames: job.times.length, renderer, ms: Math.round(performance.now() - started) };
 }
 
-(window as unknown as { cosmeticRender: typeof run }).cosmeticRender = run;
+const api = window as unknown as { cosmeticRender: typeof run; cosmeticLoopSets: string[] };
+api.cosmeticRender = run;
+api.cosmeticLoopSets = Object.keys(COSMETIC_LOOP_SHADERS);

@@ -154,8 +154,33 @@
     let b = null;
     let frames = 0;
     let durationMs = 0;
+    // Kodlanmış dosyanın kesintisizliği: çözülen BÜTÜN karelerin ardışık farkı ve düzeyi (son → ilk dahil).
+    // Sıkıştırmanın eklediği sıçrama (ör. döngü başındaki anahtar kare) böyle görülür; karar render.mjs'te.
+    const series = { mean: new Array(item.sourceFrames).fill(0), level: new Array(item.sourceFrames).fill(0) };
+    let prev = null;
+    let prevLevel = [0, 0];
+    let firstLevel = [0, 0];
+    // düzey: ortalama parlaklık ve ortalama alfa (continuity.mjs frameLevel ile aynı ölçü)
+    const levelOf = (d) => {
+      let rgb = 0;
+      let alpha = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        rgb += (d[i] + d[i + 1] + d[i + 2]) / 3;
+        alpha += d[i + 3];
+      }
+      return [rgb / (d.length / 4), alpha / (d.length / 4)];
+    };
+    const levelStep = (x, y) => Math.abs(x[0] - y[0]) + Math.abs(x[1] - y[1]);
     const take = (decoded, index) => {
-      stats.add(decoded, index);
+      const level = levelOf(decoded);
+      if (prev) {
+        // aradaki kareler (kodlayıcının birleştirdiği aynı kareler) sıfır kalır
+        series.mean[index - 1] = meanDiff(prev, decoded);
+        series.level[index - 1] = levelStep(level, prevLevel);
+      } else firstLevel = level;
+      prev = decoded;
+      prevLevel = level;
+      if (want.has(index)) stats.add(decoded, index);
       if (index === 0) first = decoded;
       if (index === lastIndex) last = decoded;
       if (index === item.checkFrames[1]) a = decoded;
@@ -180,7 +205,7 @@
         // kodlayıcı aynı kareleri birleştirmiş olabilir: son kare kaynağın son karesine denk gelir
         const index = i === frames - 1 ? lastIndex : Math.round((image.timestamp / 1e6) * item.fps);
         durationMs = (image.timestamp + (image.duration ?? 0)) / 1000;
-        if (want.has(index)) take(read2d(image), index);
+        take(read2d(image), index);
         image.close();
       }
       dec.close();
@@ -194,7 +219,7 @@
         glCanvas = document.createElement('canvas');
         player = window.StackedAlpha.create(glCanvas, item.stacked);
       }
-      for (const index of [...want].sort((x, y) => x - y)) {
+      for (let index = 0; index < item.sourceFrames; index++) {
         video.currentTime = (index + 0.5) / item.fps;
         await new Promise((resolve) => video.addEventListener('seeked', resolve, { once: true }));
         await frame();
@@ -216,7 +241,17 @@
       video.load();
     }
     if (!first || !last || !a || !b) throw new Error('beklenen kareler çözülemedi');
-    return { ...stats.result(), frames, durationMs: Math.round(durationMs), seam: round(meanDiff(first, last)), framesDiffer: round(meanDiff(a, b)) };
+    // dikiş: son kare → ilk kare
+    series.mean[lastIndex] = meanDiff(last, first);
+    series.level[lastIndex] = levelStep(firstLevel, prevLevel);
+    return {
+      ...stats.result(),
+      frames,
+      durationMs: Math.round(durationMs),
+      seam: round(series.mean[lastIndex]),
+      framesDiffer: round(meanDiff(a, b)),
+      series: { mean: series.mean.map((x) => round(x, 4)), level: series.level.map((x) => round(x, 4)) },
+    };
   }
 
   async function decode(items) {

@@ -6,7 +6,7 @@ import { SHADER_ATESBOCEGI } from './atesbocegi';
 import { buzLoopShader, SHADER_BUZ } from './buz';
 import { SHADER_KARADELIK } from './karadelik';
 import { SHADER_KUZEY } from './kuzey';
-import { SHADER_NEON } from './neon';
+import { neonLoopShader, SHADER_NEON } from './neon';
 import { SHADER_SAKURA } from './sakura';
 
 export {
@@ -37,4 +37,5 @@ export const COSMETIC_SHADERS: Record<CosmeticSet, string> = {
  */
 export const COSMETIC_LOOP_SHADERS: Partial<Record<CosmeticSet, (period: number) => string>> = {
   buz: buzLoopShader,
+  neon: neonLoopShader,
 };

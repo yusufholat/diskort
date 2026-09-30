@@ -167,9 +167,17 @@ async function verify() {
   return results;
 }
 
+/** Döngü biçimi olan setler (sayfa, client-core'un COSMETIC_LOOP_SHADERS anahtarlarını bildirir) */
+async function info() {
+  const win = new BrowserWindow({ show: false, width: 800, height: 600, webPreferences: { nodeIntegration: true, contextIsolation: false } });
+  watch(win);
+  await win.loadFile(spec.page);
+  return win.webContents.executeJavaScript('window.cosmeticLoopSets');
+}
+
 app.whenReady().then(async () => {
   try {
-    finish({ results: spec.mode === 'verify' ? await verify() : await render() }, 0);
+    finish({ results: spec.mode === 'verify' ? await verify() : spec.mode === 'info' ? await info() : await render() }, 0);
   } catch (err) {
     finish({ error: String(err && err.stack ? err.stack : err) }, 1);
   }
