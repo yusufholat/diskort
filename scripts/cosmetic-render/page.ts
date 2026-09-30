@@ -10,6 +10,7 @@ import {
   COSMETIC_SHADER_COMMON,
   COSMETIC_SHADERS,
   COSMETIC_VERTEX_SHADER,
+  cosmeticShaderCommon,
   cosmeticShaderMain,
   SHADER_MODE,
   type CosmeticDither,
@@ -82,12 +83,14 @@ function compile(gl: WebGLRenderingContext, job: RenderJob): WebGLProgram {
     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(`gölgelendirici derlenemedi: ${gl.getShaderInfoLog(s)}`);
     return s;
   };
+  // Ortak kısım: döngü biçiminde yıldız parıltısı da döngüye sığar (yalnızca yıldız kullanan setleri etkiler)
+  const common = job.loop === null ? COSMETIC_SHADER_COMMON : cosmeticShaderCommon(job.loop);
   const p = gl.createProgram();
   if (!p) throw new Error('program oluşturulamadı');
   gl.attachShader(p, shader(gl.VERTEX_SHADER, COSMETIC_VERTEX_SHADER));
   gl.attachShader(
     p,
-    shader(gl.FRAGMENT_SHADER, `precision ${precision} float;\n${COSMETIC_SHADER_COMMON}${effect}${cosmeticShaderMain(job.dither)}`),
+    shader(gl.FRAGMENT_SHADER, `precision ${precision} float;\n${common}${effect}${cosmeticShaderMain(job.dither)}`),
   );
   gl.bindAttribLocation(p, 0, 'a');
   gl.linkProgram(p);
