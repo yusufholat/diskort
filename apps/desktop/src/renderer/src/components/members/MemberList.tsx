@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react';
 import { Crown } from 'lucide-react';
-import { userNameplate, type User } from '@diskort/shared';
+import { userNameplateId, type User } from '@diskort/shared';
 import {
   activeGuildContext,
   memberGroups,
@@ -14,7 +14,7 @@ import { PresenceSubline } from '../status/ActivityCard';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
-import { nameplateNameColor, NameplateCanvas } from '../cosmetics/Cosmetics';
+import { Nameplate, nameplateNameColor, useKnownCosmeticSet } from '../cosmetics/Cosmetics';
 import { Avatar } from '../ui/Avatar';
 import { openProfile } from './ProfilePopover';
 
@@ -53,8 +53,8 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
   const status = useStatus(user.id);
   const openContextMenu = useUi((s) => s.openContextMenu);
   const isSelf = user.id === selfId;
-  // İsim plakası satırın arkasında oynar (yalnızca ekrandaki satırlar çizilir, bkz. cosmetics/engine.ts)
-  const plate = userNameplate(user);
+  // İsim plakası satırın arkasında oynar; seti tanınmıyorsa (paketi yayında değil) satır plakasızdır
+  const plate = useKnownCosmeticSet(userNameplateId(user));
 
   // Tıklayınca profil kartı listenin soluna açılır
   const showProfile = (el: HTMLElement): void => {
@@ -93,7 +93,7 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
         }
       }}
     >
-      {plate && <NameplateCanvas set={plate} />}
+      {plate && <Nameplate id={plate} />}
       <Avatar
         user={user}
         size={32}

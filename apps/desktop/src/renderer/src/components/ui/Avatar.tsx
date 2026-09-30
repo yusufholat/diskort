@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { animatedDecorationSet, STATUS_LABELS, type User } from '@diskort/shared';
+import { animatedDecorationId, STATUS_LABELS, type User } from '@diskort/shared';
 import { avatarInk, avatarUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
 import { cn, initials } from '../../lib/utils';
-import { AnimatedDecoration } from '../cosmetics/Cosmetics';
+import { AvatarDecoration } from '../cosmetics/Cosmetics';
 import { StatusIcon } from './StatusIcon';
 
 interface Props {
@@ -19,15 +19,13 @@ interface Props {
   ringColor?: string;
   /**
    * Avatar dekorasyonunun kimliği (user.avatarDecoration): avatarın üstüne, yerleşimi değiştirmeden çizilir.
-   * Hareketli dekorasyon (anim:<set>) profil boyunda oynar, küçük avatarda sabit bir halkadır.
+   * Hareketli dekorasyon (anim:<set>) profil boyunda oynar, küçük avatarda sabit bir halkadır; seti
+   * tanınmıyorsa (paketi yayında değil) hiçbir şey çizilmez.
    */
   decoration?: string | null;
   /** Hareketli dekorasyon küçük avatarda da oynasın (ayarlardaki seçici) */
   animateDecoration?: boolean;
-  /**
-   * Hareketli dekorasyonu hafif çiz (sesli sahne: düşük kare hızı; yalnızca konuşurken oynar, değilse sabit
-   * kare)
-   */
+  /** Hareketli dekorasyon yalnızca konuşurken oynasın, değilse sabit resmi dursun (sesli sahne) */
   liteDecoration?: boolean;
   className?: string;
 }
@@ -53,7 +51,7 @@ export function Avatar({
   const src = avatarUrl(user);
   // Yüklenemeyen fotoğrafın yerine baş harfler (adres değişince yeniden denenir)
   const [failed, setFailed] = useState<string | null>(null);
-  const animatedSet = animatedDecorationSet(decoration);
+  const decorationSet = animatedDecorationId(decoration);
   return (
     <div className={cn('relative shrink-0', className)} style={{ width: size, height: size }}>
       <div
@@ -80,12 +78,12 @@ export function Avatar({
           initials(name)
         )}
       </div>
-      {animatedSet && (
-        <AnimatedDecoration
-          set={animatedSet}
+      {decorationSet && (
+        <AvatarDecoration
+          id={decorationSet}
           size={size}
           animate={animateDecoration}
-          lite={liteDecoration ? (speaking ? 'on' : 'paused') : undefined}
+          paused={liteDecoration && !speaking}
         />
       )}
       {shown !== undefined && (

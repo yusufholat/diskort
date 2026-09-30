@@ -1,11 +1,11 @@
 import { memo } from 'react';
 import { Crown } from 'lucide-react';
-import { userNameplate, type DmChannel } from '@diskort/shared';
+import { userNameplateId, type DmChannel } from '@diskort/shared';
 import { useGuild, useSession, type ProfileContext } from '@diskort/client-core';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
-import { NameplateCanvas } from '../cosmetics/Cosmetics';
+import { Nameplate, useKnownCosmeticSet } from '../cosmetics/Cosmetics';
 import { openProfile } from '../members/ProfilePopover';
 import { PresenceSubline } from '../status/ActivityCard';
 import { Avatar, PresenceAvatar } from '../ui/Avatar';
@@ -40,13 +40,13 @@ const Participant = memo(function Participant({
   const reachable = useGuild((s) => Boolean(s.reachable[userId]));
   const selfId = useSession((s) => s.user?.id);
   const openContextMenu = useUi((s) => s.openContextMenu);
-  if (!user) return null;
   const isSelf = userId === selfId;
+  // İsim plakası (ortak sunucusu olmayanın dekorasyonu gibi o da gösterilmez; seti tanınmıyorsa da)
+  const plate = useKnownCosmeticSet(user && (reachable || isSelf) ? userNameplateId(user) : null);
+  if (!user) return null;
   const context: ProfileContext = { kind: 'dm', channelId };
   const showProfile = (el: HTMLElement): void =>
     openProfile({ userId, context, anchor: el.getBoundingClientRect(), side: 'left' });
-  // İsim plakası (ortak sunucusu olmayanın dekorasyonu gibi o da gösterilmez)
-  const plate = reachable || isSelf ? userNameplate(user) : null;
 
   return (
     <div
@@ -73,7 +73,7 @@ const Participant = memo(function Participant({
         }
       }}
     >
-      {plate && <NameplateCanvas set={plate} />}
+      {plate && <Nameplate id={plate} />}
       {reachable || isSelf ? (
         <PresenceAvatar
           userId={userId}
