@@ -2,6 +2,7 @@ import type { FastifyReply } from 'fastify';
 import type { ZodType } from 'zod';
 import type { Guild } from '@diskort/shared';
 import type { ErrorLog } from './activity.js';
+import type { ActivityIconStore } from './activityIcons.js';
 import type { ApiStats } from './apiStats.js';
 import type { AuthLog } from './authLog.js';
 import type { DailyCounters } from './counters.js';
@@ -38,6 +39,8 @@ export interface AppContext {
   push: PushService;
   attachments: AttachmentService;
   avatars: AvatarService;
+  /** Etkinlik (oyun) ikonları */
+  activityIcons: ActivityIconStore;
   /** GIF araması (GIPHY) ve mesajlara GIF gömme */
   gifs: GifService;
   /** Bağlantı önizlemeleri; LINK_PREVIEWS=0 ise null */

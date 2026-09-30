@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { ActivityTracker, createErrorLog } from './activity.js';
+import { ActivityIconStore } from './activityIcons.js';
 import { ApiStats } from './apiStats.js';
 import { AuthLog } from './authLog.js';
 import { DailyCounters } from './counters.js';
@@ -35,6 +36,7 @@ import { StreamPreviewStore } from './streamPreview.js';
 import { SystemMonitor } from './systemStats.js';
 import { VoiceModeration } from './voiceModeration.js';
 import { VoiceStateStore } from './voiceState.js';
+import { registerActivityIconRoutes } from './routes/activityIcons.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerAttachmentRoutes } from './routes/attachments.js';
 import { registerAuthRoutes } from './routes/auth.js';
@@ -71,6 +73,8 @@ export interface BuildOptions {
   attachmentsDir?: string;
   /** Profil fotoğraflarının klasörü (varsayılan: <DATA_DIR>/avatars) */
   avatarsDir?: string;
+  /** Etkinlik (oyun) ikonlarının klasörü (varsayılan: <DATA_DIR>/activity-icons) */
+  activityIconsDir?: string;
   /** Testler için sahte GIPHY */
   gifFetch?: typeof fetch;
   /** Geri bildirim ekran görüntülerinin klasörü (varsayılan: <DATA_DIR>/feedback) */
@@ -135,9 +139,20 @@ export async function buildApp(
     opts.gifFetch,
     app.log,
   );
-  const gateway = new Gateway(store, auth, voice, permissions, clientVersions, config.attachmentMaxBytes, {
-    gifs: gifs.enabled,
+  const activityIcons = new ActivityIconStore(opts.activityIconsDir ?? path.join(config.dataDir, 'activity-icons'), {
+    log: app.log,
   });
+  const gateway = new Gateway(
+    store,
+    auth,
+    voice,
+    permissions,
+    clientVersions,
+    config.attachmentMaxBytes,
+    { gifs: gifs.enabled },
+    undefined,
+    activityIcons,
+  );
   const moderation = new VoiceModeration(store, voice, livekit, permissions, gateway);
   const push =
     opts.push ?? new PushService(store, config.fcmServiceAccountFile, app.log, fetch, createApns(config, app.log));
@@ -180,6 +195,7 @@ export async function buildApp(
     push,
     attachments,
     avatars,
+    activityIcons,
     gifs,
     linkPreviews,
     embedMedia,
@@ -337,6 +353,7 @@ export async function buildApp(
   registerAttachmentRoutes(app, ctx);
   registerEmbedRoutes(app, ctx);
   registerAvatarRoutes(app, ctx);
+  registerActivityIconRoutes(app, ctx);
   registerCosmeticRoutes(app);
   registerGifRoutes(app, ctx);
   registerUpdateRoutes(app, ctx);
