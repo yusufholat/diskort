@@ -65,6 +65,13 @@ export interface RenderResult {
  */
 const SOFTWARE_2D: ReadonlySet<string> = new Set(['sakura']);
 
+/**
+ * Dekorasyonun kenar maskesi (karenin kısa kenarının katı olarak yarıçaplar): içte tam, dışta sıfır, arası
+ * yumuşak basamak. Gölgelendiricinin kendi maskesi .43 → .50 (common.ts); bu .42 → .485: 132 css px'lik karede
+ * kenardan 2 css px (4 piksel) tam saydam.
+ */
+const DECO_EDGE = { from: 0.42, to: 0.485 };
+
 // Pencere yalnızca bu aracın kendi dosyasını yükler: düğüm modülleri açık (kareler doğrudan diske yazılır)
 const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
 const fs = nodeRequire('node:fs') as typeof import('node:fs');
@@ -159,6 +166,22 @@ async function run(job: RenderJob): Promise<RenderResult> {
     }
   }
 
+  // Dekorasyonun kare kenarı: gölgelendirici kendi katmanını daire biçiminde söndürüyor, ama 2B katmanın
+  // parçaları (buz dalları, damlalar, yıldızlar…) karenin dışına taşıp kenarda düz bir çizgiyle kesiliyordu.
+  // Döngü biçiminde birleşmiş karenin tamamı aynı daire maskesiyle söndürülür; maske gölgelendiricininkinden
+  // biraz içeride biter ki kenardan birkaç piksellik şerit tam saydam kalsın (alfa 0).
+  let edge: CanvasGradient | null = null;
+  if (job.kind === 'deco' && job.loop !== null) {
+    const cx = job.w / 2;
+    const cy = job.h / 2;
+    const m = Math.min(job.w, job.h);
+    edge = ctx.createRadialGradient(cx, cy, m * DECO_EDGE.from, cx, cy, m * DECO_EDGE.to);
+    for (let i = 0; i <= 16; i++) {
+      const x = i / 16;
+      edge.addColorStop(x, `rgba(0,0,0,${(1 - x * x * (3 - 2 * x)).toFixed(4)})`);
+    }
+  }
+
   const fd = fs.openSync(job.out, 'w');
   try {
     for (let i = 0; i < job.times.length; i++) {
@@ -188,11 +211,12 @@ async function run(job: RenderJob): Promise<RenderResult> {
         ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
         drawPlateScrim(ctx, v, job.set);
       }
-      if (fade) {
+      for (const mask of [fade, edge]) {
+        if (!mask) continue;
         ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
         ctx.globalAlpha = 1;
         ctx.globalCompositeOperation = 'destination-in';
-        ctx.fillStyle = fade;
+        ctx.fillStyle = mask;
         ctx.fillRect(0, 0, job.w, job.h);
       }
       ctx.setTransform(1, 0, 0, 1, 0, 0);

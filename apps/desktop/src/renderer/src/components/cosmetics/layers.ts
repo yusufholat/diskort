@@ -1791,8 +1791,11 @@ function drawNeonLoop(ctx: Ctx, v: LayerView, t: number, loop: number): void {
       } else if (u < 0.8) {
         const tau = (u - 0.45) * D;
         const fade = 1 - (u - 0.45) / 0.35;
+        // Çarpma parıltısı birkaç karede yanar: tek karede tam parlaklıkla belirmesi kesme sayılıyordu (kenar
+        // maskesinden sonra düşen çizginin karenin üstündeki kısmı görünmez oldu, parıltının ani girişi öne çıktı)
+        const onset = smooth(0.45, 0.53, u);
         ctx.globalCompositeOperation = 'lighter';
-        sprite(ctx, dx < 0 ? SPR.mag() : SPR.cyan(), cx + dx, hitY, 16 * k * (1 - fade * 0.3), fade * 0.8);
+        sprite(ctx, dx < 0 ? SPR.mag() : SPR.cyan(), cx + dx, hitY, 16 * k * (1 - fade * 0.3), fade * 0.8 * onset);
         ctx.fillStyle = '#e8fbff';
         for (let j = 0; j < 3; j++) {
           const vx = (j - 1) * 24 + (hash(j + cyc * 7) - 0.5) * 14;
