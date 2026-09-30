@@ -22,6 +22,13 @@ function download(url: string, uri: string): Promise<number> {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      // İlerleme dinleyicisi yalnızca duraklatma ve iptalde kaldırılıyor (expo-file-system/legacy): biten indirmede
+      // her seferinde bir dinleyici kalmasın. Yöntem korumalı ama çalışma anında vardır; yoksa atlanır.
+      try {
+        (task as unknown as { removeSubscription?: () => void }).removeSubscription?.();
+      } catch {
+        // kaldırılamadı: yalnızca bir dinleyici kalır
+      }
       finish();
     };
     const watch = (): void => {

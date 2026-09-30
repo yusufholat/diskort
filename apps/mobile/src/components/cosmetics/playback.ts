@@ -13,6 +13,17 @@ import { reportCosmeticError } from './report';
 
 let instance: Playback<Frame | null> | null = null;
 
+/**
+ * Oynatıcılar için uygulama önde mi. iOS'ta `inactive` kısa bir ara durumdur (Denetim Merkezi, uygulama
+ * değiştirici, Face ID sorusu): oynatıcılar yalnızca `background`da bırakılır, yoksa her seferinde sabit resim
+ * yanıp söner ve video yeniden açılırdı. Android'de öndeki durum dışındaki her durumda bırakılır (sistem arka
+ * plandaki uygulamanın video çözücüsünü geri alabilir).
+ */
+function foreground(state: string | null | undefined): boolean {
+  if (state == null || state === 'active') return true;
+  return Platform.OS === 'ios' && state === 'inactive';
+}
+
 export function playback(): Playback<Frame | null> {
   if (instance) return instance;
   const created = createPlayback<Frame | null>({
@@ -32,8 +43,8 @@ export function playback(): Playback<Frame | null> {
     },
   });
   instance = created;
-  created.setAppActive(AppState.currentState === 'active' || AppState.currentState == null);
-  AppState.addEventListener('change', (state) => created.setAppActive(state === 'active'));
+  created.setAppActive(foreground(AppState.currentState));
+  AppState.addEventListener('change', (state) => created.setAppActive(foreground(state)));
   // Açılışta okunmuş değer (src/motion.ts) hemen, güncel değer sorulunca
   created.setReducedMotion(prefersReducedMotion());
   AccessibilityInfo.isReduceMotionEnabled()

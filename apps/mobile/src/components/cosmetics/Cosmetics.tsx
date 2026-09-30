@@ -53,8 +53,13 @@ const CANVAS_LINGER_MS = 3000;
  * resmi boş bir resimle değiştirilir: kayıt kalsa da kareyi tutmaz. Bu sürede eşleyici kesinlikle durmuştur.
  */
 const CANVAS_SWEEP_MS = 1000;
-/** Saydam parçada sabit resim, canlı yüzeye bu kadar yeni kare verildikten sonra gizlenir (yüzey çizmiş olsun) */
+/**
+ * Saydam parçada sabit resim, canlı yüzeye en az bu kadar yeni kare verildikten VE en az bu kadar süre (ms)
+ * geçtikten sonra gizlenir: yüzey çizmiş ve ekrana gelmiş olsun (Android'de yeni yüzeyin ilk karesi birkaç kare
+ * gecikebilir; 60 kare/sn'de 3 kare yalnızca ~50 ms'dir).
+ */
 const POSTER_HIDE_STEPS = 3;
+const POSTER_HIDE_MS = 150;
 
 /** Setin bir parçasının kaynağı; bildirim değişince yeniden hesaplanır */
 function usePieceSource(set: CosmeticSetId | null | undefined, piece: CosmeticPiece): PieceSource {
@@ -263,10 +268,11 @@ const LiveCanvas = memo(function LiveCanvas({ asset, frame, left, top, width, he
   );
 });
 
-/** Sabit resmin gizlenme sayacını kurar: şu anki kare sayısından POSTER_HIDE_STEPS sonra gizlenir */
-function armPoster(armed: SharedValue<boolean>, start: SharedValue<number>, steps: SharedValue<number>): void {
+/** Sabit resmin gizlenme sayacını kurar: şu anki kare sayısından ve andan başlar */
+function armPoster(armed: SharedValue<boolean>, start: SharedValue<number>, armedAt: SharedValue<number>, steps: SharedValue<number>): void {
   'worklet';
   start.value = steps.value;
+  armedAt.value = performance.now();
   armed.value = true;
 }
 
@@ -281,19 +287,24 @@ const noSteps = (): SharedValue<number> => (idleSteps ??= makeMutable(0));
 function FadingPoster({ steps, style, children }: { steps: SharedValue<number> | null; style: StyleProp<ViewStyle>; children: ReactNode }) {
   const armed = useSharedValue(false);
   const start = useSharedValue(0);
+  const armedAt = useSharedValue(0);
   const source = steps ?? noSteps();
   useEffect(() => {
     if (!steps) {
       armed.value = false;
       return;
     }
-    scheduleOnUI(armPoster, armed, start, steps);
+    scheduleOnUI(armPoster, armed, start, armedAt, steps);
     return () => {
       armed.value = false;
     };
-  }, [steps, armed, start]);
+  }, [steps, armed, start, armedAt]);
+  // Kare sayacı her yeni karede değiştiğinden süre koşulu da o anda yeniden değerlendirilir
   const fade = useAnimatedStyle(
-    () => ({ opacity: armed.value && source.value - start.value >= POSTER_HIDE_STEPS ? 0 : 1 }),
+    () => ({
+      opacity:
+        armed.value && source.value - start.value >= POSTER_HIDE_STEPS && performance.now() - armedAt.value >= POSTER_HIDE_MS ? 0 : 1,
+    }),
     [source],
   );
   return (

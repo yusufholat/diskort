@@ -8,8 +8,10 @@ import {
   createPlayback,
   IDLE_CLOSE_MS,
   MEASURE_MS,
+  LOAD_RETRY_MAX_MS,
   MAX_FAILURES,
   RETRY_MS,
+  retryDelay,
   VIDEO_PARK_MS,
   type DriverEvents,
   type FailureKind,
@@ -567,6 +569,57 @@ describe('hata', () => {
     expect(v.live).toBe(false);
     vi.advanceTimersByTime(RETRY_MS);
     expect(opened).toHaveLength(2);
+  });
+
+  it('aşırı yükte bekleme her seferinde iki katına çıkar (1, 2, 4 dk), en çok LOAD_RETRY_MAX_MS', () => {
+    expect(retryDelay({ kind: 'load', loads: 1 })).toBe(RETRY_MS);
+    expect(retryDelay({ kind: 'load', loads: 2 })).toBe(RETRY_MS * 2);
+    expect(retryDelay({ kind: 'load', loads: 3 })).toBe(RETRY_MS * 4);
+    expect(retryDelay({ kind: 'load', loads: 30 })).toBe(LOAD_RETRY_MAX_MS);
+    expect(retryDelay({ kind: 'transient', loads: 0 })).toBe(RETRY_MS);
+    expect(retryDelay({ kind: 'asset', loads: 0 })).toBe(Number.POSITIVE_INFINITY);
+
+    const v = view();
+    playback.attach(plate, v.options);
+    const shed = (index: number): void => {
+      opened[index]!.events.ready();
+      opened[index]!.events.failed(new Error('aynı anda çok fazla dosya oynuyor'), 'load');
+    };
+    shed(0);
+    vi.advanceTimersByTime(RETRY_MS);
+    expect(opened).toHaveLength(2);
+    shed(1);
+    vi.advanceTimersByTime(RETRY_MS);
+    expect(opened).toHaveLength(2);
+    vi.advanceTimersByTime(RETRY_MS);
+    expect(opened).toHaveLength(3);
+    shed(2);
+    vi.advanceTimersByTime(RETRY_MS * 4 - 1);
+    expect(opened).toHaveLength(3);
+    vi.advanceTimersByTime(1);
+    expect(opened).toHaveLength(4);
+  });
+
+  it('aşırı yük geçmişi ekran değişince (görünüm kalmayınca) ve retry() ile sıfırlanır', () => {
+    const first = playback.attach(plate, view().options);
+    opened[0]!.events.failed(new Error('yük'), 'load');
+    vi.advanceTimersByTime(RETRY_MS);
+    opened[1]!.events.failed(new Error('yük'), 'load');
+    first.dispose();
+    vi.advanceTimersByTime(IDLE_CLOSE_MS);
+    // Yeni ekranda hemen açılır; yeniden alınırsa bekleme yine 1 dk
+    playback.attach(plate, view().options);
+    expect(opened).toHaveLength(3);
+    opened[2]!.events.failed(new Error('yük'), 'load');
+    vi.advanceTimersByTime(RETRY_MS);
+    expect(opened).toHaveLength(4);
+    opened[3]!.events.failed(new Error('yük'), 'load');
+    // retry(): beklemeden yeniden dener ve geçmişi sıfırlar
+    playback.retry();
+    expect(opened).toHaveLength(5);
+    opened[4]!.events.failed(new Error('yük'), 'load');
+    vi.advanceTimersByTime(RETRY_MS);
+    expect(opened).toHaveLength(6);
   });
 
   it('hata listesi dolunca önce geçici hatalar unutulur, kalıcılar kalır', () => {

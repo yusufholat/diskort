@@ -26,13 +26,13 @@
 //   kare bırakılır (bırakılmayan kare sızar). Kareyi çizen resimler kendi başvurularını tutar.
 // - Karenin boyu çözücünün arabelleğininkidir (hizalama payı olabilir); birleştirme gölgelendiricisi videoyu
 //   kendi pikselleriyle örneklediğinden pay zararsızdır (bkz. packLayout.ts STACKED_ALPHA_SKSL).
-// - Yerel taraf çözücüyü kapatmaz (RNSkVideo.release() çağrılmaz): bırakılan videonun MediaCodec'i çöp
-//   toplanınca kapanır. Bu yüzden videolar gereksiz yere açılıp kapatılmaz (packPlayer.ts VIDEO_PARK_MS),
-//   bırakmadan önce durdurulur ve açılamayan video oturumda yeniden denenmez.
-// - RNSkVideo'nun içinde fırlayan Java hatası yerel tarafta yakalanmaz (uygulamayı kapatabilir). Bilinen iki
-//   yolu kapalıdır: Android 10'dan (API 29) eski Android'de video hiç açılmaz (packSource.ts) ve uygulama arka
-//   plana geçince video bırakılır (sistem arka plandaki uygulamanın çözücüsünü geri alabilir: sonraki çağrı hata
-//   fırlatırdı).
+// - Skia yamalıdır (patches/@shopify__react-native-skia@2.6.2.patch): RNSkVideo'nun yerel taraftan çağrılan
+//   yöntemleri Java hatalarını yakalar (yamasız hali yakalamaz, uygulama kapanırdı); bozulan çözücüde kare null,
+//   zaman -1 gelir ve burada sabit resme dönülür. Video bırakılınca (dispose) çözücü hemen kapatılır (yamasız
+//   hali çöp toplanana dek açık tutardı). Yine de videolar gereksiz yere açılıp kapatılmaz (packPlayer.ts
+//   VIDEO_PARK_MS), bırakmadan önce durdurulur, açılamayan video oturumda yeniden denenmez, Android 10'dan (API
+//   29) eski Android'de hiç açılmaz (packSource.ts) ve uygulama arka plana geçince bırakılır (sistem arka plandaki
+//   uygulamanın çözücüsünü geri alabilir).
 //
 // Neden arayüz iş parçacığı: kareyi çizen yerel görünüm de oradadır; kare JavaScript iş parçacığında değiştirilip
 // eskisi bırakılırsa çizim silinmiş kareyi okuyabilir (eski motorun RETIRE_MS'le çözdüğü yarış). Burada kare
@@ -145,7 +145,11 @@ interface UiState {
   kick(): void;
 }
 
-type UiEvent = 'ready' | 'error' | 'slow' | 'load';
+/**
+ * 'error': açılamadı ya da çözülemedi; 'bad': dosya bildirimine uymuyor (video boyutu, dönüklük); 'slow': bu
+ * telefon karelerini yetiştiremiyor; 'load': aynı anda çok dosya oynuyor (bu oynatıcı sabit resme alındı)
+ */
+type UiEvent = 'ready' | 'error' | 'bad' | 'slow' | 'load';
 
 function messageOf(error: unknown): string {
   'worklet';
@@ -186,6 +190,9 @@ function uiStepVideo(key: number, p: UiPlayer, clip: Video, now: number): void {
     p.idleCalls = 0;
     p.rewind = false;
   }
+  // Android: yamalı Skia videosu (patches/) bozulan çözücüde (Java hatası yakalandı) zamanı -1 verir; son karede
+  // donup kalmak yerine sabit resme dönülür
+  if (p.manualLoop && clip.currentTime() < 0) throw new Error('video çözücüsü hata verdi');
   const counted = p.manualLoop && (!p.primed || clip.isPlaying());
   const started = performance.now();
   const next = clip.nextImage();
@@ -241,16 +248,22 @@ function uiFail(key: number, p: UiPlayer, type: 'error' | 'slow' | 'load', messa
   scheduleOnRN(onUiEvent, key, type, message);
 }
 
-/** Toplam iş bütçesi doldu: çalışan oynatıcılardan en pahalısı sabit resme alınır */
+/**
+ * Toplam iş bütçesi doldu: çalışan oynatıcılardan en pahalısı sabit resme alınır. Önce resimler: video (profil
+ * kartı) en son bırakılır; her yeniden denemesi yeni bir donanım çözücüsü açar.
+ */
 function uiShed(state: UiState): void {
   'worklet';
   const keys: string[] = [];
   const costs: number[] = [];
-  for (const key in state.players) {
-    const p = state.players[key];
-    if (!p || p.failed || !p.running) continue;
-    keys.push(key);
-    costs.push(p.cost);
+  for (const onlyImages of [true, false]) {
+    for (const key in state.players) {
+      const p = state.players[key];
+      if (!p || p.failed || !p.running || (onlyImages && p.clip)) continue;
+      keys.push(key);
+      costs.push(p.cost);
+    }
+    if (keys.length > 0) break;
   }
   const index = heaviest(costs);
   if (index < 0) return;
@@ -387,10 +400,17 @@ function uiOpenVideo(
   try {
     // Video bildirimdeki kareden küçükse ya da döndürülmüşse iki yarı yerinde değildir: birleştirilemez
     const size = clip.size();
-    if (size.width > 0 && size.height > 0 && (size.width < width || size.height < height)) {
-      throw new Error('video bildirimdeki boyuttan küçük');
+    const small = size.width > 0 && size.height > 0 && (size.width < width || size.height < height);
+    if (small || clip.rotation() !== 0) {
+      // Dosyanın kusuru (telefonun değil): paket bildirimi tazelenir
+      try {
+        clip.dispose();
+      } catch {
+        // zaten bırakılmış
+      }
+      scheduleOnRN(onUiEvent, key, 'bad', small ? 'video bildirimdeki boyuttan küçük' : 'video döndürülmüş');
+      return;
     }
-    if (clip.rotation() !== 0) throw new Error('video döndürülmüş');
     clip.setVolume(0);
     clip.setLooping(true);
     const p = uiPlayer(S, frame, fps, frames);
@@ -517,28 +537,31 @@ let nextKey = 1;
 const discarded = new Set<string>();
 
 /**
- * Arayüz iş parçacığından gelen olay. Açılamayan ya da çözülemeyen dosyanın cihazdaki kopyası silinir (boyutu
- * tutsa da bozuk olabilir): resim ilk seferde yeniden denenir (yeniden iner), ikinci seferde bu oturumda denenmez.
- * Video hiç yeniden denenmez: her deneme bir donanım çözücüsü açar ve yerel taraf onu ancak çöp toplarken kapatır.
+ * Arayüz iş parçacığından gelen olay.
+ * - Resim açılamadı ya da çözülemedi: cihazdaki kopyası silinir (boyutu tutsa da bozuk olabilir); ilk seferde
+ *   yeniden denenir (yeniden iner), ikinci seferde bu oturumda denenmez.
+ * - Video açılamadı ya da oynarken hata verdi: çoğunlukla telefonun çözücüsüdür (çözücü kurulamadı, ilk kare
+ *   gelmedi, çözücü bozuldu), dosyanın değil: kopya silinmez, paket bildirimi tazelenmez, bu oturumda bu telefonda
+ *   yeniden denenmez (her deneme bir donanım çözücüsü açar).
+ * - Video bildirimine uymuyor (boyut, dönüklük): dosyanın kusuru; bu oturumda denenmez, bildirim tazelenir.
  */
 function onUiEvent(key: number, type: UiEvent, message: string): void {
   const player = opened.get(key);
   if (!player) return;
-  if (type === 'ready') {
-    player.events.ready();
-    return;
+  const fail = (kind: FailureKind): void => player.events.failed(new Error(message), kind);
+  if (type === 'ready') player.events.ready();
+  else if (type === 'slow') fail('device');
+  else if (type === 'load') fail('load');
+  else if (type === 'bad') fail('asset');
+  else if (player.spec.kind === 'video') fail('device');
+  else {
+    const { url } = player.spec;
+    const again = discarded.has(url);
+    if (discarded.size > 256) discarded.clear();
+    discarded.add(url);
+    if (packFiles.available) void packFiles.discard(url);
+    fail(again ? 'asset' : 'transient');
   }
-  if (type === 'slow' || type === 'load') {
-    player.events.failed(new Error(message), type === 'slow' ? 'device' : 'load');
-    return;
-  }
-  const { url } = player.spec;
-  const again = discarded.has(url);
-  if (discarded.size > 256) discarded.clear();
-  discarded.add(url);
-  if (packFiles.available) void packFiles.discard(url);
-  const kind: FailureKind = player.spec.kind === 'video' || again ? 'asset' : 'transient';
-  player.events.failed(new Error(message), kind);
 }
 
 function onVideoOpened(key: number, clip: Video): void {

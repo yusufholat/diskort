@@ -105,8 +105,8 @@ export const MEASURE_MS = 500;
 export const IDLE_CLOSE_MS = 4000;
 /**
  * Kimsenin oynatmak istemediği videonun çözücüsü bu kadar sonra bırakılır (ms). Resimlerden uzun: Android'de
- * bırakılan çözücüyü sistem hemen değil çöp toplarken kapatır; aynı profil art arda açılınca her seferinde yeni
- * çözücü açılmasın. Aynı anda en çok bir boşta video tutulur (yenisi açılırken eskiler bırakılır).
+ * video açmak bir donanım çözücüsü kurmak ve ilk kareyi beklemek demektir; aynı profil art arda açılınca her
+ * seferinde yeniden kurulmasın. Aynı anda en çok bir boşta video tutulur (yenisi açılırken eskiler bırakılır).
  */
 export const VIDEO_PARK_MS = 30_000;
 /**
@@ -114,8 +114,28 @@ export const VIDEO_PARK_MS = 30_000;
  * yalnızca `retry()` ile (bildirim değişti, bağlantı geri geldi)
  */
 export const RETRY_MS = 60_000;
+/**
+ * Aşırı yükle (load) sabit resme alınan dosya: yük sürüyorsa her denemede yeniden alınırdı. Bekleme her seferinde
+ * iki katına çıkar (1, 2, 4… dk), en çok bu kadar (ms); dosyanın görünümü kalmayınca (ekran değişti) ve `retry()`
+ * ile sıfırlanır.
+ */
+export const LOAD_RETRY_MAX_MS = 16 * 60_000;
 /** Hatırlanan hatalı dosya sayısı */
 export const MAX_FAILURES = 64;
+
+interface FailureRecord {
+  at: number;
+  kind: FailureKind;
+  /** Art arda kaç kez aşırı yükle sabit resme alındı */
+  loads: number;
+}
+
+/** Hatadan sonra yeniden denemeye kadar beklenecek süre (ms); kalıcı hatada sonsuz */
+export function retryDelay(failure: { kind: FailureKind; loads: number }): number {
+  if (isPermanentFailure(failure.kind)) return Number.POSITIVE_INFINITY;
+  if (failure.kind !== 'load') return RETRY_MS;
+  return Math.min(LOAD_RETRY_MAX_MS, RETRY_MS * 2 ** Math.max(0, failure.loads - 1));
+}
 
 type State = 'idle' | 'loading' | 'ready' | 'failed';
 
@@ -157,7 +177,9 @@ export interface Playback<F> {
 export function createPlayback<F>({ driver, timers, now = Date.now, onError }: PlaybackOptions<F>): Playback<F> {
   const players = new Map<string, Player<F>>();
   /** Hata vermiş dosyalar: oynatıcısı bırakılsa da hatırlanır (yeniden kurulan görünüm hemen yeniden denemesin) */
-  const failures = new Map<string, { at: number; permanent: boolean }>();
+  const failures = new Map<string, FailureRecord>();
+  /** Dosya art arda kaç kez aşırı yükle sabit resme alındı (yeniden denemede silinmez; görünümü kalmayınca silinir) */
+  const loadCounts = new Map<string, number>();
   let appActive = true;
   let reduced = false;
   let measureTimer: unknown = null;
@@ -165,7 +187,7 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
   /** Dosya şu an denenmemeli mi (kalıcı hata ya da geçici hatanın bekleme süresi dolmadı) */
   function blocked(url: string): boolean {
     const failure = failures.get(url);
-    return failure !== undefined && (failure.permanent || now() - failure.at < RETRY_MS);
+    return failure !== undefined && now() - failure.at < retryDelay(failure);
   }
 
   function cancelRetry(p: Player<F>): void {
@@ -243,15 +265,17 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
   }
 
   /** Hatayı hatırlar; liste dolunca önce en eski GEÇİCİ hata unutulur (kalıcı hatalar oturum boyunca geçerlidir) */
-  function remember(url: string, permanent: boolean): void {
+  function remember(url: string, kind: FailureKind): void {
+    const loads = kind === 'load' ? (loadCounts.get(url) ?? 0) + 1 : 0;
+    if (kind === 'load') loadCounts.set(url, loads);
     failures.delete(url);
-    failures.set(url, { at: now(), permanent });
+    failures.set(url, { at: now(), kind, loads });
     if (failures.size <= MAX_FAILURES) return;
     let oldest: string | undefined;
     for (const [key, failure] of failures) {
       if (key === url) continue;
       oldest ??= key;
-      if (!failure.permanent) {
+      if (!isPermanentFailure(failure.kind)) {
         oldest = key;
         break;
       }
@@ -263,24 +287,23 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
   function armRetry(p: Player<F>): void {
     cancelRetry(p);
     const failure = failures.get(p.spec.url);
-    if (!failure || failure.permanent || players.get(p.spec.url) !== p) return;
+    if (!failure || isPermanentFailure(failure.kind) || players.get(p.spec.url) !== p) return;
     p.retryTimer = timers.setTimeout(
       () => {
         p.retryTimer = null;
         failures.delete(p.spec.url);
         revive(p);
       },
-      Math.max(0, failure.at + RETRY_MS - now()),
+      Math.max(0, failure.at + retryDelay(failure) - now()),
     );
   }
 
   function fail(p: Player<F>, error: unknown, kind: FailureKind): void {
     if (p.state === 'failed') return;
-    const permanent = isPermanentFailure(kind);
     p.state = 'failed';
     p.generation++;
     cancelPark(p);
-    remember(p.spec.url, permanent);
+    remember(p.spec.url, kind);
     const handle = p.handle;
     p.handle = null;
     p.running = false;
@@ -343,6 +366,9 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
     if (players.get(p.spec.url) === p) players.delete(p.spec.url);
     cancelRetry(p);
     cancelPark(p);
+    // Görünümü kalmayan dosyanın aşırı yük geçmişi unutulur (ekran değişti: yük de değişmiştir)
+    loadCounts.delete(p.spec.url);
+    if (failures.get(p.spec.url)?.kind === 'load') failures.delete(p.spec.url);
     p.generation++;
     const handle = p.handle;
     p.handle = null;
@@ -463,7 +489,8 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
       for (const p of players.values()) refresh(p);
     },
     retry() {
-      for (const [url, failure] of failures) if (!failure.permanent) failures.delete(url);
+      for (const [url, failure] of failures) if (!isPermanentFailure(failure.kind)) failures.delete(url);
+      loadCounts.clear();
       for (const p of [...players.values()]) if (p.state === 'failed' && !failures.has(p.spec.url)) revive(p);
     },
     stats() {
