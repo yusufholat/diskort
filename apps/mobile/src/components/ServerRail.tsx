@@ -9,11 +9,13 @@ import {
   useGuild,
   useGuildList,
   useGuildUnread,
+  useGuildVoiceActivity,
   useMessages,
   useDmUnreadCount,
   useDmUnreadTotal,
   useSession,
   useUnreadDms,
+  type GuildVoiceActivity,
 } from '@diskort/client-core';
 import { feedback } from '../haptics';
 import { openChat, selectGuildInPanel, selectHome, useNav } from '../stores/nav';
@@ -186,6 +188,7 @@ const GuildButton = memo(function GuildButton({ guild, home }: { guild: Guild; h
   const unread = useGuildUnread(guild.id);
   const channelIds = useGuild(useShallow((s) => s.guilds[guild.id]?.channels.map((c) => c.id) ?? []));
   const mentions = useMessages((s) => channelIds.reduce((n, id) => n + (s.mentionCounts[id] ?? 0), 0));
+  const voiceActivity = useGuildVoiceActivity(guild.id);
   return (
     <RailItem
       selected={selected}
@@ -198,16 +201,36 @@ const GuildButton = memo(function GuildButton({ guild, home }: { guild: Guild; h
         feedback('tick');
         openGuildMenu(guild.id);
       }}
-      label={`${guild.name}${unread ? ', okunmamış mesajlar var' : ''}${mentions ? `, ${mentions} bahsetme` : ''}`}
+      label={`${guild.name}${unread ? ', okunmamış mesajlar var' : ''}${mentions ? `, ${mentions} bahsetme` : ''}${
+        voiceActivity === 'stream' ? ', yayın var' : voiceActivity === 'voice' ? ', seste biri var' : ''
+      }`}
       hint="Sunucu menüsü için uzun bas"
     >
       <GuildIcon guild={guild} size={ICON} radius={selected ? 16 : ICON / 2} />
+      {voiceActivity && <ActivityBadge activity={voiceActivity} />}
       <View style={styles.badge}>
         <CountBadge count={mentions} ring={colors.rail} />
       </View>
     </RailItem>
   );
 });
+
+/**
+ * Sunucu simgesinin sağ üst köşesinde, çubuk renginde halkalı küçük rozet: sunucuda yayın yapan varsa kırmızı
+ * (masaüstü ekran ikonu, "YAYINDA" ile aynı renk), yoksa seste biri varsa koyu zeminde hoparlör. Dokunmayı
+ * engellemez.
+ */
+function ActivityBadge({ activity }: { activity: NonNullable<GuildVoiceActivity> }) {
+  const stream = activity === 'stream';
+  return (
+    <View
+      pointerEvents="none"
+      style={[styles.activity, { backgroundColor: stream ? colors.danger : colors.raised }]}
+    >
+      <Ionicons name={stream ? 'desktop-outline' : 'volume-medium'} size={11} color={stream ? colors.white : colors.head} />
+    </View>
+  );
+}
 
 const styles = createStyles(() => ({
   rail: { width: RAIL_WIDTH, backgroundColor: colors.rail },
@@ -228,6 +251,19 @@ const styles = createStyles(() => ({
   home: { width: ICON, height: ICON, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
   separator: { width: 32, height: 2, borderRadius: 1, backgroundColor: colors.line },
   badge: { position: 'absolute', right: -4, bottom: -4 },
+  // Sağ üst: yayın/ses rozeti. Kenarlık sabit (açılıp kapanmaz), arka plan görseli yok
+  activity: {
+    position: 'absolute',
+    right: -4,
+    top: -4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 3,
+    borderColor: colors.rail,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   action: {
     width: ICON,
     height: ICON,

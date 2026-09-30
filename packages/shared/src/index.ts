@@ -27,6 +27,10 @@ export interface User {
   id: string;
   username: string;
   displayName: string;
+  /**
+   * Baş harf avatarının zemin rengi (profil kartında yedek renk). Ayrı bir seçim yok: sunucu, profil teması
+   * varsa onun ana rengini, yoksa hesapta saklı rengi gönderir; istemci olduğu gibi kullanır.
+   */
   avatarColor: string;
   /**
    * Profil fotoğrafı: sunucu köküne göre adres (/api/avatars/<kullanıcı>/<özet>.webp; 256×256 WebP).
@@ -36,7 +40,7 @@ export interface User {
   avatarUrl?: string | null;
   /**
    * Profil afişi: sunucu köküne göre adres (/api/banners/<kullanıcı>/<özet>.webp; 1020×360
-   * WebP). Profil kartının üstünde; yoksa null (tema rengi ya da profil rengi gösterilir). Eski sunucularda yok.
+   * WebP). Profil kartının üstünde; yoksa null (tema rengi ya da avatarColor gösterilir). Eski sunucularda yok.
    */
   bannerUrl?: string | null;
   /** Profil teması: kartın iki rengi (üstten alta degrade). Yoksa null: varsayılan kart */
@@ -549,6 +553,7 @@ export interface DeleteAccountRequest {
 
 export interface UpdateMeRequest {
   displayName?: string;
+  /** Yeni istemciler göndermez (seçici kalktı); eski istemciler gönderir. Saklanır: temasız kullanıcının avatar rengi */
   avatarColor?: string;
   /** null: temayı kaldırır */
   profileTheme?: ProfileTheme | null;
