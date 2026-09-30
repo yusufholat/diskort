@@ -2,6 +2,7 @@ import path from 'node:path';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
+import { CLIENT_FEATURES_HEADER } from '@diskort/shared';
 import { ActivityTracker, createErrorLog } from './activity.js';
 import { ActivityIconStore } from './activityIcons.js';
 import { ApiStats } from './apiStats.js';
@@ -18,6 +19,8 @@ import { AuthService } from './auth.js';
 import { ClientVersionPolicy } from './clientVersion.js';
 import type { Config } from './config.js';
 import type { AppContext } from './context.js';
+import { knowsCosmeticPacks, withoutPackCosmetics } from './cosmeticCompat.js';
+import { CosmeticPackStore } from './cosmeticPacks.js';
 import { DashboardService } from './dashboard.js';
 import { Store } from './db.js';
 import { EmbedMediaService, type Fetcher } from './embedMedia.js';
@@ -75,6 +78,10 @@ export interface BuildOptions {
   avatarsDir?: string;
   /** Etkinlik (oyun) ikonlarının klasörü (varsayılan: <DATA_DIR>/activity-icons) */
   activityIconsDir?: string;
+  /** Kozmetik paketlerinin klasörü (varsayılan: <DATA_DIR>/cosmetic-packs) */
+  cosmeticPacksDir?: string;
+  /** Testler: paket bildirimine (manifest.json) bakma aralığı (ms; varsayılan 2000) */
+  cosmeticPacksRecheckMs?: number;
   /** Testler için sahte GIPHY */
   gifFetch?: typeof fetch;
   /** Geri bildirim ekran görüntülerinin klasörü (varsayılan: <DATA_DIR>/feedback) */
@@ -142,6 +149,12 @@ export async function buildApp(
   const activityIcons = new ActivityIconStore(opts.activityIconsDir ?? path.join(config.dataDir, 'activity-icons'), {
     log: app.log,
   });
+  // Kozmetik paketleri: kullanıcıların seçebildiği setler yerleşik setler ∪ yayında olan paketlerdir
+  const cosmeticPacks = new CosmeticPackStore(opts.cosmeticPacksDir ?? path.join(config.dataDir, 'cosmetic-packs'), {
+    log: app.log,
+    ...(opts.cosmeticPacksRecheckMs !== undefined ? { recheckMs: opts.cosmeticPacksRecheckMs } : {}),
+  });
+  store.knownCosmeticSet = (id) => cosmeticPacks.knows(id);
   const gateway = new Gateway(
     store,
     auth,
@@ -152,6 +165,7 @@ export async function buildApp(
     { gifs: gifs.enabled },
     undefined,
     activityIcons,
+    cosmeticPacks,
   );
   const moderation = new VoiceModeration(store, voice, livekit, permissions, gateway);
   const push =
@@ -196,6 +210,7 @@ export async function buildApp(
     attachments,
     avatars,
     activityIcons,
+    cosmeticPacks,
     gifs,
     linkPreviews,
     embedMedia,
@@ -338,6 +353,16 @@ export async function buildApp(
   await app.register(cors, { origin: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] });
   await app.register(websocket, { options: { maxPayload: 16 * 1024 } });
 
+  // Kozmetik paketlerini tanıdığını bildirmeyen eski istemcilere (0.9.1 ve öncesi) JSON yanıtlardaki
+  // kullanıcıların set seçimlerinde yalnızca yerleşik kimlikler gider (bkz. cosmeticCompat.ts; gateway'de
+  // aynısını Gateway.out yapar). Yerleşik olmayan paket yayında değilken yanıtlara hiç bakılmaz.
+  app.addHook('onSend', async (req, reply, payload) => {
+    if (typeof payload !== 'string' || !cosmeticPacks.hasCustomIds()) return payload;
+    if (knowsCosmeticPacks(req.headers[CLIENT_FEATURES_HEADER])) return payload;
+    const type = reply.getHeader('content-type');
+    return typeof type === 'string' && type.startsWith('application/json') ? withoutPackCosmetics(payload) : payload;
+  });
+
   app.get('/api/health', async () => ({ ok: true }));
   gateway.register(app);
   registerAuthRoutes(app, ctx);
@@ -354,7 +379,7 @@ export async function buildApp(
   registerEmbedRoutes(app, ctx);
   registerAvatarRoutes(app, ctx);
   registerActivityIconRoutes(app, ctx);
-  registerCosmeticRoutes(app);
+  registerCosmeticRoutes(app, ctx);
   registerGifRoutes(app, ctx);
   registerUpdateRoutes(app, ctx);
   registerClientErrorRoutes(app, ctx);

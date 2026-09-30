@@ -239,7 +239,12 @@ describe('dosya ekleri', () => {
     await vi.waitFor(() => expect(requests).toHaveLength(2));
     expect(uploadProgress(messages()[0]!)).toEqual({ sent: 15, total: 20 });
     expect(requests[0]!.url).toBe('http://sunucu.test/api/channels/c1/attachments?name=a.png');
-    expect(requests[0]!.headers).toEqual({ Authorization: 'Bearer jeton', 'Content-Type': 'image/png' });
+    expect(requests[0]!.headers).toEqual({
+      Authorization: 'Bearer jeton',
+      'Content-Type': 'image/png',
+      // Her isteğe eklenen özellik başlığı (bkz. clientFeatureHeaders)
+      'x-diskort-features': 'dm,presence,cosmetic_packs',
+    });
     // Türü bilinmeyen dosya
     expect(requests[1]!.headers['Content-Type']).toBe('application/octet-stream');
 

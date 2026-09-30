@@ -1,14 +1,13 @@
 import {
   ACTIVITY_ELAPSED_MAX_MS,
   ACTIVITY_MAX_COUNT,
-  CLIENT_FEATURE_DM,
-  CLIENT_FEATURE_PRESENCE,
   GATEWAY_CLOSE_UPDATE_REQUIRED,
   type ActivityReport,
   type GatewayClientMessage,
   type GatewayServerMessage,
 } from '@diskort/shared';
-import { normalizeServerUrl } from './api';
+import { CLIENT_FEATURES, normalizeServerUrl } from './api';
+import { noteCosmeticUsers, refreshCosmeticPacks } from './cosmeticPacks';
 import { env } from './env';
 import { restoreActiveGuild, useGuild } from './guild';
 import { useSession } from './session';
@@ -16,6 +15,9 @@ import { useSession } from './session';
 const RECONNECT_DELAYS_MS = [500, 1000, 2000, 5000, 10000];
 /** Öne gelince açık görünen bağlantının yoklaması: bu sürede HEARTBEAT_ACK gelmezse bağlantı ölü sayılır */
 const RESUME_PROBE_MS = 5000;
+
+/** Art arda yeniden bağlanmalarda kozmetik paketi bildirimi en çok bu sıklıkta sorulur */
+const COSMETIC_SESSION_REFRESH_MS = 60_000;
 
 /** Aynı etkinliğin başlangıcı en çok bu kadar oynadıysa (yuvarlama, gecikme) yeniden bildirilmez */
 const ACTIVITY_START_TOLERANCE_MS = 2000;
@@ -210,7 +212,7 @@ class GatewayClient {
       case 'HELLO':
         this.send({
           t: 'IDENTIFY',
-          d: { token, version: env().version, platform: env().platform, features: [CLIENT_FEATURE_DM, CLIENT_FEATURE_PRESENCE] },
+          d: { token, version: env().version, platform: env().platform, features: [...CLIENT_FEATURES] },
         });
         this.startHeartbeat(msg.d.heartbeatInterval);
         break;
@@ -219,6 +221,8 @@ class GatewayClient {
         this.identified = true;
         useGuild.getState().setReady(msg.d);
         useSession.getState().setUser(msg.d.user);
+        // Oturum başladı (ya da yeniden bağlandı): yayınlanmış kozmetik paketleri tazelenir
+        void refreshCosmeticPacks({ maxAgeMs: COSMETIC_SESSION_REFRESH_MS });
         // Yeni oturum etkin sayılır; boştaysak hemen bildir
         if (this.idle) this.send({ t: 'IDLE_SET', d: { idle: true } });
         if (this.watching.length > 0) this.send({ t: 'STREAM_WATCH_SET', d: { userIds: this.watching } });
@@ -244,6 +248,16 @@ class GatewayClient {
       case 'USER_UPDATE':
         useGuild.getState().apply(msg);
         if (msg.d.id === useSession.getState().user?.id) useSession.getState().setUser(msg.d);
+        // Bildirimde olmayan bir set seçilmiş: yeni paket yayınlanmış olabilir
+        noteCosmeticUsers([msg.d]);
+        break;
+      case 'GUILD_MEMBER_ADD':
+        useGuild.getState().apply(msg);
+        noteCosmeticUsers([msg.d.user]);
+        break;
+      case 'GUILD_CREATE':
+        useGuild.getState().apply(msg);
+        noteCosmeticUsers(msg.d.users);
         break;
       default:
         useGuild.getState().apply(msg);

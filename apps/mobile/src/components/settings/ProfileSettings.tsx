@@ -11,6 +11,7 @@ import {
   NAMEPLATES,
   PROFILE_EFFECT_LABELS,
   PROFILE_EFFECTS,
+  userNameplate,
   userProfileEffect,
   type AnimatedDecoration,
   type CosmeticSet,
@@ -385,7 +386,13 @@ function DecorationChoices({
   );
 }
 
-type LookPatch = Parameters<typeof updateProfileLook>[0];
+// Bu seçiciler yalnızca yerleşik setleri sunar (updateProfileLook paket kimliklerini de kabul eder)
+type LookPatch = {
+  profileTheme?: ProfileTheme | null;
+  profileEffect?: ProfileEffect | null;
+  avatarDecoration?: AnimatedDecoration | null;
+  nameplate?: Nameplate | null;
+};
 
 /**
  * Profil teması, efekti, dekorasyonu ve isim plakası: seçim önizlemede hemen görünür ve sunucuya kaydedilir;
@@ -421,7 +428,7 @@ function useProfileLook() {
       'avatarDecoration' in draft
         ? (draft.avatarDecoration ?? null)
         : savedDecoration && animatedDecoration(savedDecoration),
-    nameplate: pick('nameplate'),
+    nameplate: 'nameplate' in draft ? (draft.nameplate ?? null) : user ? userNameplate(user) : null,
     setTheme: (profileTheme: ProfileTheme | null) => save({ profileTheme }),
     setEffect: (profileEffect: ProfileEffect | null) => save({ profileEffect }),
     setDecoration: (avatarDecoration: AnimatedDecoration | null) => save({ avatarDecoration }),

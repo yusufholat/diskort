@@ -42,12 +42,11 @@ import {
   type SearchHas,
 } from '@diskort/shared';
 import {
-  animatedDecorationSet,
+  animatedDecorationId,
   AVATAR_COLORS,
   type AnimatedDecoration,
+  type CosmeticSetId,
   isCosmeticSet,
-  type Nameplate,
-  type ProfileEffect,
   type ProfileTheme,
 } from '@diskort/shared';
 import { FEEDBACK_MIGRATION } from './feedbackStore.js';
@@ -797,13 +796,21 @@ export class Store {
       // efekt kimliğinde çöker, set efekti bu yüzden ayrı alanda gider. Alanlar gönderilmeseydi de aynı
       // sonuç çıkardı (USER_UPDATE profili bütünüyle değiştirir); açıkça null olmaları daha güvenli.
       profileEffect: null,
-      animatedEffect: isCosmeticSet(r.profile_effect) ? r.profile_effect : null,
-      avatarDecoration: animatedDecorationSet(r.avatar_decoration) ? r.avatar_decoration : null,
+      // Set seçimleri yalnızca kimlik şu an biliniyorsa (yerleşik ya da yayında olan paket) gider: yayından
+      // kaldırılan paketin kimliği saklı kalır ama gönderilmez (paket yeniden yayınlanırsa geri gelir)
+      animatedEffect: this.knownCosmeticSet(r.profile_effect) ? r.profile_effect : null,
+      avatarDecoration: this.knownCosmeticSet(animatedDecorationId(r.avatar_decoration)) ? r.avatar_decoration : null,
       profileFrame: null,
-      nameplate: isCosmeticSet(r.nameplate) ? r.nameplate : null,
+      nameplate: this.knownCosmeticSet(r.nameplate) ? r.nameplate : null,
       isAdmin: r.is_admin === 1,
     };
   }
+
+  /**
+   * Set kimliği şu an seçilebilir mi. Varsayılan: yalnızca yerleşik setler; uygulama kurulurken kozmetik
+   * paketleri deposuna bağlanır (yerleşik ∪ yayında olan paketler, bkz. CosmeticPackStore.knows).
+   */
+  knownCosmeticSet: (id: string | null | undefined) => boolean = isCosmeticSet;
 
   // ---------- Kullanıcılar ----------
 
@@ -972,9 +979,9 @@ export class Store {
       displayName?: string;
       avatarColor?: string;
       profileTheme?: ProfileTheme | null;
-      profileEffect?: ProfileEffect | null;
+      profileEffect?: CosmeticSetId | null;
       avatarDecoration?: AnimatedDecoration | null;
-      nameplate?: Nameplate | null;
+      nameplate?: CosmeticSetId | null;
     },
   ): User | null {
     if (patch.displayName !== undefined) this.run('UPDATE users SET display_name = ? WHERE id = ?', patch.displayName, id);

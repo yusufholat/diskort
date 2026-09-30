@@ -3,7 +3,7 @@
 
 export { configureClient } from './configure';
 export type { ClientEnvironment, KeyValueStorage, LocalFile, UploadRequest, UploadResponse } from './env';
-export { api, ApiError, errorMessage, normalizeServerUrl } from './api';
+export { api, ApiError, CLIENT_FEATURES, clientFeatureHeaders, errorMessage, normalizeServerUrl } from './api';
 export {
   forgetReactionUsers,
   loadReactionUsers,
@@ -373,6 +373,23 @@ export {
 } from './sfx';
 export { PROFILE_THEME_PRESETS, profileGradient } from './profileLook';
 export { COSMETIC_SET_INFO, type CosmeticSetInfo } from './cosmeticSets';
+export {
+  cosmeticPackAsset,
+  cosmeticPackOf,
+  cosmeticPackPoster,
+  cosmeticPacks,
+  cosmeticRenderMode,
+  cosmeticSetInfo,
+  cosmeticSetLabel,
+  isKnownCosmeticSet,
+  noteCosmeticUsers,
+  refreshCosmeticPacks,
+  selectableCosmeticSets,
+  unknownCosmeticSets,
+  useCosmeticPacks,
+  type CosmeticRenderMode,
+  type ResolvedCosmeticAsset,
+} from './cosmeticPacks';
 export {
   COSMETIC_SHADER_COMMON,
   COSMETIC_SHADER_MAIN,

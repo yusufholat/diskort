@@ -11,6 +11,7 @@ import type { AvatarService } from './avatars.js';
 import type { AuthService } from './auth.js';
 import type { ClientVersionPolicy } from './clientVersion.js';
 import type { Config } from './config.js';
+import type { CosmeticPackStore } from './cosmeticPacks.js';
 import type { Store } from './db.js';
 import type { EmbedMediaService } from './embedMedia.js';
 import type { Gateway, Visibility } from './gateway.js';
@@ -41,6 +42,8 @@ export interface AppContext {
   avatars: AvatarService;
   /** Etkinlik (oyun) ikonları */
   activityIcons: ActivityIconStore;
+  /** Yayınlanmış kozmetik paketleri (komut satırından yayınlanır; burada yalnızca okunur) */
+  cosmeticPacks: CosmeticPackStore;
   /** GIF araması (GIPHY) ve mesajlara GIF gömme */
   gifs: GifService;
   /** Bağlantı önizlemeleri; LINK_PREVIEWS=0 ise null */
