@@ -257,7 +257,7 @@ const RETENTION_DAYS = 7;
 
 /** Bir satır "anormal" mi (çevresi diske yazılır) */
 export function isAbnormalRow(r: SecondRow, recent: SecondRow[]): boolean {
-  if (r.nd > 0 || r.ue > 0 || r.ur > 0 || r.us > 0 || (r.sd ?? 0) > 0) return true;
+  if (r.nd >= 5 || r.ue > 0 || r.ur > 0 || r.us > 0 || (r.sd ?? 0) > 0) return true;
   if ((r.psi ?? 0) >= 30) return true;
   // Sonda kaybı: son 10 saniyede dış sondaların en az %30'u yanıtsız (tek tük kayıp normaldir) ya da çok yüksek RTT
   let sent = 0;
@@ -436,10 +436,11 @@ export class SecondSampler {
         this.warned = true;
       }
     };
-    this.flushing = (this.flushing ?? Promise.resolve()).then(run).finally(() => {
-      this.flushing = null;
+    const p: Promise<void> = (this.flushing ?? Promise.resolve()).then(run).finally(() => {
+      if (this.flushing === p) this.flushing = null;
     });
-    return this.flushing;
+    this.flushing = p;
+    return p;
   }
 
   async removeOldFiles(now = Date.now()): Promise<void> {

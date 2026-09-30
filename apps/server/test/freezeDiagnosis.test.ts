@@ -342,7 +342,8 @@ describe('saniyelik ağ satırları', () => {
   it('isAbnormalRow: drop, UDP hatası, PSI ve sonda kaybı dalgası; tek tük kayıp normal', () => {
     const ok = healthyRows(1)[0]!;
     expect(isAbnormalRow(ok, [ok])).toBe(false);
-    expect(isAbnormalRow({ ...ok, nd: 1 }, [ok])).toBe(true);
+    expect(isAbnormalRow({ ...ok, nd: 1 }, [ok])).toBe(false);
+    expect(isAbnormalRow({ ...ok, nd: 5 }, [ok])).toBe(true);
     expect(isAbnormalRow({ ...ok, ur: 1 }, [ok])).toBe(true);
     expect(isAbnormalRow({ ...ok, psi: 35 }, [ok])).toBe(true);
     const oneLost = [...healthyRows(9), { ...ok, p: { 'udp 1.1.1.1': -1 } }];

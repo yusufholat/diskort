@@ -184,7 +184,11 @@ export function registerTelemetryRoutes(app: FastifyInstance, ctx: AppContext): 
       channelId,
       guildId: channelId ? (ctx.store.getChannel(channelId)?.guildId ?? null) : null,
     });
-    ctx.freeze.observe(entry);
+    try {
+      ctx.freeze.observe(entry);
+    } catch (err) {
+      req.log.warn({ err: String(err) }, 'yayın donma toplayıcısı hata verdi');
+    }
     ctx.counters.inc('telemetry.reports');
     return reply.code(204).send();
   });
