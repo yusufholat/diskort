@@ -146,7 +146,8 @@ export function useHoverPlay(): { playing: boolean; bind: HoverPlayBind } {
       onPointerLeave: () => setHover(false),
       // Fareyle tıklayıp odaklanmak sayılmaz (zaten üstünde); yalnızca klavye odağı (focus-visible)
       onFocus: (e) => {
-        if (e.target.matches(':focus-visible')) setFocus(true);
+        // Fareyle odaklanan başka bir öğe (satır içinde) klavye odağını da sıfırlar
+        setFocus(e.target.matches(':focus-visible'));
       },
       // Odak kabın içinde başka yere geçtiyse sürer
       onBlur: (e) => {
