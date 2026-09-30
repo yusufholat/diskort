@@ -111,8 +111,6 @@ function Panel({ channel, dm }: { channel: Channel; dm: null } | { channel: null
   const [visited, setVisited] = useState<ReadonlySet<TabKey>>(() => withNeighbors(new Set(), 0));
   const pager = useRef<FlatList<TabKey>>(null);
   const scrollX = useRef(new Animated.Value(0)).current;
-  // Sayfa kayarken üyelerdeki hareketli isim plakaları durur: Skia kareleri kaydırmayla aynı kare bütçesini yemesin
-  const [moving, setMoving] = useState(false);
 
   const select = useCallback(
     (i: number) => {
@@ -122,16 +120,13 @@ function Panel({ channel, dm }: { channel: Channel; dm: null } | { channel: null
     [withNeighbors],
   );
   const goTo = (i: number): void => {
-    // Seçili sekmeye yeniden dokunmak: kayma olmaz, kayma sonu da gelmez (plakalar "kayıyor" diye durup kalmasın)
     if (i === index) return;
     // Bitişik olmayan sekmeye kayarken aradaki (kurulmamış) sayfalar boş görünür; onlara doğrudan atlanır
     const far = Math.abs(i - index) > 1;
-    if (!far) setMoving(true);
     select(i);
     pager.current?.scrollToOffset({ offset: i * width, animated: !far });
   };
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>): void => {
-    setMoving(false);
     const i = Math.round(e.nativeEvent.contentOffset.x / width);
     if (i !== index && i >= 0 && i < tabs.length) select(i);
   };
@@ -167,7 +162,7 @@ function Panel({ channel, dm }: { channel: Channel; dm: null } | { channel: null
     return (
       <View style={{ width, flex: 1 }}>
         {!visited.has(item) ? null : item === 'members' ? (
-          <MemberList source={source} context={context} header={inviteRow} still={moving || index !== 0} />
+          <MemberList source={source} context={context} header={inviteRow} />
         ) : item === 'media' ? (
           <MediaGrid channelId={channelId} active />
         ) : item === 'pins' ? (
@@ -218,7 +213,7 @@ function Panel({ channel, dm }: { channel: Channel; dm: null } | { channel: null
           data={tabs}
           keyExtractor={(t) => t}
           renderItem={renderPage}
-          extraData={`${moving ? 1 : 0}:${index}:${[...visited].join(',')}:${inviteRow ? 1 : 0}:${dm ? dm.participantIds.join(',') : ''}`}
+          extraData={`${index}:${[...visited].join(',')}:${inviteRow ? 1 : 0}:${dm ? dm.participantIds.join(',') : ''}`}
           horizontal
           pagingEnabled
           bounces={false}
@@ -226,7 +221,6 @@ function Panel({ channel, dm }: { channel: Channel; dm: null } | { channel: null
           showsHorizontalScrollIndicator={false}
           scrollEnabled={tabs.length > 1}
           getItemLayout={(_, i) => ({ length: width, offset: width * i, index: i })}
-          onScrollBeginDrag={() => setMoving(true)}
           onMomentumScrollEnd={onMomentumEnd}
           onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: true })}
           scrollEventThrottle={16}

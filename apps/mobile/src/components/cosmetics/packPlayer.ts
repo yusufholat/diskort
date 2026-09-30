@@ -67,7 +67,10 @@ export interface PlayerDriver<F> {
 export interface PlaybackView<F> {
   /** Görünümün bulunduğu ekran odakta mı (başka bir ekranın altında kalan oynamaz) */
   focused: boolean;
-  /** Durdurulmuş: sabit resim (seçicide seçili olmayan seçenek, seste konuşmayan katılımcı) */
+  /**
+   * Durdurulmuş: sabit resim. (Uygulama bunu kullanmaz: sabit parçalar oynatıcıya hiç bağlanmaz, yalnızca açık
+   * profilin parçaları bağlanır; bkz. Cosmetics.tsx.)
+   */
   paused: boolean;
   /** Görünümün pencerede görünür olup olmadığını ölçer (verilmezse hep görünür sayılır) */
   measure?: (done: (visible: boolean) => void) => void;

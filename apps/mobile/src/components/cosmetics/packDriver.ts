@@ -40,7 +40,8 @@
 // değiştirme, çizim ve bırakma aynı iş parçacığında sırayla olur.
 //
 // İş bütçesi (packLayout.ts): kareleri yetişmeyen dosya sabit resme alınır; aynı anda çok dosya oynarken toplam iş
-// fazlaysa en pahalı oynatıcı sabit resme alınır (sonra yeniden denenir).
+// fazlaysa en pahalı oynatıcı sabit resme alınır (sonra yeniden denenir). Telefonda yalnızca açık profil oynar
+// (kart efekti ve dekorasyon): az oynatıcıda toplam bütçe geniştir.
 //
 // Hiçbir yol hata fırlatmaz: çözülemeyen, açılamayan, yavaş kalan dosya `failed` olayıyla bildirilir, görünümler
 // sabit resme döner.
@@ -57,7 +58,7 @@ import {
   nextFrames,
   STEP_BUDGET_MS,
   stepCost,
-  TICK_BUDGET_MS,
+  tickBudget,
   videoBroken,
   videoShouldRewind,
 } from './packLayout';
@@ -304,10 +305,11 @@ function ui(): UiState {
       stepped++;
     }
     // Toplam iş yalnızca birden çok oynatıcının aynı karede ilerlediği karelerde ölçülür (tek oynatıcının işi kendi
-    // bütçesine bakar)
+    // bütçesine bakar); bütçe o karede ilerleyen oynatıcı sayısına göredir (bkz. packLayout.ts tickBudget)
     if (stepped >= 2) {
-      state.cost = stepCost(state.cost, total, TICK_BUDGET_MS);
-      state.strikes = budgetStrikes(state.strikes, state.cost, TICK_BUDGET_MS);
+      const budget = tickBudget(stepped);
+      state.cost = stepCost(state.cost, total, budget);
+      state.strikes = budgetStrikes(state.strikes, state.cost, budget);
       if (state.strikes >= BUDGET_STRIKES) {
         state.strikes = 0;
         uiShed(state);

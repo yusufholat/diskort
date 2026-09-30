@@ -1,5 +1,5 @@
 import { Component, memo, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { Image, PixelRatio, Platform, StyleSheet, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
+import { Image, PixelRatio, Platform, StyleSheet, View, type ImageStyle, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
 import Reanimated, { makeMutable, useAnimatedStyle, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { scheduleOnUI } from 'react-native-worklets';
 import { useIsFocused } from 'expo-router';
@@ -8,9 +8,9 @@ import { cosmeticAssetFailed, cosmeticPacks, useCosmeticManifest, type ResolvedC
 import type { CanvasRef, SkRuntimeEffect } from '@shopify/react-native-skia';
 import type { Frame } from './packDriver';
 import {
-  ANIMATED_DECORATION_MIN_SIZE,
   cardEffectBox,
   decorationBox,
+  decorationLook,
   isStackedLayout,
   plateBox,
   STACKED_ALPHA_SKSL,
@@ -25,9 +25,11 @@ import { reportCosmeticError } from './report';
 import { skia, useHasSkia } from './skia';
 
 // Hareketli kozmetiklerin React bileşenleri. Setler telefonda kodla çizilmez: sunucudan inen paketin dosyaları
-// oynatılır (bkz. docs/kozmetik-paketleri.md). Her parçanın altında sabit resmi (poster: düz bir <Image>) durur;
-// parça ekrandayken, ekranı odaktayken ve hareket serbestken üstüne paylaşılan oynatıcının karesini çizen bir
-// Skia yüzeyi gelir (packPlayer.ts / packDriver.ts). Paket bu platformda kapalıysa (ya da sabit resmi de
+// oynatılır (bkz. docs/kozmetik-paketleri.md). Discord'daki gibi kozmetikler yalnızca bilerek bakılan yerde oynar:
+// bileşenler varsayılan olarak SABİTTİR (yalnızca sabit resim, poster: düz bir <Image>; oynatıcı, çözücü, Skia
+// yüzeyi kurulmaz, hareketli dosya indirilmez). Yalnızca `animate` verilen parça (açık profil kartı: ProfileHeader)
+// oynar: ekrandayken, ekranı odaktayken ve hareket serbestken sabit resmin üstüne paylaşılan oynatıcının karesini
+// çizen bir Skia yüzeyi gelir (packPlayer.ts / packDriver.ts). Paket bu platformda kapalıysa (ya da sabit resmi de
 // yüklenemiyorsa) setin renklerinden sabit bir görünüm, set bildirimde yoksa hiçbir şey gösterilir. Yüklenemeyen
 // dosya sunucuya bildirilir (bildirim tazelenir) ve bildirim değişince ya da bağlantı geri gelince yeniden
 // denenir. Skia'nın yerel modülü olmayan uygulamada kozmetikler gösterilmez (küçük avatarlardaki sabit halka
@@ -42,14 +44,14 @@ const DEVICE: PhoneDevice =
 /**
  * Canlı yüzeyin kaldırılması iki aşamalıdır. Parça canlılığını yitirince yüzey önce boş çizilir: paylaşılan kareye
  * bağlı eşleyicisi (Skia'nın Reanimated mapper'ı) durur ve yenisi kurulmaz. Yüzey ancak bu kadar (ms) sonra
- * kaldırılır; bu arada parça yeniden canlanırsa aynı yüzey yeniden beslenir (sesli sahnede konuşma, kaydırma).
+ * kaldırılır; bu arada parça yeniden canlanırsa aynı yüzey yeniden beslenir (kaydırma, ekran değişimi).
  * Neden: Skia'nın görünüm kaydı (cpp/rnskia/RNSkJsiViewApi.h) kaldırılmış görünüme gelen `picture` yazımını,
  * görünümü olmayan yeni bir kayıtta saklar ve o kayıt hiç silinmez; eşleyici yalnızca eşzamansız durdurulduğundan
  * canlıyken kaldırılan yüzeye paylaşılan kare değiştikçe böyle bir yazım gelebilir ve son kare bellekte kalırdı.
  */
 const CANVAS_LINGER_MS = 3000;
 /**
- * Yüzey canlıyken kaldırılırsa (satır listeden çıktı, profil kapandı) bu kadar sonra (ms) Skia'nın görünüm kaydındaki
+ * Yüzey canlıyken kaldırılırsa (profil kapandı) bu kadar sonra (ms) Skia'nın görünüm kaydındaki
  * resmi boş bir resimle değiştirilir: kayıt kalsa da kareyi tutmaz. Bu sürede eşleyici kesinlikle durmuştur.
  */
 const CANVAS_SWEEP_MS = 1000;
@@ -98,14 +100,14 @@ const specOf = (asset: ResolvedCosmeticAsset, info: CosmeticPack): PlayerSpec =>
 
 /**
  * Görünümü dosyanın paylaşılan oynatıcısına bağlar. Canlıyken (`live`) oynatıcının karesi çizilir; değilken
- * (ekran dışında, odak dışında, durdurulmuş, "hareketi azalt" açık, dosya henüz hazır değil) sabit resim.
+ * (ekran dışında, odak dışında, "hareketi azalt" açık, dosya henüz hazır değil) sabit resim.
  */
-function usePlayback(asset: ResolvedCosmeticAsset | null, info: CosmeticPack, paused: boolean, box: RefObject<View | null>) {
+function usePlayback(asset: ResolvedCosmeticAsset | null, info: CosmeticPack, box: RefObject<View | null>) {
   const focused = useIsFocused();
   const [state, setState] = useState(IDLE);
   const handle = useRef<PlaybackHandle | null>(null);
-  const latest = useRef({ focused, paused, asset, info });
-  latest.current = { focused, paused, asset, info };
+  const latest = useRef({ focused, asset, info });
+  latest.current = { focused, asset, info };
   const url = asset?.url ?? null;
 
   useEffect(() => {
@@ -115,7 +117,7 @@ function usePlayback(asset: ResolvedCosmeticAsset | null, info: CosmeticPack, pa
     try {
       attached = playback().attach(specOf(current.asset, current.info), {
         focused: current.focused,
-        paused: current.paused,
+        paused: false,
         measure: (done) => box.current?.measureInWindow((x, y, w, h) => done(onScreen(x, y, w, h))),
         onChange: setState,
       });
@@ -132,8 +134,8 @@ function usePlayback(asset: ResolvedCosmeticAsset | null, info: CosmeticPack, pa
   }, [url, box]);
 
   useEffect(() => {
-    handle.current?.update({ focused, paused });
-  }, [focused, paused]);
+    handle.current?.update({ focused });
+  }, [focused]);
 
   return { ...state, remeasure: () => handle.current?.remeasure() };
 }
@@ -344,7 +346,11 @@ interface PieceProps {
   width: number;
   height: number;
   visibleHeight?: number;
-  paused?: boolean;
+  /**
+   * Parça oynar (yalnızca açık profil kartı). Verilmezse yalnızca sabit resim: oynatıcı, Skia yüzeyi ve arayüz
+   * iş parçacığında kare başına iş yoktur, hareketli dosya indirilmez.
+   */
+  animate?: boolean;
   /** Saydam olmayan parça (isim plakası): sabit resim canlı yüzeyin altında kalır */
   opaque?: boolean;
   /** Kapsayıcının yeri ve boyu */
@@ -381,12 +387,59 @@ function usePoster(poster: ResolvedCosmeticAsset | null) {
   };
 }
 
-/** Paketin bir parçası: altta sabit resim, canlıyken üstünde oynatıcının karesi. Dokunmaları engellemez. */
-function PackPiece({ info, asset, poster, left, top, width, height, visibleHeight, paused, opaque, style, onSize, fallback, children }: PieceProps) {
+/** Parçanın sabit resmi: kutusunu tam dolduran düz bir resim (kutu dosyanın en boy oranındadır: bozulmaz) */
+function PosterImage({ poster, still, style }: { poster: ResolvedCosmeticAsset; still: ReturnType<typeof usePoster>; style: StyleProp<ImageStyle> }) {
+  return (
+    <Image
+      key={still.key}
+      source={{ uri: poster.url }}
+      style={[style, still.failed && styles.hidden]}
+      resizeMode="stretch"
+      fadeDuration={0}
+      onError={still.onError}
+      accessibilityIgnoresInvertColors
+    />
+  );
+}
+
+/**
+ * Paketin bir parçası. `animate` yoksa (listeler, mesajlar, ses kutucukları, seçici) yalnızca sabit resim;
+ * `animate` ile (açık profil) altta sabit resim, canlıyken üstünde oynatıcının karesi. Dokunmaları engellemez.
+ */
+function PackPiece({ animate, ...props }: PieceProps) {
+  return animate ? <LivePiece {...props} /> : <StillPiece {...props} />;
+}
+
+/**
+ * Sabit parça: yalnızca sabit resim (oynatıcı, Skia yüzeyi, paylaşılan değer, ölçüm yok). Resim kutusuna tek
+ * ölçekle, tam boyunda çizilir (küçültülüp büyütülmez). Posteri olmayan parça setin renklerinden sabit görünümdür.
+ */
+function StillPiece({ poster, left, top, width, height, style, onSize, fallback, children }: Omit<PieceProps, 'animate'>) {
+  const still = usePoster(poster);
+  const drawable = width >= 1 && height >= 1;
+  return (
+    <>
+      <View
+        pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[styles.box, style]}
+        onLayout={onSize && ((e) => onSize(e.nativeEvent.layout.width, e.nativeEvent.layout.height))}
+      >
+        {poster && drawable && <PosterImage poster={poster} still={still} style={{ position: 'absolute', left, top, width, height }} />}
+        {children}
+      </View>
+      {!poster || still.failed ? fallback : null}
+    </>
+  );
+}
+
+/** Oynayan parça: altta sabit resim, canlıyken üstünde oynatıcının karesi */
+function LivePiece({ info, asset, poster, left, top, width, height, visibleHeight, opaque, style, onSize, fallback, children }: Omit<PieceProps, 'animate'>) {
   const box = useRef<View>(null);
   const [broken, setBroken] = useState(false);
   const canPlay = useHasSkia() && !broken;
-  const { live, frame, remeasure } = usePlayback(canPlay ? asset : null, info, Boolean(paused), box);
+  const { live, frame, remeasure } = usePlayback(canPlay ? asset : null, info, box);
   const still = usePoster(poster);
   const drawable = width >= 1 && height >= 1;
   // Beslenen: canlı yüzey oynatıcının karesini çizer. Yüzey, beslenme bittikten sonra CANVAS_LINGER_MS daha boş
@@ -399,17 +452,7 @@ function PackPiece({ info, asset, poster, left, top, width, height, visibleHeigh
     remeasure();
   };
   const place = { position: 'absolute', left, top, width, height } as const;
-  const posterImage = poster && (
-    <Image
-      key={still.key}
-      source={{ uri: poster.url }}
-      style={[opaque ? place : StyleSheet.absoluteFill, still.failed && styles.hidden]}
-      resizeMode="stretch"
-      fadeDuration={0}
-      onError={still.onError}
-      accessibilityIgnoresInvertColors
-    />
-  );
+  const posterImage = poster && <PosterImage poster={poster} still={still} style={opaque ? place : StyleSheet.absoluteFill} />;
   return (
     <>
       <View
@@ -455,9 +498,9 @@ function useSize(): [{ w: number; h: number }, (w: number, h: number) => void] {
 /**
  * Profil kartının tamamını saran set efekti: kartın genişliğine ölçeklenir, üste yaslanır (600×900'lük dosya);
  * kısa kart altını kırpar, uzun kartta efekt aşağıda söner. Kartın içeriğinin üstünde, avatarın altında durur
- * (bkz. ProfileHeader) ve dokunmaları engellemez.
+ * (bkz. ProfileHeader) ve dokunmaları engellemez. `animate` ile oynar (açık profil), yoksa sabit resim.
  */
-export function CardEffect({ set }: { set: CosmeticSetId }) {
+export function CardEffect({ set, animate }: { set: CosmeticSetId; animate?: boolean }) {
   const source = usePieceSource(set, 'card');
   const [size, onSize] = useSize();
   if (!useHasSkia() || source.kind === 'none') return null;
@@ -475,6 +518,7 @@ export function CardEffect({ set }: { set: CosmeticSetId }) {
       width={box.width}
       height={box.height}
       visibleHeight={box.visibleHeight}
+      animate={animate}
       style={StyleSheet.absoluteFill}
       onSize={onSize}
       fallback={<CardStaticGlow info={source.info} />}
@@ -493,29 +537,26 @@ function CardStaticGlow({ info }: { info: CosmeticPack }) {
 // ---------- Avatar dekorasyonu ----------
 
 /**
- * Hareketli avatar dekorasyonu: avatarla aynı merkezde, ondan büyük bir kare. Profil boyundaki avatarda (≥ 64
- * piksel) ya da `animate` ile oynar; küçük avatarda (mesajlar, üye listesi) sabit bir halka: onlarca satır yüzey
- * açmasın.
+ * Avatar dekorasyonu: avatarla aynı merkezde, ondan büyük bir kare (bkz. packLayout.ts decorationLook). Yalnızca
+ * `animate` ile oynar (açık profil kartı); büyük avatarda (≥ 64 piksel: ses kutucukları) ve `poster` ile (seçicinin
+ * kutuları) sabit resim; küçük avatarda (mesajlar, listeler) sabit bir halka.
  */
 export function AnimatedDecoration({
   set,
   size,
   animate,
-  lite,
-  still,
+  poster,
 }: {
   set: CosmeticSetId;
   size: number;
   animate?: boolean;
-  /** Sesli sahne: 'paused' ise sabit resim (konuşmuyor), 'on' ise oynar */
-  lite?: 'on' | 'paused';
-  /** Sabit resim (seçicide seçili olmayan seçenek) */
-  still?: boolean;
+  /** Küçük avatarda da halka yerine sabit resim (seçicinin kutuları) */
+  poster?: boolean;
 }) {
   const source = usePieceSource(set, 'deco');
-  const animated = useHasSkia() && (animate || size >= ANIMATED_DECORATION_MIN_SIZE);
+  const look = useHasSkia() ? decorationLook(size, { animate, poster }) : 'ring';
   if (source.kind === 'none') return null;
-  if (source.kind === 'static' || !animated) return <StaticDecorationRing accent={source.info.accent} size={size} />;
+  if (source.kind === 'static' || look === 'ring') return <StaticDecorationRing accent={source.info.accent} size={size} />;
   const box = decorationBox(size);
   const off = (size - box) / 2;
   return (
@@ -527,7 +568,7 @@ export function AnimatedDecoration({
       top={0}
       width={box}
       height={box}
-      paused={still || lite === 'paused'}
+      animate={look === 'live'}
       style={{ left: off, top: off, width: box, height: box }}
       fallback={<StaticDecorationRing accent={source.info.accent} size={size} />}
     />
@@ -560,9 +601,10 @@ export function StaticDecorationRing({ accent, size }: { accent: string; size: n
 /**
  * Üye listesi satırının arkasındaki isim plakası (satırın ilk çocuğu olmalı: yazılar üstünde kalır). Resim satırın
  * yüksekliğinde, sağa yaslıdır; solda kalan kısım plakanın koyu rengiyle dolar ve resmin sol kenarı o renge
- * karışır (resmin solu zaten koyudur: avatar, ad ve durumun altı sakin kalır).
+ * karışır (resmin solu zaten koyudur: avatar, ad ve durumun altı sakin kalır). Listede ve seçicide sabit resimdir;
+ * `animate` ile oynar (yalnızca açık profil için).
  */
-export function NameplateBackground({ set, still }: { set: CosmeticSetId; still?: boolean }) {
+export function NameplateBackground({ set, animate }: { set: CosmeticSetId; animate?: boolean }) {
   const source = usePieceSource(set, 'plate');
   const [size, onSize] = useSize();
   if (!useHasSkia() || source.kind === 'none') return null;
@@ -581,7 +623,7 @@ export function NameplateBackground({ set, still }: { set: CosmeticSetId; still?
       top={0}
       width={box.width}
       height={box.height}
-      paused={still}
+      animate={animate}
       opaque
       style={[StyleSheet.absoluteFill, { backgroundColor: dark }]}
       onSize={onSize}

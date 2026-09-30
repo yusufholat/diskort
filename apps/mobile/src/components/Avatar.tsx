@@ -25,12 +25,13 @@ interface Props {
   surface?: string;
   /** Avatar dekorasyonunun kimliği (user.avatarDecoration): avatarın üstüne, yerleşimi değiştirmeden çizilir */
   decoration?: string | null;
-  /** Hareketli dekorasyon küçük avatarda da canlı çizilsin (ayarlardaki seçici) */
+  /**
+   * Hareketli dekorasyon oynasın: YALNIZCA açık profil kartı (ProfileHeader). Başka her yerde (listeler, mesajlar,
+   * ses kutucukları, seçici) dekorasyon sabittir ve oynatıcı kurulmaz.
+   */
   animateDecoration?: boolean;
-  /** Sesli sahnedeki hareketli dekorasyon: 'on' ise oynar, 'paused' ise sabit resim (konuşmuyor) */
-  decorationLite?: 'on' | 'paused';
-  /** Hareketli dekorasyon sabit resim (seçicide seçili olmayan seçenek) */
-  decorationStill?: boolean;
+  /** Küçük avatarda da halka yerine dekorasyonun sabit resmi (ayarlardaki seçicinin kutuları) */
+  decorationPoster?: boolean;
 }
 
 export function Avatar({
@@ -42,8 +43,7 @@ export function Avatar({
   surface = colors.side,
   decoration,
   animateDecoration,
-  decorationLite,
-  decorationStill,
+  decorationPoster,
 }: Props) {
   const shown: DisplayStatus | undefined = status ?? (online === undefined ? undefined : online ? 'online' : 'offline');
   const border = size >= 32 ? 3 : 2;
@@ -80,9 +80,7 @@ export function Avatar({
           <Text style={[styles.text, { fontSize: Math.max(10, size * 0.38), color: avatarInk(user?.avatarColor) }]}>{initials(user?.displayName ?? '?')}</Text>
         )}
       </View>
-      {animated && (
-        <AnimatedDecoration set={animated} size={size} animate={animateDecoration} lite={decorationLite} still={decorationStill} />
-      )}
+      {animated && <AnimatedDecoration set={animated} size={size} animate={animateDecoration} poster={decorationPoster} />}
       {shown !== undefined && (
         <View style={[styles.dot, { padding: border, borderRadius: size, backgroundColor: surface }]}>
           <StatusDot status={shown} size={dot} surface={surface} />

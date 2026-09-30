@@ -5,7 +5,10 @@
 
 // ---------- Avatar dekorasyonu ----------
 
-/** Avatarın bu boydan küçüğünde (mesajlar, listeler) hareketli dekorasyon yerine sabit, ucuz bir halka */
+/**
+ * Avatarın bu boydan küçüğünde (mesajlar, listeler) dekorasyonun resmi yerine sabit, ucuz bir halka (seçicideki
+ * küçük kutular hariç: onlar resmi gösterir)
+ */
 export const ANIMATED_DECORATION_MIN_SIZE = 64;
 /** Dekorasyon karesi avatarın dış yarıçapının bu katı (paket: 46 piksellik yarıçapa 132 piksellik kare) */
 const DECORATION_CANVAS_SCALE = 132 / 46;
@@ -22,6 +25,20 @@ export const decorationBox = (size: number): number => Math.round(decorationRadi
  */
 export const decorationCanvasSize = (size: number): number =>
   size >= ANIMATED_DECORATION_MIN_SIZE ? decorationBox(size) : size;
+
+/**
+ * Dekorasyon nasıl gösterilir. Telefonda kozmetikler yalnızca açık profilde oynar (Discord gibi): listeler, mesajlar,
+ * ses kutucukları ve seçicinin kutuları hep sabittir ve oralarda oynatıcı hiç kurulmaz.
+ * - `live`: oynatıcı kurulur, kareleri çizilir (`animate`: açık profil kartı)
+ * - `poster`: yalnızca sabit resim (büyük avatar ya da `poster` istenmiş küçük avatar: seçicinin kutuları)
+ * - `ring`: küçük avatarda setin renginde halka
+ */
+export type DecorationLook = 'live' | 'poster' | 'ring';
+
+export function decorationLook(size: number, options: { animate?: boolean; poster?: boolean } = {}): DecorationLook {
+  if (options.animate) return 'live';
+  return options.poster || size >= ANIMATED_DECORATION_MIN_SIZE ? 'poster' : 'ring';
+}
 
 // ---------- Profil kartı efekti ----------
 
@@ -254,13 +271,25 @@ export function videoShouldRewind(
 // Kareler arayüz iş parçacığında çözülür: iş uzarsa arayüz takılır. İki bütçe vardır ve ikisi de tek bir
 // takılmayla değil, ortalamanın art arda pek çok karede aşılmasıyla dolar:
 // - oynatıcı başına: tek bir dosyanın karesi bu telefonda yetişmiyorsa o dosya bu oturumda oynatılmaz;
-// - kare başına toplam: aynı anda çok sayıda farklı dosya oynuyorsa (ör. on iki ayrı isim plakası) en pahalı
-//   oynatıcı sabit resme alınır, toplam bütçeye inene kadar sırayla; bunlar bir süre sonra yeniden denenir.
+// - kare başına toplam: aynı anda çok sayıda farklı dosya oynuyorsa en pahalı oynatıcı sabit resme alınır, toplam
+//   bütçeye inene kadar sırayla; bunlar bir süre sonra yeniden denenir. Yalnızca o karede ilerleyen (ekranda,
+//   odaktaki ekranda, oynayan) oynatıcılar sayılır. Telefonda kozmetikler yalnızca açık profilde oynadığından
+//   olağan durum kart efekti ve dekorasyondur (iki oynatıcı): az oynatıcıda bütçe geniştir (Android'de videonun
+//   karesi çözücüyü ~10 ms'ye kadar bekleyebilir; dekorasyon bu yüzden sabit resme alınmasın). Kart videosu zaten
+//   en son bırakılır (bkz. packDriver.ts uiShed).
 
 /** Bir oynatıcının kare başına ortalama işi bunu (ms) aşmamalı */
 export const STEP_BUDGET_MS = { image: 12, video: 16 } as const;
-/** Bir karedeki bütün oynatıcıların toplam ortalama işi bunu (ms) aşmamalı */
-export const TICK_BUDGET_MS = 10;
+/** Bir karedeki bütün oynatıcıların toplam ortalama işi bunu (ms) aşmamalı: az oynatıcıda (`FEW_PLAYERS`) ve çokta */
+export const TICK_BUDGET_MS = { few: 20, many: 10 } as const;
+/** Bu kadar ya da daha az oynatıcının ilerlediği kare "az" sayılır (açık profil: kart, dekorasyon, plaka) */
+export const FEW_PLAYERS = 3;
+
+/** Bu karede `stepped` oynatıcı ilerlediyse toplam iş bütçesi (ms) */
+export function tickBudget(stepped: number): number {
+  'worklet';
+  return stepped <= FEW_PLAYERS ? TICK_BUDGET_MS.few : TICK_BUDGET_MS.many;
+}
 /** Ortalama art arda bu kadar karede bütçenin üstündeyse (30 kare/sn'de 1,5 sn) bütçe dolmuştur */
 export const BUDGET_STRIKES = 45;
 /** Tek bir ölçüm ortalamaya en çok bütçenin bu katı kadar sayılır (çöp toplama gibi tek bir takılma ortalamayı bozmasın) */

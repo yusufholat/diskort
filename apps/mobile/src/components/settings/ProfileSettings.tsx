@@ -84,7 +84,8 @@ export function ProfileSettings() {
             disabled={photo.busy !== null}
             accessibilityLabel="Profil fotoğrafını değiştir"
           >
-            <PresenceAvatar userId={user.id} user={user} size={88} surface={ring} decoration={look.decoration} />
+            {/* Önizleme kartı açık profildir: seçili dekorasyon burada oynar */}
+            <PresenceAvatar userId={user.id} user={user} size={88} surface={ring} decoration={look.decoration} animateDecoration />
             <View style={[styles.cameraBadge, { borderColor: ring }]}>
               {photo.busy ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="camera" size={15} color="#fff" />}
             </View>
@@ -210,7 +211,7 @@ export function ProfileSettings() {
 
           <SectionTitle>İsim plakası</SectionTitle>
           <Card style={styles.pad}>
-            <Text style={styles.hint}>Üye listesinde adının arkasında oynayan zemin.</Text>
+            <Text style={styles.hint}>Üye listesinde adının arkasındaki zemin.</Text>
             <NameplatePicker sets={sets} user={preview} value={look.nameplate} onPick={look.setNameplate} />
           </Card>
         </>
@@ -303,7 +304,8 @@ function NameplatePicker({
             accessibilityLabel={o.name}
           >
             <View style={styles.plateRow}>
-              {o.id && <NameplateBackground set={o.id} still={!selected} />}
+              {/* Seçenekler sabit resimdir (telefonda kozmetikler yalnızca açık profilde oynar) */}
+              {o.id && <NameplateBackground set={o.id} />}
               <Avatar user={user} size={30} status="online" surface={o.id ? '#0a0a0a' : colors.main} decoration={user.avatarDecoration} />
               <Text
                 style={[styles.plateName, o.id ? [{ color: nameplateNameColor(null) }, NAMEPLATE_TEXT_SHADOW] : null]}
@@ -354,8 +356,8 @@ function DecorationChoices({
             accessibilityState={{ selected }}
             accessibilityLabel={o.name}
           >
-            {/* Yalnızca seçili dekorasyon oynar; diğerleri sabit resim (sayfada onlarca yüzey olmasın) */}
-            <Avatar user={user} size={42} decoration={o.id} animateDecoration decorationStill={!selected} />
+            {/* Seçenekler sabit resimdir; seçili dekorasyon yukarıdaki önizleme kartında oynar */}
+            <Avatar user={user} size={42} decoration={o.id} decorationPoster />
           </Pressable>
         );
       })}

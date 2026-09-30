@@ -202,9 +202,16 @@ Telefon setleri kodla çizmez; oynatıcı `apps/mobile/src/components/cosmetics/
   postere döner).
 - Android'de video çözücüsü telefonun donanım çözücüsüdür: uygulama arka plana geçince ve kimse oynatmıyorken
   yarım dakika sonra bırakılır; aynı anda en çok bir boşta video tutulur.
-- `avif` telefonda kullanılmaz. Poster düz bir resim olarak gösterilir: "hareketi azalt" açıkken, durdurulmuş
-  görünümde (seçicide seçili olmayan seçenek, seste konuşmayan katılımcı), ekran dışında ve dosya yüklenirken.
+- **Kozmetikler telefonda yalnızca açık profilde oynar** (Discord gibi): üye menüsündeki profil kartı ve Ayarlar →
+  Profil'deki önizleme kartı (`ProfileHeader`: kart efekti ve büyük avatarın dekorasyonu; kart kapanınca oynatıcılar
+  bırakılır). Başka her yerde (üye ve konuşma listeleri, mesajlar, ses kutucukları, paneller, seçicinin kutuları)
+  parça **sabittir**: yalnızca poster gösterilir; oynatıcı, çözücü ve Skia yüzeyi kurulmaz, hareketli dosya
+  indirilmez. Bileşenlerde hareket `animate` (avatarda `animateDecoration`) ile istenir, varsayılanı kapalıdır.
+- `avif` telefonda kullanılmaz. Poster düz bir resim olarak gösterilir: sabit parçalarda ve açık profilde "hareketi
+  azalt" açıkken, ekran dışında ve dosya yüklenirken.
 - Küçük avatarlarda (64 pikselden küçük: mesajlar, listeler) dekorasyon yerine setin `accent` renginde sabit bir
-  halka çizilir. Paket platformda kapalıysa: halka, plakada `fallback` renklerinden koyu bir zemin, kartta
-  afişin üstünde hafif bir ışık.
+  halka çizilir (seçicinin kutuları posteri gösterir). Paket platformda kapalıysa: halka, plakada `fallback`
+  renklerinden koyu bir zemin, kartta afişin üstünde hafif bir ışık.
+- Dosyalar masaüstü yoğunluğunun 2 katıdır (dekorasyon 264 piksel 132 CSS piksellik kutuya, plaka 80 piksel 40
+  piksellik satıra); telefonun ekranı çoğunlukla 3–3,5 kattır, resimler büyütülerek gösterilir.
 - Dosyalar cihazda sürümlü adresleriyle önbelleklenir; bildirimde kalmayan sürümler silinir.
