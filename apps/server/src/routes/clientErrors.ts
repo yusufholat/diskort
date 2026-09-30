@@ -32,8 +32,9 @@ const IGNORED_MESSAGES = [
 
 /**
  * İstemcilerin beklenmedik hataları (özellikle telefonda hata ayıklama aracı yok). Veritabanına yazılmaz:
- * sunucu kayıtlarına düşer (`docker compose logs api | grep "istemci hatası"`) ve son 200'ü bellekte
- * yönetim panelinde görünür. Giriş yapmadan önceki hatalar da gelebilsin diye oturum zorunlu değildir;
+ * sunucu kayıtlarına düşer (`docker compose logs api | grep "istemci hatası"`) ve son 200'ü yönetim
+ * panelinde görünür (SYSTEM_STATS açıkken <DATA_DIR>/client-errors.jsonl'de 14 gün saklanır, yeniden
+ * başlatmada kaybolmaz). Giriş yapmadan önceki hatalar da gelebilsin diye oturum zorunlu değildir;
  * adres başına sınırlıdır.
  */
 export function registerClientErrorRoutes(app: FastifyInstance, ctx: AppContext): void {

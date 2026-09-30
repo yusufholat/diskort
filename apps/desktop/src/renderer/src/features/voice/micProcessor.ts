@@ -205,7 +205,7 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
   private sendGain: GainNode | null = null;
   /** Odaya gönderim susturuldu mu (mikrofon testi sürerken); zincir yeniden kurulsa da korunur */
   private sendMuted = false;
-  /** Giriş ses seviyesi (Ayarlar > Ses / mikrofon menüsü); gürültü engelleyiciden sonra, eşikten önce */
+  /** Giriş ses seviyesi (Ayarlar > Ses ve Görüntü / mikrofon menüsü); gürültü engelleyiciden sonra, eşikten önce */
   private gain: GainNode | null = null;
   private inputGain = 1;
   private building: Promise<void> | null = null;

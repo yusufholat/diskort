@@ -5,7 +5,7 @@ import { getSettings } from './stores/settings';
 /**
  * Dokunma geri bildirimi: ses düğmelerine (sustur, sağırlaştır, hoparlör, ekran, katıl, ayrıl) ve
  * yönetim işlemlerine basınca kısa titreşim. React Native'in kendi Vibration modülüyle (yeni yerel
- * bağımlılık yok, arayüz güncellemesiyle gelir). Ayarlar → Ses → "Dokunma titreşimi" ile kapatılır.
+ * bağımlılık yok, arayüz güncellemesiyle gelir). Ayarlar → Ses ve Görüntü → "Dokunma titreşimi" ile kapatılır.
  *
  * Masaüstündeki gibi kısa sesler de çalınır (src/sounds.ts, expo-audio): sesi çalan işlev açılışta
  * `setFeedbackSound(...)` ile buraya takılır, çağıran yerler (`feedback('mute')`) değişmez.

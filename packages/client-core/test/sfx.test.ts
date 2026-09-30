@@ -75,7 +75,7 @@ const TRIM_DB: Record<SoundName, number> = {
 };
 
 describe('arayüz sesleri', () => {
-  it('her sesin adı var, seviye hedefinde (algılanan -23 dBFS ya da tepe -15 dBFS, + sese özel ayar), kırpılma yok', () => {
+  it('her sesin adı var, seviye hedefinde (algılanan -16 dBFS ya da tepe -8 dBFS, + sese özel ayar), kırpılma yok', () => {
     expect(SFX_PEAK_DBFS).toBe(-8);
     expect(SFX_TARGET_RMS_DBFS).toBe(-16);
     for (const name of SOUND_NAMES) {

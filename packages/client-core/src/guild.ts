@@ -49,7 +49,7 @@ export interface GuildStore {
   profiles: Record<string, User>;
   /** Ortak sunucusu olan kişiler (bire bir DM'e yalnızca onlara yazılabilir) */
   reachable: Record<string, true>;
-  /** Ana sunucu (hesap yöneticilerinin sunucusu) */
+  /** Ana sunucu (ilk kurulan; silinemez) */
   primaryGuildId: string | null;
   /**
    * Seçili sunucu. `guild`, `channels`, `roles` ve `users` onun görünümüdür; seçim değişince (ya da o

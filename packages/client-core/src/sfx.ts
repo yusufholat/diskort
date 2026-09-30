@@ -15,8 +15,8 @@
 // varır; katılma/ayrılma iki yakın, bağlı nota (küçük üçlü), neredeyse kaymasız ve diğerlerinden az söner.
 // 5 ms'lik yükseltilmiş kosinüs başlangıç (tık yok), notalar üst üste biner, ~5,5 kHz altında süzülür
 // (karanlık sesler daha kapalı). Kesik yankı yerine birkaç kısa, süzülmüş yansımadan oluşan küçük bir
-// "oda". Algılanan seviyeler eşitlenir (en yüksek 50 ms'lik pencerenin RMS'i, -23 dBFS); tepe hiçbir seste
-// -15 dBFS'i geçmez.
+// "oda". Algılanan seviyeler eşitlenir (en yüksek 50 ms'lik pencerenin RMS'i, -16 dBFS); tepe hiçbir seste
+// -8 dBFS'i geçmez.
 //
 // Perdeler, aralıklar ve zamanlamalar bu uygulamaya özgü; hiçbir uygulamanın sesi örnek alınmadı ya da
 // kopyalanmadı, sesler yalnızca aşağıdaki sayılardan üretilir.
@@ -91,7 +91,7 @@ export const OTHERS_SOUNDS: ReadonlySet<SoundName> = new Set<SoundName>([
 
 /** Hazır seslerin örnekleme hızı (telefondaki WAV dosyaları da bu hızda) */
 export const SFX_SAMPLE_RATE = 48000;
-/** Hiçbir sesin geçmediği tepe seviyesi (dBFS); çalarken kullanıcının "Ses efektleri" seviyesiyle çarpılır */
+/** Hiçbir sesin geçmediği tepe seviyesi (dBFS); sesler bu sabit seviyede çalınır (seviye ayarı yok) */
 export const SFX_PEAK_DBFS = -8;
 
 interface Tone {

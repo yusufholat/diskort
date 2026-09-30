@@ -69,7 +69,7 @@ describe('atma ve yasaklama', () => {
     expect((await register('uye')).statusCode).toBe(201);
   });
 
-  it('yasaklanan geri dönemez ve giriş yapamaz; yasak kalkınca davetle döner', async () => {
+  it('yasaklanan sunucuya geri dönemez (hesabı durur, giriş yapabilir); yasak kalkınca davetle döner', async () => {
     const member = await s.member('uye');
     const mod = await s.member('mod');
     const modRole = await s.createRole(s.owner.token, { name: 'Mod', permissions: P.BAN_MEMBERS });

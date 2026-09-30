@@ -111,7 +111,7 @@ export function registerGuildRoutes(app: FastifyInstance, ctx: AppContext): void
     return guild;
   });
 
-  // Sunucuyu yalnızca sahibi siler; ana sunucu (hesap yöneticilerinin sunucusu) silinemez.
+  // Sunucuyu yalnızca sahibi siler; ana sunucu (ilk kurulan) silinemez.
   app.delete<{ Params: GuildParams }>('/api/guilds/:guildId', { preHandler: auth.requireMember }, async (req, reply) => {
     const { guildId } = req.params;
     if (!permissions.isOwner(guildId, req.user.id)) return forbidden(reply, 'Sunucuyu yalnızca sahibi silebilir.');

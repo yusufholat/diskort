@@ -22,7 +22,7 @@
 
       <main class="legal">
         <h1>Gizlilik</h1>
-        <p class="legal-updated">Son güncelleme: 27 Eylül 2026</p>
+        <p class="legal-updated">Son güncelleme: 30 Eylül 2026</p>
 
         <p>
           Diskort, davetle katılınan kapalı bir topluluk için sesli sohbet, ekran paylaşımı ve mesajlaşma hizmetidir.
@@ -32,14 +32,27 @@
 
         <h2>Tutulan veriler</h2>
         <ul>
-          <li><strong>Hesap:</strong> kullanıcı adın, görünen adın, profil rengin, yönetici olup olmadığın, katılma
+          <li><strong>Hesap:</strong> kullanıcı adın, görünen adın, profil rengin, profil fotoğrafın ve afişin, profil
+            süslerin, durumun ve özel durumun, üye olduğun sunucular ve rollerin, yönetici olup olmadığın, katılma
             tarihin ve şifrenin geri döndürülemez özeti (şifrenin kendisi saklanmaz).</li>
-          <li><strong>Mesajlar:</strong> metin kanallarına yazdığın mesajlar, düzenlenme zamanları ve hangi mesaja kadar
-            okuduğun bilgisi.</li>
+          <li><strong>Mesajlar:</strong> metin kanallarına ve direkt mesajlara yazdığın mesajlar, eklediğin dosyalar,
+            tepkilerin, düzenlenme zamanları ve hangi mesaja kadar okuduğun bilgisi. Direkt mesajları uygulamada
+            yalnızca konuşmadakiler görür. Yüklediğin JPEG fotoğraflardaki konum bilgisi silinir.</li>
           <li><strong>Ses ve görüntü:</strong> sesli sohbet ve ekran paylaşımı yalnızca o an dinleyenlere iletilir;
-            <strong>kaydedilmez</strong>. Hangi ses kanalında olduğun yalnızca bağlıyken bilinir.</li>
+            <strong>kaydedilmez</strong>. Hangi ses kanalına ne zaman girip çıktığın ve ne zaman yayın yaptığın
+            (yalnızca süreler) yönetim istatistikleri için tutulur.</li>
+          <li><strong>Oynadığın oyun (Etkinlik):</strong> Windows uygulaması, <em>Ayarlar → Etkinlik → “Oynadığım oyunu
+            göster”</em> açıkken (varsayılan: açık) bilgisayarında açık olan oyunu algılar; oyunun adı, ikonu ve ne
+            zamandır oynadığın sunucuya gönderilir ve ortak bir sunucun olan kişilere gösterilir. Oyun
+            sayılmayan programlar gönderilmez. Bu bilgi saklanmaz (oyunu kapatınca ya da çıkınca kaybolur; yalnızca
+            ikon dosyası sunucuda kalır), görünmezken gösterilmez ve ayarı kapatınca hiç gönderilmez.</li>
           <li><strong>Teknik kayıtlar:</strong> bağlantı sorunlarını çözmek için sunucu günlüklerinde IP adresi ve
-            istek zamanı kısa süre tutulur.</li>
+            istek zamanı kısa süre tutulur. Girişlerin (zaman, IP adresi, istemci türü) 30 gün, hesabının en son ne
+            zaman ve hangi uygulama sürümüyle bağlandığı, sesli sohbetteyken bağlantı kalitesi ölçümleri (ping, paket
+            kaybı, bit hızı, ses ayarları; ses içeriği ya da IP adresi yok) 14 gün ve uygulamanın kendiliğinden
+            bildirdiği hata kayıtları 14 gün tutulur.</li>
+          <li><strong>Geri bildirim:</strong> uygulamadan gönderdiğin geri bildirimin metni, eklediğin ekran
+            görüntüleri ve (kutuyu kaldırmadıysan) teknik bilgiler.</li>
           <li><strong>Uygulamanın kendi günlükleri:</strong> güncelleme günlüğü yalnızca senin bilgisayarında durur,
             bize gönderilmez.</li>
         </ul>
@@ -54,9 +67,14 @@
         <ul>
           <li><strong>GitHub:</strong> uygulama kurulum ve güncelleme dosyaları GitHub'da barındırılır; indirirken
             bağlantın GitHub'a yönlendirilir ve GitHub IP adresini görür.</li>
-          <li><strong>Mobil bildirimler</strong> (mobil uygulama çıktığında): bahsetme bildirimleri telefonuna
-            Google'ın (Android) veya Apple'ın (iOS) bildirim servisi üzerinden iletilir. Bildirimde yalnızca gerekli
-            olan kısa içerik bulunur.</li>
+          <li><strong>Mobil bildirimler:</strong> bahsetme ve direkt mesaj bildirimleri telefonuna
+            Google'ın (Android) veya Apple'ın (iOS) bildirim servisi üzerinden iletilir. Bildirimde gönderenin adı,
+            kanalın ya da konuşmanın adı ve mesajın başı bulunur.</li>
+          <li><strong>GIF araması (GIPHY):</strong> arama sunucumuz üzerinden yapılır; seçtiğin ya da gördüğün
+            GIF'ler GIPHY'nin sunucularından yüklenir ve GIPHY IP adresini görür.</li>
+          <li><strong>Bağlantı önizlemeleri:</strong> mesajlardaki bağlantıları sunucumuz açar ve önizleme
+            resimlerini kendisi sunar (siteler senin IP adresini görmez). Bir YouTube ya da video önizlemesini
+            oynatırsan o siteye (YouTube'da <code>youtube-nocookie.com</code>) doğrudan bağlanırsın.</li>
         </ul>
 
         <h2>Hesabını silmek</h2>

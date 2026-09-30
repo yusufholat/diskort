@@ -1,6 +1,6 @@
 // Hareketli kozmetik setlerinin görünüş bilgileri: renkler (seçici kutuları, WebGL yoksa 2B yedek
-// zeminler, küçük avatarlardaki sabit halka) ve açıklamalar. Çizimin kendisi platformda (masaüstü:
-// components/cosmetics), formüller cosmeticShaders'ta.
+// zeminler, küçük avatarlardaki sabit halka) ve açıklamalar. Çizimin kendisi platformda (masaüstü ve
+// telefon: components/cosmetics), formüller cosmeticShaders'ta.
 
 import type { CosmeticSet } from '@diskort/shared';
 

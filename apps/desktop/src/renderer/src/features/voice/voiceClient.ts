@@ -540,7 +540,7 @@ class VoiceClient {
           name === 'NotAllowedError'
             ? 'Mikrofon izni verilmedi. Sistem ayarlarından Diskort için mikrofon erişimini aç.'
             : name === 'NotFoundError' || name === 'OverconstrainedError'
-              ? 'Mikrofon bulunamadı. Ayarlar > Ses bölümünden bir giriş aygıtı seç.'
+              ? 'Mikrofon bulunamadı. Ayarlar > Ses ve Görüntü bölümünden bir giriş aygıtı seç.'
               : `Mikrofon açılamadı: ${errorMessage(err)}`,
       });
     }

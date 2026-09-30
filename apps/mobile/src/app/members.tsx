@@ -6,7 +6,7 @@ import { colors, createStyles } from '../theme';
 
 /**
  * Sunucunun üye listesi (sunucu başlığından açılır): ayrı gösterilen rollere göre gruplar, çevrimiçi,
- * çevrimdışı. Kanalın paneli (üyeler, medya, sabitlemeler, bağlantılar) ayrıdır: bkz. channel-panel.tsx.
+ * çevrimdışı. Kanalın paneli (üyeler, medya, sabitlemeler, bağlantılar, dosyalar) ayrıdır: bkz. channel-panel.tsx.
  */
 export default function MembersScreen() {
   // Üye listesi seçili sunucunun listesidir

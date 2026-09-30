@@ -10,13 +10,13 @@ export const Permission = {
   // Genel
   /** Her yetki; kanal izinlerini de aşar */
   ADMINISTRATOR: 1 << 0,
-  /** Sunucunun adını değiştirmek */
+  /** Sunucunun adını ve simgesini değiştirmek */
   MANAGE_GUILD: 1 << 1,
   /** Kendinden aşağıdaki rolleri düzenlemek, üyelere vermek; kanal izinlerini düzenlemek */
   MANAGE_ROLES: 1 << 2,
   /** Kanal oluşturmak, düzenlemek, silmek */
   MANAGE_CHANNELS: 1 << 3,
-  /** Davet kodu oluşturmak ve silmek */
+  /** Herkesin oluşturduğu davetleri görmek ve silmek (davet oluşturmayı da kapsar; bkz. CREATE_INVITE) */
   MANAGE_INVITES: 1 << 4,
   KICK_MEMBERS: 1 << 5,
   BAN_MEMBERS: 1 << 6,

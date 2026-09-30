@@ -16,7 +16,7 @@ export interface Config {
   guildName: string;
   /** İndirme sayfasının sürüm okuduğu GitHub deposu (sahip/ad) */
   githubRepo: string;
-  /** En son sürümden eski masaüstü istemcileri reddedilsin mi (üretimde varsayılan: evet) */
+  /** En son sürümden eski istemciler (masaüstü ve telefon) reddedilsin mi (üretimde varsayılan: evet) */
   enforceClientVersion: boolean;
   /** Mobil uygulamaların bağlanabilmesi için gereken en düşük sürüm (yoksa kural uygulanmaz) */
   minMobileVersions: { android: string | null; ios: string | null };
@@ -47,7 +47,7 @@ export interface Config {
   trafficQuotaBytes: number;
   /**
    * LiveKit'in Prometheus ölçüm adresi (LIVEKIT_METRICS_URL; üretimde varsayılan http://127.0.0.1:6789/metrics,
-   * livekit.yaml'daki prometheus_port ile). "0" kapatır. Uç kapalıysa panel "metrikler kapalı" gösterir.
+   * livekit.yaml'daki `prometheus.port` ile). "0" kapatır. Uç kapalıysa panel "metrikler kapalı" gösterir.
    */
   livekitMetricsUrl: string | null;
   /** Caddy yönetim ucunun ölçümleri (CADDY_METRICS_URL; üretimde varsayılan http://127.0.0.1:2019/metrics) */

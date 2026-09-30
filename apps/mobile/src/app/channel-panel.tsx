@@ -52,7 +52,7 @@ const TAB_LABELS: Record<TabKey, string> = {
  * Kanal paneli (Discord'daki gibi; sohbet başlığına dokununca açılır): üstte geri, arama ve (yetkisi varsa)
  * kanal ayarları; kanalın simgesi, adı ve türü; kaydırılabilen sekmeler (Üyeler, Medya, Sabitlemeler,
  * Bağlantılar, Dosyalar). Ses kanalında yalnızca üyeler. Grup konuşmasında sunucu bilgisi yok: katılımcılar, medya,
- * sabitlemeler ve bağlantılar. Kanal bildirim ayarı olmadığından bildirim düğmesi yok.
+ * sabitlemeler, bağlantılar ve dosyalar. Kanal bildirim ayarı olmadığından bildirim düğmesi yok.
  */
 export default function ChannelPanelScreen() {
   const router = useRouter();

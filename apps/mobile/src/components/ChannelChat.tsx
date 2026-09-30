@@ -588,7 +588,7 @@ function DmTitle({
   dm: DmChannel;
   name: string;
   onPress: (userId: string) => void;
-  /** Grup konuşmasında başlığa dokununca: konuşmanın paneli (katılımcılar, medya, sabitlemeler, bağlantılar) */
+  /** Grup konuşmasında başlığa dokununca: konuşmanın paneli (katılımcılar, medya, sabitlemeler, bağlantılar, dosyalar) */
   onOpenPanel: () => void;
 }) {
   const selfId = useSession((s) => s.user?.id);

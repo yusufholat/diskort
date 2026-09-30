@@ -8,21 +8,23 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
 ## Özellikler
 
 - **Ses:** Opus 64 kbps (32–128 ayarlanabilir), DTX + RED (paket kaybına dayanıklı), ~30 ms jitter buffer
-- **Gürültü engelleme:** standart (varsayılan) / yapay zekâ: DeepFilterNet 3 ya da daha kaliteli DPDFNet-2 48 kHz
-  (uygulamanın içinde, sunucusuz; model ayrı gerçek zamanlı iş parçacığında) / kapalı;
+- **Gürültü engelleme:** yapay zekâ: DPDFNet-2 48 kHz (varsayılan) ya da daha hafif DeepFilterNet 3
+  (uygulamanın içinde, sunucusuz; model ayrı gerçek zamanlı iş parçacığında) / standart / kapalı;
   Android'de de DPDFNet (varsayılan; ONNX Runtime ile telefonda, WebRTC'nin ses işleme hattının sonunda) / standart / kapalı;
   yankı engelleme, otomatik kazanç
 - **Ses aktivitesi** (otomatik veya elle eşik) ve **bas-konuş** (global kısayol, fare yan tuşları, bırakma gecikmesi)
 - **Sustur / sağırlaştır**, kişi başı ses seviyesi (0–200%) ve yerel susturma (sağ tık)
 - **Konuşan göstergesi** (yeşil halka), ping göstergesi, katılma/ayrılma sesleri
-- **Ekran paylaşımı:** Discord tarzı pencere/ekran seçici, 720p30 → 1440p60 (3–15 Mbps), H.264/VP9/VP8/AV1,
-  sistem sesi (Windows; sohbet sesleri otomatik hariç tutulur → yankı yok)
+- **Ekran paylaşımı:** Discord tarzı pencere/ekran seçici, 720p60 / 1080p30 / 1080p60 (6–12 Mbps), H.264/VP9/VP8/AV1,
+  sistem sesi (Windows; sohbet sesleri otomatik hariç tutulur → yankı yok); Android'den tüm ekran (720p, sessiz)
 - **“Yayını İzle”:** video yalnızca izlemek isteyene gönderilir; tam ekran, yayın sesi ayarı
 - Kanala girmeden **kim hangi kanalda**, kim susturulmuş, kim yayında görünür
 - **Metin kanalları:** kalıcı mesaj geçmişi (yukarı kaydırdıkça yüklenir), düzenleme (↑ ile son mesaj) ve silme,
   **kalın**/*italik*/~~çizik~~/`kod`/kod bloğu/alıntı/sürpriz (`||metin||`) biçimlendirme, bağlantılar,
   “yazıyor…” göstergesi, okunmamış kanal ve **@bahsetme** rozetleri (sunucuda tutulur, çevrimdışıyken gelenler de
   görünür), bahsetmede bildirim + görev çubuğu uyarısı, “YENİ” ayracı
+- **Yanıtlar, sabitlenmiş mesajlar, mesaj arama** (`from:`, `in:`, `has:`, tarih işleçleri), **bağlantı önizlemeleri**,
+  GIF (GIPHY; sunucuda anahtar varsa) ve mesajın içinde oynayan videolar (MP4/WebM)
 - **Direkt mesajlar:** bire bir ve küçük grup (en fazla 10 kişi) konuşmaları; metin kanallarının her özelliği
   (biçimlendirme, dosya, tepki, düzenleme/silme, “yazıyor…”, okunmamış rozetleri). Yalnızca konuşmadakiler görür,
   sunucu yöneticileri de okuyamaz. Her mesajda telefon bildirimi (ayrı bildirim kanalı). Üyeye sağ tık (Android'de
@@ -34,12 +36,19 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
 - **Profil fotoğrafı:** masaüstünde sürükle/yakınlaştır kırpma penceresi, Android'de sistemin kırpma ekranı;
   sunucu 256×256 WebP'ye çevirir (konum dahil üst veriler silinir), değişiklik herkese anında yansır.
   Fotoğraf yoksa baş harfler ve profil rengi
-- **Davet kodu + hesap** sistemi; **şifre sıfırlama** (yöneticinin verdiği tek kullanımlık kodla) ve şifre değiştirme
-- **Roller ve yetkiler** (Discord gibi): renkli, sıralı roller, üye listesinde ayrı gösterme, 19 yetki,
+- **Profil süsleri:** afiş, iki renkli profil teması ve 6 hareketli set (profil efekti, avatar dekorasyonu, isim plakası)
+- **Durum ve etkinlik:** çevrim içi / boşta (10 dk girdi yoksa kendiliğinden) / rahatsız etmeyin / görünmez ve özel
+  durum; masaüstü (Windows) açık oyunu algılar, adını ve ikonunu gösterir (Ayarlar → Etkinlik → “Oynadığım oyunu
+  göster”; kapatılabilir)
+- **Birden çok sunucu:** herkes kendi sunucusunu kurabilir (en fazla 10), davet bağlantısıyla başka sunuculara
+  katılabilir (en fazla 100)
+- **Davet kodu + hesap** sistemi: yeni hesap yalnızca hesap yöneticisinin verdiği hesap davetiyle açılır, sunucu
+  davetleri hesabı olanı sunucuya katar; **şifre sıfırlama** (yöneticinin verdiği tek kullanımlık kodla) ve şifre değiştirme
+- **Roller ve yetkiler** (Discord gibi): renkli, sıralı roller, üye listesinde ayrı gösterme, 21 yetki,
   kanal başına rol izinleri (özel, salt okunur kanallar, yalnızca bazı rollerin girebildiği ses kanalları),
   hiyerarşi; sunucuda susturma/sağırlaştırma, başka kanala taşıma, sesten çıkarma, atma ve yasaklama
   (ayrıntılar: [Roller ve yetkiler](#roller-ve-yetkiler))
-- **Sunucu Ayarları** (sunucu adının yanındaki menü): genel, roller, üyeler, davetler, yasaklar, geri bildirimler
+- **Sunucu Ayarları** (sunucu adının yanındaki menü): genel, roller, üyeler, davetler, yasaklar (telefonda kanallar da)
 - **Uygulama içi geri bildirim:** hata/öneri/diğer, en fazla 3 ekran görüntüsü (masaüstünde yalnızca Diskort
   penceresinin görüntüsü), isteğe bağlı teknik bilgiler; gönderen durumunu "Geri bildirimlerim"de izler
   (ayrıntılar: [Geri bildirim](#geri-bildirim))
@@ -55,8 +64,9 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
 | Direkt mesajlar (bire bir, grup) | ✅ | ✅ | ✅ | ✅ |
 | Rol renkleri, üye listesi, gizli kanallar | ✅ | ✅ | ✅ | ✅ |
 | Seste yönetim (sustur, taşı, çıkar), at/yasakla, mesaj silme | ✅ | ✅ | ✅ | ✅ (uzun basınca) |
-| Rol ve kanal izni düzenleme (Sunucu Ayarları) | ✅ | ✅ | ✅ | ❌ (şimdilik masaüstünde) |
-| Ekran/pencere paylaşımı | ✅ | ✅ (Wayland'da sistem seçicisi) | ✅ (sistem seçicisi) | yalnızca izleme (paylaşma planlı) |
+| Rol ve kanal izni düzenleme (Sunucu Ayarları) | ✅ | ✅ | ✅ | ✅ |
+| Ekran/pencere paylaşımı | ✅ | ✅ (Wayland'da sistem seçicisi) | ✅ (sistem seçicisi) | ✅ tüm ekran (720p, 24 FPS'ye kadar) |
+| Oynanan oyunu algılama (Etkinlik) | ✅ | ❌ | ❌ | ❌ (başkalarınınkini gösterir) |
 | Yayına sistem sesi | ✅ | ❌ (planlı) | ❌ (planlı) | — |
 | Global kısayollar / bas-konuş | ✅ | ✅ X11 · ⚠️ Wayland | ✅ (Erişilebilirlik izni) | — |
 | Paket | NSIS kurulum (x64) | AppImage, .deb (x64) | .dmg (Apple Silicon, Intel) | APK (Android 7+) |
@@ -72,19 +82,20 @@ yalnızca yapılamayacak düğmeleri gizler.
 - **Roller:** ad, renk, sıra, "üyeleri ayrı göster" ve yetkiler. Herkeste örtük **@everyone** rolü vardır
   (kimliği topluluğun kimliğidir). Üyenin adının rengi renkli rollerinden en üsttekinin rengidir; üye listesi
   ayrı gösterilen en üst rolüne göre gruplanır.
-- **Sahip:** ilk kayıt olan (eski kurulumlarda en eski yönetici). Her yetkiye sahiptir, herkesin üstündedir;
-  kimse onu atamaz, yasaklayamaz, rollerini değiştiremez. Hesabını silmeden önce Sunucu Ayarları > Genel'den
-  sahipliği devretmelidir.
+- **Sahip:** sunucuyu kuran (ana sunucuda ilk kayıt olan; eski kurulumlarda en eski yönetici). Her yetkiye sahiptir,
+  herkesin üstündedir; kimse onu atamaz, yasaklayamaz, rollerini değiştiremez. Sunucudan ayrılmadan ya da hesabını
+  silmeden önce Sunucu Ayarları > Genel'den sahipliği devretmelidir (ya da sunucuyu silmelidir).
 - **Hiyerarşi:** yalnızca kendi en üst rolünün altındaki rolleri düzenleyip verebilir, yalnızca en üst rolü
   kendisininkinden aşağıda olan üyeleri yönetebilir (at, yasakla, sustur, taşı…). Kimse kendinde olmayan bir
   yetkiyi (rol ya da kanal izni yoluyla) veremez; yönetici hariç.
 
 | Grup | Yetki | @everyone'da |
 |---|---|---|
-| Genel | Yönetici (her şey, kanal izinlerini aşar), Sunucuyu Yönet (ad), Rolleri Yönet (roller + kanal izinleri), Kanalları Yönet, Davetleri Yönet, Üyeleri At, Üyeleri Yasakla | yok |
+| Genel | Yönetici (her şey, kanal izinlerini aşar), Sunucuyu Yönet (ad, simge), Rolleri Yönet (roller + kanal izinleri), Kanalları Yönet, Davetleri Yönet (herkesin davetleri), Üyeleri At, Üyeleri Yasakla | yok |
+| Genel | Davet Oluştur (kendi davetlerini görür ve siler) | var |
 | Metin | Kanalları Gör, Mesaj Gönder, Dosya Ekle, Tepki Ekle | var |
-| Metin | @everyone Bahset (kanalı gören herkese bildirim) | var |
-| Metin | Mesajları Yönet (başkasının mesajını sil) | yok |
+| Metin | @everyone ve @here Bahset (kanalı gören herkese / o an çevrimiçi olanlara bildirim) | var |
+| Metin | Mesajları Yönet (başkasının mesajını sil), Mesajları Sabitle | yok |
 | Ses | Bağlan, Konuş, Ekran Paylaş | var |
 | Ses | Üyeleri Sustur, Üyeleri Sağırlaştır, Üyeleri Taşı (sesten çıkarma dahil) | yok |
 
@@ -106,12 +117,12 @@ bir istemciyle de); sunucuda sağırlaştırma mikrofonu da alır, duymayı ise 
 istemci üzerindendir: sunucu hedef kanala bağlanabildiğini denetler, istemciye `VOICE_MOVE` gönderir, istemci o
 kanala geçer. Bağlanma yetkisini kaybeden (ya da atılan) sesten çıkarılır.
 
-**Atma ve yasaklama** (tek topluluk, hesap = üyelik): atılanın oturumları kapanır, rolleri ve bildirim
-jetonları silinir; hesabı ve mesajları (adıyla) kalır. Geri dönmek için yeni bir davet koduyla "Kayıt ol"
-ekranında **kendi kullanıcı adı ve şifresiyle** kaydolur (hesap geri gelir, roller gelmez). Yasaklanan ayrıca
-giriş yapamaz ve davetle dönemez; yasak Sunucu Ayarları > Yasaklar'dan kaldırılınca atılmış sayılır. Yasak hesaba
-bağlıdır: davet kodu olmadan kimse yeni hesap açamadığı için ona yeni davet verilmemesi yeterlidir. "Hesabı sil"
-(yalnızca yönetici) ise hesabı kalıcı olarak siler.
+**Atma ve yasaklama** (sunucu başına): atılan o sunucunun sesinden çıkarılır, oradaki rolleri silinir ve sunucu
+listesinden kalkar; hesabı, diğer sunucuları ve mesajları (adıyla) kalır. Geri dönmek için yeni bir sunucu
+davetiyle "Sunucuya katıl" der (roller geri gelmez). Yasaklanan o sunucuya davetle de dönemez; yasak Sunucu
+Ayarları > Yasaklar'dan kaldırılınca atılmış sayılır. Yasak hesaba bağlıdır: hesap daveti olmadan kimse yeni hesap
+açamadığı için ona yeni hesap daveti verilmemesi yeterlidir. "Hesabı sil" (yalnızca hesap yöneticisi) ise hesabı
+kalıcı olarak siler.
 
 **Rollerden önceki sürümlerden geçiş (şema 8):** yöneticiler "Yönetici" rolüne (Yönetici yetkisi) geçer, en eski
 yönetici sahip olur; diğer herkesin bugünkü yetkileri @everyone'da kalır ve hiçbir kanalın izni olmadığından
@@ -129,9 +140,9 @@ yöneticidir.
 
 - **Göç (şema 17):** o güne kadar hesap yöneticisi sayılanlar (ana sunucunun sahibi ve orada Yönetici yetkisi
   olan üyeler) yönetici kalır, diğer herkesin bayrağı sıfırlanır.
-- **Uygulamada:** Kullanıcı Ayarları > Hesap Yönetimi (yalnızca yöneticilere): "Geri bildirimler (yönetim)" ve
-  "Yönetim" (hesap yöneticileri ekle/çıkar, hesap davetleri, hesaplar: sıfırlama kodu, silme). Son yönetici
-  çıkarılamaz. Android'de Ayarlar > Hesap yönetimi > Geri bildirimler (yönetim).
+- **Uygulamada:** Kullanıcı Ayarları > Yönetim (yalnızca yöneticilere; masaüstünde ve telefonda aynı): "Geri
+  bildirimler", "Hesaplar ve davetler" (hesap yöneticileri ekle/çıkar, hesap davetleri, hesaplar: sıfırlama kodu,
+  silme) ve "Web yönetim paneli" bağlantısı. Son yönetici çıkarılamaz.
 - **API:** `GET /api/users` (tüm hesaplar), `GET /api/admins`, `PUT /api/admins/:id`, `DELETE /api/admins/:id`
   (son yönetici: 400 `last_admin`); hepsi hesap yöneticisi ister.
 - **Komut satırı** (API imajında `dist/admin-cli.js`; veritabanını doğrudan açar, değişiklik hemen geçerlidir,
@@ -173,8 +184,11 @@ uçlarından gelir (hepsi yalnızca hesap yöneticilerine, `Cache-Control: no-st
   dakikaları, en çok yazanlar (yalnızca sayılar), dosya ekleri; direkt mesajlar ayrı.
 - **Geri bildirim:** süzme (durum/tür), ayrıntı (metin yalnızca metin olarak, ekran görüntüleri, teknik bilgiler),
   durum ve yönetici notu (mevcut `/api/feedback` uçları).
-- **Hatalar:** son istemci hataları, 5xx ile biten istekler ve sunucu günlüğündeki hata/ölümcül kayıtlar (pino ≥ 50;
-  son 200'er, yalnızca bellekte).
+- **iPhone cihazları:** `/udid` sayfasından kaydolan cihazların onayı ve otomatik Ad Hoc derlemesi
+  ([docs/ios.md](docs/ios.md)).
+- **Hatalar:** son istemci hataları ve 5xx ile biten istekler (son 200'er; `client-errors.jsonl` /
+  `server-errors.jsonl`'de 14 gün saklanır) ve sunucu günlüğündeki hata/ölümcül kayıtlar (pino ≥ 50; son 200, yalnızca
+  bellekte).
 
 **Ses kalitesi ölçümleri:** istemciler (masaüstü ve telefon, 0.7.0+) sesliyken zaten 2 sn'de bir aldıkları bağlantı
 istatistiklerinden 30 sn'lik özet çıkarır (kalite "kötü"ye düşünce hemen, en fazla 10 sn'de bir) ve
@@ -187,7 +201,9 @@ engelleyici yükü, yayındaysa çözünürlük/fps/kodlayıcı/kısıtlama nede
 Kalıcı küçük dosyalar `<DATA_DIR>`'da: `traffic.json` (aylık trafik sayacı, dış arayüzlerin gelen + giden baytı;
 ilk çalışmada makine bu ay açıldıysa açılıştan beri olan trafik de sayılır; makine yeniden açılınca sayaç sıfırlansa
 da toplam sürer, en çok dakikada bir yazılır), `activity.json` (hesapların son görülme anı), `counters.json` (gün
-başına sayaçlar, 30 gün), `auth-log.jsonl` (giriş kayıtları, 30 gün; şifre ve hesabı olmayan kullanıcı adı yazılmaz).
+başına sayaçlar, 30 gün), `auth-log.jsonl` (giriş kayıtları, 30 gün; şifre ve hesabı olmayan kullanıcı adı yazılmaz),
+`client-errors.jsonl` / `server-errors.jsonl` (son hatalar, 14 gün), `telemetry/network-YYYY-AA-GG.jsonl` (makine
+ağının dakikalık özetleri, 14 gün), `udids.jsonl` ve `udid-status.json` (iPhone cihaz kayıtları ve onay durumları).
 Ayarlar (isteğe bağlı, compose'da `api` ortamına eklenir): `TRAFFIC_QUOTA_GB` (aylık kota, varsayılan 5000 = 5 TB,
 gelen + giden), `SYSTEM_STATS=0` (düzenli ölçümü kapatır), `PROC_ROOT` (varsayılan `/proc`), `LIVEKIT_METRICS_URL` /
 `CADDY_METRICS_URL` (üretimde varsayılan `http://127.0.0.1:6789/metrics` / `http://127.0.0.1:2019/metrics`; `0`
@@ -209,22 +225,23 @@ saat dilimi, varsayılan 180 = Türkiye).
   mesajla görünür; "Konuşmayı kapat" listeden kaldırır, yeni mesaj gelince geri döner. Grup: en fazla 10 kişi,
   isteğe bağlı ad, her katılımcı kişi ekleyebilir (eklenen geçmişi görür), ayrılan sahipse sahiplik sıradakine geçer,
   son kişi ayrılınca konuşma silinir.
-- **Atma/yasaklama:** atılanın mesajları kalır; bire bir konuşmada karşı taraf geçmişi okur ama yazamaz (geri
-  dönerse konuşma kaldığı yerden sürer). Hesap silinince konuşmadan düşer; kimse kalmayan konuşma silinir.
+- **Ortak sunucu:** konuşma yalnızca ortak bir sunucusu olan kişilerle başlatılır. Ortak sunucu kalmazsa (ayrılma,
+  atma, yasaklama) mesajlar kalır; bire bir konuşmada iki taraf geçmişi okur ama yazamaz (yeniden ortak sunucu olunca
+  konuşma kaldığı yerden sürer). Hesap silinince konuşmadan düşer; kimse kalmayan konuşma silinir.
 - **Eski istemciler:** DM'ler READY'de ayrı alanda (`dms`) ve ayrı olaylarla (`DM_CHANNEL_*`) gelir, yalnızca
   IDENTIFY'da `features: ['dm']` bildiren istemcilere. Bildirmeyen eski sürümler hiçbir DM verisi ya da olayı
   almaz, kanal listeleri değişmez.
-- **Telefon bildirimi:** her DM mesajı diğer katılımcılara `diskort-dm` Android kanalından gider; aynı konuşmanın
-  bildirimleri üst üste biner (etiket). Dokununca konuşma açılır.
+- **Telefon bildirimi:** her DM mesajı diğer katılımcılara `diskort-dm` Android kanalından gider; her mesaj ayrı
+  bildirimdir (etiket mesaja özgü), konuşma okununca bildirimleri kalkar. Dokununca konuşma açılır.
 - Veri modeli DM'de sesli aramaya hazır: konuşma bir kanal olduğundan LiveKit odası (`ch_<kimlik>`) ve yetkiler
   (bağlanma, konuşma) aynı yoldan eklenebilir.
 
 ## Geri bildirim
 
-Arkadaşlar uygulamanın içinden hata ve öneri gönderir; sahip/yöneticiler inceler, durumunu değiştirir.
+Arkadaşlar uygulamanın içinden hata ve öneri gönderir; hesap yöneticileri inceler, durumunu değiştirir.
 
-- **Gönderme:** masaüstünde sol çubuğun altındaki yeşil düğme ya da Kullanıcı Ayarları > "Geri bildirim gönder";
-  Android'de Ayarlar > "Geri bildirim gönder". Tür (Hata / Öneri / Diğer), isteğe bağlı başlık, açıklama (en fazla
+- **Gönderme:** masaüstünde ve telefonda sunucu çubuğunun altındaki yeşil düğme ya da Kullanıcı Ayarları > Destek >
+  "Geri bildirim". Tür (Hata / Öneri / Diğer), isteğe bağlı başlık, açıklama (en fazla
   4000 karakter) ve en fazla 3 resim. Masaüstündeki "Uygulamanın ekran görüntüsünü ekle" yalnızca Diskort
   penceresini çeker (`webContents.capturePage`; masaüstü ya da başka pencereler asla), pencere bir anlığına gizlenir.
   Resim dosyası da eklenebilir ya da yapıştırılabilir; Android'de galeriden seçilir.
@@ -239,7 +256,7 @@ Arkadaşlar uygulamanın içinden hata ve öneri gönderir; sahip/yöneticiler i
   Android başlıklı `<Image>` ile gösterir).
 - **Durumlar:** `yeni` → `incelendi` / `planlandi` / `tamamlandi` / `reddedildi`. Yöneticinin notunu gönderen de
   görür ("Yanıt"). Durum değişince gönderenin uygulamasında bildirim çıkar; yeni geri bildirimler yetkililerde
-  kırmızı rozetle görünür (Ayarlar dişlisi ve Kullanıcı Ayarları > Geri bildirimler (yönetim); hiçbir sunucuya
+  kırmızı rozetle görünür (Ayarlar dişlisi ve Kullanıcı Ayarları > Yönetim > Geri bildirimler; hiçbir sunucuya
   bağlı değil).
 - **API:** `POST /api/feedback/screenshots` (ham resim) → `POST /api/feedback` (herkes), `GET /api/feedback/mine`,
   `GET /api/feedback/:id` (gönderen ya da yetkili); `GET /api/feedback?status=&type=`, `GET /api/feedback/stats`,
@@ -296,12 +313,14 @@ Masaüstü (Electron + React) ──HTTPS/WSS──► Caddy :443 ──► API 
 - `apps/mobile` — Android uygulaması (Expo SDK 57 + React Native, `src/app` ekranlar, `src/voice` sesli sohbet).
   Ekran kilitliyken sesin sürmesi için yerel Android modülü: `modules/voice-service` (ön plan servisi).
   DPDFNet gürültü engelleme: `modules/noise-filter` (Kotlin STFT/ISTFT + onnxruntime-android; model `assets/`).
+  Yerel çökme raporları: `modules/crash-reporter`; galeriye kaydetme: `modules/gallery`.
   `android/` klasörü üretilir (`expo prebuild`), elle düzenlenmez; ayarlar `app.config.ts` ve eklentilerde.
 - `apps/server` — API + gateway + LiveKit entegrasyonu, indirme yönlendirmeleri
-- `apps/web` — indirme ve gizlilik sayfası (derleme adımı yok; Caddy doğrudan sunar). Butonlar `/download/<platform>`
+- `apps/web` — indirme, gizlilik ve kod imzalama sayfaları, yönetim paneli (`/admin`) ve iPhone kaydı (`/udid`)
+  (derleme adımı yok; Caddy doğrudan sunar). Butonlar `/download/<platform>`
   adresine gider; API en son GitHub sürümünü bulup dosyaya yönlendirir, kullanıcı GitHub'ı görmez.
 - `packages/shared` — sunucu ve istemcilerin ortak tipleri
-- `packages/client-core` — masaüstü ve (gelecekteki) mobil uygulamanın ortak mantığı: API, gateway,
+- `packages/client-core` — masaüstü ve mobil uygulamanın ortak mantığı: API, gateway,
   oturum/topluluk/mesaj depoları, biçimlendirme ayrıştırıcısı. Platforma özgü işler (bildirim, ses,
   pencere, depolama) `configureClient()` ile verilir; masaüstü karşılığı `apps/desktop/src/renderer/src/platform.ts`.
   Yeni özellikler önce buraya yazılır, iki arayüz de kullanır.
@@ -309,7 +328,7 @@ Masaüstü (Electron + React) ──HTTPS/WSS──► Caddy :443 ──► API 
 
 ## Geliştirme (Windows)
 
-Gerekenler: Node.js 22+ ve pnpm (`npm i -g pnpm`).
+Gerekenler: Node.js 22.12+ (CI ve sunucu imajı 24 kullanır) ve pnpm (`npm i -g pnpm`).
 
 ```bash
 pnpm install
@@ -334,7 +353,8 @@ pnpm dev:desktop
 ```
 
 İlk açılışta API konsolu **ilk yönetici davet kodunu** yazar. Uygulamada “Davet koduyla kaydol”
-ile bu kodu kullan; ilk hesap yönetici olur. Diğer kişiler için Ayarlar → Davetler'den kod üret.
+ile bu kodu kullan; ilk hesap yönetici olur. Diğer kişiler için Kullanıcı Ayarları → Yönetim → Hesaplar ve
+davetler'den hesap daveti üret (sunucu davetleri yalnızca hesabı olanı sunucuya katar).
 Geliştirme sürümü ayrı bir profil (`%APPDATA%\Diskort-dev`) kullanır, kurulu uygulamaya karışmaz.
 
 Aynı bilgisayarda ikinci bir istemci açmak için (ayrı profil, `dev:desktop` açıkken):
@@ -404,15 +424,19 @@ Açık olması gereken portlar: `80/tcp`, `443/tcp`, `7881/tcp`, `3478/udp`, `50
   Betik tutarlı bir kopya alıp bütünlüğünü kontrol eder ve `/var/backups/diskort/` altına sıkıştırarak koyar.
   Son 14 gün saklanır; `latest.db.gz` her zaman en yenisini gösterir.
 - **Sunucu dışında:** `scripts/pull-db-backups.ps1`, Windows Görev Zamanlayıcı'daki "Diskort veritabanı yedeği"
-  göreviyle her gün 12:00'de en son yedeği `OneDrive\Yedekler\Diskort` klasörüne indirir (60 gün saklanır,
-  sonuçlar `yedek-gunlugu.txt` dosyasına yazılır).
-- **Dosya ekleri yedeğe dahil değil:** gece yedeği yalnızca veritabanını (dosyaların adı, boyutu, hangi mesajda
-  olduğu) kapsar; dosyaların kendisi `diskort-data` biriminde `/data/attachments/` altında durur. Elle kopya:
-  `cd /opt/diskort/infra && docker compose cp api:/data/attachments /var/backups/diskort/ekler-$(date +%F)`.
+  göreviyle her gün 12:00'de en son veritabanı yedeğini `OneDrive\Yedekler\Diskort` klasörüne indirir (60 gün
+  saklanır, sonuçlar `yedek-gunlugu.txt` dosyasına yazılır) ve dosya ekleriyle profil fotoğraflarının kopyasını
+  (`ekler`, `profil-fotograflari`) aynalar.
+- **Dosya ekleri:** veritabanı yedeği yalnızca kayıtları (dosyaların adı, boyutu, hangi mesajda olduğu) kapsar;
+  dosyaların kendisi `diskort-data` biriminde `/data/attachments/` altında durur. Aynı zamanlayıcı her gece
+  `infra/backup-attachments.sh`'ı da çalıştırır: ekler, `/data/avatars/` (profil fotoğrafları, afişler, sunucu
+  simgeleri) ve geri bildirim ekran görüntüleri `/var/backups/diskort/` altına sabit bağlantıyla (ek yer
+  kaplamadan) kopyalanır; uygulamadan silinen dosya kopyada 30 gün daha durur. Kopya aynı disktedir: sunucu
+  dışındaki yedek yukarıdaki betiktir.
   Eski bir veritabanı yedeği geri yüklenirse, yedekte karşılığı olmayan dosyalar bir saat içinde kendiliğinden
   silinir; yedekte olup diskte olmayan dosyaların adresi "bulunamadı" döner. Disk dolmasın diye sunucuda 1 GB'tan
   az yer kalınca yükleme reddedilir (tek dosya sınırı: `.env`'de `ATTACHMENT_MAX_MB`, varsayılan 25).
-- **Profil fotoğrafları** de yedeğe dahil değil: `/data/avatars/` altında 256×256 WebP (kişi başı birkaç KB).
+- **Profil fotoğrafları:** `/data/avatars/` altında 256×256 WebP (kişi başı birkaç KB).
   Kaybolursa uygulamalar baş harfleri gösterir, kullanıcı fotoğrafını yeniden yükler. Kimsenin kullanmadığı
   dosyalar (ör. eski yedek geri yüklenince) bir saat sonra kendiliğinden silinir.
 - **Geri yükleme** (önce mevcut veritabanının güvenlik kopyasını alır):
@@ -507,7 +531,8 @@ varsa Ad Hoc IPA da üretir ve sürüm iş akışı bunu (iOS OTA paketiyle) sü
 ### Sürüm yayınlama
 
 Paketlenmiş uygulamanın varsayılan sunucusu `apps/desktop/.env.production` içindeki `VITE_DEFAULT_SERVER`
-değeridir (şu an `https://diskort.ziroo.net`; kullanıcılar giriş ekranından değiştirebilir).
+değeridir (şu an `https://diskort.ziroo.net`; giriş ekranında sunucu adresi gizlidir, yalnızca test için logoya art
+arda 5 kez tıklayınca değiştirilebilir).
 
 1. Sunucu değişikliği varsa **önce sunucuyu** güncelle (yeni istemci eski sunucuyla çalışmayabilir).
 2. `apps/desktop/package.json` ve `apps/mobile/package.json` içindeki `version`'ı artır (ikisi aynı olmalı)
@@ -531,10 +556,9 @@ etkinleştirildikten sonra kullanma).
 ## Yol haritası
 
 - Kod imzalama (Windows: SignPath Foundation başvurusu, bkz. [docs/kod-imzalama.md](docs/kod-imzalama.md); macOS: Apple Developer ID)
-- Mesaj arama, özel (sunucuya ait) emojiler, satır içi video oynatma
-- Direkt mesajlarda sesli/görüntülü arama; Android'de rol ve kanal izni düzenleme
-- Kamera, Linux/macOS'ta yayın sesi, mobil uygulama
-- Birden çok topluluk (sunucu) desteği — veri modeli hazır (`guilds` tablosu)
+- Özel (sunucuya ait) emojiler
+- Direkt mesajlarda sesli/görüntülü arama
+- Kamera, Linux/macOS'ta yayın sesi
 
 ## Lisans
 

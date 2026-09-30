@@ -12,7 +12,7 @@ import { useSettings } from './stores/settings';
 import { useVoice } from './stores/voice';
 import './styles.css';
 
-// Kayıtlı tema ilk çizimden önce uygulanır (koyu temanın bir an görünüp siyaha dönmemesi için)
+// Kayıtlı tema ilk çizimden önce uygulanır (varsayılan temanın bir an görünüp seçili temaya dönmemesi için)
 installTheme();
 
 // Herhangi bir WebRTC bağlantısı kurulmadan önce (bkz. turnPort.ts)

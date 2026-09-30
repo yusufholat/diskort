@@ -1,4 +1,4 @@
-// En son masaüstü sürümünü GitHub Releases'ten okur (önbellekli). İndirme sayfası, güncelleme
+// En son sürümü (masaüstü, Android, iOS paketleri ve OTA bildirimleri) GitHub Releases'ten okur (önbellekli). İndirme sayfası, güncelleme
 // yönlendirmeleri ve "eski istemci bağlanamaz" kuralı bu tek kaynağı kullanır.
 // Kullanıcılar GitHub'a gitmez: sayfa /download/<platform> adresine bağlanır, API dosyaya yönlendirir.
 
