@@ -89,6 +89,46 @@ export interface SystemInfo {
   electron: string;
 }
 
+/** Algılanan, şu an açık olan oyun */
+export interface ActivityGame {
+  /** Oyunun exe'si */
+  path: string;
+  name: string;
+  /** Başladığı an (ms, bu bilgisayarın saati) */
+  startedAt: number;
+  /** İkonun anahtarı (PNG'nin SHA-256'sı); ikon yoksa ya da henüz çıkarılmadıysa null */
+  icon: string | null;
+}
+
+export interface ActivityState {
+  /** "Oynadığım oyunu göster" açık mı */
+  enabled: boolean;
+  /** Açık oyunlar, en son başlatılan ilk sırada (en fazla ACTIVITY_MAX_COUNT); kapalıyken boş */
+  games: ActivityGame[];
+}
+
+/** Ayarlardaki bilinen oyun: elle eklenmiş ya da daha önce algılanmış */
+export interface ActivityKnownGame {
+  path: string;
+  name: string;
+  /** Exe'nin ikonu (data: adresi); alınamadıysa null */
+  icon: string | null;
+  manual: boolean;
+  hidden: boolean;
+}
+
+export interface ActivitySettings {
+  enabled: boolean;
+  games: ActivityKnownGame[];
+}
+
+/** "Oyun ekle" listesindeki, şu an çalışan program */
+export interface ActivityProgram {
+  path: string;
+  name: string;
+  icon: string | null;
+}
+
 export interface DiskortBridge {
   platform: 'win32' | 'linux' | 'darwin' | string;
   getVersion(): Promise<string>;
@@ -116,6 +156,28 @@ export interface DiskortBridge {
   idle?: {
     get(): Promise<boolean>;
     onChange(cb: (idle: boolean) => void): () => void;
+  };
+
+  /**
+   * Etkinlik: oynanan oyunun algılanması (şimdilik yalnızca Windows; başka sistemlerde `supported` false ve
+   * hiç oyun algılanmaz). Ayarlar bu bilgisayara özgüdür ve ana süreçte saklanır; değiştiren çağrılar
+   * güncel ayarları döndürür. Bu alanı bilmeyen eski ana süreçte yoktur.
+   */
+  activity?: {
+    supported: boolean;
+    getState(): Promise<ActivityState>;
+    onState(cb: (state: ActivityState) => void): () => void;
+    getSettings(): Promise<ActivitySettings>;
+    setEnabled(enabled: boolean): Promise<ActivitySettings>;
+    /** Görünür penceresi olan, oyun sayılmayan programlar (oyun olarak eklenebilir) */
+    listPrograms(): Promise<ActivityProgram[]>;
+    /** Çalışan bir programı oyun olarak ekler (yalnızca listPrograms'ın verdiği yollar) */
+    addGame(path: string): Promise<ActivitySettings>;
+    /** Elle eklenen oyunu çıkarır */
+    removeGame(path: string): Promise<ActivitySettings>;
+    setHidden(path: string, hidden: boolean): Promise<ActivitySettings>;
+    /** İkonun PNG baytları (sunucuya yüklemek için); bilinmiyorsa null */
+    icon(key: string): Promise<Uint8Array | null>;
   };
 
   /**

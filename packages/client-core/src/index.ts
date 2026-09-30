@@ -102,6 +102,7 @@ export {
   type TelemetrySample,
 } from './voiceTelemetry';
 export { gateway } from './gateway';
+export { ensureActivityIcon, setActivities } from './activity';
 export {
   activityIconUrl,
   displayStatusOf,

@@ -22,6 +22,7 @@ import type {
   TrayAction,
   TrayState,
 } from '../shared/bridge';
+import { ActivityMonitor, registerActivityIpc } from './activity';
 import { inviteCodeFromArgv, inviteCodeFromUrl } from './deepLink';
 import { registerFeedbackIpc } from './feedback';
 import { HotkeyManager } from './hotkeys';
@@ -159,6 +160,8 @@ let trayState: TrayState = { connected: false, muted: false, deafened: false };
 const hotkeys = new HotkeyManager((event) => mainWindow?.webContents.send('hotkey', event));
 // Otomatik "Boşta" durumu: girdi yok ya da ekran kilitli
 const idleMonitor = new IdleMonitor((idle) => mainWindow?.webContents.send('presence:idle', idle));
+// Etkinlik: oynanan oyun (yalnızca Windows'ta algılanır)
+const activityMonitor = new ActivityMonitor((state) => mainWindow?.webContents.send('activity:state', state));
 const updates = new UpdateManager();
 updates.onState((state) => mainWindow?.webContents.send('updates:state', state));
 
@@ -398,6 +401,7 @@ function registerIpc(): void {
   ipcMain.handle('hotkeys:cancel-record', () => hotkeys.cancelRecord());
 
   registerFeedbackIpc();
+  registerActivityIpc(activityMonitor);
 
   ipcMain.handle('updates:get-state', () => updates.getState());
   ipcMain.handle('updates:check', () => updates.checkInBackground());
@@ -447,6 +451,7 @@ app.on('before-quit', () => {
   quitting = true;
   hotkeys.stop();
   idleMonitor.stop();
+  activityMonitor.stop();
 });
 
 app.on('window-all-closed', () => {
@@ -505,4 +510,5 @@ void app.whenReady().then(async () => {
   updates.startBackgroundChecks();
   startIdleInstaller();
   idleMonitor.start();
+  activityMonitor.start();
 });

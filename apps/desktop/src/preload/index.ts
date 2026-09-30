@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type {
+  ActivityState,
   DiskortBridge,
   DownloadResult,
   HotkeyEvent,
@@ -30,6 +31,18 @@ const bridge: DiskortBridge = {
   idle: {
     get: () => ipcRenderer.invoke('presence:get-idle'),
     onChange: (cb) => listen<boolean>('presence:idle', cb),
+  },
+  activity: {
+    supported: process.platform === 'win32',
+    getState: () => ipcRenderer.invoke('activity:get-state'),
+    onState: (cb) => listen<ActivityState>('activity:state', cb),
+    getSettings: () => ipcRenderer.invoke('activity:get-settings'),
+    setEnabled: (enabled) => ipcRenderer.invoke('activity:set-enabled', enabled),
+    listPrograms: () => ipcRenderer.invoke('activity:list-programs'),
+    addGame: (path) => ipcRenderer.invoke('activity:add-game', path),
+    removeGame: (path) => ipcRenderer.invoke('activity:remove-game', path),
+    setHidden: (path, hidden) => ipcRenderer.invoke('activity:set-hidden', path, hidden),
+    icon: (key) => ipcRenderer.invoke('activity:icon', key),
   },
   invites: {
     take: () => ipcRenderer.invoke('invite:take'),
