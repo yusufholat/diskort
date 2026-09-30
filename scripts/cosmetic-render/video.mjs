@@ -146,6 +146,9 @@ export function writeStacked(frames, width, height, file) {
 // Renk uzayı açıkça BT.709, sınırlı aralık: etiketsiz videoda tarayıcı boyuta göre tahmin yürütür (renk kayar)
 const YUV = 'scale=out_color_matrix=bt709:out_range=limited';
 const TAGS = ['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv'];
+// AVIF: tam aralık (nedeni aşağıda, ffmpegArgs); alfa akışı zaten tam aralıktı
+const AVIF_YUV = 'scale=out_color_matrix=bt709:out_range=full';
+const AVIF_TAGS = 'setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=pc';
 
 /**
  * Kodlamanın döngü başındaki sıçramaya karşı yöntemi (bkz. encodeSeamless):
@@ -183,14 +186,19 @@ export function ffmpegArgs(v, { rgba, stacked, width, height, fps, layout, out, 
     // AVIF: renk ve alfa iki ayrı akış (alfa tek renkli, tam aralık); ffmpeg'in avif yazıcısı ikinciyi alfa sayar.
     // Anahtar karenin zamansal süzgeci kapalı: süzülmüş ilk kare, döngünün son karesinden daha çok ayrışıyordu.
     // Her kare anahtar iken ileriye bakış da kapalı (libaom küçük tek renkli akışta bellek hatası veriyor).
+    // Renk akışı TAM aralıkta (pc): Chromium'un resim çözücüsü sınırlı aralıklı AVIF'i yalnızca kareler baştan
+    // sırayla çözülürken doğru gösteriyor; bir kare atlanınca, başa dönülünce ya da ortadan başlanınca aralığı
+    // tam sanıp rengi soldurdu (uygulamada yaşandı; bkz. verify.html accessItem). Renk etiketleri süzgeçte de
+    // konur ki izin örnek kaydında colr (nclx: BT.709, tam aralık) kutusu yazılsın (yalnızca çıkış seçeneğiyle
+    // yazılmıyordu).
     codec = [
       '-filter_complex',
       // (alfa akışı RGB'den ayrıldığı için "gbr" etiketiyle gelir; libaom tek renkli akışta bunu kabul etmez)
-      `[0:v]split[c][a];[c]${YUV},format=yuv420p[cv];[a]alphaextract,format=gray,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=pc[av]`,
+      `[0:v]split[c][a];[c]${AVIF_YUV},format=yuv420p,${AVIF_TAGS}[cv];[a]alphaextract,format=gray,${AVIF_TAGS}[av]`,
       '-map', '[cv]', '-map', '[av]',
       '-c:v', 'libaom-av1', '-crf', String(v.crf), '-b:v', '0', '-cpu-used', '4', '-row-mt', '1', '-g', gop,
       ...(method === 'intra' ? ['-lag-in-frames', '0'] : ['-aom-params', 'enable-keyframe-filtering=0']),
-      '-colorspace:v:0', 'bt709', '-color_primaries:v:0', 'bt709', '-color_trc:v:0', 'bt709', '-color_range:v:0', 'tv',
+      '-colorspace:v:0', 'bt709', '-color_primaries:v:0', 'bt709', '-color_trc:v:0', 'bt709', '-color_range:v:0', 'pc',
       '-loop', '0',
     ];
   }
@@ -259,6 +267,20 @@ function seriesOf(frames) {
   mean.push(diff(prev, first));
   level.push(step(prevLevel, firstLevel));
   return { mean, level };
+}
+
+/**
+ * AVIF'in ffmpeg ile çözülmüş kareleri (sırasız çözme denetiminin karşılaştırma tabanı, bkz. verify.html
+ * accessItem): düz renk (rgb24) ve alfa (gray) iki ham dosyada. ffmpeg hareketli AVIF'i dört akış olarak açar:
+ * 0 ve 1 kapak resmi (renk, alfa), 2 ve 3 kare dizisi.
+ */
+export async function avifReference(ffmpeg, file, tmp) {
+  const base = path.join(tmp, `${path.basename(file)}.ref`);
+  const color = `${base}-color.raw`;
+  const alpha = `${base}-alpha.raw`;
+  await run(ffmpeg, ['-hide_banner', '-y', '-i', file, '-map', '0:v:2', '-f', 'rawvideo', '-pix_fmt', 'rgb24', color]);
+  await run(ffmpeg, ['-hide_banner', '-y', '-i', file, '-map', '0:v:3', '-f', 'rawvideo', '-pix_fmt', 'gray', alpha]);
+  return { color, alpha };
 }
 
 /**

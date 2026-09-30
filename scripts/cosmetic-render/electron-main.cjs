@@ -4,7 +4,8 @@
 // İki iş türü (iş.json'daki mode):
 //   render: page.js'i yükler, kareleri çizdirir (ham dosyalara);
 //   verify: verify.html'i yükler, kodlanan dosyaları oynatıp ölçer (ekran dışı çizimle: pencere gizliyken de
-//           kareler üretilir, görüntüsü alınabilir).
+//           kareler üretilir, görüntüsü alınabilir);
+//   access: yalnızca AVIF'lerin sırasız çözme denetimi (verify'ın da parçası; bkz. verify.html accessItem).
 
 const { app, BrowserWindow, dialog } = require('electron');
 const fs = require('node:fs');
@@ -167,6 +168,14 @@ async function verify() {
   return results;
 }
 
+/** Yalnızca AVIF'in sırasız çözme denetimi (verify.html access) */
+async function access() {
+  const win = new BrowserWindow({ show: false, width: 800, height: 600, webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false } });
+  watch(win);
+  await win.loadFile(spec.page);
+  return win.webContents.executeJavaScript(`window.cosmeticVerify.access(${JSON.stringify(spec.items)})`);
+}
+
 /** Döngü biçimi olan setler ve setlerin adları (sayfa bildirir: client-core COSMETIC_LOOP_SHADERS, shared COSMETIC_SET_LABELS) */
 async function info() {
   const win = new BrowserWindow({ show: false, width: 800, height: 600, webPreferences: { nodeIntegration: true, contextIsolation: false } });
@@ -177,7 +186,8 @@ async function info() {
 
 app.whenReady().then(async () => {
   try {
-    finish({ results: spec.mode === 'verify' ? await verify() : spec.mode === 'info' ? await info() : await render() }, 0);
+    const modes = { verify, info, access, render };
+    finish({ results: await (modes[spec.mode] ?? render)() }, 0);
   } catch (err) {
     finish({ error: String(err && err.stack ? err.stack : err) }, 1);
   }

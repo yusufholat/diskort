@@ -59,7 +59,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { continuityCheck, continuityFromSeries, continuitySummary, frameLevel } from './continuity.mjs';
 import { writeBundles } from './pack.mjs';
-import { decodedSeries, encodeIntraWebp, encodeVideo, findFfmpeg, parseVideoSpec, VIDEO_FORMATS, writeStacked } from './video.mjs';
+import { avifReference, decodedSeries, encodeIntraWebp, encodeVideo, findFfmpeg, parseVideoSpec, VIDEO_FORMATS, writeStacked } from './video.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
@@ -712,6 +712,8 @@ async function renderSet(set, ctx) {
       item.dump = path.join(dumpDir, `${path.basename(item.path)}.rgba`);
       item.timing = item.tag === 'video' && item.piece === timingPiece && !seen.has(item.format);
       if (item.timing) seen.add(item.format);
+      // AVIF: sırasız çözme denetiminin tabanı, ffmpeg'in aynı dosyadan çözdüğü kareler (verify.html accessItem)
+      if (item.format === 'avif' && ffmpeg) item.reference = await avifReference(ffmpeg.exe, item.path, dumpDir);
     }
     const verified = await runElectron({ mode: 'verify', workDir: TMP, page: path.join(here, 'verify.html'), items: verifyItems, loopSeconds: LOOP });
     const byFile = new Map(verified.map((r) => [r.file, r]));
@@ -743,6 +745,11 @@ async function renderSet(set, ctx) {
           console.log(`    kodlanmış kesintisizlik: ${continuitySummary(r.continuity)}`);
           if (!r.continuity.ok) encodedFlags.push(f.file.split('/').pop());
         }
+        if (r.access) {
+          const a = accessVerdict(r.access);
+          console.log(`    sırasız çözme: ${a.text}`);
+          if (!a.ok) encodedFlags.push(`${f.file.split('/').pop()} (sırasız çözmede renk kayıyor)`);
+        }
       }
       // Kalite karşılaştırması: aynı karenin kırpılmış parçası, kaynak ve her dosya yan yana
       const items = verifyItems.filter((i) => i.piece === piece.id && fs.existsSync(i.dump));
@@ -765,8 +772,31 @@ async function renderSet(set, ctx) {
   fs.writeFileSync(path.join(setDir, 'media.js'), `Object.assign((window.COSMETIC_MEDIA = window.COSMETIC_MEDIA || {}), ${JSON.stringify(embedded)});\n`);
   // pack.mjs'in okuduğu biçim (aynı içerik, düz JSON)
   fs.writeFileSync(path.join(setDir, 'manifest.json'), JSON.stringify(manifest));
-  if (encodedFlags.length) console.log(`\n  Sıkıştırmanın kesme eklediği dosyalar: ${encodedFlags.join(', ')}`);
+  if (encodedFlags.length) console.log(`\n  Sorunlu kodlanmış dosyalar: ${encodedFlags.join(', ')}`);
   return { flagged, encodedFlags };
+}
+
+/**
+ * AVIF sırasız çözme kararı (verify.html accessItem'ın sonucu): atlayarak, başa dönerek ve ortadan başlayarak
+ * çözülen kareler, sırayla çözülenlerden belirgin biçimde uzaklaşmamalı ve hepsi çözülebilmeli. Taban sıralı
+ * çözmenin en kötü karesi (ffmpeg ile Chromium'un çözümü arasındaki olağan yuvarlama farkı); renk aralığının
+ * karışması 8-14 birim ekliyordu.
+ */
+const ACCESS_TOLERANCE = 2;
+function accessVerdict(access) {
+  const base = access.summary.inOrder.worstColor;
+  const parts = [];
+  let ok = true;
+  for (const [name, s] of Object.entries(access.summary)) {
+    // coldNext: Chromium çözücüsünün bilinen takılması (bkz. verify.html); yalnızca renk farkı sayılır
+    const info = name === 'coldNext';
+    const bad = (!info && s.errors.length > 0) || (name !== 'inOrder' && s.worstColor > base + ACCESS_TOLERANCE);
+    if (bad) ok = false;
+    parts.push(`${name} ${s.worstColor} (kare ${s.worstAt}${s.errors.length ? `, ${info ? 'çözücü takıldı' : 'ÇÖZÜLEMEDİ'}: ${s.errors[0]}` : ''})`);
+  }
+  const p = access.points.afterWrap;
+  const dark = p?.dark ? `; en koyu nokta başa dönüşte ${p.dark.decoded.join(',')} / ffmpeg ${p.dark.ffmpeg.join(',')}` : '';
+  return { ok, text: `${ok ? 'doğru' : 'RENK KAYIYOR'}; renk farkı (en kötü kare, alfa>½): ${parts.join(', ')}${dark}` };
 }
 
 /** Ham kareleri siler (bir sonraki set için yer açılsın) */
@@ -821,7 +851,7 @@ async function main() {
   if (MODE !== 'live') {
     console.log(flaggedSets.length ? `\nKESİNTİSİZLİK DENETİMİ: kesme bulundu: ${flaggedSets.join(', ')}` : '\nKesintisizlik denetimi: kesme yok.');
     if (MODE === 'full' && !args['no-verify']) {
-      console.log(encodedFlags.length ? `KODLANMIŞ DOSYALAR: sıkıştırmanın kesme eklediği dosyalar: ${encodedFlags.join(', ')}` : 'Kodlanmış dosyalar: sıkıştırmanın eklediği kesme yok.');
+      console.log(encodedFlags.length ? `KODLANMIŞ DOSYALAR: sorunlu dosyalar (kodlamanın eklediği kesme ya da sırasız çözmede renk kayması): ${encodedFlags.join(', ')}` : 'Kodlanmış dosyalar: sıkıştırmanın eklediği kesme yok; AVIF sırasız çözmede de doğru.');
     }
     if (flaggedSets.length && MODE === 'check') process.exitCode = 2;
     // kodlamanın eklediği kesme de başarısızlıktır (paketler yine yazılır; çıkış kodu uyarır)
