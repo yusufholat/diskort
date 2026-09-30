@@ -1,6 +1,7 @@
 import {
-  ACTIVITY_TYPE_LABELS,
+  ACTIVITY_ICON_KEY_PATTERN,
   activityIconPath,
+  isKnownActivity,
   clearAfterMs,
   ownDisplayStatus,
   type Activity,
@@ -44,17 +45,26 @@ export function useCustomStatus(userId: string | null | undefined): CustomStatus
   });
 }
 
-/** Kişinin etkinliği (oynadığı oyun); tanınmayan türler gösterilmez */
+const NO_ACTIVITIES: readonly Activity[] = [];
+
+/** Kişinin asıl etkinliği (en son başladığı oyun); tanınmayan türler gösterilmez */
 export function useActivity(userId: string | null | undefined): Activity | null {
-  return useGuild((s) => {
-    const activity = userId ? s.presences[userId]?.activity : null;
-    return activity && activity.type in ACTIVITY_TYPE_LABELS ? activity : null;
-  });
+  return useGuild((s) => (userId ? s.presences[userId]?.activities?.find(isKnownActivity) : null) ?? null);
 }
 
-/** Etkinlik ikonunun adresi; ikon yoksa null */
+/**
+ * Kişinin tüm etkinlikleri, en son başlayan ilk sırada (profilde alt alta kartlar). Seçici kararlı kalsın
+ * diye liste süzülmeden döner: gösterirken `isKnownActivity` ile süz.
+ */
+export function useActivities(userId: string | null | undefined): readonly Activity[] {
+  return useGuild((s) => (userId ? s.presences[userId]?.activities : undefined) ?? NO_ACTIVITIES);
+}
+
+/** Etkinlik ikonunun adresi; ikon yoksa (ya da anahtar geçersizse) null */
 export const activityIconUrl = (activity: Pick<Activity, 'icon'> | null | undefined): string | null =>
-  activity?.icon ? normalizeServerUrl(env().serverUrl()) + activityIconPath(activity.icon) : null;
+  activity?.icon && ACTIVITY_ICON_KEY_PATTERN.test(activity.icon)
+    ? normalizeServerUrl(env().serverUrl()) + activityIconPath(activity.icon)
+    : null;
 
 /** Kendi durum ayarların (eski sunucuda null) */
 export function useSelfStatus(): SelfStatus | null {
