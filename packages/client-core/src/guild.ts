@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import {
   DEFAULT_ATTACHMENT_MAX_BYTES,
-  sameActivity,
+  sameActivities,
   type Channel,
   type DmChannel,
   type GatewayServerMessage,
@@ -335,13 +335,13 @@ function applyPresence(
   const visible = status !== 'offline';
   const prev = s.presences[d.userId];
   const next: Presence | undefined = visible
-    ? { status, customStatus: d.customStatus ?? null, activity: d.activity ?? null }
+    ? { status, customStatus: d.customStatus ?? null, activities: d.activities ?? [] }
     : undefined;
   const presenceSame =
     prev && next
       ? prev.status === next.status &&
         sameCustom(prev.customStatus, next.customStatus) &&
-        sameActivity(prev.activity, next.activity)
+        sameActivities(prev.activities, next.activities)
       : prev === next;
   const onlineSame = Boolean(s.online[d.userId]) === visible;
   if (presenceSame && onlineSame) return {};
