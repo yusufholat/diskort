@@ -42,7 +42,24 @@ export function registerCosmeticRoutes(app: FastifyInstance, ctx: AppContext): v
   // Paket dosyası. Adres paketin sürümünü (içerik özeti) taşır: içerik hiç değişmez, süresiz önbelleklenir.
   // Yeniden yayında yerini bırakan sürümün dosyaları da bir süre sunulur (bkz. CosmeticPackStore.fileOf):
   // bağlı istemciler bildirimi tazeleyene dek eski adresleri kullanır.
-  app.get<PackFileRoute>('/api/cosmetics/packs/:id/:version/:name', async (req, reply) => {
+  //
+  // Hata yanıtı (başlıklar ayarlandıktan sonra bir şey ters giderse; ör. dosya akışı ilk bayttan önce hata
+  // verirse) dosyanın önbellek ve aralık başlıklarını taşımamalı: yoksa hata "süresiz" önbelleklenirdi.
+  // Fastify'ın kendi hata işleyicisi yalnızca Content-Type/Length'i düşürür; akış gönderilirken başlıklar ham
+  // yanıta da yazılmış olur, ikisinden de silinir. Hatanın iletisi (dosya yolu içerebilir) yanıta konmaz.
+  const fileError = (err: unknown, req: FastifyRequest, reply: FastifyReply): FastifyReply => {
+    req.log.error({ err }, 'kozmetik paketi dosyası sunulamadı');
+    for (const header of ['Cache-Control', 'ETag', 'Content-Range', 'Accept-Ranges', 'Content-Length']) {
+      reply.removeHeader(header);
+      if (!reply.raw.headersSent) reply.raw.removeHeader(header);
+    }
+    return reply
+      .code(500)
+      .header('Content-Type', 'application/json; charset=utf-8')
+      .send({ error: 'internal_error', message: 'Dosya sunulamadı.' });
+  };
+
+  app.get<PackFileRoute>('/api/cosmetics/packs/:id/:version/:name', { errorHandler: fileError }, async (req, reply) => {
     const { id, version, name } = req.params;
     // Önce dosya açılır; boyut açık dosyadan okunur. Açılamayan (yok, silinmiş, okunamıyor) her şey 404'tür:
     // önbellek başlıkları yalnızca başarıyla açılan dosyaya verilir, yanıtta dosya yolu hiç geçmez.

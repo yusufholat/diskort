@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -460,9 +461,10 @@ describe('paket deposu (komut satırı)', () => {
     const a = await cli().publish(bundle('buz', {}, fullFiles(0)));
     const b = await cli().publish(bundle('buz', {}, fullFiles(2)));
     expect(versions('buz')).toEqual([a.version, b.version].sort());
-    // Yarım kalmış bir hazırlık ve bildirimde olmayan bir paket klasörü
-    fs.mkdirSync(path.join(dir, 'buz', '.tmp-yarim'));
+    // Yarım kalmış bir hazırlık ve yayında olmayan bir paketin artığı (içinde yalnızca sürüm klasörü)
+    fs.mkdirSync(path.join(dir, 'buz', '.tmp-0123456789ab'));
     fs.mkdirSync(path.join(dir, 'eski-paket', '0123456789abcdef'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'eski-paket', '0123456789abcdef', 'card.avif'), avif(8, 8));
     fs.writeFileSync(path.join(dir, 'notlar.txt'), 'elle konmuş dosya');
 
     await cli().publish(bundle('neon'));
@@ -474,6 +476,180 @@ describe('paket deposu (komut satırı)', () => {
     await cli().remove('buz');
     expect(fs.existsSync(path.join(dir, 'buz'))).toBe(false);
     expect(cli().list().map((p) => p.id)).toEqual(['neon']);
+  });
+
+  it('temizlik yalnızca tanıdığını siler: depodaki yabancı klasör ve dosyalara dokunulmaz, uyarı verilir', async () => {
+    const a = await cli().publish(bundle('buz', {}, fullFiles(0)));
+    await cli().publish(bundle('neon'));
+    // Deponun içine elle konmuş şeyler: adı paket kimliğine benzeyen ama içinde başka dosyalar olan klasörler
+    fs.mkdirSync(path.join(dir, 'yedekler', 'eski'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'yedekler', 'eski', 'buz.json'), '{}');
+    fs.mkdirSync(path.join(dir, 'karisik', '0123456789abcdef'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'karisik', 'onemli.txt'), 'silinmemeli');
+    fs.mkdirSync(path.join(dir, 'Buyuk-Harf'));
+    // Yayındaki paketin klasöründe tanınmayan şeyler: dosya, adı hazırlık klasörüne benzeyen ama öyle olmayan klasör
+    fs.writeFileSync(path.join(dir, 'buz', 'notlar.txt'), 'x');
+    fs.mkdirSync(path.join(dir, 'buz', '.tmp-yarim'));
+    fs.mkdirSync(path.join(dir, 'buz', 'kaynak'));
+    const before = tree();
+
+    const store = cli();
+    const b = await store.publish(bundle('buz', {}, fullFiles(2)));
+    expect(await store.prune(true)).toBe(1);
+    // Yalnızca önceki sürüm gitti; yabancı olan her şey yerinde
+    expect(fs.existsSync(path.join(dir, 'buz', a.version))).toBe(false);
+    expect(fs.readdirSync(path.join(dir, 'buz')).sort()).toEqual(['.tmp-yarim', b.version, 'kaynak', 'notlar.txt'].sort());
+    expect(fs.existsSync(path.join(dir, 'yedekler', 'eski', 'buz.json'))).toBe(true);
+    expect(fs.readdirSync(path.join(dir, 'karisik')).sort()).toEqual(['0123456789abcdef', 'onemli.txt']);
+    expect(fs.existsSync(path.join(dir, 'Buyuk-Harf'))).toBe(true);
+    for (const f of before.filter((f) => !f.startsWith(`buz/${a.version}/`) && f !== 'manifest.json')) {
+      expect(fs.existsSync(path.join(dir, f)), f).toBe(true);
+    }
+    const warnings = store.takeWarnings().join('\n');
+    expect(warnings).toMatch(/"buz" klasöründe tanınmayan dosyalar var, dokunulmadı: .*notlar\.txt/);
+    expect(warnings).toMatch(/"yedekler" klasöründe tanınmayan dosyalar var/);
+    expect(warnings).toMatch(/"karisik" klasöründe tanınmayan dosyalar var/);
+    expect(store.takeWarnings()).toEqual([]);
+
+    // Kaldırma: sürümler silinir, tanınmayan dosya yüzünden klasör kalır; işlem bunu hata olarak bildirir
+    const remover = cli();
+    await expect(remover.remove('buz')).rejects.toThrow(/"buz" yayından kaldırıldı.*klasörü silinemedi/);
+    expect(cli().list().map((p) => p.id)).toEqual(['neon']);
+    expect(fs.readdirSync(path.join(dir, 'buz')).sort()).toEqual(['.tmp-yarim', 'kaynak', 'notlar.txt']);
+    expect(remover.takeWarnings().join('\n')).toMatch(/tanınmayan dosyalar var/);
+    expect(fs.existsSync(path.join(dir, '.lock'))).toBe(false);
+    // Kaldırılan paketin dosyası sunulmaz
+    expect(await cli().openFile('buz', b.version, 'card.avif')).toBeNull();
+  });
+
+  it('yanlış klasör (depo olmayan, içinde başka veriler olan) gösterilirse hiçbir şey silinmez ve yazılmaz', async () => {
+    // Veri kökü gibi: adları paket kimliğine benzeyen klasörler
+    for (const name of ['uploads', 'avatars', 'feedback']) {
+      fs.mkdirSync(path.join(dir, name, '0123456789abcdef'), { recursive: true });
+      fs.writeFileSync(path.join(dir, name, '0123456789abcdef', 'dosya.bin'), 'veri');
+      fs.writeFileSync(path.join(dir, name, 'kayit.json'), '{}');
+    }
+    fs.writeFileSync(path.join(dir, 'diskort.db'), 'veritabanı');
+    const before = tree();
+
+    await expect(cli().publish(bundle('buz'))).rejects.toThrow(/kozmetik paketi deposu değil.*manifest\.json yok.*--dir/s);
+    await expect(cli().prune()).rejects.toThrow(/deposu yok \(manifest\.json bulunamadı\)/);
+    await expect(cli().prune(true)).rejects.toThrow(/deposu yok/);
+    await expect(cli().remove('uploads')).rejects.toThrow(/deposu yok/);
+    await expect(cli().setPlatforms('uploads', [])).rejects.toThrow(/deposu yok/);
+    await expect(cli().setOrder(['uploads'])).rejects.toThrow(/deposu yok/);
+    // Hiçbir şey silinmedi, kilit ya da başka dosya da bırakılmadı
+    expect(tree()).toEqual(before);
+    expect(fs.readdirSync(dir).sort()).toEqual(['avatars', 'diskort.db', 'feedback', 'uploads']);
+
+    // Boş klasöre ve yalnızca (takılı kalmış eski) kilit duran klasöre yayın yapılabilir
+    const fresh = path.join(dir, 'uploads', 'yeni-depo');
+    fs.mkdirSync(fresh);
+    const old = new Date(Date.now() - 11 * 60_000);
+    fs.writeFileSync(path.join(fresh, '.lock'), '');
+    fs.utimesSync(path.join(fresh, '.lock'), old, old);
+    await expect(new CosmeticPackStore(fresh, { recheckMs: 0 }).publish(bundle('buz'))).resolves.toBeTruthy();
+    expect(fs.existsSync(path.join(fresh, 'manifest.json'))).toBe(true);
+    // Olmayan klasör oluşturulur
+    const created = path.join(dir, 'yok', 'cosmetic-packs');
+    await expect(new CosmeticPackStore(created, { recheckMs: 0 }).publish(bundle('buz'))).resolves.toBeTruthy();
+    await expect(new CosmeticPackStore(path.join(dir, 'hic-yok'), { recheckMs: 0 }).prune()).rejects.toThrow(/deposu yok/);
+    expect(fs.existsSync(path.join(dir, 'hic-yok'))).toBe(false);
+  });
+
+  it('yayında olmayan kimliğin klasöründe kalmış sürümler yeni paketin "önceki sürümü" olarak geri gelmez', async () => {
+    const leftover = path.join(dir, 'buz', '0123456789abcdef');
+    await cli().publish(bundle('neon'));
+    // Silinememiş eski bir kaldırmanın artığı
+    fs.mkdirSync(leftover, { recursive: true });
+    fs.writeFileSync(path.join(leftover, 'card.avif'), avif(600, 900));
+    const pack = await cli().publish(bundle('buz'));
+    expect(versions('buz')).toEqual([pack.version]);
+    expect(await cli().openFile('buz', '0123456789abcdef', 'card.avif')).toBeNull();
+  });
+
+  it('saklanan kayıtta yayın kuralları aranmaz: sonradan eklenen bir kurala uymayan paket yayında kalır', async () => {
+    const pack = await cli().publish(bundle('buz'));
+    await cli().publish(bundle('neon'));
+    // Eski bir sürümle yayınlanmış gibi: posteri başka boyutta, plakanın resmi yok (bugün yayınlanamazdı)
+    const file = path.join(dir, 'manifest.json');
+    const stored = JSON.parse(fs.readFileSync(file, 'utf8')) as {
+      packs: { id: string; files: { piece: string; kind: string; name: string; width: number; height: number }[] }[];
+    };
+    const buz = stored.packs[0]!;
+    buz.files = buz.files.filter((f) => f.piece !== 'plate' || f.kind === 'stacked-h264');
+    buz.files.find((f) => f.name === 'card-poster.webp')!.width = 300;
+    fs.writeFileSync(file, JSON.stringify(stored));
+    await expect(parseBundle({ format: 1, pack: bundle().pack, files: buz.files.map((f) => ({ ...f, data: 'AAAA' })) })).rejects.toThrow(
+      /aynı görünen boyutu|en az bir resim/,
+    );
+
+    // Okunur, listelenir, sunulur
+    const store = cli();
+    expect(() => store.load()).not.toThrow();
+    expect(store.list().map((p) => p.id)).toEqual(['buz', 'neon']);
+    expect(store.knows('buz')).toBe(true);
+    const served = store.served().manifest.packs[0]!;
+    expect(served.assets.plate.map((a) => a.kind)).toEqual(['stacked-h264']);
+    expect(served.assets.card.find((a) => a.kind === 'poster')).toMatchObject({ width: 300, height: 900 });
+    const opened = await store.openFile('buz', pack.version, 'card.avif');
+    expect(opened?.contentType).toBe('image/avif');
+    await opened?.handle.close();
+
+    // İlgisiz yazmalar (başka paketin yayını, sıra, platform, temizlik) kaydını ve dosyalarını silmez
+    await cli().publish(bundle('yeni'));
+    await cli().setOrder(['neon']);
+    await cli().setPlatforms('buz', ['ios']);
+    await cli().prune(true);
+    const after = cli().list().find((p) => p.id === 'buz')!;
+    expect(cli().list().map((p) => p.id)).toEqual(['neon', 'buz', 'yeni']);
+    expect(after.files.map((f) => f.name)).toEqual(buz.files.map((f) => f.name));
+    expect(after).toMatchObject({ version: pack.version, platforms: ['ios'] });
+    expect(fs.readdirSync(path.join(dir, 'buz', pack.version)).sort()).toEqual(fullFiles().map((f) => f.name).sort());
+
+    // Kaydın bütünlüğü ise hâlâ aranır (aynı ad iki kez): bozuk kayıt depoyu yazılamaz kılar, sessizce düşürülmez
+    stored.packs[0]!.files.push({ ...stored.packs[0]!.files[0]! });
+    fs.writeFileSync(file, JSON.stringify(stored));
+    expect(() => cli().load()).toThrow(/manifest\.json okunamadı.*birden çok kez/);
+  });
+
+  it('bildirim yazıldıktan sonra yayın kesinleşir: sonraki adımların hatası yeni sürümü silmez, yayını başarısız kılmaz', async () => {
+    const first = await cli().publish(bundle('buz', {}, fullFiles(0)));
+
+    // Bildirim yazılamazsa (kesinleşmeden önce): yeni sürümün klasörü geri alınır, depo olduğu gibi kalır
+    const manifest = fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8');
+    const rename = fs.renameSync.bind(fs);
+    const failing = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (String(to).endsWith('manifest.json')) throw new Error('disk dolu');
+      rename(from, to);
+    });
+    await expect(cli().publish(bundle('buz', {}, fullFiles(2)))).rejects.toThrow('disk dolu');
+    failing.mockRestore();
+    expect(versions('buz')).toEqual([first.version]);
+    expect(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')).toBe(manifest);
+    expect(tree().some((f) => f.includes('.tmp') || f.includes('.lock'))).toBe(false);
+
+    // Bildirim yazıldıktan sonra: damgalama ve temizlik hata verse de yayın başarılıdır
+    const readdir = fs.readdirSync.bind(fs) as (...args: unknown[]) => unknown;
+    vi.spyOn(fs, 'utimesSync').mockImplementation(() => {
+      throw new Error('izin yok');
+    });
+    vi.spyOn(fs, 'readdirSync').mockImplementation(((...args: unknown[]) => {
+      // Temizliğin klasör taraması (withFileTypes ile çağrılan tek yer)
+      if (args[1] && typeof args[1] === 'object' && 'withFileTypes' in args[1]) throw new Error('okunamadı');
+      return readdir(...args);
+    }) as typeof fs.readdirSync);
+    const store = cli();
+    const second = await store.publish(bundle('buz', {}, fullFiles(2)));
+    vi.restoreAllMocks();
+    expect(second.version).not.toBe(first.version);
+    expect(cli().list().map((p) => [p.id, p.version])).toEqual([['buz', second.version]]);
+    expect(fs.readdirSync(path.join(dir, 'buz', second.version)).sort()).toEqual(fullFiles().map((f) => f.name).sort());
+    expect(store.list()[0]!.version).toBe(second.version);
+    const warnings = store.takeWarnings().join('\n');
+    expect(warnings).toMatch(/önceki sürümün süresi başlatılamadı: izin yok/);
+    expect(warnings).toMatch(/eski sürümler temizlenemedi: okunamadı/);
+    expect(fs.existsSync(path.join(dir, '.lock'))).toBe(false);
   });
 
   it('kaldırma, platformlar ve sıra', async () => {
@@ -674,6 +850,23 @@ describe('paket deposu (komut satırı)', () => {
       expect(await open(id, version, name), `${id}/${version}/${name}`).toBeNull();
     }
 
+    // Bekleme süresi sunarken de uygulanır: yerini bırakalı 24 saati geçmiş sürüm, klasörü henüz silinmemiş
+    // olsa da açılmaz (klasörü silecek bir sonraki yayın/prune hiç gelmeyebilir)
+    const hour = 60 * 60_000;
+    const stamp = (version: string, ageMs: number): void => {
+      const at = new Date(Date.now() - ageMs);
+      fs.utimesSync(path.join(dir, 'buz', version), at, at);
+    };
+    stamp(old.version, 23 * hour);
+    expect(await open('buz', old.version, 'card.avif')).not.toBeNull();
+    stamp(old.version, 25 * hour);
+    expect(await open('buz', old.version, 'card.avif')).toBeNull();
+    expect(await open('buz', old.version, 'card-poster.webp')).toBeNull();
+    // Yayındaki sürüm klasörünün yaşı önemsizdir
+    stamp(pack.version, 900 * hour);
+    expect(await open('buz', pack.version, 'card.avif')).not.toBeNull();
+    stamp(old.version, 0);
+
     // Sembolik bağ izlenmez (bağ oluşturulamayan ortamda, ör. yetkisiz Windows, bu adım atlanır)
     const secret = path.join(dir, 'gizli-dosya.avif');
     fs.writeFileSync(secret, avif(8, 8));
@@ -753,11 +946,23 @@ describe('komut satırı aracı (cosmetics-cli)', () => {
     expect(blocked.stderr).toContain('--force-unlock');
     expect(run(['--force-unlock']).stdout).toContain('Kilit kaldırıldı.');
     fs.writeFileSync(path.join(store, '.lock'), lock);
+    // Paketin klasöründe tanınmayan bir dosya var: paket yayından kalkar ama klasör silinemez; araç bunu
+    // "dosyaları silindi" demek yerine hata koduyla ve uyarıyla bildirir
+    fs.writeFileSync(path.join(store, 'yeni-set', 'notlar.txt'), 'elle konmuş');
     const forced = run(['--force-unlock', 'remove', 'yeni-set']);
-    expect(forced.status).toBe(0);
     expect(forced.stdout).toContain('Kilit kaldırıldı.');
+    expect(forced.status).toBe(1);
+    expect(forced.stdout).not.toContain('dosyaları silindi');
+    expect(forced.stderr).toContain('klasörü silinemedi');
+    expect(forced.stderr).toContain('Uyarı: "yeni-set" klasöründe tanınmayan dosyalar var');
+    expect(fs.readdirSync(path.join(store, 'yeni-set'))).toEqual(['notlar.txt']);
     expect(listed()).toEqual([]);
     expect(fs.existsSync(path.join(store, '.lock'))).toBe(false);
+    // Depo olmayan klasörde silme/temizlik çalışmaz, klasöre bir şey yazılmaz
+    const wrong = run(['prune', '--all', '--dir', path.join(store, 'yeni-set')]);
+    expect(wrong.status).toBe(1);
+    expect(wrong.stderr).toContain('deposu yok');
+    expect(fs.readdirSync(path.join(store, 'yeni-set'))).toEqual(['notlar.txt']);
     // Her çağrı ayrı bir süreç başlatır: paralel koşuda varsayılan süre yetmeyebilir
   }, 180_000);
 });
@@ -997,10 +1202,56 @@ describe('sunucu uçları', () => {
       expect((await get(url)).statusCode, url).toBe(404);
     }
 
+    // Bekleme süresi dolunca (klasör henüz silinmemiş olsa da) eski adresler kapanır; yayındaki sürüm sürer
+    const past = new Date(Date.now() - 25 * 60 * 60_000);
+    fs.utimesSync(path.join(dir, 'buz', pack.version), past, past);
+    const expired = await get(`${base}/card.avif`);
+    expect(expired.statusCode).toBe(404);
+    expect(expired.headers['cache-control']).toBeUndefined();
+    expect((await get(`${nextBase}/card.avif`)).statusCode).toBe(200);
+    fs.utimesSync(path.join(dir, 'buz', pack.version), new Date(), new Date());
+    expect((await get(`${base}/card.avif`)).statusCode).toBe(200);
+
     // Kaldırma bekleme süresi tanımaz: hiçbir sürümün dosyası sunulmaz
     await cli().remove('buz');
+    expect(fs.existsSync(path.join(dir, 'buz'))).toBe(false);
     expect((await get(`${nextBase}/card.avif`)).statusCode).toBe(404);
     expect((await get(`${base}/card.avif`)).statusCode).toBe(404);
+  });
+
+  it('dosya: başlıklar ayarlandıktan sonraki hata (akış ilk bayttan önce bozulursa) önbellek başlıklarını taşımaz', async () => {
+    const pack = await cli().publish(bundle());
+    const base = `/api/cosmetics/packs/buz/${pack.version}`;
+    const realOpen = fs.promises.open.bind(fs.promises);
+    const handles: fs.promises.FileHandle[] = [];
+    vi.spyOn(fs.promises, 'open').mockImplementation(async (...args: Parameters<typeof fs.promises.open>) => {
+      const handle = await realOpen(...args);
+      handles.push(handle);
+      // Dosya akışı okunmaya başlamadan hata veriyor (disk hatası); iletisinde dosya yolu var
+      handle.createReadStream = (() => {
+        const stream = new Readable({
+          read() {
+            this.destroy(new Error(`EIO: i/o error, read '${path.join(dir, 'buz', pack.version, 'card.mp4')}'`));
+          },
+        });
+        stream.on('close', () => void handle.close().catch(() => undefined));
+        return stream;
+      }) as unknown as typeof handle.createReadStream;
+      return handle;
+    });
+    for (const headers of [{}, { range: 'bytes=0-9' }] as Record<string, string>[]) {
+      const res = await get(`${base}/card.mp4`, headers);
+      expect(res.statusCode).toBe(500);
+      expect(res.json()).toEqual({ error: 'internal_error', message: 'Dosya sunulamadı.' });
+      for (const header of ['cache-control', 'etag', 'content-range', 'accept-ranges']) {
+        expect(res.headers[header], header).toBeUndefined();
+      }
+      expect(res.headers['content-type']).toBe('application/json; charset=utf-8');
+      expect(res.headers['content-length']).toBe(String(Buffer.byteLength(res.body)));
+      expect(res.body).not.toContain(path.basename(dir));
+      expect(res.body).not.toContain('EIO');
+    }
+    await vi.waitFor(() => expect(handles.map((h) => h.fd)).toEqual([-1, -1]));
   });
 
   it('dosya: açılamayan dosya 404\'tür (önbellek başlığı ve dosya yolu sızmaz); tutamaçlar her yolda kapanır', async () => {

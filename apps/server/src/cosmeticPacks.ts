@@ -21,6 +21,7 @@ import {
   COSMETIC_PACK_MAX_FILE_BYTES,
   COSMETIC_PACK_VERSION_PATTERN,
   COSMETIC_SET_ID_PATTERN,
+  cosmeticPackFileIntegrityError,
   cosmeticPackFileSetError,
   cosmeticPackFileUrl,
   isCosmeticSet,
@@ -77,6 +78,8 @@ export const COSMETIC_PACK_GRACE_MS = 24 * 60 * 60_000;
 
 const MANIFEST_FILE = 'manifest.json';
 const LOCK_FILE = '.lock';
+/** Yayın sırasında dosyaların yazıldığı geçici klasör (.tmp- + 12 onaltılık); bitince sürüm adını alır */
+const STAGING_DIR_PATTERN = /^\.tmp-[0-9a-f]{12}$/;
 /** Bu kadar eski kilit, yarıda kalmış bir işlemden kalmadır */
 const STALE_LOCK_MS = 10 * 60_000;
 
@@ -338,7 +341,10 @@ function packVersion(files: readonly StoredPackFile[]): string {
 
 // ---------- manifest.json ----------
 
-/** manifest.json'un içeriğini doğrular (elle düzenlenmiş ya da bozulmuş olabilir); geçersizse hata atar */
+/**
+ * manifest.json'un içeriğini doğrular (elle düzenlenmiş ya da bozulmuş olabilir); geçersizse hata atar.
+ * Hiçbir paket atlanmaz: atlanan paket sonraki yazmada kayıttan düşer, dosyaları da temizlikte silinirdi.
+ */
 function parseStored(value: unknown): StoredPack[] {
   const root = value as { format?: unknown; packs?: unknown } | null;
   if (!root || root.format !== COSMETIC_PACK_FORMAT || !Array.isArray(root.packs)) throw new Error('biçim tanınmıyor');
@@ -365,7 +371,10 @@ function parseStored(value: unknown): StoredPack[] {
       if (typeof sha256 !== 'string' || !SHA256.test(sha256)) throw new Error(`"${info.value.id}/${meta.value.name}" özeti geçersiz`);
       return { ...meta.value, bytes, sha256 };
     });
-    const setError = cosmeticPackFileSetError(parsed);
+    // Yalnızca kaydın bütünlüğü (tekrarsız adlar, parça başına türden tek dosya). Yayın kuralları ("her parçada
+    // bir resim", "parçanın dosyaları aynı boyutta") burada denetlenmez: sonradan eklenen bir kural, yayında
+    // olan eski bir paketi (ve onunla bütün depoyu) okunmaz kılmamalı. Onlar yayın anında, parseBundle'dadır.
+    const setError = cosmeticPackFileIntegrityError(parsed);
     if (setError) throw new Error(`"${info.value.id}": ${setError}`);
     return { ...info.value, version, publishedAt: typeof publishedAt === 'number' ? publishedAt : 0, files: parsed };
   });
@@ -524,7 +533,7 @@ export class CosmeticPackStore {
    * - Yayındaki sürüm: manifest.json'da kayıtlı dosyalar (türü kayıttan).
    * - Yerini yenisine bırakmış sürüm (yeniden yayından sonra, bkz. COSMETIC_PACK_GRACE_MS): paket hâlâ
    *   yayında olmalı; tür yalnızca dosya adının uzantısından (.avif / .webp / .mp4) çıkar. Klasörün var
-   *   olduğuna ve dosyanın düz bir dosya olduğuna openFile bakar.
+   *   olduğuna, süresinin dolmadığına ve dosyanın düz bir dosya olduğuna openFile bakar.
    * Yayından kaldırılan paketin hiçbir dosyası sunulmaz.
    */
   fileOf(id: string, version: string, name: string): { path: string; kind: CosmeticAssetKind; superseded: boolean } | null {
@@ -549,6 +558,9 @@ export class CosmeticPackStore {
     try {
       const [folder, entry] = await Promise.all([fs.promises.lstat(path.dirname(found.path)), fs.promises.lstat(found.path)]);
       if (!folder.isDirectory() || !entry.isFile()) return null;
+      // Yerini bırakmış sürüm yalnızca bekleme süresi boyunca sunulur (klasörün zamanı: yerini bıraktığı an).
+      // Süre burada uygulanır: klasörü silecek bir sonraki yayın/prune hiç gelmese de eski adresler kapanır.
+      if (found.superseded && Date.now() - folder.mtimeMs >= COSMETIC_PACK_GRACE_MS) return null;
       handle = await fs.promises.open(found.path, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
       const stat = await handle.stat();
       if (!stat.isFile()) throw new Error('düz dosya değil');
@@ -645,7 +657,11 @@ export class CosmeticPackStore {
     }
   }
 
-  /** manifest.json'u atomik olarak değiştirir (geçici dosya + yeniden adlandırma) ve belleği günceller */
+  /**
+   * manifest.json'u atomik olarak değiştirir (geçici dosya + yeniden adlandırma). Hata atarsa bildirim
+   * değişmemiştir (çağıran geri alabilir). Döndüyse değişiklik KESİNLEŞMİŞTİR: bundan sonrası (belleğin
+   * güncellenmesi, temizlik) işlemi başarısız kılamaz; bkz. settle.
+   */
   private writeManifest(packs: StoredPack[]): void {
     const temp = path.join(this.dir, `${MANIFEST_FILE}.${randomBytes(6).toString('hex')}.tmp`);
     try {
@@ -655,52 +671,156 @@ export class CosmeticPackStore {
       rmQuiet(temp);
       throw err;
     }
-    this.reload(true);
+    // Bellek az önce yazılan listeden kurulur (dosya yeniden okunmaz: okuma hatası yazılmış bildirimi geri
+    // alamaz). Damga alınamazsa boş kalır, sonraki bakışta dosya yeniden okunur.
+    let stamp = '';
+    try {
+      const st = fs.statSync(this.manifestFile);
+      stamp = `${st.mtimeMs}:${st.size}:${st.ino}`;
+    } catch {
+      // damga alınamadı
+    }
+    this.snapshot = snapshotOf(packs, stamp);
+  }
+
+  /** Uyarılar: işlem başarılı ama bir yan adım (temizlik) yapılamadı. Komut satırı aracı yazdırır. */
+  private warnings: string[] = [];
+
+  private warn(message: string): void {
+    if (this.warnings.includes(message)) return;
+    this.warnings.push(message);
+    this.log?.warn({ dir: this.dir }, `kozmetik paketleri: ${message}`);
+  }
+
+  /** Son işlemlerde birikmiş uyarıları verir ve temizler */
+  takeWarnings(): string[] {
+    const list = this.warnings;
+    this.warnings = [];
+    return list;
+  }
+
+  /** Bildirim yazıldıktan sonraki adım: hata işlemi başarısız kılmaz, uyarıya dönüşür */
+  private settle(what: string, step: () => void): void {
+    try {
+      step();
+    } catch (err) {
+      this.warn(`${what}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /**
+   * Bir paket klasörünün içindekiler: sürüm klasörleri (adı sürüm biçiminde), bu aracın yarım kalmış
+   * hazırlık klasörleri (.tmp-…) ve tanınmayan her şey. Silme kararları yalnızca ilk ikisi için verilir.
+   */
+  private children(packDir: string): { versions: { name: string; at: number }[]; staging: string[]; unknown: string[] } {
+    const result = { versions: [] as { name: string; at: number }[], staging: [] as string[], unknown: [] as string[] };
+    for (const name of fs.readdirSync(packDir)) {
+      const st = fs.lstatSync(path.join(packDir, name), { throwIfNoEntry: false });
+      if (st?.isDirectory() && COSMETIC_PACK_VERSION_PATTERN.test(name)) result.versions.push({ name, at: st.mtimeMs });
+      else if (st?.isDirectory() && STAGING_DIR_PATTERN.test(name)) result.staging.push(name);
+      else result.unknown.push(name);
+    }
+    return result;
+  }
+
+  /**
+   * Bir kimliğin klasörünü siler. Yalnızca sürüm ve hazırlık klasörleri silinir; klasörün kendisi ancak boş
+   * kaldıysa kalkar. Tanınmayan bir şey varsa ona dokunulmaz ve klasör kalır (uyarı verilir). Klasör tamamen
+   * kalktıysa (ya da hiç yoksa) true.
+   * - `known` (az önce yayından kaldırılan paket): sürümleri her durumda silinir.
+   * - değilse (bildirimde olmayan, adı kimliğe benzeyen bir klasör): içinde tanınmayan TEK bir şey bile varsa
+   *   hiçbir şeyine dokunulmaz; bu aracın klasörü olmayabilir.
+   */
+  private removePackDir(id: string, known: boolean): boolean {
+    const packDir = path.join(this.dir, id);
+    if (!fs.existsSync(packDir)) return true;
+    const { versions, staging, unknown } = this.children(packDir);
+    if (known || unknown.length === 0) {
+      for (const name of [...versions.map((v) => v.name), ...staging]) rmQuiet(path.join(packDir, name));
+    }
+    if (unknown.length > 0) {
+      this.warn(`"${id}" klasöründe tanınmayan dosyalar var, dokunulmadı: ${unknown.slice(0, 5).join(', ')}`);
+      return false;
+    }
+    try {
+      // Yalnızca boş klasör silinir
+      fs.rmdirSync(packDir);
+    } catch {
+      // boşaltılamadı (dosya o an kullanımda olabilir)
+    }
+    return !fs.existsSync(packDir);
   }
 
   /**
    * Diski bildirimle eşitler (kilit altında, manifest.json yazıldıktan sonra). Kalanlar: yayındaki her paketin
    * geçerli sürüm klasörü ve en fazla BİR önceki sürümü (yerini bırakalı COSMETIC_PACK_GRACE_MS geçmemişse;
-   * `all` ile o da silinir). Gerisi silinir: yayında olmayan kimliklerin klasörleri, daha eski sürümler,
-   * yarım kalmış hazırlıklar. Silinen önceki sürüm sayısını döner.
+   * `all` ile o da silinir). Silinenler yalnızca bu aracın tanıdığı şeylerdir: daha eski sürüm klasörleri,
+   * yarım kalmış hazırlık klasörleri ve yayında olmayan bir kimliğin, içinde bunlardan başka hiçbir şey
+   * bulunmayan klasörü. Tanınmayan hiçbir şey silinmez (uyarı verilir): yanlış klasör gösterilse de başka
+   * veriye dokunulmaz. manifest.json yoksa (burası bir depo değilse) hiçbir şey yapılmaz.
    *
    * Önceki sürümün ne zaman yerini bıraktığı klasörünün değişiklik zamanından okunur (publish o an damgalar);
-   * ayrı bir kayıt tutulmaz.
+   * ayrı bir kayıt tutulmaz. Silinen önceki sürüm sayısını döner.
    */
   private sweep(all = false): number {
+    if (!fs.existsSync(this.manifestFile)) return 0;
     const now = Date.now();
     let removed = 0;
-    let entries: fs.Dirent[] = [];
-    try {
-      entries = fs.readdirSync(this.dir, { withFileTypes: true });
-    } catch {
-      return 0;
-    }
-    for (const entry of entries) {
-      // Yalnızca paket klasörleri: manifest.json, kilit ve tanınmayan adlara dokunulmaz
+    for (const entry of fs.readdirSync(this.dir, { withFileTypes: true })) {
+      // Yalnızca paket klasörü olabilecek adlar; manifest.json, kilit ve başka her şeye dokunulmaz
       if (!entry.isDirectory() || !COSMETIC_SET_ID_PATTERN.test(entry.name)) continue;
-      const packDir = path.join(this.dir, entry.name);
-      const pack = this.snapshot.byId.get(entry.name);
-      if (!pack) {
-        rmQuiet(packDir);
-        continue;
-      }
-      const previous: { full: string; at: number }[] = [];
-      for (const name of fs.readdirSync(packDir)) {
-        if (name === pack.version) continue;
-        const full = path.join(packDir, name);
-        const st = fs.lstatSync(full, { throwIfNoEntry: false });
-        if (st?.isDirectory() && COSMETIC_PACK_VERSION_PATTERN.test(name)) previous.push({ full, at: st.mtimeMs });
-        else rmQuiet(full);
-      }
-      previous.sort((a, b) => b.at - a.at);
-      previous.forEach((p, i) => {
-        if (!all && i === 0 && now - p.at < COSMETIC_PACK_GRACE_MS) return;
-        rmQuiet(p.full);
-        removed++;
+      const id = entry.name;
+      const pack = this.snapshot.byId.get(id);
+      this.settle(`"${id}" klasörü temizlenemedi`, () => {
+        if (!pack) {
+          this.removePackDir(id, false);
+          return;
+        }
+        const packDir = path.join(this.dir, id);
+        const { versions, staging, unknown } = this.children(packDir);
+        for (const name of staging) rmQuiet(path.join(packDir, name));
+        if (unknown.length > 0) {
+          this.warn(`"${id}" klasöründe tanınmayan dosyalar var, dokunulmadı: ${unknown.slice(0, 5).join(', ')}`);
+        }
+        const previous = versions.filter((v) => v.name !== pack.version).sort((a, b) => b.at - a.at);
+        previous.forEach((p, i) => {
+          if (!all && i === 0 && now - p.at < COSMETIC_PACK_GRACE_MS) return;
+          rmQuiet(path.join(packDir, p.name));
+          removed++;
+        });
       });
     }
     return removed;
+  }
+
+  /**
+   * Yayınlamadan önce (kilit alınmadan, hiçbir şey yazılmadan): klasör ya yok/boş olmalı ya da bir depo
+   * (manifest.json var). İçinde başka şeyler olan, manifest.json'suz bir klasöre (yanlış --dir / DATA_DIR)
+   * yayın yapılmaz.
+   */
+  private assertStoreOrEmpty(): void {
+    let names: string[];
+    try {
+      names = fs.readdirSync(this.dir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw new CosmeticPackError(`Depo klasörü okunamadı: ${this.dir}`);
+    }
+    if (names.includes(MANIFEST_FILE)) return;
+    const foreign = names.filter((n) => n !== LOCK_FILE && !n.startsWith(`${LOCK_FILE}.`));
+    if (foreign.length > 0) {
+      throw new CosmeticPackError(
+        `Bu klasör bir kozmetik paketi deposu değil (manifest.json yok, içinde başka şeyler var: ` +
+          `${foreign.slice(0, 5).join(', ')}${foreign.length > 5 ? ', …' : ''}). --dir / DATA_DIR doğru mu? Klasör: ${this.dir}`,
+      );
+    }
+  }
+
+  /** Yayınlama dışındaki yazma işlemlerinden önce: depo yoksa (manifest.json yok) hiçbir şey yapılmaz, yazılmaz */
+  private assertStore(): void {
+    if (!fs.existsSync(this.manifestFile)) {
+      throw new CosmeticPackError(`Burada kozmetik paketi deposu yok (manifest.json bulunamadı): ${this.dir}`);
+    }
   }
 
   /** Saklanan sürüm klasörü eksiksiz mi (her dosya var ve boyutu tutuyor) */
@@ -719,6 +839,7 @@ export class CosmeticPackStore {
    */
   async publish(input: unknown): Promise<StoredPack> {
     const bundle = await parseBundle(input);
+    this.assertStoreOrEmpty();
     return this.locked(() => {
       const { info } = bundle;
       const packs = this.snapshot.packs;
@@ -730,6 +851,19 @@ export class CosmeticPackStore {
       const version = packVersion(files);
       const packDir = path.join(this.dir, info.id);
       const target = path.join(packDir, version);
+      // Kimlik yayında değilse klasöründe sürüm kalmış olmamalı (silinememiş eski bir kaldırmanın artığı): yoksa
+      // o sürümler yeni paketin "önceki sürümü" gibi yeniden sunulurdu
+      if (index < 0 && fs.existsSync(packDir)) {
+        const { versions, staging } = this.children(packDir);
+        for (const name of [...versions.map((v) => v.name), ...staging]) rmQuiet(path.join(packDir, name));
+        const left = this.children(packDir).versions;
+        if (left.length > 0) {
+          throw new CosmeticPackError(
+            `"${info.id}" klasöründe daha önce kaldırılmış paketten kalan sürümler silinemedi (${left.map((v) => v.name).join(', ')}). ` +
+              `Elle silip yeniden dene: ${packDir}`,
+          );
+        }
+      }
       // Aynı içerik zaten yayında ve eksiksizse dosyalara dokunulmaz (yalnızca bilgi güncellenir)
       const reuse = packs[index]?.version === version && this.intact(info.id, version, files);
       if (!reuse) {
@@ -756,30 +890,41 @@ export class CosmeticPackStore {
         if (!reuse) rmQuiet(target);
         throw err;
       }
-      // Yerini bırakan sürümün süresi şimdi başlar (bkz. sweep)
+      // Bildirim yazıldı: yayın kesinleşti. Bundan sonraki adımlar (önceki sürümün damgası, temizlik) yeni
+      // sürümün klasörünü silemez ve yayını başarısız kılamaz; sorun çıkarsa uyarı olur.
       if (previous !== undefined && previous !== version) {
-        try {
-          fs.utimesSync(path.join(packDir, previous), new Date(now), new Date(now));
-        } catch {
-          // klasör yok: tutulacak bir şey de yok
-        }
+        // Yerini bırakan sürümün süresi şimdi başlar (bkz. sweep, openFile)
+        this.settle('önceki sürümün süresi başlatılamadı', () => {
+          const dir = path.join(packDir, previous);
+          if (fs.existsSync(dir)) fs.utimesSync(dir, new Date(now), new Date(now));
+        });
       }
-      this.sweep();
+      this.settle('eski sürümler temizlenemedi', () => this.sweep());
       return pack;
     });
   }
 
   /**
    * Paketi yayından kaldırır: önce manifest.json'dan düşer, sonra bütün sürümlerinin dosyaları HEMEN silinir
-   * (bekleme süresi yok: kaldırılan paketin dosyaları sunulmaya devam etmez).
+   * (bekleme süresi yok: kaldırılan paketin dosyaları sunulmaya devam etmez). Dosyalar silinemezse paket yine
+   * yayından kalkmıştır (hiçbir dosyası sunulmaz) ama işlem hata verir: klasör elle silinmelidir.
    */
   async remove(id: string): Promise<void> {
+    this.assertStore();
     await this.locked(() => {
       const packs = this.snapshot.packs;
       if (!packs.some((p) => p.id === id)) throw new CosmeticPackError(`"${id}" adlı paket yok.`);
       this.writeManifest(packs.filter((p) => p.id !== id));
-      rmQuiet(path.join(this.dir, id));
-      this.sweep();
+      let gone = false;
+      this.settle(`"${id}" klasörü silinemedi`, () => {
+        gone = this.removePackDir(id, true);
+      });
+      this.settle('eski sürümler temizlenemedi', () => this.sweep());
+      if (!gone) {
+        throw new CosmeticPackError(
+          `"${id}" yayından kaldırıldı (dosyaları artık sunulmuyor) ama klasörü silinemedi: ${path.join(this.dir, id)}. Elle sil.`,
+        );
+      }
     });
   }
 
@@ -788,6 +933,7 @@ export class CosmeticPackStore {
    * dolmamış önceki sürümleri de. Silinen önceki sürüm sayısını döner.
    */
   async prune(all = false): Promise<number> {
+    this.assertStore();
     return this.locked(() => this.sweep(all));
   }
 
@@ -795,6 +941,7 @@ export class CosmeticPackStore {
   async setPlatforms(id: string, platforms: unknown): Promise<CosmeticPlatform[]> {
     const parsed = parseCosmeticPlatforms(platforms);
     if (!parsed) throw new CosmeticPackError('Platformlar: desktop, android, ios değerlerinden tekrarsız bir liste olmalı.');
+    this.assertStore();
     return this.locked(() => {
       const packs = this.snapshot.packs;
       if (!packs.some((p) => p.id === id)) throw new CosmeticPackError(`"${id}" adlı paket yok.`);
@@ -805,6 +952,7 @@ export class CosmeticPackStore {
 
   /** Gösterim sırası: verilen kimlikler bu sırayla başa gelir, verilmeyenler kendi sıralarıyla arkada kalır */
   async setOrder(ids: readonly string[]): Promise<string[]> {
+    this.assertStore();
     return this.locked(() => {
       const packs = this.snapshot.packs;
       if (ids.length === 0) throw new CosmeticPackError('En az bir paket kimliği ver.');

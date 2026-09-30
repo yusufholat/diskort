@@ -86,6 +86,9 @@ function describe(pack: StoredPack): string {
   ].join('\n');
 }
 
+/** Komutun çalıştığı depo (uyarıları sonda yazdırmak için) */
+let activeStore: CosmeticPackStore | null = null;
+
 async function main(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
   const [command, target, value] = args.positional;
@@ -97,6 +100,7 @@ async function main(argv: string[]): Promise<void> {
   const dirFlag = args.flags.get('dir');
   const dir = typeof dirFlag === 'string' ? dirFlag : path.join(path.resolve(process.env.DATA_DIR ?? 'data'), 'cosmetic-packs');
   const store = new CosmeticPackStore(dir, { recheckMs: 0 });
+  activeStore = store;
   if (unlock) {
     console.log(store.forceUnlock() ? 'Kilit kaldırıldı.' : 'Kilit yoktu.');
     if (!command) return;
@@ -154,9 +158,14 @@ async function main(argv: string[]): Promise<void> {
   }
 }
 
-main(process.argv.slice(2)).catch((err: unknown) => {
-  if (err instanceof CosmeticPackError) {
-    console.error(err.message);
-    process.exitCode = 1;
-  } else throw err;
-});
+main(process.argv.slice(2))
+  .catch((err: unknown) => {
+    if (err instanceof CosmeticPackError) {
+      console.error(err.message);
+      process.exitCode = 1;
+    } else throw err;
+  })
+  .finally(() => {
+    // İşlem başarılı olsa da yapılamayan yan adımlar (ör. silinemeyen ya da tanınmayan klasörler)
+    for (const warning of activeStore?.takeWarnings() ?? []) console.error(`Uyarı: ${warning}`);
+  });

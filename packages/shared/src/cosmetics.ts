@@ -350,13 +350,11 @@ export function validateCosmeticPackFileInfo(value: unknown, where = 'file'): Co
 }
 
 /**
- * Dosya listesinin bütününü doğrular: adlar tekrarsız, parça başına her türden en fazla bir dosya ve her
- * parçada (kart, dekorasyon, plaka) en az bir resim (poster, avif ya da webp: "hareketi azalt" ve yüklenme
- * anı için; yalnızca video yetmez). Bir parçanın bütün dosyaları aynı görünen boyutu bildirmelidir: oynatıcı
- * kutuyu hareketli dosyanın boyutundan kurar ve posteri aynı kutuda gösterir (farklı boyutlu poster esnerdi).
+ * Dosya listesinin bütünlüğü: adlar tekrarsız, parça başına her türden en fazla bir dosya. Kaydın kendi
+ * içinde tutarlı olması içindir; saklanan kayıt okunurken de (sunucu, manifest.json) bu kadarı denetlenir.
  * Hata varsa iletisi, yoksa null.
  */
-export function cosmeticPackFileSetError(files: readonly CosmeticPackFileInfo[]): string | null {
+export function cosmeticPackFileIntegrityError(files: readonly CosmeticPackFileInfo[]): string | null {
   const names = new Set<string>();
   const slots = new Set<string>();
   for (const f of files) {
@@ -366,6 +364,20 @@ export function cosmeticPackFileSetError(files: readonly CosmeticPackFileInfo[])
     if (slots.has(slot)) return `files: "${f.piece}" parçasında birden çok "${f.kind}" dosyası var.`;
     slots.add(slot);
   }
+  return null;
+}
+
+/**
+ * YAYIN anında dosya listesinin bütününü doğrular: bütünlük (bkz. cosmeticPackFileIntegrityError) ve yayın
+ * kuralları: her parçada (kart, dekorasyon, plaka) en az bir resim (poster, avif ya da webp: "hareketi azalt"
+ * ve yüklenme anı için; yalnızca video yetmez) ve bir parçanın bütün dosyaları aynı görünen boyutu bildirmeli
+ * (oynatıcı kutuyu hareketli dosyanın boyutundan kurar ve posteri aynı kutuda gösterir; farklı boyutlu poster
+ * esnerdi). Yayın kuralları saklanan kayda uygulanmaz: sonradan eklenen kural yayındaki paketi geçersiz kılmaz.
+ * Hata varsa iletisi, yoksa null.
+ */
+export function cosmeticPackFileSetError(files: readonly CosmeticPackFileInfo[]): string | null {
+  const integrity = cosmeticPackFileIntegrityError(files);
+  if (integrity) return integrity;
   for (const piece of COSMETIC_PIECES) {
     if (!files.some((f) => f.piece === piece && COSMETIC_IMAGE_KINDS.includes(f.kind))) {
       return `files: "${piece}" parçasında en az bir resim (poster, avif ya da webp) olmalı.`;
