@@ -1,5 +1,6 @@
 // Etkinlik: kişinin o an yaptığı şey (şimdilik yalnızca oynadığı oyun). Kalıcı değildir; bildiren
-// oturum kapanınca ya da kişi görünmez olunca kaybolur.
+// oturum kapanınca ya da kişi görünmez olunca kaybolur. Aynı anda birden çok etkinlik olabilir (iki oyun
+// açık): liste en son başlayandan eskiye sıralıdır, ilki "asıl" etkinliktir (satırlarda o görünür).
 
 /** Etkinlik türü; ileride 'listening' (müzik) gibi türler eklenebilir: bilinmeyen tür gösterilmez */
 export type ActivityType = 'game';
@@ -16,7 +17,7 @@ export interface Activity {
 }
 
 /**
- * ACTIVITY_SET gövdesi. Başlangıç istemcinin saatinden bağımsız olsun diye "şu ana dek geçen süre"
+ * ACTIVITY_SET gövdesindeki tek etkinlik. Başlangıç istemcinin saatinden bağımsız olsun diye "şu ana dek geçen süre"
  * olarak gönderilir; sunucu `startedAt`'i kendi saatiyle hesaplar.
  */
 export interface ActivityReport {
@@ -43,6 +44,18 @@ export const ACTIVITY_TYPE_LABELS: Record<ActivityType, string> = {
   game: 'Oynuyor',
 };
 
+/** Bir kişinin aynı anda taşıyabileceği en fazla etkinlik (birden çok oyun açıksa) */
+export const ACTIVITY_MAX_COUNT = 4;
+
+/** İstemcinin gösterebildiği türden mi (ileride eklenecek türleri eski istemci göstermez) */
+export const isKnownActivity = (a: Activity): boolean => Object.hasOwn(ACTIVITY_TYPE_LABELS, a.type);
+
 export const sameActivity = (a: Activity | null | undefined, b: Activity | null | undefined): boolean =>
   (a ?? null) === (b ?? null) ||
   (!!a && !!b && a.type === b.type && a.name === b.name && a.icon === b.icon && a.startedAt === b.startedAt);
+
+export const sameActivities = (a: readonly Activity[] | undefined, b: readonly Activity[] | undefined): boolean => {
+  const x = a ?? [];
+  const y = b ?? [];
+  return x.length === y.length && x.every((item, i) => sameActivity(item, y[i]));
+};
