@@ -73,12 +73,12 @@ describe('model sağlığı (bekleme süresi ve yeniden deneme)', () => {
     expect(f1.transient).toBe(true);
     expect(f1.retryAt).toBe(now + COOLDOWN_BASE_MS);
     expect(h.available('dpdfnet')).toBe(false);
-    expect(h.nextRetryAt(['dpdfnet', 'deepfilter'])).toBe(now + COOLDOWN_BASE_MS);
+    expect(h.nextRetryAt(['dpdfnet'])).toBe(now + COOLDOWN_BASE_MS);
     now += COOLDOWN_BASE_MS;
     expect(h.available('dpdfnet')).toBe(true);
     // Süresi dolan bekleme de yeniden deneme zamanı verir (uzun bir kurulum sürerken dolmuş olabilir)
     expect(h.nextRetryAt(['dpdfnet'])).toBe(now);
-    expect(h.nextRetryAt(['deepfilter'])).toBeNull();
+    expect(h.nextRetryAt([])).toBeNull();
     // Yeniden denendi, yine düştü: bekleme ikiye katlanır, en fazla COOLDOWN_MAX_MS
     const f2 = h.record('dpdfnet', 'overload', 'yük');
     expect(f2.retryAt! - f2.at).toBe(2 * COOLDOWN_BASE_MS);
@@ -105,15 +105,15 @@ describe('model sağlığı (bekleme süresi ve yeniden deneme)', () => {
   it('dosya/kurulum hatası bu oturumda kalıcıdır', () => {
     let now = 0;
     const h = new DenoiserHealth(() => now);
-    const f = h.record('deepfilter', 'error', 'wasm bozuk');
+    const f = h.record('dpdfnet', 'error', 'model bozuk');
     expect(f.transient).toBe(false);
     expect(f.retryAt).toBeNull();
     now += 10 * COOLDOWN_MAX_MS;
-    expect(h.available('deepfilter')).toBe(false);
-    expect(h.nextRetryAt(['deepfilter'])).toBeNull();
+    expect(h.available('dpdfnet')).toBe(false);
+    expect(h.nextRetryAt(['dpdfnet'])).toBeNull();
     // Sonradan gelen geçici bir düşüş kalıcılığı kaldırmaz
-    h.record('deepfilter', 'underrun', 'x');
-    expect(h.available('deepfilter')).toBe(false);
+    h.record('dpdfnet', 'underrun', 'x');
+    expect(h.available('dpdfnet')).toBe(false);
   });
 
   it('kurulum hataları sınıflandırılır', () => {
@@ -123,8 +123,9 @@ describe('model sağlığı (bekleme süresi ve yeniden deneme)', () => {
   });
 
   it('düşüş sırası ayardan çıkar', () => {
-    expect(ladderFor('dpdfnet')).toEqual(['dpdfnet', 'deepfilter']);
-    expect(ladderFor('deepfilter')).toEqual(['deepfilter']);
+    expect(ladderFor('dpdfnet')).toEqual(['dpdfnet']);
+    // DeepFilterNet kaldırıldı: eski değer model zinciri vermez (ayar yüklenirken zaten DPDFNet'e taşınır)
+    expect(ladderFor('deepfilter')).toEqual([]);
     expect(ladderFor('standard')).toEqual([]);
     expect(ladderFor('off')).toEqual([]);
   });
@@ -133,11 +134,7 @@ describe('model sağlığı (bekleme süresi ve yeniden deneme)', () => {
 describe('düşüş metinleri', () => {
   it('ayarlardaki etiket ve bir kezlik bildirim', () => {
     const base = { from: 'dpdfnet' as const, reason: 'underrun' as const, transient: true, at: 0, retryAt: 1 };
-    expect(fallbackLabel({ ...base, to: 'deepfilter' })).toBe('DPDFNet → DeepFilterNet (işlemci yoğun)');
     expect(fallbackLabel({ ...base, to: 'standard' })).toBe('DPDFNet → Standart (işlemci yoğun)');
-    expect(fallbackNoticeText({ ...base, to: 'deepfilter' })).toBe(
-      'Gürültü engelleme geçici olarak DeepFilterNet’e düşürüldü (işlemci yoğun). Birkaç dakika sonra yeniden denenecek.',
-    );
     expect(fallbackNoticeText({ ...base, to: 'standard' })).toBe(
       'Gürültü engelleme geçici olarak standarda düşürüldü (işlemci yoğun). Birkaç dakika sonra DPDFNet yeniden denenecek.',
     );

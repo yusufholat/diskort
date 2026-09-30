@@ -1,6 +1,5 @@
-// Gürültü engelleyicileri çevrimdışı karşılaştırır: DeepFilterNet 3 (uygulamadaki dfn-engine.js + df.wasm, aynen)
-// ve DPDFNet (uygulamadaki dsp.js + onnxruntime-web wasm, aynen). Temiz konuşmaya gürültü karıştırır,
-// her iki engelleyiciden geçirir, WAV'ları yazar ve ölçer:
+// DPDFNet gürültü engelleyicisini (uygulamadaki dsp.js + onnxruntime-web wasm, aynen) farklı güçlerde çevrimdışı
+// karşılaştırır. Temiz konuşmaya gürültü karıştırır, engelleyiciden geçirir, WAV'ları yazar ve ölçer:
 //   - Kare süresi: 10 ms'lik kare başına işleme süresi (ortalama, p99, en uzun; tek çekirdek, wasm SIMD)
 //   - SI-SDR (dB): temiz sese göre bozulma+kalan gürültü (yüksek = iyi)
 //   - Duraklama gürültüsü (dBFS): konuşma başlamadan önceki kısımda kalan gürültü (düşük = iyi)
@@ -16,7 +15,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ort from 'onnxruntime-web/wasm';
 import { DpdfnetDenoiser, HOP, readOnnxMetadata } from '../src/renderer/src/features/voice/dpdfnet/dsp.js';
-import { DeepFilterEngine } from '../src/renderer/src/features/voice/deepfilter/dfn-engine.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const voiceDir = path.join(here, '..', 'src', 'renderer', 'src', 'features', 'voice');
@@ -249,19 +247,6 @@ async function dnsmos(sessionPromise, x48) {
 }
 
 // ---------- Engelleyiciler ----------
-/** Uygulamadaki DeepFilterNet motoru (işçide çalışan dfn-engine.js + df.wasm), aynen. */
-async function makeDeepFilter(attenLimDb) {
-  const wasmModule = await WebAssembly.compile(readFileSync(path.join(voiceDir, 'deepfilter', 'df.wasm')));
-  const modelBytes = readFileSync(path.join(voiceDir, 'deepfilter', 'DeepFilterNet3_onnx.bin'));
-  return {
-    name: `DeepFilterNet 3 (${attenLimDb >= 100 ? 'sınırsız' : `${attenLimDb} dB`})`,
-    async run(x) {
-      const engine = new DeepFilterEngine(wasmModule, modelBytes, attenLimDb, 0);
-      return runFrames(x, (hop, out) => engine.processHop(hop, out));
-    },
-  };
-}
-
 /** Kare kare işler; kare başına süreleri ölçer (ilk 50 kare ısınma sayılmaz). */
 async function runFrames(x, step) {
   const y = new Float32Array(x.length);
@@ -343,7 +328,6 @@ async function main() {
   noises.push({ name: 'fan-yapay', data: synthFan(segLen) });
 
   const processors = [];
-  for (const s of args.strengths) processors.push({ key: `dfn${s}`, p: await makeDeepFilter(s) });
   for (const s of args.strengths) processors.push({ key: `dpdfnet${s}`, p: await makeDpdfnet(model, s) });
   processors.push({ key: 'dpdfnet-sinirsiz', p: await makeDpdfnet(model, 100) });
 

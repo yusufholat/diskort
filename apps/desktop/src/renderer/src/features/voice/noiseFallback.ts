@@ -23,14 +23,12 @@ export interface NoiseNotice {
 
 export const EFFECTIVE_NOISE_LABELS: Record<EffectiveNoise, string> = {
   dpdfnet: 'DPDFNet',
-  deepfilter: 'DeepFilterNet',
   standard: 'Standart',
 };
 
-/** "DeepFilterNet'e", "standarda" (bildirim cümlesi için) */
+/** "DPDFNet'e", "standarda" (bildirim cümlesi için) */
 const DATIVE: Record<EffectiveNoise, string> = {
   dpdfnet: 'DPDFNet’e',
-  deepfilter: 'DeepFilterNet’e',
   standard: 'standarda',
 };
 
@@ -38,7 +36,7 @@ export function reasonLabel(reason: FailureReason): string {
   return reason === 'error' ? 'yüklenemedi' : reason === 'timeout' ? 'kurulamadı' : 'işlemci yoğun';
 }
 
-/** Ayarlarda ve menüde: "DPDFNet → DeepFilterNet (işlemci yoğun)" */
+/** Ayarlarda ve menüde: "DPDFNet → Standart (işlemci yoğun)" */
 export function fallbackLabel(f: NoiseFallbackState): string {
   return `${EFFECTIVE_NOISE_LABELS[f.from]} → ${EFFECTIVE_NOISE_LABELS[f.to]} (${reasonLabel(f.reason)})`;
 }

@@ -17,14 +17,12 @@ import {
 
 export const NOISE_LABELS: Record<NoiseMode, string> = {
   dpdfnet: 'DPDFNet',
-  deepfilter: 'DeepFilterNet 3',
   standard: 'Standart',
   off: 'Kapalı',
 };
 
 const NOISE_HINTS: Record<NoiseMode, string> = {
   dpdfnet: 'Gelişmiş yapay zekâ, en temiz ses',
-  deepfilter: 'Yapay zekâ, daha az işlemci',
   standard: 'Tarayıcının yerleşik engellemesi',
   off: 'Stüdyo mikrofonu ya da müzik için',
 };
@@ -36,10 +34,10 @@ export const NOISE_STRENGTH_LABELS: Record<NoiseStrengthDb, string> = {
   100: 'Maksimum',
 };
 
-const NOISE_MODES: NoiseMode[] = ['dpdfnet', 'deepfilter', 'standard', 'off'];
+const NOISE_MODES: NoiseMode[] = ['dpdfnet', 'standard', 'off'];
 const STRENGTHS: NoiseStrengthDb[] = [12, 24, 40, 100];
 
-export const isAiNoise = (noise: NoiseMode): boolean => noise === 'dpdfnet' || noise === 'deepfilter';
+export const isAiNoise = (noise: NoiseMode): boolean => noise === 'dpdfnet';
 
 /**
  * "Gürültü engelleme: DPDFNet · Dengeli" gibi kısa özet; görüşmede seçili model çalışmıyorsa gerçekte çalışan:

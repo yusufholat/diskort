@@ -3,9 +3,6 @@ import gateWorkletUrl from './gate-worklet.js?url';
 import bridgeWorkletUrl from './denoise/bridge-worklet.js?url';
 // Hesap worklet'i onnxruntime-web ile birlikte tek ES modülü olarak paketlenir (worklet'ler içe aktarma çözemez)
 import computeWorkletUrl from './denoise/compute.worklet.ts?worker&url';
-import deepFilterWasmUrl from './deepfilter/df.wasm?url';
-// Model arşivi .bin uzantılı: .gz uzantısını geliştirme sunucusu 'Content-Encoding: gzip' ile açıp bozuyor.
-import deepFilterModelUrl from './deepfilter/DeepFilterNet3_onnx.bin?url';
 import dpdfnetModelUrl from './dpdfnet/dpdfnet2_48khz_hr.onnx?url';
 import ortWasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
 import { ALGORITHMIC_DELAY_SAMPLES as DPDFNET_DELAY_SAMPLES } from './dpdfnet/dsp.js';
@@ -43,14 +40,10 @@ interface DenoiserSpec {
 }
 
 const DENOISERS: Record<Denoiser, DenoiserSpec> = {
-  // Ryzen 5 7500F'te kare başına ~1,2 ms (tek çekirdeğin ~%12'si). Gecikme: pencere + 2 kare ileri bakış.
-  deepfilter: { name: 'DeepFilterNet 3', delaySamples: 3 * HOP, maxLoad: 0.5, maxWarmupFrameMs: 8 },
-  // ~3 kat ağır: kare başına ~3 ms (~%30). Gecikme: pencere + 4 kare model gecikmesi.
+  // Ryzen 5 7500F'te kare başına ~3 ms (tek çekirdeğin ~%30'u). Gecikme: pencere + 4 kare model gecikmesi.
   dpdfnet: { name: 'DPDFNet-2 48 kHz', delaySamples: DPDFNET_DELAY_SAMPLES, maxLoad: 0.6, maxWarmupFrameMs: 6 },
 };
 
-/** Son filtre kapalı (konuşmayı daha doğal bırakır). Bastırma sınırı ayarlardan gelir (gürültü engelleme gücü). */
-const DF_POST_FILTER_BETA = 0;
 /** Model kurulumu + ısınma (~0,3–1 sn); takılırsa bir alt seçeneğe dönülür. */
 const DENOISER_READY_TIMEOUT_MS = 15_000;
 /** Barındırıcının raporları 2 sn arayla gelir; bundan geç geldiyse arada ana iş parçacığı takılmıştır */
@@ -70,11 +63,6 @@ interface DenoiseHost {
   send(msg: { type: 'atten'; db: number }): void;
   listen(onMessage: (m: HostMessage) => void, onCrash: (err: Error) => void): void;
   close(): void;
-}
-
-interface DeepFilterAssets {
-  module: WebAssembly.Module;
-  model: ArrayBuffer;
 }
 
 interface DpdfnetAssets {
@@ -112,7 +100,6 @@ export interface MicProcessingStats {
   totalOverQuantum: number;
 }
 
-let deepFilterAssets: Promise<DeepFilterAssets> | null = null;
 let dpdfnetAssets: Promise<DpdfnetAssets> | null = null;
 
 /** Yalnızca geliştirme sürümü (CDP/DevTools ile düşüş denemesi): sonraki N model kurulumu "işlemci yetersiz" olur */
@@ -127,17 +114,6 @@ async function fetchBuffer(url: string): Promise<ArrayBuffer> {
 /** Model işçide, ses iş parçacığıyla paylaşımlı bellek üzerinden konuşur (bkz. ana süreçteki anahtar). */
 function assertSharedMemory(): void {
   if (typeof SharedArrayBuffer === 'undefined') throw new Error('SharedArrayBuffer kullanılamıyor');
-}
-
-function loadDeepFilterAssets(): Promise<DeepFilterAssets> {
-  deepFilterAssets ??= (async () => {
-    assertSharedMemory();
-    const [wasm, model] = await Promise.all([fetchBuffer(deepFilterWasmUrl), fetchBuffer(deepFilterModelUrl)]);
-    const magic = new Uint8Array(model, 0, 2);
-    if (magic[0] !== 0x1f || magic[1] !== 0x8b) throw new Error('DeepFilterNet model dosyası bozuk (gzip değil)');
-    return { module: await WebAssembly.compile(wasm), model };
-  })();
-  return deepFilterAssets;
 }
 
 function loadDpdfnetAssets(): Promise<DpdfnetAssets> {
@@ -163,15 +139,11 @@ function recordFailure(which: Denoiser, reason: FailureReason, message: string):
     `${DENOISERS[which].name} bırakıldı (${reason}: ${message}); ` +
       (failure.retryAt ? `${Math.round((failure.retryAt - failure.at) / 60_000)} dk sonra yeniden denenecek` : 'bu oturumda denenmeyecek'),
   );
-  if (!failure.transient) {
-    if (which === 'deepfilter') deepFilterAssets = null;
-    else dpdfnetAssets = null;
-  }
+  if (!failure.transient) dpdfnetAssets = null;
   return failure;
 }
 
 const ASSET_LOADERS: Record<Denoiser, () => Promise<unknown>> = {
-  deepfilter: loadDeepFilterAssets,
   dpdfnet: loadDpdfnetAssets,
 };
 
@@ -197,7 +169,7 @@ export async function firstAvailableDenoiser(ladder: readonly Denoiser[]): Promi
 }
 
 /**
- * Mikrofon işleme zinciri: [köprü ⇄ model: DeepFilterNet 3 | DPDFNet] → ses kapısı (VAD / bas-konuş) → LiveKit.
+ * Mikrofon işleme zinciri: [köprü ⇄ model: DPDFNet] → ses kapısı (VAD / bas-konuş) → LiveKit.
  * Gürültü engelleyici mikrofonun ses iş parçacığında çalışmaz: oradaki köprü (bridge-worklet.js) yalnızca
  * paylaşımlı halka tamponlara örnek kopyalar. Model, ayrı ve sessiz ikinci bir AudioContext'in gerçek zamanlı
  * ses iş parçacığında (compute.worklet.ts) çalışır; o kurulamazsa bir Web Worker'da (denoise.worker.ts).
@@ -329,7 +301,7 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
   }
 
   private async build(track: MediaStreamTrack): Promise<void> {
-    // DeepFilterNet ve DPDFNet 48 kHz örnekleme hızı bekler.
+    // DPDFNet 48 kHz örnekleme hızı bekler.
     const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
     this.ctx = ctx;
     if (ctx.state === 'suspended') await ctx.resume().catch(() => undefined);
@@ -389,16 +361,6 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
 
   /** Model dosyaları (önbellekteki kopyalar korunur; yeniden kurulumda tekrar indirme olmaz) */
   private async engineInit(which: Denoiser): Promise<EngineInit> {
-    if (which === 'deepfilter') {
-      const a = await loadDeepFilterAssets();
-      return {
-        kind: 'deepfilter',
-        attenLimDb: this.attenLimDb,
-        wasmModule: a.module,
-        model: a.model.slice(0),
-        postFilterBeta: DF_POST_FILTER_BETA,
-      };
-    }
     const a = await loadDpdfnetAssets();
     return { kind: 'dpdfnet', attenLimDb: this.attenLimDb, ortWasm: a.wasm.slice(0), model: a.model.slice(0) };
   }

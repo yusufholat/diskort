@@ -13,7 +13,6 @@ import {
   initialState,
   readOnnxMetadata,
 } from '../src/renderer/src/features/voice/dpdfnet/dsp.js';
-import { DeepFilterEngine } from '../src/renderer/src/features/voice/deepfilter/dfn-engine.js';
 import {
   BUFFER_SAMPLES,
   CAP,
@@ -121,19 +120,6 @@ describe('DPDFNet DSP', () => {
   });
 });
 
-describe('DeepFilterNet motoru', () => {
-  it('df.wasm yüklenir ve 480 örneklik kareleri işler', async () => {
-    const module = await WebAssembly.compile(readFileSync(path.join(voiceDir, 'deepfilter', 'df.wasm')));
-    const model = readFileSync(path.join(voiceDir, 'deepfilter', 'DeepFilterNet3_onnx.bin'));
-    const engine = new DeepFilterEngine(module, model, 24, 0);
-    expect(engine.frame).toBe(HOP);
-    const hop = Float32Array.from({ length: HOP }, (_, i) => 0.1 * Math.sin(i * 0.1));
-    const out = new Float32Array(HOP);
-    for (let f = 0; f < 20; f++) engine.processHop(hop, out);
-    expect(out.every(Number.isFinite)).toBe(true);
-  }, 60_000);
-});
-
 // ---------- Köprü (AudioWorklet) ⇄ işçi halka tamponu ----------
 
 type Processor = { process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean };
@@ -202,14 +188,14 @@ describe('gürültü engelleyici köprüsü', () => {
     for (let i = delay; i < y.length; i++) expect(y[i]).toBeCloseTo(x[i - delay]!, 6);
   });
 
-  it('köprü ⇄ hesap worklet’i (DeepFilterNet) uçtan uca: boşluksuz, temizlenmiş ses', async () => {
+  it('köprü ⇄ hesap worklet’i (DPDFNet) uçtan uca: boşluksuz, temizlenmiş ses', async () => {
     const Compute = registry['diskort-denoise-compute']!;
     const sab = createRing();
-    const wasmModule = await WebAssembly.compile(readFileSync(path.join(voiceDir, 'deepfilter', 'df.wasm')));
-    const model = new Uint8Array(readFileSync(path.join(voiceDir, 'deepfilter', 'DeepFilterNet3_onnx.bin'))).buffer;
+    const ortWasm = new Uint8Array(readFileSync(require.resolve('onnxruntime-web/ort-wasm-simd-threaded.wasm'))).buffer;
+    const model = new Uint8Array(readFileSync(path.join(voiceDir, 'dpdfnet', 'dpdfnet2_48khz_hr.onnx'))).buffer;
     messages.length = 0;
     const compute = new Compute({
-      processorOptions: { sab, kind: 'deepfilter', attenLimDb: 100, wasmModule, model, postFilterBeta: 0 },
+      processorOptions: { sab, kind: 'dpdfnet', attenLimDb: 100, ortWasm, model },
     });
     for (let i = 0; i < 200 && !messages.some((m) => (m as { type: string }).type === 'ready'); i++) {
       await new Promise((r) => setTimeout(r, 25));

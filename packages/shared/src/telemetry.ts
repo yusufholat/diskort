@@ -18,7 +18,7 @@ export interface TelemetryRange {
 
 /** Mikrofon işleme (gürültü engelleme) ölçümleri */
 export interface TelemetryMic {
-  /** Seçili gürültü engelleme: off, standard, deepfilter, dpdfnet… */
+  /** Seçili gürültü engelleme: off, standard, dpdfnet (eski istemciler: deepfilter) */
   noise: string;
   /** Çalışan model (ör. "DPDFNet-2 48k"); tarayıcı/WebRTC engellemesindeyse null */
   model: string | null;
@@ -39,7 +39,7 @@ export interface TelemetryMic {
   core?: string | null;
   /** Seçili model çalışmıyorsa nedeni (ör. telefonda DPDFNet yetişemedi → standart engelleme) */
   noiseFallback?: string | null;
-  /** Masaüstü: gerçekte çalışan engelleme (dpdfnet, deepfilter, standard, off); seçiliden farklı olabilir */
+  /** Masaüstü: gerçekte çalışan engelleme (dpdfnet, standard, off); seçiliden farklı olabilir */
   effectiveNoise?: string | null;
   /** Masaüstü: seçili modelden düşüş (hangi modelden hangisine, neden, ne zaman); düşüş yoksa null */
   fallback?: TelemetryNoiseFallback | null;
@@ -49,7 +49,7 @@ export interface TelemetryMic {
 export interface TelemetryNoiseFallback {
   /** Seçili model (ör. dpdfnet) */
   from: string;
-  /** Çalışan (ör. deepfilter, standard) */
+  /** Çalışan (ör. standard) */
   to: string;
   /** overload, underrun, slow-start, timeout, error */
   reason: string;

@@ -3,13 +3,13 @@
 // oturum boyunca kalıcıdır. Tarayıcıya bağımlı değildir (birim testleri bkz. test/denoiserHealth.test.ts).
 
 /** Zincirdeki yapay zekâ gürültü engelleyicisi */
-export type Denoiser = 'deepfilter' | 'dpdfnet';
+export type Denoiser = 'dpdfnet';
 
 /**
  * Düşüş sırası: en iyiden en hafife. Seçili model çalışmazsa sıradaki denenir, hiçbiri çalışmazsa standart
  * (tarayıcının) engellemeye düşülür. Bir basamağı kaldırmak için yalnızca bu listeden çıkarmak yeterlidir.
  */
-export const DENOISER_LADDER: readonly Denoiser[] = ['dpdfnet', 'deepfilter'];
+export const DENOISER_LADDER: readonly Denoiser[] = ['dpdfnet'];
 
 /** Ayardaki gürültü engelleme türü için denenecek modeller (sırayla) */
 export function ladderFor(noise: string): Denoiser[] {

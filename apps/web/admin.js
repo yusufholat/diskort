@@ -467,6 +467,7 @@ function ago(ms, now) {
 const serverDay = (ms) => new Date(ms + SERVER_DAY_OFFSET_MIN * 60_000).toISOString().slice(0, 10);
 
 const PLATFORM = { desktop: 'Masaüstü', android: 'Android', ios: 'iOS' };
+// deepfilter: 0.9.3 öncesi istemciler (DeepFilterNet 3 kaldırıldı)
 const NOISE = { dpdfnet: 'DPDFNet', deepfilter: 'DeepFilterNet', standard: 'Standart', off: 'Kapalı' };
 const SEVERITY = { ok: ['İyi', 'ok'], warn: ['İdare eder', 'warn'], poor: ['Kötü', 'bad'] };
 
