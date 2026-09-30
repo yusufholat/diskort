@@ -1,8 +1,8 @@
-import { memo, type CSSProperties, type ReactNode } from 'react';
-import { isCosmeticSet, type CustomStatus, type ProfileEffect, type ProfileTheme, type User } from '@diskort/shared';
-import { bannerUrl, COSMETIC_SET_INFO, profileGradient, type DisplayStatus } from '@diskort/client-core';
+import type { CSSProperties, ReactNode } from 'react';
+import { userEffectId, type CosmeticSetId, type CustomStatus, type ProfileTheme, type User } from '@diskort/shared';
+import { bannerUrl, profileGradient, type DisplayStatus } from '@diskort/client-core';
 import { cn } from '../../lib/utils';
-import { CardEffectCanvas } from '../cosmetics/Cosmetics';
+import { CardEffect, useCosmeticSetInfo } from '../cosmetics/Cosmetics';
 import { Avatar } from '../ui/Avatar';
 
 // Profil süsleri (afiş, tema, efekt) masaüstünde: profil kartı ve Ayarlar > Profil'deki önizleme kullanır.
@@ -39,10 +39,9 @@ export function ProfileBanner({
   className?: string;
 }) {
   const src = bannerUrl(user);
-  const set = isCosmeticSet(user.animatedEffect) ? COSMETIC_SET_INFO[user.animatedEffect] : null;
+  const set = useCosmeticSetInfo(userEffectId(user));
   return (
     <div
-      data-fx-banner
       className={cn('relative shrink-0 overflow-hidden', className)}
       style={{
         background:
@@ -85,18 +84,16 @@ export function ProfileCardTop({
   bannerClassName?: string;
 }) {
   const ring = themedRingColor(user.profileTheme);
+  const effect = useCosmeticSetInfo(userEffectId(user));
   return (
     <>
-      {/* Hareketli set efekti afiş alanına göre çizildiğinden efektli kartın afişi resim yokken de uzun */}
-      <ProfileBanner
-        user={user}
-        className={cn(user.bannerUrl || isCosmeticSet(user.animatedEffect) ? 'h-[106px]' : 'h-[60px]', bannerClassName)}
-      />
+      {/* Hareketli set efekti 106 piksellik afişe göre hazırlandığından efektli kartın afişi resim yokken de uzun */}
+      <ProfileBanner user={user} className={cn(user.bannerUrl || effect ? 'h-[106px]' : 'h-[60px]', bannerClassName)} />
       <div className="px-4">
         <div className="-mt-10 mb-2 flex items-start gap-2">
+          {/* Efekt avatarın yerini bilmez: avatar (halkası, dekorasyonu ve durum noktasıyla) efekt katmanının üstünde */}
           <div
-            data-fx-avatar
-            className="relative w-fit shrink-0 rounded-full border-[6px] border-bg-float"
+            className="relative z-[2] w-fit shrink-0 rounded-full border-[6px] border-bg-float"
             style={{ borderColor: ring }}
           >
             <Avatar
@@ -135,18 +132,18 @@ export function StatusBubble({ custom }: { custom: CustomStatus }) {
 }
 
 /**
- * Kartın üstünde oynayan hareketli set efekti (tıklamaları engellemez); "hareketi azalt" açıkken sabit bir
- * kare olarak çizilir.
+ * Kartın üstünde oynayan hareketli set efekti (tıklamaları engellemez; avatar bu katmanın üstünde kalır).
+ * "Hareketi azalt" açıkken sabit resmi gösterilir; seti tanınmıyorsa (paketi yayında değil) hiçbir şey çizilmez.
  */
-export const ProfileEffectLayer = memo(function ProfileEffectLayer({
+export function ProfileEffectLayer({
   effect,
   className,
 }: {
-  effect: ProfileEffect | null | undefined;
+  /** Setin kimliği (userEffectId) */
+  effect: CosmeticSetId | null | undefined;
   /** Kart taşanı kırpmıyorsa katmanın köşeleri (ör. rounded-lg) */
   className?: string;
 }) {
-  if (!isCosmeticSet(effect)) return null;
-  return <CardEffectCanvas set={effect} className={className} />;
-});
+  return <CardEffect id={effect} className={className} />;
+}
 

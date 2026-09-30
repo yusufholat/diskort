@@ -5,7 +5,7 @@ import {
   STATUS_DESCRIPTIONS,
   STATUS_DURATIONS,
   STATUS_LABELS,
-  userProfileEffect,
+  userEffectId,
   type UserStatus,
 } from '@diskort/shared';
 import {
@@ -194,7 +194,7 @@ export function SelfProfilePopout() {
           />
         </div>
       </div>
-      <ProfileEffectLayer effect={userProfileEffect(user)} className="rounded-lg" />
+      <ProfileEffectLayer effect={userEffectId(user)} className="rounded-lg" />
     </div>
   );
 }

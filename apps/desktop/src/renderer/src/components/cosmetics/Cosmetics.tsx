@@ -1,240 +1,316 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, type CSSProperties } from 'react';
-import type { CosmeticSet } from '@diskort/shared';
-import { COSMETIC_SET_INFO, type ShaderViewKind } from '@diskort/client-core';
+import { createContext, memo, useContext, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { create } from 'zustand';
+import type { CosmeticPack, CosmeticPiece, CosmeticSetId } from '@diskort/shared';
+import {
+  cosmeticAssetFailed,
+  cosmeticPacks,
+  cosmeticSetInfo,
+  isKnownCosmeticSet,
+  selectableCosmeticSets,
+  useCosmeticManifest,
+  useGuild,
+} from '@diskort/client-core';
+import { useReducedMotion } from '../../lib/motion';
 import { cn } from '../../lib/utils';
-import { attachView, setCosmeticsCover, type ViewHandle } from './engine';
-import type { CardGeo } from './layers';
+import {
+  ANIMATED_DECORATION_MIN_SIZE,
+  decorationBox,
+  failuresIn,
+  INITIAL_LOAD_STATE,
+  loadEpoch,
+  pickSource,
+  PLATE_BLEND_PX,
+  resolvePiece,
+  sourceFailed,
+  sourceLoaded,
+  staticCardBackground,
+  staticPlateBackground,
+  staticRingStyle,
+  staticThumbBackground,
+  type PieceFiles,
+  type PieceSource,
+  type PieceView,
+} from './pieces';
 
-// Hareketli kozmetiklerin React bileşenleri: hepsi tek motora (engine.ts) bağlanan 2B tuvallerdir.
+// Hareketli kozmetiklerin React bileşenleri. Her parça sunucudan inen paketin bir dosyasıdır ve düz bir
+// <img> ile oynatılır (hareketli AVIF, yoksa WebP): tuval, WebGL, video ya da kare başına çalışan kod yok.
+// Aynı adresi gösteren bütün <img>'ler tarayıcıda tek bir çözülmüş resmi paylaşır; ekranda olmayan resim
+// ve gizli pencere oynatılmaz. Set bildirimde yoksa hiçbir şey çizilmez; paketi bu istemcide oynatılmıyorsa
+// setin bilgi renklerinden sabit bir görünüm çizilir (bkz. pieces.ts).
 
-/** Avatarın bu boydan küçüğünde (mesajlar, listeler) hareketli dekorasyon yerine sabit, ucuz bir halka */
-export const ANIMATED_DECORATION_MIN_SIZE = 64;
-/** Dekorasyon tuvali avatarın dış yarıçapının bu katı (vitrin: 46 piksellik yarıçapa 132 piksel) */
-const DECORATION_CANVAS_SCALE = 132 / 46;
+export { nameplateNameColor } from './pieces';
 
-function CosmeticCanvas({
-  kind,
-  set,
-  R,
-  fps,
-  paused,
-  glScale,
-  measure,
-  className,
-  style,
-}: {
-  kind: ShaderViewKind;
-  set: CosmeticSet;
-  R?: number;
-  fps?: number;
-  paused?: boolean;
-  glScale?: number;
-  measure?: (canvas: HTMLCanvasElement) => CardGeo | null;
-  className?: string;
-  style?: CSSProperties;
-}) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  const handle = useRef<ViewHandle | null>(null);
-  const measureRef = useRef(measure);
-  measureRef.current = measure;
-  // Görünümün türü değişmez (değişirse bileşen yeniden kurulur); set ve ölçüler sonradan güncellenir
-  useLayoutEffect(() => {
-    const canvas = ref.current!;
-    const h = attachView(canvas, {
-      kind,
-      set,
-      R,
-      fps,
-      paused,
-      glScale,
-      measure: measureRef.current ? () => measureRef.current?.(canvas) ?? null : undefined,
-    });
-    handle.current = h;
-    return () => {
-      h.dispose();
-      handle.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind]);
-  useEffect(() => {
-    handle.current?.update({ set, R, fps, paused, glScale });
-  }, [set, R, fps, paused, glScale]);
-  return (
-    <canvas
-      ref={ref}
-      width={0}
-      height={0}
-      aria-hidden
-      className={cn('pointer-events-none block', className)}
-      style={style}
-    />
+// ---------- Depoya bağlı kancalar ----------
+
+/** Kimlik bildirimde varsa kendisi, yoksa null (tanınmayan set gösterilmez; bildirim gelince yeniden çizilir) */
+export function useKnownCosmeticSet(id: CosmeticSetId | null | undefined): CosmeticSetId | null {
+  return isKnownCosmeticSet(useCosmeticManifest(), id) ? id : null;
+}
+
+/** Setin bilgisi (ad, renkler, açıklamalar); set bildirimde yoksa null */
+export function useCosmeticSetInfo(id: CosmeticSetId | null | undefined): CosmeticPack | null {
+  return cosmeticSetInfo(useCosmeticManifest(), id);
+}
+
+/** Seçicide gösterilecek setler, bildirimdeki sırayla (bildirim yoksa boş) */
+export function useSelectableCosmeticSets(): CosmeticPack[] {
+  const manifest = useCosmeticManifest();
+  return useMemo(
+    () =>
+      selectableCosmeticSets(manifest).flatMap((id) => {
+        const info = cosmeticSetInfo(manifest, id);
+        return info ? [info] : [];
+      }),
+    [manifest],
   );
 }
 
+/** Setin parçası (set bildirimde yoksa `view` null) ve bildirimin sürümü */
+function usePiece(
+  id: CosmeticSetId | null | undefined,
+  piece: CosmeticPiece,
+): { view: PieceView | null; version: string | null } {
+  // Seçiciler depodaki güncel bildirimi okur: bildirim değişince yeniden hesaplanır
+  const manifest = useCosmeticManifest();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const view = useMemo(() => resolvePiece(cosmeticPacks, id, piece), [manifest, id, piece]);
+  return { view, version: manifest?.version ?? null };
+}
+
+// ---------- Örtüler ----------
+
+// Tam ekran pencereler (Ayarlar, Sunucu Ayarları) açıkken altlarında kalan parçalar (üye listesi plakaları,
+// profil kartı) ekranda görünmese de tarayıcıya göre görünürdür ve oynamaya devam eder: pencere kendini örtü
+// olarak bildirir, dışında kalan parçalar posterde durur; içindekiler (ayarlardaki seçici) oynar.
+
+const useCovers = create<{ count: number }>(() => ({ count: 0 }));
+const InsideCover = createContext(false);
+
+/** Tam ekran pencerenin içeriğini sarar: açıkken dışarıdaki hareketli kozmetikler durur */
+export function CosmeticsCover({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    useCovers.setState((s) => ({ count: s.count + 1 }));
+    return () => useCovers.setState((s) => ({ count: s.count - 1 }));
+  }, []);
+  return <InsideCover.Provider value={true}>{children}</InsideCover.Provider>;
+}
+
+function useCovered(): boolean {
+  const inside = useContext(InsideCover);
+  const covering = useCovers((s) => s.count > 0);
+  return covering && !inside;
+}
+
+// ---------- Parçanın resmi ----------
+
+/** Bu oturumda tamamı yüklenmiş hareketli dosyalar: yeniden gösterilirken önce posteri beklemeye gerek yok */
+const loadedUrls = new Set<string>();
+
 /**
- * Kartın ölçüleri: afiş (data-fx-banner) ve avatar (data-fx-avatar) kartın içinde aranır. Kart açılırken
- * ölçekle canlandırıldığından ekrandaki boy tuvalin css boyuna bölünerek düzeltilir.
+ * Gateway'in kaçıncı kez bağlandığı (READY). Bağlantı geri gelince yüklenemeyen dosyalar yeniden denenir:
+ * geçici bir ağ hatası parçayı yeniden kurulana kadar posterde / sabit görünümde bırakmaz (bkz. loadEpoch).
  */
-function measureCard(canvas: HTMLCanvasElement): CardGeo | null {
-  const card = canvas.parentElement;
-  const banner = card?.querySelector('[data-fx-banner]');
-  const avatar = card?.querySelector('[data-fx-avatar]');
-  if (!banner || !avatar || !canvas.clientWidth) return null;
-  const c = canvas.getBoundingClientRect();
-  const scale = c.width / canvas.clientWidth || 1;
-  const b = banner.getBoundingClientRect();
-  const a = avatar.getBoundingClientRect();
+const useConnections = create<{ count: number }>(() => ({ count: 0 }));
+useGuild.subscribe((s, prev) => {
+  if (s.status === 'ready' && prev.status !== 'ready') useConnections.setState((c) => ({ count: c.count + 1 }));
+});
+
+interface PieceImage {
+  /** Gösterilecek dosya; null ise sabit görünüm */
+  source: PieceSource | null;
+  /** Resmin kendi ölçüleri (yer tutar: yüklenene kadar yerleşim oynamaz) */
+  width: number;
+  height: number;
+  /** `url`: olayın ait olduğu adres (<img>'nin o anki dosyası) */
+  onLoad: (url: string) => void;
+  onError: (url: string) => void;
+}
+
+/**
+ * Parçanın <img>'sinde gösterilecek dosya ve yükleme olayları. Önce poster gösterilir, yüklenince hareketli
+ * dosyaya geçilir (o yüklenene kadar tarayıcı posteri göstermeyi sürdürür). "Hareketi azalt" açıkken,
+ * `paused` iken ve tam ekran bir pencerenin altında kalınca poster. Yüklenemeyen dosyadan postere, o da
+ * yüklenemezse sabit görünüme düşülür (kırık resim simgesi hiç görünmez). Yüklenemeyen dosya paket deposuna
+ * bildirilir (bildirim eskimiş olabilir); bildirim değişince ya da bağlantı geri gelince yeniden denenir.
+ * `version`: bildirimin sürümü.
+ */
+function usePieceImage(view: PieceView | null, version: string | null, paused = false): PieceImage {
+  const reduced = useReducedMotion();
+  const covered = useCovered();
+  const epoch = loadEpoch(version, useConnections((s) => s.count));
+  const files: PieceFiles = { anim: view?.anim?.url ?? null, poster: view?.poster?.url ?? null };
+  // Olaylar kendi adresleriyle kaydedilir: eski bir adresin olayı (paketin sürümü değişti) yenisini etkilemez
+  const [load, setLoad] = useState(INITIAL_LOAD_STATE);
+  // Posteri gösterildi (adres değişince, ör. önizlemede başka set, yeniden posterden başlanır) ya da hareketli
+  // dosyası zaten yüklü
+  const primed =
+    files.anim !== null && ((files.poster !== null && load.loadedPoster === files.poster) || loadedUrls.has(files.anim));
+  const source = pickSource(files, { still: reduced || covered || paused, primed, failed: failuresIn(load, epoch) });
+  const asset = view?.anim ?? view?.poster;
   return {
-    bh: (b.bottom - c.top) / scale,
-    ax: (a.left + a.width / 2 - c.left) / scale,
-    ay: (a.top + a.height / 2 - c.top) / scale,
-    ar: a.width / 2 / scale,
+    source,
+    width: asset?.width ?? 0,
+    height: asset?.height ?? 0,
+    onLoad: (url) => {
+      if (url === files.anim) loadedUrls.add(url);
+      else setLoad((s) => sourceLoaded(s, files, url));
+    },
+    onError: (url) => {
+      if (url !== files.anim && url !== files.poster) return;
+      // Paket yeniden yayınlanmış ya da kaldırılmış olabilir: depo bildirimi (en çok dakikada bir) yeniden ister
+      cosmeticAssetFailed(url);
+      setLoad((s) => sourceFailed(s, files, epoch, url));
+    },
   };
 }
 
-/** Profil kartının tamamını saran set efekti (kartın en üstünde, tıklamaları engellemez) */
-export function CardEffectCanvas({ set, className }: { set: CosmeticSet; className?: string }) {
+function PieceImg({ image, className, style }: { image: PieceImage; className?: string; style?: CSSProperties }) {
+  const { source } = image;
+  if (!source) return null;
+  // Olay <img>'nin şu anki dosyasına ait değilse (yerini yenisine bırakmış adresin gecikmiş olayı) yok sayılır
+  const current = (img: HTMLImageElement): boolean => img.getAttribute('src') === source.url;
   return (
-    <CosmeticCanvas
-      kind="card"
-      set={set}
-      glScale={0.75}
-      measure={measureCard}
-      className={cn('absolute inset-0 z-[1] h-full w-full', className)}
-    />
-  );
-}
-
-/**
- * Hareketli avatar dekorasyonu. Profil boyundaki avatarda (≥ 64 piksel) ya da `animate` ile canlı tuval;
- * küçük avatarda (mesajlar, üye listesi) sabit, yalnızca CSS'ten bir halka: onlarca satır tuval açmasın.
- */
-export function AnimatedDecoration({
-  set,
-  size,
-  animate,
-  lite,
-}: {
-  set: CosmeticSet;
-  size: number;
-  animate?: boolean;
-  /**
-   * Hafif mod (sesli sahne: katılımcı sayısı kadar tuval, LiveKit ile yarışır): 24 kare/sn, düşük gölgelendirici
-   * çözünürlüğü; 'paused' ise son kare sabit kalır (konuşmuyor)
-   */
-  lite?: 'on' | 'paused';
-}) {
-  if (!animate && size < ANIMATED_DECORATION_MIN_SIZE) return <StaticDecorationRing set={set} size={size} />;
-  // Avatarın dış yarıçapı (profil kartında 80 piksellik avatar + 6 piksellik halka = 46)
-  const R = (size / 2) * 1.15;
-  const box = Math.round(R * DECORATION_CANVAS_SCALE);
-  const off = (size - box) / 2;
-  return (
-    <CosmeticCanvas
-      kind="deco"
-      set={set}
-      R={R}
-      fps={lite ? 24 : animate && size < ANIMATED_DECORATION_MIN_SIZE ? 30 : undefined}
-      paused={lite === 'paused'}
-      glScale={lite ? 0.75 : undefined}
-      className="absolute max-w-none"
-      style={{ left: off, top: off, width: box, height: box }}
-    />
-  );
-}
-
-/** Küçük avatarlarda setin renklerinde ince halka */
-function StaticDecorationRing({ set, size }: { set: CosmeticSet; size: number }) {
-  const info = COSMETIC_SET_INFO[set];
-  const w = size >= 40 ? 2.5 : 2;
-  return (
-    <span
+    <img
+      src={source.url}
+      width={image.width}
+      height={image.height}
+      alt=""
       aria-hidden
-      className="pointer-events-none absolute rounded-full"
-      style={{
-        inset: -w,
-        background: `conic-gradient(from 210deg, ${info.accent}, ${info.to}, ${info.accent}, ${info.from}, ${info.accent})`,
-        mask: `radial-gradient(circle closest-side, transparent calc(100% - ${w + 0.6}px), #000 calc(100% - ${w}px))`,
-        boxShadow: `0 0 ${w * 2}px ${info.accent}55`,
+      draggable={false}
+      decoding="async"
+      className={cn('pointer-events-none max-w-none select-none', className)}
+      style={style}
+      onLoad={(e) => {
+        if (!current(e.currentTarget)) return;
+        e.currentTarget.style.visibility = '';
+        image.onLoad(source.url);
+      }}
+      // Ölçüsü belli <img> yüklenemeyince tarayıcı kırık resim simgesi çizer: sıradaki dosya yüklenene (ya da
+      // sabit görünüme geçilene) kadar resim hemen gizlenir
+      onError={(e) => {
+        if (!current(e.currentTarget)) return;
+        e.currentTarget.style.visibility = 'hidden';
+        image.onError(source.url);
       }}
     />
   );
 }
 
+// ---------- Parçalar ----------
+
 /**
- * Üye listesi satırının arkasındaki isim plakası (satır `isolate` olmalı: tuval yazıların altında kalır).
- * Satır başına bir tuval olduğundan 30 kare/sn: yavaş hareketli zeminde fark edilmez, yük yarıya iner.
+ * Profil kartının efekti: kartın tamamını kaplayan, tıklamaları engellemeyen katman (kart `relative` olmalı).
+ * Resim standart tuvaldir (2:3): kartın genişliğine ölçeklenir ve üstüne yaslanır; kısa kartta altı kırpılır,
+ * uzun kartta resim alt kenarında zaten sönerek biter. Avatarın yerini bilmez: avatar bu katmanın üstünde
+ * çizilmelidir (bkz. ProfileCardTop).
  */
-export function NameplateCanvas({ set, className }: { set: CosmeticSet; className?: string }) {
+export const CardEffect = memo(function CardEffect({
+  id,
+  className,
+}: {
+  id: CosmeticSetId | null | undefined;
+  /** Kart taşanı kırpmıyorsa katmanın köşeleri (ör. rounded-lg) */
+  className?: string;
+}) {
+  const { view, version } = usePiece(id, 'card');
+  const image = usePieceImage(view, version);
+  if (!view) return null;
+  return (
+    <div
+      aria-hidden
+      className={cn('pointer-events-none absolute inset-0 z-[1] overflow-hidden', className)}
+      style={image.source ? undefined : { background: staticCardBackground(view.info) }}
+    >
+      <PieceImg image={image} className="block h-auto w-full" />
+    </div>
+  );
+});
+
+/**
+ * Hareketli avatar dekorasyonu: avatarın ortasına oturan kare resim (avatar `relative` olmalı). Profil
+ * boyundaki avatarda (≥ 64 piksel) ya da `animate` ile paket oynar; küçük avatarda (mesajlar, üye listesi)
+ * sabit, yalnızca CSS'ten bir halka.
+ */
+export function AvatarDecoration({
+  id,
+  size,
+  animate,
+  paused,
+}: {
+  id: CosmeticSetId;
+  /** Avatarın kenarı (css px) */
+  size: number;
+  /** Küçük avatarda da oynasın (ayarlardaki seçici) */
+  animate?: boolean;
+  /** Durdurulmuş: poster gösterilir (ör. sesli sahnede konuşmayan katılımcı) */
+  paused?: boolean;
+}) {
+  const { view, version } = usePiece(id, 'deco');
+  const live = animate || size >= ANIMATED_DECORATION_MIN_SIZE;
+  const image = usePieceImage(live ? view : null, version, paused);
+  if (!view) return null;
+  if (!image.source) {
+    return <span aria-hidden className="pointer-events-none absolute rounded-full" style={staticRingStyle(view.info, size)} />;
+  }
+  const { box, offset } = decorationBox(size);
+  return <PieceImg image={image} className="absolute" style={{ left: offset, top: offset, width: box, height: box }} />;
+}
+
+/**
+ * Üye listesi satırının arkasındaki isim plakası (satır `relative isolate` olmalı: plaka yazıların altında
+ * kalır). Resim satırın yüksekliğinde ve sağa yaslıdır; satır resimden genişse solda kalan yer plakanın koyu
+ * rengiyle dolar ve resmin sol kenarı bu renge karışır (ek yeri görünmez), darsa resmin solu kırpılır.
+ */
+export function Nameplate({ id, className }: { id: CosmeticSetId; className?: string }) {
+  const { view, version } = usePiece(id, 'plate');
+  const image = usePieceImage(view, version);
+  if (!view) return null;
+  const fill = view.info.fallback[0];
   // Üstte ve altta 1 piksel boşluk, yuvarlak köşe: art arda plakalı satırlar birbirine yapışmaz
   return (
-    <CosmeticCanvas
-      kind="plate"
-      set={set}
-      fps={30}
-      className={cn('absolute top-px left-0 -z-10 h-[calc(100%-2px)] w-full rounded-md', className)}
-    />
+    <span
+      aria-hidden
+      className={cn(
+        'pointer-events-none absolute top-px left-0 -z-10 block h-[calc(100%-2px)] w-full overflow-hidden rounded-md',
+        className,
+      )}
+      style={{ background: image.source ? fill : staticPlateBackground(view.info) }}
+    >
+      {image.source && (
+        <span
+          className="absolute top-0 right-0 block h-full min-w-0"
+          style={{ aspectRatio: `${image.width} / ${image.height}` }}
+        >
+          <PieceImg image={image} className="block h-full w-full" />
+          <span
+            className="absolute inset-y-0 left-0 block"
+            style={{ width: PLATE_BLEND_PX, background: `linear-gradient(to right, ${fill}, transparent)` }}
+          />
+        </span>
+      )}
+    </span>
   );
 }
 
-/** Plakanın solu (yazıların altı) çok koyu: bu bağıl parlaklıktaki renk orada ~4.5:1 karşıtlıkla okunur */
-const NAMEPLATE_MIN_LUMINANCE = 0.22;
-
-/** #rgb / #rrggbb rengin sRGB kanalları (0-1); çözülemezse null */
-function parseHex(hex: string): [number, number, number] | null {
-  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return null;
-  const s = m[1]!.length === 3 ? [...m[1]!].map((c) => c + c).join('') : m[1]!;
-  return [0, 2, 4].map((i) => parseInt(s.slice(i, i + 2), 16) / 255) as [number, number, number];
-}
-
-/** sRGB rengin beyazla `white` oranında karışımının bağıl parlaklığı (WCAG) */
-function mixedLuminance(rgb: [number, number, number], white: number): number {
-  const lin = (c: number): number => {
-    c += (1 - c) * white;
-    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-  };
-  return 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
-}
-
 /**
- * İsim plakalı satırda rol renginin yazısı. Plakanın solu koyu olduğundan açık ve orta renkler olduğu gibi
- * kalır; koyu rol renkleri (lacivert, bordo) okunur olana kadar beyaza doğru açılır, ton korunur. Renk yoksa
- * undefined: .nameplate-text beyazı.
+ * Seçici kutusundaki küçük resim (kutu `relative` olmalı): setin degradesinin üstünde profil efektinin üst
+ * kısmı. `paused` iken poster (kutunun üstüne gelinmediyse).
  */
-export function nameplateNameColor(color: string | null | undefined): string | undefined {
-  if (!color) return undefined;
-  const rgb = parseHex(color);
-  if (!rgb) return `color-mix(in srgb, ${color} 75%, #fff)`;
-  // En az beyaz payı (%5 adımlarla, en çok %70): ton olabildiğince korunur
-  let white = 0;
-  while (white < 70 && mixedLuminance(rgb, white / 100) < NAMEPLATE_MIN_LUMINANCE) white += 5;
-  return white === 0 ? color : `color-mix(in srgb, ${color} ${100 - white}%, #fff)`;
-}
-
-/** Seçici kutusundaki küçük resim (30 kare/sn yeter) */
-export function SetThumbCanvas({ set, className }: { set: CosmeticSet; className?: string }) {
-  const info = COSMETIC_SET_INFO[set];
+export function SetThumb({ id, paused, className }: { id: CosmeticSetId; paused?: boolean; className?: string }) {
+  const { view, version } = usePiece(id, 'card');
+  const image = usePieceImage(view, version, paused);
+  if (!view) return null;
   return (
-    <CosmeticCanvas
-      kind="thumb"
-      set={set}
-      fps={30}
-      className={cn('h-full w-full', className)}
-      style={{ background: `linear-gradient(135deg, ${info.from}, ${info.to})` }}
-    />
+    <span
+      aria-hidden
+      className={cn('pointer-events-none absolute inset-0 block overflow-hidden', className)}
+      style={{
+        background: image.source
+          ? `linear-gradient(135deg, ${view.info.from}, ${view.info.to})`
+          : staticThumbBackground(view.info),
+      }}
+    >
+      <PieceImg image={image} className="block h-auto w-full" />
+    </span>
   );
-}
-
-/**
- * Tam ekran pencerenin kökü için ref: pencere açıkken altında kalan hareketli kozmetikler (üye listesi,
- * profil kartı) çizilmez; pencerenin içindekiler (ayarlardaki seçici) çizilir.
- */
-export function useCosmeticsCover(): (el: HTMLElement | null) => void {
-  const current = useRef<HTMLElement | null>(null);
-  return useCallback((el: HTMLElement | null) => {
-    if (current.current) setCosmeticsCover(current.current, false);
-    current.current = el;
-    if (el) setCosmeticsCover(el, true);
-  }, []);
 }
