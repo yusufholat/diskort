@@ -9,11 +9,14 @@ import {
   nextFrames,
   STEP_BUDGET_MS,
   TICK_BUDGET_MS,
+  FEW_PLAYERS,
+  tickBudget,
   ANIMATED_DECORATION_MIN_SIZE,
   CARD_BANNER_RATIO,
   cardEffectBox,
   decorationBox,
   decorationCanvasSize,
+  decorationLook,
   decorationRadius,
   frameDue,
   frameInterval,
@@ -45,6 +48,19 @@ describe('avatar dekorasyonu', () => {
     expect(decorationCanvasSize(ANIMATED_DECORATION_MIN_SIZE - 1)).toBe(ANIMATED_DECORATION_MIN_SIZE - 1);
     expect(decorationCanvasSize(ANIMATED_DECORATION_MIN_SIZE)).toBe(decorationBox(ANIMATED_DECORATION_MIN_SIZE));
     expect(decorationCanvasSize(72)).toBe(119);
+  });
+
+  it('yalnızca animate ile oynar (açık profil); gerisi sabit resim ya da halka', () => {
+    // Açık profil kartı (72 ve ayarlardaki 88 piksellik avatar)
+    expect(decorationLook(72, { animate: true })).toBe('live');
+    expect(decorationLook(88, { animate: true })).toBe('live');
+    // Ses kutucuğunun büyük avatarı (72): sabit resim, konuşurken de
+    expect(decorationLook(72)).toBe('poster');
+    expect(decorationLook(ANIMATED_DECORATION_MIN_SIZE)).toBe('poster');
+    // Seçicinin kutuları (42): halka yerine sabit resim, oynamaz
+    expect(decorationLook(42, { poster: true })).toBe('poster');
+    // Mesajlar, üye ve konuşma listeleri, alt panel, küçük ses kutucuğu: halka
+    for (const size of [16, 30, 34, 36, 38, 40, 44, 56, ANIMATED_DECORATION_MIN_SIZE - 1]) expect(decorationLook(size)).toBe('ring');
   });
 });
 
@@ -272,17 +288,22 @@ describe('iş bütçesi', () => {
     expect(heaviest([])).toBe(-1);
   });
 
-  it('on iki ayrı plaka (1,5 ms): toplam bütçe dolar, en pahalılar sırayla sabit resme alınır, toplam bütçeye iner', () => {
-    // Sürücünün kare döngüsündeki toplam bütçe kuralının aynısı
-    const costs = Array.from({ length: 12 }, (_, i) => 1.5 + i * 0.01);
+  /**
+   * Sürücünün kare döngüsündeki toplam bütçe kuralının aynısı (bkz. packDriver.ts): her karede çalışan oynatıcıların
+   * toplam işi; bütçe dolunca en pahalı sabit resme alınır. Bırakılanların sırası döner.
+   */
+  function shedOrder(costs: readonly number[], ticks = 2000): { shed: number[]; running: boolean[] } {
     const running = costs.map(() => true);
     let total = 0;
     let strikes = 0;
     const shed: number[] = [];
-    for (let tick = 0; tick < 2000; tick++) {
+    for (let tick = 0; tick < ticks; tick++) {
+      const stepped = running.filter(Boolean).length;
+      if (stepped < 2) continue;
+      const budget = tickBudget(stepped);
       const sum = costs.reduce((s, c, i) => s + (running[i] ? c : 0), 0);
-      total = stepCost(total, sum, TICK_BUDGET_MS);
-      strikes = budgetStrikes(strikes, total, TICK_BUDGET_MS);
+      total = stepCost(total, sum, budget);
+      strikes = budgetStrikes(strikes, total, budget);
       if (strikes >= BUDGET_STRIKES) {
         strikes = 0;
         const index = heaviest(costs.map((c, i) => (running[i] ? c : -1)).filter((c) => c >= 0));
@@ -293,13 +314,32 @@ describe('iş bütçesi', () => {
         shed.push(i);
       }
     }
+    return { shed, running };
+  }
+
+  it('az oynatıcıda (açık profil) toplam bütçe geniş, çokta dar', () => {
+    expect(tickBudget(2)).toBe(TICK_BUDGET_MS.few);
+    expect(tickBudget(FEW_PLAYERS)).toBe(TICK_BUDGET_MS.few);
+    expect(tickBudget(FEW_PLAYERS + 1)).toBe(TICK_BUDGET_MS.many);
+    expect(TICK_BUDGET_MS.few).toBeGreaterThan(TICK_BUDGET_MS.many);
+  });
+
+  it('açık profil: Android kart videosu (~10 ms) ve dekorasyon (~4 ms) birlikte sabit resme alınmaz', () => {
+    expect(shedOrder([10, 4]).shed).toEqual([]);
+    // plaka da olsa (üç oynatıcı)
+    expect(shedOrder([10, 4, 2]).shed).toEqual([]);
+  });
+
+  it('on iki ayrı plaka (1,5 ms): toplam bütçe dolar, en pahalılar sırayla sabit resme alınır, toplam bütçeye iner', () => {
+    const costs = Array.from({ length: 12 }, (_, i) => 1.5 + i * 0.01);
+    const { shed, running } = shedOrder(costs);
     // 18 ms → 10 ms'nin altına: en az altı oynatıcı bırakılır, en pahalıdan başlayarak
     const left = costs.reduce((s, c, i) => s + (running[i] ? c : 0), 0);
-    expect(left).toBeLessThanOrEqual(TICK_BUDGET_MS);
+    expect(left).toBeLessThanOrEqual(TICK_BUDGET_MS.many);
     expect(shed.length).toBeGreaterThanOrEqual(6);
     expect(shed.slice(0, 3)).toEqual([11, 10, 9]);
     // Bütçeye inince daha fazlası bırakılmaz
-    expect(left).toBeGreaterThan(TICK_BUDGET_MS - 2);
+    expect(left).toBeGreaterThan(TICK_BUDGET_MS.many - 2);
   });
 });
 

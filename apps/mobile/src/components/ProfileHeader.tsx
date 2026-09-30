@@ -37,7 +37,8 @@ const RING = 4;
  * serilir. Hareketli set efekti kartın içeriğinin üstünde, avatarın altındadır: efekt avatarın yerini bilmez
  * (kartın genişliğine göre hazır bir resimdir), avatar bu yüzden efekt varken efektin üstündeki ayrı bir katmanda
  * çizilir; efekt yokken yerindedir.
- * Üye menüsü ve Ayarlar → Profil'deki önizleme kullanır.
+ * Üye menüsü ve Ayarlar → Profil'deki önizleme kullanır. Açık profil kozmetiklerin telefonda oynadığı tek yerdir
+ * (kart efekti ve dekorasyon); kart kapanınca oynatıcılar bırakılır.
  */
 export function ProfileHeader({
   user,
@@ -61,7 +62,10 @@ export function ProfileHeader({
   /** Kullanıcı adının yanına eklenecek bilgi (ör. "Sesli sohbette") */
   lines?: string;
   custom?: CustomStatus | null;
-  /** Avatarın yerine (ör. ayarlarda dokununca fotoğraf seçtiren avatar); `ring` halkanın rengidir */
+  /**
+   * Avatarın yerine (ör. ayarlarda dokununca fotoğraf seçtiren avatar); `ring` halkanın rengidir. Açık profil
+   * olduğundan dekorasyonu oynamalıdır (`animateDecoration`).
+   */
   avatar?: (ring: string) => ReactNode;
   /** Avatar ve yazılar ortada (ayarlar) */
   centered?: boolean;
@@ -87,7 +91,11 @@ export function ProfileHeader({
   const avatarLift = -(avatarBox / 2);
   const avatarNode = (
     <View style={[styles.avatarRing, centered && styles.avatarCentered, { backgroundColor: ring, borderRadius: size, marginTop: avatarLift }]}>
-      {avatar ? avatar(ring) : <Avatar user={user} size={size} status={status} surface={ring} decoration={user.avatarDecoration} />}
+      {avatar ? (
+        avatar(ring)
+      ) : (
+        <Avatar user={user} size={size} status={status} surface={ring} decoration={user.avatarDecoration} animateDecoration />
+      )}
     </View>
   );
 
@@ -138,7 +146,8 @@ export function ProfileHeader({
         ) : null}
         {children}
       </View>
-      {effect && <CardEffect set={effect} />}
+      {/* Açık profil: kozmetiklerin telefonda oynadığı tek yer (efekt ve büyük avatarın dekorasyonu) */}
+      {effect && <CardEffect set={effect} animate />}
       {/* Efekt varken avatar katmanı: kartın yerleşimini (afiş, gövdenin kenar boşluğu) yineler, böylece avatar ölçüm
           gerekmeden yerine düşer. Yalnızca avatar dokunma alır; gerisi alttaki içeriğe geçer. (Ekran okuyucu avatara
           bu durumda en son gelir: öne almak, efektin üstünde çizilmesini ve dokunmayı bozmadan mümkün değil.) */}
