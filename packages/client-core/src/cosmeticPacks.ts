@@ -247,7 +247,13 @@ function persist(): void {
 }
 
 /** Süren istek ve hangi sunucuya gittiği (sunucu değişirse eskisi beklenmez, yanıtı da kullanılmaz) */
-let inflight: { base: string; promise: Promise<void> } | null = null;
+let inflight: { base: string; promise: Promise<void>; startedAt: number } | null = null;
+
+/**
+ * Bildirim isteği (yanıtın gövdesinin okunması dahil) bu sürede bitmezse iptal edilir: asılı kalan bir
+ * bağlantı sonraki bütün tazelemeleri (zamanlayıcı, öne geliş, yüklenemeyen dosya) engellemesin.
+ */
+export const COSMETIC_MANIFEST_TIMEOUT_MS = 15_000;
 
 /**
  * Bildirimi sunucudan tazeler (değişmediyse 304: gövde inmez). Kendiliğinden çağrıldığı yerler: oturum
@@ -264,7 +270,11 @@ export function refreshCosmeticPacks(opts: { maxAgeMs?: number } = {}): Promise<
     // istemci henüz yapılandırılmadı
     return Promise.resolve();
   }
-  if (inflight?.base === base) return inflight.promise;
+  // Süren istek aynı sunucuya gidiyorsa o beklenir. Zaman aşımını çoktan geçmiş bir istek (iptali dinlemeyen
+  // bir ağ katmanı) beklenmez: yenisi başlatılır, eskisi bitse de yenisinin yerini almaz.
+  if (inflight?.base === base && Date.now() - inflight.startedAt < COSMETIC_MANIFEST_TIMEOUT_MS + 5_000) {
+    return inflight.promise;
+  }
   const { checkedAt, serverUrl } = useCosmeticPacks.getState();
   if (opts.maxAgeMs && serverUrl === base && checkedAt !== null && Date.now() - checkedAt < opts.maxAgeMs) {
     return Promise.resolve();
@@ -272,7 +282,7 @@ export function refreshCosmeticPacks(opts: { maxAgeMs?: number } = {}): Promise<
   const promise = load(base).finally(() => {
     if (inflight?.promise === promise) inflight = null;
   });
-  inflight = { base, promise };
+  inflight = { base, promise, startedAt: Date.now() };
   return promise;
 }
 
@@ -283,10 +293,17 @@ async function load(base: string): Promise<void> {
   }
   const current = useCosmeticPacks.getState().manifest;
   useCosmeticPacks.setState({ status: 'loading' });
+  // Zaman aşımı: AbortController + zamanlayıcı (AbortSignal.timeout React Native'de olmayabilir). İptal,
+  // gövdenin okunmasını da keser; zamanlayıcı her sonuçta temizlenir.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), COSMETIC_MANIFEST_TIMEOUT_MS);
+  // Node'da (testler) bekleyen zamanlayıcı süreci açık tutmasın
+  (timeout as { unref?: () => void }).unref?.();
   try {
     const res = await fetch(`${base}/api/cosmetics/packs`, {
       // Sunucunun ETag'i bildirimin sürümüdür (başlık tarayıcıda başka kökenden okunamadığından gövdeden alınır)
       headers: current ? { 'If-None-Match': `"${current.version}"` } : {},
+      signal: controller.signal,
     });
     // Bu arada sunucu değiştiyse yanıt artık geçersiz
     if (useCosmeticPacks.getState().serverUrl !== base) return;
@@ -306,8 +323,10 @@ async function load(base: string): Promise<void> {
     useCosmeticPacks.setState({ manifest, status: 'ready', checkedAt: Date.now(), unknownAsked: [] });
     persist();
   } catch {
-    // Eski sunucu (uç yok), ağ hatası ya da bozuk yanıt: eldeki bildirim kalır
+    // Eski sunucu (uç yok), ağ hatası, zaman aşımı ya da bozuk yanıt: eldeki bildirim kalır
     if (useCosmeticPacks.getState().serverUrl === base) useCosmeticPacks.setState({ status: 'error' });
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

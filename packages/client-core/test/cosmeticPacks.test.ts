@@ -577,4 +577,77 @@ describe('depo', () => {
     expect(third).not.toBe(second);
     expect(calls).toHaveLength(3);
   });
+
+  it('asılı kalan istek 15 saniyede iptal edilir ve sonraki tazelemeleri engellemez', async () => {
+    vi.useFakeTimers();
+    const m = manifestOf([pack('buz')], '1111111111111111');
+    const signals: AbortSignal[] = [];
+    let mode: 'hang' | 'hang-body' | 'ok' = 'hang';
+    /** İptal edilene dek bitmeyen söz (gerçek fetch'in davranışı) */
+    const untilAborted = <T>(signal: AbortSignal): Promise<T> =>
+      new Promise<T>((_, reject) => signal.addEventListener('abort', () => reject(new Error('iptal edildi'))));
+    vi.stubGlobal('fetch', async (_url: string, init: { signal: AbortSignal }) => {
+      signals.push(init.signal);
+      if (mode === 'hang') return untilAborted<Response>(init.signal);
+      // Başlıklar geldi ama gövde hiç bitmiyor
+      if (mode === 'hang-body') return { ok: true, status: 200, json: () => untilAborted<unknown>(init.signal) };
+      return new Response(JSON.stringify(m), { status: 200 });
+    });
+
+    // Bağlantı asılı: aynı istek beklenir, 15 saniyede iptal edilir
+    const first = refreshCosmeticPacks();
+    expect(refreshCosmeticPacks()).toBe(first);
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(signals[0]!.aborted).toBe(false);
+    expect(useCosmeticPacks.getState().status).toBe('loading');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(signals[0]!.aborted).toBe(true);
+    await first;
+    expect(useCosmeticPacks.getState()).toMatchObject({ status: 'error', manifest: null });
+
+    // Sonraki tazeleme yeni bir istek açar (asılı söz geri verilmez); gövdesi asılı kalan yanıt da iptal edilir
+    mode = 'hang-body';
+    const second = refreshCosmeticPacks();
+    expect(second).not.toBe(first);
+    expect(signals).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(signals[1]!.aborted).toBe(true);
+    await second;
+    expect(useCosmeticPacks.getState().status).toBe('error');
+
+    // Ağ düzelince tazeleme çalışır; başarılı istekte zamanlayıcı temizlenir (sonradan iptal edilmez)
+    mode = 'ok';
+    await refreshCosmeticPacks();
+    expect(signals).toHaveLength(3);
+    expect(cosmeticPacks.selectable()).toEqual(['buz']);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(signals[2]!.aborted).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('iptali dinlemeyen bir ağ katmanında bile asılı istek sonsuza dek beklenmez', async () => {
+    vi.useFakeTimers();
+    const m = manifestOf([pack('buz')], '1111111111111111');
+    let hang = true;
+    let calls = 0;
+    vi.stubGlobal('fetch', () => {
+      calls++;
+      return hang ? new Promise<Response>(() => undefined) : Promise.resolve(new Response(JSON.stringify(m), { status: 200 }));
+    });
+    const first = refreshCosmeticPacks();
+    await vi.advanceTimersByTimeAsync(19_000);
+    // Zaman aşımına yakın: hâlâ aynı istek
+    expect(refreshCosmeticPacks()).toBe(first);
+    expect(calls).toBe(1);
+    await vi.advanceTimersByTimeAsync(2_000);
+    hang = false;
+    const second = refreshCosmeticPacks();
+    expect(second).not.toBe(first);
+    await second;
+    expect(calls).toBe(2);
+    expect(cosmeticPacks.selectable()).toEqual(['buz']);
+    // Yeni istek bittikten sonra bir sonraki tazeleme yine çalışır
+    await refreshCosmeticPacks();
+    expect(calls).toBe(3);
+  });
 });

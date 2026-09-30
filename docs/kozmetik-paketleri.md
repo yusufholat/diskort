@@ -100,14 +100,23 @@ docker compose exec -T api node dist/cosmetics-cli.js --force-unlock  # takılı
 ```
 
 - `publish`: önce paketin tamamı doğrulanır; hata varsa **depoya hiç dokunulmaz**. Aynı kimlik yayındaysa
-  yerine geçer (sıradaki yeri korunur).
+  yerine geçer (sıradaki yeri korunur). Bildirim (`manifest.json`) yazıldığı an yayın kesinleşir: sonrasındaki
+  temizlik bir sorun çıkarırsa yayın başarısız olmaz, araç `Uyarı:` satırı yazar.
+- **Yanlış klasöre karşı koruma.** `publish` yalnızca boş (ya da olmayan) bir klasöre ya da bir depoya
+  (`manifest.json` olan klasör) yazar; içinde başka şeyler olan, `manifest.json`'suz bir klasörü (ör. `--dir`
+  ile yanlışlıkla veri kökü) reddeder. `remove`, `prune`, `platforms` ve `order` depo olmayan klasörde
+  çalışmaz ve oraya hiçbir şey yazmaz. Temizlik yalnızca tanıdığını siler: sürüm klasörleri, aracın kendi
+  yarım kalmış hazırlık klasörleri (`.tmp-…`) ve yayında olmayan bir kimliğin, içinde bunlardan başka hiçbir
+  şey bulunmayan klasörü. Tanınmayan dosya ve klasörlere dokunulmaz, uyarı verilir.
 - **Önceki sürüm 24 saat durur.** Yeniden yayında yerini bırakan sürümün dosyaları hemen silinmez: açık
   istemciler bildirimi tazeleyene dek eski adresleri kullanır, o adresler bu sürede çalışmaya devam eder.
-  Kimlik başına en fazla **bir** önceki sürüm tutulur (disk sınırlı kalır); 24 saati geçen önceki sürüm bir
-  sonraki `publish`/`remove` sırasında ya da `prune` ile silinir.
+  Kimlik başına en fazla **bir** önceki sürüm tutulur (disk sınırlı kalır). 24 saat dolunca eski adresler
+  **sunucu tarafında kapanır** (klasör henüz silinmemiş olsa da); klasörün kendisi bir sonraki
+  `publish`/`remove` sırasında ya da `prune` ile silinir.
 - `remove`: paketi yayından kaldırır ve **bütün sürümlerinin dosyalarını hemen siler** (bekleme süresi yok:
   kaldırılan paketin dosyaları sunulmaya devam etmez). O seti seçmiş kullanıcıların seçimi veritabanında kalır
-  ama gönderilmez; paket yeniden yayınlanırsa geri gelir.
+  ama gönderilmez; paket yeniden yayınlanırsa geri gelir. Klasör silinemezse (içinde tanınmayan bir dosya
+  var, dosya o an kullanımda) paket yine yayından kalkmıştır ama araç hata koduyla çıkar: klasörü elle sil.
 - `order`: verilen kimlikler bu sırayla başa gelir, diğerleri kendi sıralarıyla arkada kalır. Seçicideki sıra
   budur.
 - `prune`: yerini bırakmış, 24 saati geçmiş önceki sürümleri siler; `--all` ile süresi dolmamış olanları da
@@ -122,7 +131,8 @@ docker compose exec -T api node dist/cosmetics-cli.js --force-unlock  # takılı
 uygulama öne gelince, ayarlardaki seçici açılırken, tanımadıkları bir set görünce ve bir paket dosyası
 yüklenemediğinde (en çok dakikada bir). Bildirim değişmediyse yanıt 304'tür (gövde inmez). Yani yeni kimlik
 getirmeyen değişiklikler de (platform kapatma, yeniden yayın, kaldırma) açık istemcilere en geç ~10 dakikada
-ulaşır; telefonda uygulama arka plandayken sorulmaz, öne gelince hemen sorulur.
+ulaşır; telefonda uygulama arka plandayken sorulmaz, öne gelince hemen sorulur. İstek 15 saniyede bitmezse
+iptal edilir (asılı bir bağlantı sonraki tazelemeleri engellemez).
 
 Geliştirirken: `pnpm --filter @diskort/server exec tsx src/cosmetics-cli.ts publish --dir <klasör> < buz.json`
 (gerçek paketi sunucuya göndermeden önce doğrulamak için de kullanılır).
@@ -145,6 +155,9 @@ Paketler masaüstünde başlar; telefonda oynatma denendikçe platform platform 
 
 - Depo: `<DATA_DIR>/cosmetic-packs/` (üretimde `/data/cosmetic-packs`).
   - `manifest.json`: yayınlanmış paketler (gösterim sırasıyla) ve dosyalarının bilgisi; atomik yazılır.
+    Klasörü depo yapan da bu dosyadır. Okunurken yalnızca kaydın bütünlüğü denetlenir; yayın kuralları
+    (“her parçada bir resim”, “parçanın dosyaları aynı boyutta”) yalnızca yayın anında aranır: sonradan eklenen
+    bir kural, yayında olan eski bir paketi geçersiz kılmaz.
   - `<kimlik>/<sürüm>/<dosya adı>`: dosyalar. Sürüm dosyaların içerik özetidir (16 onaltılık): dosyalar
     değişmedikçe aynı kalır, yalnızca bilgi (ad, platformlar, sıra) değişince adresler değişmez. Yayındaki
     sürümün yanında en fazla bir önceki sürüm durur (yerini bıraktığı an klasörün değişiklik zamanıdır; ayrı
@@ -153,10 +166,11 @@ Paketler masaüstünde başlar; telefonda oynatma denendikçe platform platform 
 - `GET /api/cosmetics/packs`: bildirim (kimlik doğrulamasız; `ETag` = gövdedeki `version`, `max-age=60`).
 - `GET /api/cosmetics/packs/<kimlik>/<sürüm>/<ad>`: dosya (süresiz önbellek, `nosniff`, HTTP Range).
   - Yayındaki sürümde yalnızca bildirimde kayıtlı dosyalar sunulur (türü kayıttan).
-  - Önceki sürümde: paket hâlâ yayında olmalı, sürüm klasörü durmalı, ad biçime uymalı ve uzantısı bir türe
-    karşılık gelmeli (`.avif` / `.webp` / `.mp4`; Content-Type yalnızca bundan), dosya doğrudan o klasördeki
-    düz bir dosya olmalı (alt klasör ve sembolik bağ sunulmaz).
-  - Kaldırılan paketin hiçbir dosyası sunulmaz. Açılamayan dosya 404'tür.
+  - Önceki sürümde: paket hâlâ yayında olmalı, sürüm klasörü durmalı ve yerini bırakalı 24 saat geçmemiş
+    olmalı, ad biçime uymalı ve uzantısı bir türe karşılık gelmeli (`.avif` / `.webp` / `.mp4`; Content-Type
+    yalnızca bundan), dosya doğrudan o klasördeki düz bir dosya olmalı (alt klasör ve sembolik bağ sunulmaz).
+  - Kaldırılan paketin hiçbir dosyası sunulmaz. Açılamayan dosya 404'tür; hata yanıtları önbellek başlığı
+    taşımaz.
 - Kullanıcıların seçebildiği setler: yerleşik altı kimlik ∪ yayında olan paketler. Yerleşik altı kimlik her
   zaman geçerlidir: 0.9.1 ve önceki istemciler onları kendi kodlarıyla çizer.
 
