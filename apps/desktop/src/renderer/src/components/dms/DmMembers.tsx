@@ -7,6 +7,7 @@ import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
 import { NameplateCanvas } from '../cosmetics/Cosmetics';
 import { openProfile } from '../members/ProfilePopover';
+import { PresenceSubline } from '../status/ActivityCard';
 import { Avatar, PresenceAvatar } from '../ui/Avatar';
 
 /** Konuşmanın sağındaki katılımcı listesi (metin kanalındaki üye listesinin karşılığı) */
@@ -96,7 +97,12 @@ const Participant = memo(function Participant({
           </span>
           {owner && <Crown size={13} aria-label="Grubun sahibi" className="shrink-0 text-warn" />}
         </div>
-        {!reachable && !isSelf && <div className="truncate text-xs text-text-muted">Ortak sunucunuz yok</div>}
+        {reachable || isSelf ? (
+          // Hesap düzeyi bilgi (sunucu bilgisi değil): özel durum, yoksa oynadığı oyun
+          <PresenceSubline userId={userId} className={cn('text-xs', plate ? 'nameplate-sub' : 'text-text-muted')} />
+        ) : (
+          <div className="truncate text-xs text-text-muted">Ortak sunucunuz yok</div>
+        )}
       </div>
     </div>
   );

@@ -12,6 +12,7 @@ import {
   formatRemaining,
   setCustomStatus,
   setUserStatus,
+  useActivity,
   useCustomStatus,
   useSelfStatus,
   useSession,
@@ -27,6 +28,7 @@ import {
   themedCardStyle,
 } from '../profile/ProfileLook';
 import { StatusIcon } from '../ui/StatusIcon';
+import { ActivityCard } from './ActivityCard';
 
 const MARGIN = 8;
 
@@ -59,6 +61,8 @@ export function SelfProfilePopout() {
   const self = useSelfStatus();
   const status = useStatus(user?.id);
   const custom = useCustomStatus(user?.id);
+  // Sunucunun sana da yolladığı durumdan okunur: görünmezken yok
+  const activity = useActivity(user?.id);
   const openModal = useUi((s) => s.openModal);
   const ref = useRef<HTMLDivElement>(null);
   const [statusMenu, setStatusMenu] = useState(false);
@@ -130,6 +134,7 @@ export function SelfProfilePopout() {
         }
       />
       <div className="px-4 pb-3">
+        {activity && <ActivityCard activity={activity} className="mt-3 rounded-lg bg-bg-side p-3" />}
         <div className="mt-3 rounded-lg bg-bg-side p-1.5">
           <Row
             icon={<Pencil size={16} className="ico-scribble" />}

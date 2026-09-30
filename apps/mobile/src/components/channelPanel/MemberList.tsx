@@ -5,6 +5,8 @@ import type { User } from '@diskort/shared';
 import {
   channelMemberGroups,
   memberGroups,
+  sublineActivity,
+  useActivity,
   useCustomStatus,
   useGuild,
   useMemberColor,
@@ -12,6 +14,7 @@ import {
   useStatus,
   type ProfileContext,
 } from '@diskort/client-core';
+import { ActivityLine } from '../ActivityCard';
 import { Avatar } from '../Avatar';
 import { useHasSkia, NAMEPLATE_TEXT_SHADOW, NameplateBackground, nameplateNameColor } from '../cosmetics/Cosmetics';
 import { MemberSheet } from '../MemberSheet';
@@ -170,6 +173,8 @@ const MemberRow = memo(function MemberRow({
   const self = useSession((s) => s.user?.id === user.id);
   const status = useStatus(user.id);
   const custom = useCustomStatus(user.id);
+  // Oynadığı oyun hesap düzeyidir: konuşmada da görünür
+  const activity = sublineActivity(custom, useActivity(user.id));
   // İsim plakası: satırın arkasında hareketli zemin; üstündeki yazılar açık renkli ve gölgeli (Skia yoksa
   // plaka çizilmez, satır eskisi gibi kalır)
   const plate = useHasSkia() ? (user.nameplate ?? null) : null;
@@ -214,11 +219,17 @@ const MemberRow = memo(function MemberRow({
               </View>
             )}
           </View>
-          {/* Masaüstündeki gibi önce özel durum, yoksa sesli sohbet; ikisi de yoksa yalnız isim */}
+          {/* Masaüstündeki gibi önce özel durum, yoksa oynadığı oyun, o da yoksa sesli sohbet; hiçbiri yoksa yalnız isim */}
           {custom ? (
             <Text style={[styles.sub, plate && styles.plateSub]} numberOfLines={1}>
               {`${custom.emoji ? `${custom.emoji} ` : ''}${custom.text ?? ''}`}
             </Text>
+          ) : activity ? (
+            <ActivityLine
+              activity={activity}
+              textStyle={[styles.sub, plate && styles.plateSub]}
+              color={plate ? PLATE_SUB_COLOR : colors.muted}
+            />
           ) : (
             inVoice && (
               <View style={styles.subRow}>
@@ -234,6 +245,7 @@ const MemberRow = memo(function MemberRow({
 });
 
 const CARD_RADIUS = radius.lg - 4;
+const PLATE_SUB_COLOR = 'rgba(255,255,255,0.78)';
 
 const styles = createStyles(() => ({
   content: { paddingHorizontal: space.lg, paddingBottom: space.xxl, flexGrow: 1 },
@@ -262,7 +274,7 @@ const styles = createStyles(() => ({
   name: { color: colors.text, fontSize: font.row, fontWeight: '600', flexShrink: 1 },
   subRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
   sub: { color: colors.muted, fontSize: font.caption + 0.5, marginTop: 1 },
-  plateSub: { color: 'rgba(255,255,255,0.78)', ...NAMEPLATE_TEXT_SHADOW },
+  plateSub: { color: PLATE_SUB_COLOR, ...NAMEPLATE_TEXT_SHADOW },
   youTag: { backgroundColor: colors.brandSoft, borderRadius: radius.sm, paddingHorizontal: 5, paddingVertical: 1 },
   youText: { color: colors.brandText, fontSize: 9.5, fontWeight: '800' },
 }));

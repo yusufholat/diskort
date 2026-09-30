@@ -7,6 +7,7 @@ import {
   showsGuildInfo,
   showsStreamInfo,
   sortedRoles,
+  useActivity,
   useCustomStatus,
   useGuild,
   useSession,
@@ -25,6 +26,7 @@ import {
   StatusBubble,
   themedCardStyle,
 } from '../profile/ProfileLook';
+import { ActivityCard } from '../status/ActivityCard';
 
 const MARGIN = 8;
 const GAP = 8;
@@ -77,6 +79,8 @@ export function ProfilePopover() {
   const user = useGuild((s) => (shown ? s.users[shown.userId] : undefined));
   const status = useStatus(shown?.userId);
   const custom = useCustomStatus(shown?.userId);
+  // Oynadığı oyun hesap düzeyidir: DM bağlamında da görünür
+  const activity = useActivity(shown?.userId);
   // Sunucu bilgisi (roller, taç, yayın) yalnızca o sunucunun bağlamında
   const guildInfo = useGuild((s) => (shown ? showsGuildInfo(s, shown.context) : false));
   const owner = useGuild((s) => (shown && guildInfo ? s.guild?.ownerId === shown.userId : false));
@@ -174,6 +178,7 @@ export function ProfilePopover() {
         badge={owner && <Crown size={16} aria-label="Sunucunun sahibi" className="shrink-0 text-warn" />}
       />
       <div className="px-4 pb-4">
+        {activity && <ActivityCard activity={activity} className="mt-3 rounded-lg bg-bg-side p-3" />}
         {roles.length > 0 && (
           <div className="mt-3">
             <div className="mb-1.5 text-xs font-bold text-text-muted uppercase">Roller</div>

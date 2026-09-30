@@ -9,6 +9,8 @@ import {
   dmPartner,
   dmTitle,
   isUnread,
+  sublineActivity,
+  useActivity,
   useCustomStatus,
   useDmList,
   useDmUnreadCount,
@@ -16,6 +18,7 @@ import {
   useMessages,
   useSession,
 } from '@diskort/client-core';
+import { ActivityLine } from './ActivityCard';
 import { CountBadge, UnreadMarker } from './Badge';
 import { BottomSheet, SheetGroup, SheetHeader, SheetItem } from './BottomSheet';
 import { confirmDialog } from './Dialog';
@@ -156,9 +159,10 @@ const DmRow = memo(function DmRow({
   const selfId = useSession((s) => s.user?.id);
   const title = useGuild((s) => dmTitle(dm, s.users, selfId));
   const partnerName = useGuild((s) => (dm.group ? undefined : dmPartner(dm, s.users, selfId)?.username));
-  // Bire bir konuşmada karşı tarafın özel durumu (ortak sunucunuz varsa görünür)
+  // Bire bir konuşmada karşı tarafın özel durumu, yoksa oynadığı oyun (ortak sunucunuz varsa görünür)
   const partnerId = useGuild((s) => (dm.group ? undefined : dmPartner(dm, s.users, selfId)?.id));
   const custom = useCustomStatus(partnerId);
+  const activity = sublineActivity(custom, useActivity(partnerId));
   const unread = useGuild((s) => isUnread(s, dm.id));
   const count = useDmUnreadCount(dm.id);
   const typing = useSomeoneTyping(dm.id, selfId);
@@ -193,6 +197,8 @@ const DmRow = memo(function DmRow({
               <TypingDots color={colors.brandText} size={4} />
               <Text style={[styles.sub, { color: colors.brandText }]}>yazıyor…</Text>
             </View>
+          ) : activity ? (
+            <ActivityLine activity={activity} textStyle={styles.sub} />
           ) : sub ? (
             <Text style={styles.sub} numberOfLines={1}>
               {sub}

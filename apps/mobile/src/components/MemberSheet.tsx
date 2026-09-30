@@ -13,6 +13,7 @@ import {
   showsStreamInfo,
   streamPreviewHeaders,
   streamPreviewUrl,
+  useActivity,
   useCustomStatus,
   useGuild,
   useSession,
@@ -27,6 +28,7 @@ import { toast } from '../stores/ui';
 import { useVoice, voice as voiceClient } from '../voice/voice';
 import { BAN_REASON_MAX_LENGTH } from '@diskort/shared';
 import { colors, createStyles, font, radius, space } from '../theme';
+import { ActivityCard } from './ActivityCard';
 import { ProfileHeader } from './ProfileHeader';
 import { BottomSheet, SheetGroup, SheetItem, SheetNote } from './BottomSheet';
 import { confirmDialog, promptDialog } from './Dialog';
@@ -68,6 +70,8 @@ export function MemberSheet({
   const live = useGuild((s) => (userId && showsStreamInfo(shownContext) ? s.voiceStates[userId] : undefined));
   const status = useStatus(userId);
   const custom = useCustomStatus(userId);
+  // Oynadığı oyun hesap düzeyidir: DM bağlamında da görünür
+  const activity = useActivity(userId);
   const color = useGuild((s) => (guildInfo ? memberColorOf(s, userId) : null));
   const guildRoles = useGuild((s) => s.roles);
   const owner = useGuild((s) => Boolean(guildInfo && userId && s.guild?.ownerId === userId));
@@ -211,7 +215,9 @@ export function MemberSheet({
           lines={live ? 'Sesli sohbette' : undefined}
           custom={custom}
           style={styles.header}
-        />
+        >
+          {activity && page === 'main' && <ActivityCard activity={activity} style={styles.activity} />}
+        </ProfileHeader>
       )}
       {roles.length > 0 && page === 'main' && (
         <View style={styles.roles}>
@@ -377,6 +383,7 @@ export function MemberSheet({
 
 const styles = createStyles(() => ({
   header: { marginHorizontal: space.md, marginBottom: space.md },
+  activity: { marginTop: space.md },
   roles: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: space.lg + 2, paddingBottom: space.md },
   role: {
     flexDirection: 'row',

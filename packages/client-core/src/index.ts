@@ -42,6 +42,7 @@ export {
   uploadStreamPreview,
 } from './streamPreview';
 export { streamViewers, useStreamViewers } from './streamViewers';
+export { activityLabel, activityTitle, formatElapsed, sublineActivity } from './activityView';
 export {
   isStreamMuted,
   setStreamVolume,
