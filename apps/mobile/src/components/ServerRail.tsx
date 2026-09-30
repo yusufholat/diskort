@@ -216,8 +216,8 @@ const GuildButton = memo(function GuildButton({ guild, home }: { guild: Guild; h
 });
 
 /**
- * Sunucu simgesinin sağ üst köşesinde, çubuk renginde halkalı küçük rozet: sunucuda yayın yapan varsa kırmızı
- * (masaüstü ekran ikonu, "YAYINDA" ile aynı renk), yoksa seste biri varsa koyu zeminde hoparlör. Dokunmayı
+ * Sunucu simgesinin sağ üst köşesinde, çubuk renginde halkalı küçük koyu rozet: sunucuda yayın yapan varsa
+ * ekran ikonu, yoksa seste biri varsa hoparlör. Dokunmayı
  * engellemez.
  */
 function ActivityBadge({ activity }: { activity: NonNullable<GuildVoiceActivity> }) {
@@ -225,9 +225,9 @@ function ActivityBadge({ activity }: { activity: NonNullable<GuildVoiceActivity>
   return (
     <View
       pointerEvents="none"
-      style={[styles.activity, { backgroundColor: stream ? colors.danger : colors.raised }]}
+      style={[styles.activity, { backgroundColor: colors.raised }]}
     >
-      <Ionicons name={stream ? 'desktop-outline' : 'volume-medium'} size={11} color={stream ? colors.white : colors.head} />
+      <Ionicons name={stream ? 'desktop-outline' : 'volume-medium'} size={11} color={colors.head} />
     </View>
   );
 }

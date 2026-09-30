@@ -157,7 +157,7 @@ function UnreadDm({ dm }: { dm: DmChannel }) {
 
 /**
  * Çubuktaki öğe: seçiliyse soldaki uzun işaret, okunmamışsa kısa işaret, sağ altta kırmızı sayı, sağ üstte
- * sunucuda yayın (kırmızı) ya da seste biri (koyu, hoparlör) olduğunu gösteren rozet
+ * sunucuda yayın (ekran ikonu) ya da seste biri (hoparlör) olduğunu gösteren koyu rozet
  */
 function RailItem({
   selected,
@@ -199,10 +199,7 @@ function RailItem({
           <span
             key={activity}
             aria-hidden
-            className={cn(
-              'anim-pill-in absolute -top-1 -right-1 flex h-[22px] w-[22px] items-center justify-center rounded-full border-[3px] border-bg-rail',
-              activity === 'stream' ? 'bg-danger text-white' : 'bg-bg-raised-hover text-text-head',
-            )}
+            className="anim-pill-in absolute -top-1 -right-1 flex h-[22px] w-[22px] items-center justify-center rounded-full border-[3px] border-bg-rail bg-bg-raised-hover text-text-head"
           >
             {activity === 'stream' ? <ScreenShare size={11} strokeWidth={2.5} /> : <Volume2 size={11} strokeWidth={2.5} />}
           </span>
