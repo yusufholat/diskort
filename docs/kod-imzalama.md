@@ -4,8 +4,10 @@ Amaç: Windows'ta kurulum dosyası açılınca çıkan **“Windows kişisel bil
 uyarısını ve “Bilinmeyen yayıncı” yazısını kaldırmak. Açık kaynak projelere ücretsiz sertifika veren
 **SignPath Foundation** kullanılır; imzalama GitHub Actions'taki sürüm derlemesine bağlıdır.
 
-Durum: CI tarafı hazır ama **etkin değil**. Aşağıdaki gizli değerler/değişkenler eklenene kadar Windows paketi
-eskisi gibi imzasız yayınlanır; hiçbir şey bozulmaz.
+Durum (30 Eylül 2026): CI tarafı hazır ama **etkin değil** ve SignPath Foundation'a **başvurulmadı** (şimdilik
+başvurmama kararı: her sürümde iki elle onay gerektiriyor). Aşağıdaki gizli değerler/değişkenler eklenene kadar
+Windows paketi eskisi gibi imzasız yayınlanır; hiçbir şey bozulmaz. Politika sayfası
+(`apps/web/code-signing.html`) da sürümlerin şu an imzasız olduğunu söyler; imzalama açılınca o not kaldırılmalı.
 
 ---
 
@@ -68,7 +70,7 @@ failed jobs” ile tekrarlanır (yeni istek oluşur).
 electron-updater, `app-update.yml` içinde `publisherName` varsa indirilen kurulum dosyasının imzasını PowerShell
 ile denetler ve yayıncı adı uymazsa güncellemeyi **reddeder**. `publisherName` yoksa bu denetim atlanır.
 
-- Bugünkü kurulu sürümler (≤ 0.6.5) imzasız derlendi, `publisherName` yok → **imzalı ilk sürümü sorunsuz alırlar.**
+- Bugüne kadarki tüm sürümler imzasız derlendi, `publisherName` yok → **imzalı ilk sürümü sorunsuz alırlar.**
 - `apps/desktop/electron-builder.yml`'e `win.verifyUpdateCodeSignature: false` eklendi: imzalı sürümlerde de
   `publisherName` yazılmaz. Sebep:
   - İş akışında imzasız yedek yol var (SignPath kapalı/erişilemez olursa). Yayıncı adı sabitlenmiş kurulumlar
@@ -90,10 +92,9 @@ ile denetler ve yayıncı adı uymazsa güncellemeyi **reddeder**. `publisherNam
 ### 5.1 Hazırlık
 
 1. **GitHub'da MFA:** GitHub → Settings → Password and authentication → Two-factor authentication açık olmalı.
-2. Bu dalı (`kod-imzalama`) incele ve `main`'e birleştir.
-3. Web sayfasını sunucuya al (sunucuda `/opt/diskort` içinde her zamanki gibi `git pull`; Caddy `apps/web`'i
-   doğrudan sunar). Kontrol: https://diskort.ziroo.net/code-signing açılmalı ve ana sayfanın altında
-   “Kod imzalama” bağlantısı görünmeli.
+2. İş akışı ve politika sayfası `main`'de ve sayfa yayında (https://diskort.ziroo.net/code-signing; ana sayfanın
+   altında “Kod imzalama” bağlantısı). Başvurmadan önce sayfadaki “şu an imzasız / başvurulmadı” notunu başvuruya
+   uygun hâle getir.
 4. (Önerilir) README'nin başına kısa İngilizce bir açıklama ve indirme bağlantısı eklemek başvuruyu hızlandırır;
    inceleyenler Türkçe bilmeyebilir.
 

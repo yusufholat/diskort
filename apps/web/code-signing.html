@@ -25,11 +25,16 @@
         <p class="legal-updated">Son güncelleme: 30 Eylül 2026 · <a href="#english">English below</a></p>
 
         <p>
-          <strong>Ücretsiz kod imzalama SignPath.io tarafından sağlanır, sertifika SignPath Foundation'a aittir.</strong>
-          Windows için yayınlanan Diskort dosyaları (<code>Diskort.exe</code> ve <code>Diskort-Setup-&lt;sürüm&gt;.exe</code>)
-          <a href="https://signpath.io">SignPath.io</a> üzerinden
-          <a href="https://signpath.org">SignPath Foundation</a> sertifikasıyla imzalanır. Bu yüzden Windows'ta yayıncı
-          olarak “SignPath Foundation” görünür.
+          <strong>Durum: Diskort'un Windows dosyaları şu an imzasız yayınlanıyor.</strong> Bu yüzden Windows, kurulum
+          dosyasını açarken “Bilinmeyen yayıncı” uyarısı gösterebilir. Kod imzalama henüz açılmadı ve
+          SignPath Foundation'a başvurulmadı; aşağıdaki politika, imzalama açıldığında uygulanacak düzeni anlatır.
+        </p>
+
+        <p>
+          İmzalama açıldığında ücretsiz kod imzalama <a href="https://signpath.io">SignPath.io</a> tarafından
+          sağlanacak, sertifika <a href="https://signpath.org">SignPath Foundation</a>'a ait olacak. Windows için
+          yayınlanan Diskort dosyaları (<code>Diskort.exe</code> ve <code>Diskort-Setup-&lt;sürüm&gt;.exe</code>) bu
+          sertifikayla imzalanacak ve Windows'ta yayıncı olarak “SignPath Foundation” görünecek.
         </p>
 
         <h2>Nasıl derlenir ve imzalanır</h2>
@@ -88,11 +93,17 @@
           <h1 id="english">Code signing policy</h1>
 
           <p>
-            <strong>Free code signing provided by <a href="https://signpath.io">SignPath.io</a>, certificate by
-            <a href="https://signpath.org">SignPath Foundation</a>.</strong>
-            The Windows files published for Diskort (<code>Diskort.exe</code> and
-            <code>Diskort-Setup-&lt;version&gt;.exe</code>) are signed with the SignPath Foundation certificate, so
-            Windows shows “SignPath Foundation” as the publisher.
+            <strong>Status: Diskort's Windows files are currently published unsigned.</strong> Windows may therefore
+            show an “Unknown publisher” warning when the installer is opened. Code signing has not been enabled yet
+            and no application has been submitted to SignPath Foundation; the policy below describes how signing
+            will work once it is enabled.
+          </p>
+
+          <p>
+            Once enabled, free code signing will be provided by <a href="https://signpath.io">SignPath.io</a>, with
+            a certificate by <a href="https://signpath.org">SignPath Foundation</a>. The Windows files published for
+            Diskort (<code>Diskort.exe</code> and <code>Diskort-Setup-&lt;version&gt;.exe</code>) will be signed with
+            that certificate, and Windows will show “SignPath Foundation” as the publisher.
           </p>
 
           <h2>How releases are built and signed</h2>
