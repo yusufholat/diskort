@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { crc32 } from 'node:zlib';
+import { crc32, inflateSync } from 'node:zlib';
 import sharp from 'sharp';
 import { ACTIVITY_ICON_KEY_PATTERN, ACTIVITY_ICON_MAX_BYTES, ACTIVITY_ICON_MAX_SIZE_PX } from '@diskort/shared';
 import { UploadError } from './attachments.js';
@@ -13,45 +13,83 @@ export const ACTIVITY_ICON_MAX_COUNT = 5000;
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 /**
- * Kabul edilen parçalar: resmin kendisi ve zararsız renk/ölçü bilgisi. Metin (tEXt…), hareket (APNG: acTL,
- * fcTL, fdAT), renk profili ve özel parçalar reddedilir: dosya olduğu gibi sunulduğundan içinde başka veri
- * taşınmasın.
+ * IHDR, IDAT ve IEND dışında kabul edilen parçalar ve geçerli uzunlukları: palet, saydamlık ve zararsız
+ * renk/ölçü bilgisi. Her biri en fazla bir kez ve piksel verisinden (IDAT) önce gelebilir. Metin (tEXt…),
+ * hareket (APNG: acTL, fcTL, fdAT), renk profili ve özel parçalar reddedilir: dosya olduğu gibi
+ * sunulduğundan içinde başka veri taşınmasın.
  */
-const PNG_CHUNKS = new Set(['IHDR', 'PLTE', 'tRNS', 'IDAT', 'IEND', 'gAMA', 'sRGB', 'pHYs']);
-/** Renk türü → geçerli bit derinlikleri (PNG belirtimi) */
-const PNG_BIT_DEPTHS: Record<number, readonly number[]> = {
-  0: [1, 2, 4, 8, 16],
-  2: [8, 16],
-  3: [1, 2, 4, 8],
-  4: [8, 16],
-  6: [8, 16],
+const PNG_EXTRA_CHUNKS = new Map<string, (length: number) => boolean>([
+  ['PLTE', (length) => length > 0 && length <= 768 && length % 3 === 0],
+  ['tRNS', (length) => length > 0 && length <= 256],
+  ['gAMA', (length) => length === 4],
+  ['sRGB', (length) => length === 1],
+  ['pHYs', (length) => length === 9],
+]);
+/** Renk türü → kanal sayısı ve geçerli bit derinlikleri (PNG belirtimi) */
+const PNG_COLOR_TYPES: Record<number, { channels: number; depths: readonly number[] }> = {
+  0: { channels: 1, depths: [1, 2, 4, 8, 16] },
+  2: { channels: 3, depths: [8, 16] },
+  3: { channels: 1, depths: [1, 2, 4, 8] },
+  4: { channels: 2, depths: [8, 16] },
+  6: { channels: 4, depths: [8, 16] },
 };
 
 /**
- * PNG'nin yapısını denetler: imza, ilk parça IHDR, parçalar (uzunluk, izinli ad, CRC) IEND'e dek sırayla,
- * IEND'den sonra artık bayt yok. Geçerliyse boyutları döner. Piksel verisi burada çözülmez (bkz. decodes).
+ * Sıkıştırılmış piksel verisi (IDAT'ların birleşimi) tam beklenen kadar mı: açılınca satır başına süzgeç baytı
+ * + pikseller, ne eksik ne fazla; zlib akışından sonra artık bayt yok. Böylece IDAT içinde de başka veri
+ * taşınamaz ve açılan boyut baştan sınırlıdır.
+ */
+function pixelDataFits(data: Buffer, rawSize: number): boolean {
+  try {
+    const { buffer, engine } = inflateSync(data, { maxOutputLength: rawSize + 1, info: true }) as unknown as {
+      buffer: Buffer;
+      engine: { bytesWritten: number };
+    };
+    return buffer.length === rawSize && engine.bytesWritten === data.length;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * PNG'nin yapısını denetler: imza, ilk parça IHDR, ardından izinli ek parçalar (bkz. PNG_EXTRA_CHUNKS), art
+ * arda IDAT'lar ve IEND; her parçanın CRC'si tutar, IEND'den sonra artık bayt yok. Geçişli (interlaced) PNG
+ * kabul edilmez. Boyutlar ikon sınırları içindeyse sıkıştırılmış verinin uzunluğu da denetlenir (dışındaysa
+ * çağıran zaten boyuttan reddeder; veri hiç açılmaz). Geçerliyse boyutları döner. Piksellerin kendisi burada
+ * çözülmez (bkz. decodes).
  */
 export function inspectPng(buf: Buffer): { width: number; height: number } | null {
   if (buf.length < PNG_SIGNATURE.length || !buf.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) return null;
   let offset = PNG_SIGNATURE.length;
-  let size: { width: number; height: number } | null = null;
-  let hasData = false;
+  let header: { width: number; height: number; rowBytes: number } | null = null;
+  const seen = new Set<string>();
+  const data: Buffer[] = [];
   while (offset + 12 <= buf.length) {
     const length = buf.readUInt32BE(offset);
     const type = buf.toString('latin1', offset + 4, offset + 8);
     const end = offset + 12 + length;
-    if (end > buf.length || !PNG_CHUNKS.has(type)) return null;
+    if (end > buf.length) return null;
     if (crc32(buf.subarray(offset + 4, end - 4)) !== buf.readUInt32BE(end - 4)) return null;
-    if (!size) {
+    const body = buf.subarray(offset + 8, end - 4);
+    if (!header) {
       if (type !== 'IHDR' || length !== 13) return null;
-      const data = buf.subarray(offset + 8, offset + 21);
-      const depths = PNG_BIT_DEPTHS[data[9]!];
-      // Sıkıştırma ve süzgeç yöntemi 0, geçişli (interlace) 0 ya da 1 olabilir
-      if (!depths?.includes(data[8]!) || data[10] !== 0 || data[11] !== 0 || data[12]! > 1) return null;
-      size = { width: data.readUInt32BE(0), height: data.readUInt32BE(4) };
-    } else if (type === 'IHDR') return null;
-    else if (type === 'IDAT') hasData = true;
-    else if (type === 'IEND') return length === 0 && hasData && end === buf.length ? size : null;
+      const color = PNG_COLOR_TYPES[body[9]!];
+      // Sıkıştırma ve süzgeç yöntemi 0; geçişli (interlace, 1) resim alınmaz
+      if (!color?.depths.includes(body[8]!) || body[10] !== 0 || body[11] !== 0 || body[12] !== 0) return null;
+      const width = body.readUInt32BE(0);
+      header = { width, height: body.readUInt32BE(4), rowBytes: Math.ceil((width * color.channels * body[8]!) / 8) };
+    } else if (type === 'IDAT') data.push(body);
+    else if (type === 'IEND') {
+      if (length !== 0 || data.length === 0 || end !== buf.length) return null;
+      const { width, height, rowBytes } = header;
+      const inRange = width > 0 && height > 0 && Math.max(width, height) <= ACTIVITY_ICON_MAX_SIZE_PX;
+      if (inRange && !pixelDataFits(Buffer.concat(data), height * (1 + rowBytes))) return null;
+      return { width, height };
+    } else {
+      // Ek parça: izinli, uzunluğu geçerli, ilk kez ve IDAT'tan önce (IDAT'lar arasına ya da sonrasına giremez)
+      if (!PNG_EXTRA_CHUNKS.get(type)?.(length) || seen.has(type) || data.length > 0) return null;
+      seen.add(type);
+    }
     offset = end;
   }
   return null;
@@ -97,13 +135,18 @@ export class ActivityIconStore {
     for (const file of files) {
       const full = path.join(dir, file);
       const key = file.endsWith('.png') ? file.slice(0, -4) : '';
-      if (ACTIVITY_ICON_KEY_PATTERN.test(key)) {
-        // Boş dosya (yazılırken elektrik kesilmiş): silinir, istemci yeniden yükler
-        if (fs.statSync(full, { throwIfNoEntry: false })?.size) this.keys.add(key);
-        else fs.rmSync(full, { force: true });
+      // Tek bir dosyadaki hata (ör. izin) sunucunun açılmasını engellemez: dosya atlanır
+      try {
+        if (ACTIVITY_ICON_KEY_PATTERN.test(key)) {
+          // Boş dosya (yazılırken elektrik kesilmiş): silinir, istemci yeniden yükler
+          if (fs.statSync(full, { throwIfNoEntry: false })?.size) this.keys.add(key);
+          else fs.rmSync(full, { force: true });
+        }
+        // Yarım kalmış yükleme (sunucu yazarken kapanmış)
+        else if (/^[0-9a-f]{16}\.tmp$/.test(file)) fs.rmSync(full, { force: true });
+      } catch (err) {
+        this.log?.warn({ file, err: String(err) }, 'etkinlik ikonu dosyası okunamadı, atlandı');
       }
-      // Yarım kalmış yükleme (sunucu yazarken kapanmış)
-      else if (/^[0-9a-f]{16}\.tmp$/.test(file)) fs.rmSync(full, { force: true });
     }
   }
 
@@ -170,7 +213,8 @@ export class ActivityIconStore {
       }
       await fs.promises.rename(temp, path.join(this.dir, `${key}.png`));
     } catch (err) {
-      await fs.promises.rm(temp, { force: true });
+      // Temizlik başarısız olsa da asıl hata bildirilir
+      await fs.promises.rm(temp, { force: true }).catch(() => {});
       throw err;
     }
     this.keys.add(key);

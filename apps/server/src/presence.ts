@@ -100,11 +100,22 @@ export const ACTIVITY_START_TOLERANCE_MS = 60_000;
 export const activityKey = (a: Pick<Activity, 'type' | 'name'>): string => `${a.type}\0${a.name}`;
 
 /**
- * Etkinlik adı: özel durumdaki temizliğe ek olarak sıfır genişlikli ve yön değiştiren karakterler de atılır
- * (görünmez ad ya da yazıyı ters çeviren ad olmasın).
+ * Görünmeyen ama "harf" ya da "simge" sayılan karakterler: sıfır genişlikliler, yön değiştirenler (bidi),
+ * Hangul dolgu harfleri, boş Braille. Kaynakta görünmesinler diye hepsi \u kaçışıyla yazılır.
  */
-const cleanActivityName = (raw: string): string =>
-  cleanText(raw.replace(/[­​-‏‪-‮⁠-⁩﻿]/g, ''));
+const INVISIBLE_CHARS =
+  /[­͏؜ᅟᅠ᠎​-‏‪-‮⁠-⁩⠀ㅤ﻿ﾠ]/g;
+/** Adda görünen en az bir karakter (harf, rakam, noktalama ya da simge) olmalı */
+const VISIBLE_CHAR = /[\p{L}\p{N}\p{P}\p{S}]/u;
+
+/**
+ * Etkinlik adı: özel durumdaki temizliğe ek olarak görünmeyen karakterler de atılır (görünmez ad ya da
+ * yazıyı ters çeviren ad olmasın); geriye görünen bir şey kalmadıysa boş döner (geçersiz).
+ */
+const cleanActivityName = (raw: string): string => {
+  const clean = cleanText(raw.replace(INVISIBLE_CHARS, ''));
+  return VISIBLE_CHAR.test(clean) ? clean : '';
+};
 
 /** Tek bir bildirimi (güvenilmez) doğrular; geçersizse null */
 function parseActivityReport(raw: unknown, iconExists: (key: string) => boolean, now: number): Activity | null {
