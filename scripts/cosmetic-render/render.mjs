@@ -142,9 +142,11 @@ const PIECE_SPECS = {
   // - Avatar deliği YOK (yarıçap eksi: avatarHole her yerde 1). Avatarın yeri platforma göre değişir (masaüstü
   //   solda (62,112), telefon solda (56, afiş altı), ayarlarda ortada): efekt avatarın yerini bilmemeli, uygulama
   //   avatarı efektin üstüne çizmeli (ya da kendi avatar yerine maske uygulamalı).
-  // - Kartın alt kenarına bağlı hiçbir şey olmamalı. Alt kenara bir şey çizen set, yerleşim yüksekliğini
-  //   (layoutH) tuvalden uzun verip onu tuvalin dışında bırakabilir (bkz. sets/buz.mjs).
-  card: { label: 'Profil kartı efekti (standart tuval)', kind: 'card', w: 300, h: 450, fade: { from: 360, to: 450 }, glScale: 0.75, geo: { bh: 106, ax: 0, ay: 0, ar: -100 } },
+  // - Kartın alt kenarına bağlı hiçbir şey olmamalı. Yerleşim yüksekliği (layoutH) varsayılan olarak 540: efekt
+  //   540 px'lik bir kart çiziyormuş gibi çalışır (u_res.y = 540, katmanda v.h = 540), tuval üstteki 450'yi
+  //   gösterir; alt kenara çizilen her şey tuvalin dışında kalır. Standart tuvale göre kurulan set bunu kendi
+  //   ayarında 450 yapabilir (bkz. sets/neon.mjs).
+  card: { label: 'Profil kartı efekti (standart tuval)', kind: 'card', w: 300, h: 450, layoutH: 540, fade: { from: 360, to: 450 }, glScale: 0.75, geo: { bh: 106, ax: 0, ay: 0, ar: -100 } },
   // Eski ölçü: masaüstü kartına birebir oturan (CardEffectCanvas: kart w-[300px] − kenarlık 2 = 298 px; afiş
   // h-[106px]; avatar merkezi (62, 112), dış yarıçap 46; roller ve düğmesi olan tipik kart ~340 px), avatar delikli
   cardfit: { label: 'Profil kartı efekti (masaüstü kartına oturan)', kind: 'card', w: 298, h: 340, glScale: 0.75, geo: { bh: 106, ax: 62, ay: 112, ar: 46 } },
