@@ -2,12 +2,12 @@
 // COSMETIC_SHADER_COMMON + COSMETIC_SHADERS[set] + COSMETIC_SHADER_MAIN (başına hassasiyet satırı).
 
 import type { CosmeticSet } from '@diskort/shared';
-import { SHADER_ATESBOCEGI } from './atesbocegi';
+import { atesbocegiLoopShader, SHADER_ATESBOCEGI } from './atesbocegi';
 import { buzLoopShader, SHADER_BUZ } from './buz';
 import { karadelikLoopShader, SHADER_KARADELIK } from './karadelik';
 import { kuzeyLoopShader, SHADER_KUZEY } from './kuzey';
 import { neonLoopShader, SHADER_NEON } from './neon';
-import { SHADER_SAKURA } from './sakura';
+import { sakuraLoopShader, SHADER_SAKURA } from './sakura';
 
 export {
   COSMETIC_SHADER_COMMON,
@@ -23,6 +23,9 @@ export { COSMETIC_LOOP_SECONDS, glslFloat, loopRate } from './loop';
 export { BUZ_LOOP, buzLoopG } from './buz';
 export { KARADELIK_LOOP } from './karadelik';
 export { KUZEY_LOOP } from './kuzey';
+export { loopDriftGlsl, loopPhase, loopTrackPhase, loopWindow } from './loopMotion';
+export { SAKURA_LOOP, sakuraLoopBloom, sakuraLoopShed } from './sakura';
+export { ATESBOCEGI_LOOP, atesbocegiLoopBlink, atesbocegiLoopBlinks } from './atesbocegi';
 
 /** Her setin `effect(p)` gölgelendiricisi */
 export const COSMETIC_SHADERS: Record<CosmeticSet, string> = {
@@ -43,4 +46,6 @@ export const COSMETIC_LOOP_SHADERS: Partial<Record<CosmeticSet, (period: number)
   neon: neonLoopShader,
   karadelik: karadelikLoopShader,
   kuzey: kuzeyLoopShader,
+  sakura: sakuraLoopShader,
+  atesbocegi: atesbocegiLoopShader,
 };

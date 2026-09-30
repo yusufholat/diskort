@@ -5,6 +5,9 @@
 import type { CosmeticSet } from '@diskort/shared';
 import { BUZ_LOOP, buzLoopG, COSMETIC_SET_INFO, loopRate, type ShaderViewKind } from '@diskort/client-core';
 
+// Sakura ve ateşböceği döngü biçimlerinin hareket eğrileri (bkz. client-core cosmeticShaders/loopMotion.ts)
+import { atesbocegiLoopBlink, atesbocegiLoopBlinks, loopPhase, loopTrackPhase, SAKURA_LOOP, sakuraLoopBloom, sakuraLoopShed } from '@diskort/client-core';
+
 /** Profil kartının ölçüleri (css px): afiş yüksekliği, avatar merkezi ve dış yarıçapı */
 export interface CardGeo {
   bh: number;
@@ -473,7 +476,11 @@ function petal3D(ctx: Ctx, dpr: number, F: Fills, x: number, y: number, size: nu
   }
 }
 
-function flower(ctx: Ctx, dpr: number, F: Fills, x: number, y: number, size: number, open: number, rot: number, alpha: number): void {
+/**
+ * softStamens (yalnızca döngü biçimi): erkek organlar çiçek açılırken bir karede belirmek yerine uzadıkça
+ * görünür olur. Verilmezse canlıdaki çizim.
+ */
+function flower(ctx: Ctx, dpr: number, F: Fills, x: number, y: number, size: number, open: number, rot: number, alpha: number, softStamens = false): void {
   if (alpha <= 0.01 || open <= 0.01) return;
   const k = 0.3 + 0.7 * open;
   const tilt = 0.84;
@@ -501,6 +508,7 @@ function flower(ctx: Ctx, dpr: number, F: Fills, x: number, y: number, size: num
   ctx.fill();
   const st = smooth(0.45, 1, open);
   if (st > 0) {
+    if (softStamens) ctx.globalAlpha = alpha * smooth(0, 0.35, st);
     ctx.strokeStyle = '#f7a3c0';
     ctx.lineWidth = 0.6;
     ctx.beginPath();
@@ -763,7 +771,342 @@ function drawWreath(ctx: Ctx, v: LayerView, t: number): void {
   ctx.globalAlpha = 1;
 }
 
+// ----- Sakura: döngü biçimi (yalnızca dosyaya çizim aracı; v.loop verilince) -----
+// Canlıdaki hareketlerin doğal süresi döngüden uzundur (çiçek 11 sn'de açıp dökülür, yaprak kartı 10-60 sn'de
+// geçer, çelenk 16 sn'de büyüyüp solar). Hızlandırmak yerine yeniden kuruldu:
+// - süzülen yapraklar raylarda ilerler (loopTrackPhase): canlıdaki hızla düşer, görünümün dışından girip dışına çıkar;
+// - dalda çiçeklerin bir kısmı hep açıktır (nefes alır, ara sıra yaprak bırakır), geri kalanı bir döngüde açıp dökülür;
+// - çelenk büyüyüp solmaz: hep yerindedir, salınır; çiçekleri dalınkiler gibi davranır.
+
+/**
+ * Döngü biçiminde görünümün yüksekliği. Kartta standart tuval 2:3'tür (genişliğe ölçeklenir, üste yaslanır):
+ * yerleşim daha uzun verilmiş olsa da efekt bu yüksekliğe göre kurulur, kartın alt kenarına bir şey bağlanmaz.
+ */
+function loopViewH(v: LayerView): number {
+  return v.kind === 'card' ? Math.min(v.h, v.w * 1.5) : v.h;
+}
+
+/** Yaprakların hep birlikte savrulduğu rüzgârın en büyük kayması (css px; canlıdaki 27 sn'lik esintinin yerine) */
+const PETAL_GUST = 10;
+
+/** Süzülen yaprakların bir rayı: `span` döngüde geçilen düz bir yol (artı salınım), üstünde `span` yaprak */
+interface PetalTrack {
+  span: number;
+  off: number;
+  x0: number;
+  y0: number;
+  vx: number;
+  vy: number;
+  z: number;
+  size: number;
+  ff: number;
+  famp: number;
+  ph: number;
+  wx: number;
+  wy: number;
+  wz: number;
+  a0: number;
+  b0: number;
+  c0: number;
+  /** Yol görünümün içinde bitiyor (yavaş yaprak): sonunda sönerek kaybolur */
+  fadeEnd: boolean;
+}
+
+function petalTracks(v: LayerView, T: number, n: number, scale: number, maxSpan: number): PetalTrack[] {
+  return cached(v, `ptr${n}|${T}`, () => {
+    const r = rng(29);
+    const W = v.w;
+    const H = loopViewH(v);
+    const out: PetalTrack[] = [];
+    for (let i = 0; i < n; i++) {
+      // derinlik eşit dilimlerden: yakın (iri, hızlı) ve uzak (küçük, yavaş) yapraklar her zaman birlikte
+      const z = (i + r()) / n;
+      const par = 0.45 + 0.9 * z;
+      const size = (5 + 6 * z) * scale;
+      const famp = 6 + r() * 14;
+      // kenarın bu kadar dışındayken salınım ve rüzgârla bile görünmez
+      const reach = size + famp + PETAL_GUST * par + 2;
+      let vx = -18 * par;
+      let vy = (14 + r() * 16) * par;
+      // giriş: üst kenardan ya da (sola doğru süzüldükleri için) sağ kenardan
+      const fromTop = r() < 0.55;
+      const x0 = fromTop ? (0.1 + 0.95 * r()) * W : W + reach;
+      const y0 = fromTop ? -(size + 8) : r() * Math.min(H * 0.6, W * 0.9);
+      // çıkış: alt ya da sol kenar. Yol tam sayıda döngü sürsün diye hız biraz düşürülür; çok yavaş yaprak
+      // en uzun rayda bile çıkamaz: görünümün içinde sönerek biter
+      const exit = Math.min((H + size + 8 - y0) / vy, (x0 + reach) / -vx);
+      let span = Math.ceil(exit / T - 1e-9);
+      let fadeEnd = false;
+      if (span > maxSpan) {
+        span = maxSpan;
+        fadeEnd = true;
+      } else {
+        const k = exit / (span * T);
+        vx *= k;
+        vy *= k;
+      }
+      out.push({
+        span,
+        off: r(),
+        x0,
+        y0,
+        vx,
+        vy,
+        z,
+        size,
+        ff: 0.6 + r() * 1.2,
+        famp,
+        ph: r() * TAU,
+        wx: (r() - 0.5) * 3.4,
+        wy: (r() - 0.5) * 2.8,
+        wz: (r() - 0.5) * 1.6,
+        a0: r() * TAU,
+        b0: r() * TAU,
+        c0: r() * TAU,
+        fadeEnd,
+      });
+    }
+    return out.sort((a, b) => a.z - b.z);
+  });
+}
+
+function drawPetalsLoop(ctx: Ctx, v: LayerView, t: number, T: number, tracks: PetalTrack[], dimBody: boolean): void {
+  const F = fills(ctx);
+  const W = v.w;
+  const w = TAU / T;
+  const gust = PETAL_GUST * (0.75 * Math.cos(w * t) + 0.25 * Math.sin(2 * w * t + 1));
+  for (const o of tracks) {
+    const par = 0.45 + 0.9 * o.z;
+    for (let j = 0; j < o.span; j++) {
+      const u = loopTrackPhase(t, T, o.span, j, o.off);
+      // yolun başından beri geçen süre: salınım ve takla canlıdaki hızlarıyla
+      const tau = u * o.span * T;
+      const X = o.x0 + o.vx * tau + o.famp * Math.sin(tau * o.ff + o.ph) + par * gust;
+      const Y = o.y0 + o.vy * tau + 6 * Math.sin(tau * o.ff * 0.7 + o.ph);
+      let al = 0.4 + 0.55 * o.z;
+      if (o.fadeEnd) al *= 1 - smooth(0.76, 1, u);
+      if (dimBody) al *= mix(1, 0.75, smooth(v.geo.bh - 10, v.geo.bh + 10, Y));
+      // plakada yapraklar yazıların altına süzülmez: sola doğru kaybolur
+      if (v.kind === 'plate') al *= smooth(W * 0.38, W * 0.75, X);
+      if (al < 0.01) continue;
+      petal3D(
+        ctx,
+        v.dpr,
+        F,
+        X,
+        Y,
+        o.size,
+        o.a0 + o.wx * tau + 0.9 * Math.sin(w * t + o.ph),
+        o.b0 + o.wy * tau,
+        o.c0 + o.wz * tau * 0.5 + 0.4 * Math.sin(tau * o.ff + o.ph),
+        al,
+      );
+    }
+  }
+}
+
+/** Çiçekten kopan yaprak: canlıdaki yörünge (çiçeğin kenarından başlar, sola ve aşağı süzülür); age saniye */
+function shedPetal(ctx: Ctx, v: LayerView, F: Fills, bx: number, by: number, size: number, a: number, k: number, hk: number, age: number, alpha: number): void {
+  if (alpha < 0.01) return;
+  const X = bx + Math.cos(a) * size * 0.6 - (20 + 14 * hk) * age - 9 * (Math.sin(age * 1.1 + k) - Math.sin(k));
+  const Y = by + Math.sin(a) * size * 0.5 + (14 + 10 * hk) * age + 5 * (Math.sin(age * 1.7 + k) - Math.sin(k));
+  if (X < -20 || Y > v.h + 20) return;
+  petal3D(ctx, v.dpr, F, X, Y, size * 0.62, a + age * (1.5 + hk * 2), age * (2 + hk), a + age * 0.6, alpha);
+}
+
+function drawBranchLoop(ctx: Ctx, v: LayerView, t: number, T: number, ax: number, ay: number, sc: number): void {
+  const dpr = v.dpr;
+  const F = fills(ctx);
+  const w = TAU / T;
+  // dal kökünden hafifçe salınır
+  const th = 0.014 * Math.sin(w * t) + 0.006 * Math.sin(2 * w * t + 1.3);
+  const cs = Math.cos(th);
+  const sn = Math.sin(th);
+  ctx.setTransform(dpr * sc * cs, dpr * sc * sn, -dpr * sc * sn, dpr * sc * cs, dpr * ax, dpr * ay);
+  ctx.lineCap = 'round';
+  ctx.globalAlpha = 1;
+  const stroke = (pts: Pt[], lw: number, col: string): void => {
+    ctx.strokeStyle = col;
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    ctx.moveTo(pts[0]![0], pts[0]![1]);
+    if (pts.length === 4) ctx.bezierCurveTo(pts[1]![0], pts[1]![1], pts[2]![0], pts[2]![1], pts[3]![0], pts[3]![1]);
+    else ctx.quadraticCurveTo(pts[1]![0], pts[1]![1], pts[2]![0], pts[2]![1]);
+    ctx.stroke();
+  };
+  stroke(BRANCH.main, 5, '#24121b');
+  stroke(BRANCH.tw1, 2.8, '#24121b');
+  stroke(BRANCH.tw2, 2.4, '#24121b');
+  ctx.globalAlpha = 0.55;
+  stroke(
+    BRANCH.main.map((p) => [p[0], p[1] - 1.2] as Pt),
+    1.4,
+    '#6b3a4c',
+  );
+  ctx.globalAlpha = 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const wobble = loopRate(0.8, T);
+  BRANCH.bl.forEach((b, j) => {
+    const bx = ax + (b[0]! * cs - b[1]! * sn) * sc;
+    const by = ay + (b[0]! * sn + b[1]! * cs) * sc;
+    const size = 11 * b[2]! * sc;
+    const rot = j * 1.3 + 0.08 * Math.sin(t * wobble + j);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (j % 2 === 1) {
+      // açıp dökülen çiçek: evreler döngüye eşit dağıtılır
+      const s = loopPhase(t, T, (j >> 1) / 3 + 0.13);
+      const st = sakuraLoopBloom(s);
+      bud(ctx, bx, by, size, st.bud);
+      flower(ctx, dpr, F, bx, by, size, st.open, rot, st.flower, true);
+      const l = loopPhase(s, 1, 1 - SAKURA_LOOP.detachAt);
+      for (let k = 0; k < 5; k++) {
+        shedPetal(ctx, v, F, bx, by, size, j * 1.3 + (k * TAU) / 5, k, hash(j * 97 + k * 13), l * T, 0.92 * sakuraLoopShed(l));
+      }
+    } else {
+      // hep açık çiçek: nefes alır, döngüde iki yaprak bırakır (çiçek eksilmez)
+      const breath = 0.5 + 0.5 * Math.sin(w * t + j * 1.9);
+      flower(ctx, dpr, F, bx, by, size * (1 + 0.03 * breath), 0.9 + 0.1 * breath, rot, 1, true);
+      for (let k = 0; k < 2; k++) {
+        const hk = hash(j * 97 + k * 13);
+        const l = loopPhase(t, T, hash(j * 31 + k * 7 + 5));
+        shedPetal(ctx, v, F, bx, by, size, j * 1.3 + hk * TAU, k, hk, l * T, 0.92 * sakuraLoopShed(l));
+      }
+    }
+  });
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function drawWreathLoop(ctx: Ctx, v: LayerView, t: number, T: number): void {
+  const dpr = v.dpr;
+  const F = fills(ctx);
+  const cx = v.w / 2;
+  const cy = v.h / 2;
+  const R = v.R;
+  const w = TAU / T;
+  const vines = [
+    { a0: 1.72, a1: 1.72 + 3.75, ph: 0, fl: [0.2, 0.45, 0.7, 0.95] },
+    { a0: 1.42, a1: 1.42 - 3.05, ph: 2, fl: [0.3, 0.62, 0.92] },
+  ];
+  const flowersAt: { x: number; y: number; open: number; size: number; rot: number; key: number }[] = [];
+  ctx.lineCap = 'round';
+  // asmanın boyutu avatara göre (vitrin 46 piksellik yarıçapa göre çizilmişti)
+  const k = R / 46;
+  const leafRate = loopRate(1.3, T);
+  for (const vn of vines) {
+    const N = 60;
+    const pts: [number, number, number, number][] = [];
+    for (let i = 0; i <= N; i++) {
+      const u = i / N;
+      // asma hep yerinde: dalgaları ileri geri kayar, ucu biraz daha çok salınır
+      const th = mix(vn.a0, vn.a1, u) + 0.02 * u * Math.sin(w * t + vn.ph);
+      const rr = R * 1.08 + 2.4 * k * Math.sin(u * TAU * 3 + vn.ph + 0.5 * Math.sin(w * t + u * 5 + vn.ph));
+      pts.push([cx + Math.cos(th) * rr, cy + Math.sin(th) * rr, u, th]);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#3b5b2a';
+    for (let i = 1; i <= N; i++) {
+      const u = pts[i]![2];
+      const tip = clamp((1 - pts[i - 1]![2]) * 14);
+      ctx.lineWidth = (3 - u * 1.4) * (0.3 + 0.7 * tip) * k;
+      ctx.beginPath();
+      ctx.moveTo(pts[i - 1]![0], pts[i - 1]![1]);
+      ctx.lineTo(pts[i]![0], pts[i]![1]);
+      ctx.stroke();
+    }
+    for (let i = 3; i < N; i += 5) {
+      const u = pts[i]![2];
+      const g = clamp((1 - u) * 9);
+      const tang = Math.atan2(pts[i + 1]![1] - pts[i - 1]![1], pts[i + 1]![0] - pts[i - 1]![0]);
+      const side = (i / 5) % 2 < 1 ? 1 : -1;
+      const a = tang + side * 1.0 + 0.1 * Math.sin(t * leafRate + i);
+      const sz = 7.5 * k * easeOutBack(g) * (1 - u * 0.25);
+      const c = Math.cos(a - Math.PI / 2);
+      const sn = Math.sin(a - Math.PI / 2);
+      ctx.setTransform(dpr * c * sz * 0.9, dpr * sn * sz * 0.9, -dpr * sn * sz, dpr * c * sz, dpr * pts[i]![0], dpr * pts[i]![1]);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = F.lf;
+      ctx.fill(LEAF);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    vn.fl.forEach((u, j) => {
+      const i = Math.round(u * N);
+      const p = pts[Math.min(N, i)]!;
+      flowersAt.push({
+        x: p[0] + Math.cos(p[3]) * 3 * k,
+        y: p[1] + Math.sin(p[3]) * 3 * k,
+        // asmanın ucundaki çiçekler canlıdaki gibi tam açmaz
+        open: 0.62 + 0.38 * clamp((1 - u - 0.03) * 5),
+        size: (j === vn.fl.length - 1 ? 12 : 9 + (j % 2) * 1.5) * k,
+        rot: u * 9 + j,
+        key: j + vn.ph * 10,
+      });
+    });
+  }
+  const flowerRate = loopRate(1.1, T);
+  const twinkle = loopRate(1.7, T);
+  // kopan yapraklar tuvalin kenarına varmadan söner (dekorasyonun kare kenarı görünmesin); avatarın üstünden
+  // geçerken de soluklaşır (canlıda ara sıra dökülürdü, burada sürekli dökülüyor: yüzü örtmesin)
+  const edge = (x: number, y: number): number => {
+    const d = Math.hypot(x - cx, y - cy);
+    return smooth(v.w * 0.5, v.w * 0.41, d) * mix(0.45, 1, smooth(R * 0.6, R, d));
+  };
+  const fall = (f: (typeof flowersAt)[number], j: number, a: number, l: number, alpha: number): void => {
+    const age = l * T * 0.45;
+    const hk = hash((j * 31 + f.key * 7) | 0);
+    const X = f.x + Math.cos(a) * f.size * 0.5 + (hk - 0.5) * 16 * k * age + 5 * k * (Math.sin(age * 2 + j) - Math.sin(j));
+    const Y = f.y + Math.sin(a) * f.size * 0.4 + (10 + 14 * hk) * k * age + 4 * k * age * age;
+    const al = alpha * edge(X, Y);
+    if (al < 0.01) return;
+    petal3D(ctx, dpr, F, X, Y, f.size * 0.55, a + age * 3, age * (2 + hk * 2), a, al);
+  };
+  flowersAt.forEach((f, n) => {
+    const rot = f.rot + 0.07 * Math.sin(t * flowerRate + f.key);
+    let shown = 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (n % 2 === 1) {
+      // açıp dökülen çiçek (üçü, evreleri döngüye eşit dağıtılmış)
+      const s = loopPhase(t, T, (n >> 1) / 3 + 0.2);
+      const st = sakuraLoopBloom(s);
+      shown = st.flower * clamp(st.open);
+      bud(ctx, f.x, f.y, f.size * 0.8, st.bud);
+      flower(ctx, dpr, F, f.x, f.y, f.size, st.open * f.open, rot, st.flower, true);
+      const l = loopPhase(s, 1, 1 - SAKURA_LOOP.detachAt);
+      for (let j = 0; j < 5; j++) fall(f, j, f.rot + (j * TAU) / 5, l, 0.9 * sakuraLoopShed(l));
+    } else {
+      const breath = 0.5 + 0.5 * Math.sin(w * t + f.key * 1.7);
+      flower(ctx, dpr, F, f.x, f.y, f.size * (1 + 0.04 * breath), f.open * (0.9 + 0.1 * breath), rot, 1, true);
+      const l = loopPhase(t, T, hash((f.key * 13 + 3) | 0));
+      fall(f, 7, f.rot + hash((f.key * 5 + 1) | 0) * TAU, l, 0.9 * sakuraLoopShed(l));
+    }
+    const tw = Math.pow(Math.max(0, Math.sin(t * twinkle + f.key * 2.1)), 12) * shown;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    sparkle(ctx, f.x + f.size * 0.9, f.y - f.size * 0.7, 4.5 * k, tw * 0.9, '#fff', 0.3);
+    ctx.globalCompositeOperation = 'source-over';
+  });
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.globalAlpha = 1;
+}
+
+function drawSakuraLoop(ctx: Ctx, v: LayerView, t: number, T: number): void {
+  if (v.kind === 'deco') drawWreathLoop(ctx, v, t, T);
+  else if (v.kind === 'card') {
+    drawPetalsLoop(ctx, v, t, T, petalTracks(v, T, 10, 1, 4), true);
+    drawBranchLoop(ctx, v, t, T, v.w, 0, v.geo.bh / 118);
+  } else if (v.kind === 'thumb') {
+    drawBranchLoop(ctx, v, t, T, v.w, 0, v.h / 150);
+    drawPetalsLoop(ctx, v, t, T, petalTracks(v, T, 6, 0.8, 3), false);
+  } else {
+    drawPetalsLoop(ctx, v, t, T, petalTracks(v, T, 6, 0.6, 2), false);
+    drawBranchLoop(ctx, v, t, T, v.w + 2, -2, 0.36);
+  }
+  ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
+  ctx.globalAlpha = 1;
+}
+
 function drawSakura(ctx: Ctx, v: LayerView, t: number): void {
+  if (v.loop) return drawSakuraLoop(ctx, v, t, v.loop);
   if (v.kind === 'deco') drawWreath(ctx, v, t);
   else if (v.kind === 'card') {
     drawPetals(ctx, v, t, petalSet(v, 22, 1), true);
@@ -950,7 +1293,184 @@ function ffList(v: LayerView, n: number): Firefly[] {
 }
 const blinkOf = (o: Firefly, t: number): number => Math.pow(Math.max(0, Math.sin(t * o.rate + o.bph)), 4) * 0.85 + 0.15;
 
+// ----- Ateşböceği: döngü biçimi (yalnızca dosyaya çizim aracı; v.loop verilince) -----
+// Canlıda böcekler 17-60 sn'lik salınımlarla gezinir, dekorasyonda avatarın çevresini 8-18 sn'de dolanır.
+// Döngü biçiminde her yol kapalı bir eğridir ve `span` döngü sürer; üstünde birer döngü arayla `span` böcek
+// ilerler (loopTrackPhase): hiçbiri hızlanmaz, bir döngü sonra kare aynıdır. Yanıp sönme de yolun evresine bağlıdır.
+
+/** Kapalı bir gezinme eğrisi (merkezin çevresinde iki bileşenli salınım) ve üstündeki böceklerin özellikleri */
+interface FireflyTrack {
+  span: number;
+  off: number;
+  x: number;
+  y: number;
+  z: number;
+  ax: number;
+  ay: number;
+  /** Turda kaç salınım (tam sayı: eğri kapanır) */
+  kx: number;
+  ky: number;
+  ph: number;
+  blinks: number;
+  bph: number;
+}
+
+function fireflyTracks(v: LayerView, T: number, spans: number[], cols: number): FireflyTrack[] {
+  return cached(v, `fft${spans.join('')}|${T}`, () => {
+    const r = rng(41);
+    const n = spans.length;
+    const shuffled = (): number[] => {
+      const a = spans.map((_, i) => i);
+      for (let i = n - 1; i > 0; i--) {
+        const j = Math.floor(r() * (i + 1));
+        [a[i], a[j]] = [a[j]!, a[i]!];
+      }
+      return a;
+    };
+    // Rayların merkezleri bir ızgaranın gözlerine, derinlikleri eşit dilimlere dağıtılır (ikisi de karıştırılarak):
+    // böcekler bir yere yığılmaz, iri ve yakın olanlarla küçük ve uzak olanlar her zaman birlikte görünür
+    const rows = Math.ceil(n / cols);
+    const cell = shuffled();
+    const slice = shuffled();
+    return spans
+      .map((span, i) => {
+        const blinks = atesbocegiLoopBlinks(span, T);
+        // tek böcekli ray: olduğu yerde küçük bir sekiz çizer; uzun raylar canlıdaki gibi geniş gezinir
+        const hover = span === 1;
+        return {
+          span,
+          off: r(),
+          x: ((cell[i]! % cols) + 0.1 + 0.8 * r()) / cols,
+          y: (Math.floor(cell[i]! / cols) + 0.1 + 0.8 * r()) / rows,
+          z: (slice[i]! + r()) / n,
+          ax: hover ? 4 + 7 * r() : 10 + 26 * r(),
+          ay: hover ? 3 + 5 * r() : 8 + 18 * r(),
+          kx: 1,
+          ky: r() < 0.5 ? 1 : 2,
+          ph: r() * TAU,
+          blinks: blinks[Math.floor(r() * blinks.length)]!,
+          bph: r() * TAU,
+        };
+      })
+      .sort((a, b) => a.z - b.z);
+  });
+}
+
+/** Dekorasyonda avatarın çevresindeki eğik bir yörünge ve üstündeki böceklerin özellikleri */
+interface FireflyOrbit {
+  span: number;
+  off: number;
+  rr: number;
+  inc: number;
+  rho: number;
+  dir: number;
+  ph: number;
+  ecc: number;
+  eph: number;
+  bob: number;
+  blinks: number;
+  bph: number;
+}
+
+function fireflyOrbits(v: LayerView, T: number, spans: number[]): FireflyOrbit[] {
+  return cached(v, `ffo${spans.join('')}|${T}`, () => {
+    const r = rng(41);
+    return spans.map((span) => {
+      const blinks = atesbocegiLoopBlinks(span, T);
+      return {
+        span,
+        off: r(),
+        rr: 1.09 + 0.17 * r(),
+        inc: 0.25 + 0.6 * r(),
+        rho: (r() - 0.5) * 1.2,
+        dir: r() < 0.5 ? -1 : 1,
+        ph: r() * TAU,
+        // yörüngede hız ve uzaklık biraz değişir: aynı yörüngedeki böcekler tam karşılıklı durmaz
+        ecc: 0.25 + 0.2 * r(),
+        eph: r() * TAU,
+        bob: 2 + Math.floor(r() * 3),
+        blinks: blinks[Math.floor(r() * blinks.length)]!,
+        bph: r() * TAU,
+      };
+    });
+  });
+}
+
+function drawForestLoop(ctx: Ctx, v: LayerView, t: number, T: number): void {
+  ctx.globalCompositeOperation = 'lighter';
+  const core = SPR.ff();
+  const soft = SPR.ffb();
+  if (v.kind === 'deco') {
+    const cx = v.w / 2;
+    const cy = v.h / 2;
+    const R = v.R;
+    const k = R / 46;
+    const list: { x: number; y: number; size: number; alpha: number; front: number }[] = [];
+    for (const o of fireflyOrbits(v, T, [2, 2, 2, 3])) {
+      for (let j = 0; j < o.span; j++) {
+        const u = loopTrackPhase(t, T, o.span, j, o.off);
+        const a = o.ph + o.dir * (TAU * u + o.ecc * Math.sin(TAU * u + o.eph));
+        const ro = R * o.rr * (1 + 0.06 * Math.sin(TAU * u + o.eph * 1.7));
+        const X = Math.cos(a) * ro;
+        const Y = Math.sin(a) * ro * Math.cos(o.inc) * 0.6 + 4 * k * Math.sin(TAU * u * o.bob + o.ph);
+        const Z = Math.sin(a) * Math.sin(o.inc);
+        const c = Math.cos(o.rho);
+        const s = Math.sin(o.rho);
+        const b = atesbocegiLoopBlink(u, o.blinks, o.bph);
+        list.push({
+          x: cx + c * X - s * Y,
+          y: cy + s * X + c * Y,
+          size: (9 + 7 * (Z + 1)) * k * (0.7 + 0.3 * b),
+          alpha: b * (0.55 + (0.35 * (Z + 1)) / 2),
+          // avatarın önünde mi: arkadayken avatarın üstüne düşen kısmı görünmez (kenarı geçerken yumuşakça)
+          front: smooth(-0.1, 0.1, Z),
+        });
+      }
+    }
+    const inside = new Path2D();
+    inside.arc(cx, cy, R + 1, 0, TAU);
+    const outside = new Path2D();
+    outside.rect(0, 0, v.w, v.h);
+    outside.arc(cx, cy, R + 1, 0, TAU);
+    ctx.save();
+    ctx.clip(outside, 'evenodd');
+    for (const f of list) sprite(ctx, core, f.x, f.y, f.size, f.alpha);
+    ctx.restore();
+    ctx.save();
+    ctx.clip(inside);
+    for (const f of list) sprite(ctx, core, f.x, f.y, f.size, f.alpha * f.front);
+    ctx.restore();
+  } else {
+    const plate = v.kind === 'plate';
+    // kartta daha çok ateşböceği; plakada yalnızca sağda (yazıların altında parlayan nokta olmasın)
+    const spans = v.kind === 'card' ? [4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 2, 2, 1, 1, 1, 1, 1] : plate ? [3, 3, 1, 1] : [3, 3, 3, 2, 1, 1];
+    const W = v.w;
+    const H = loopViewH(v);
+    const x0 = plate ? W * 0.42 : 0;
+    const y0 = plate ? 4 : H * 0.08;
+    const y1 = plate ? H - 4 : H;
+    for (const o of fireflyTracks(v, T, spans, v.kind === 'card' ? 3 : plate ? 4 : 3)) {
+      for (let j = 0; j < o.span; j++) {
+        const u = loopTrackPhase(t, T, o.span, j, o.off);
+        const th = TAU * u;
+        const x = x0 + o.x * (W - x0) + o.ax * Math.sin(o.kx * th + o.ph) + o.ax * 0.4 * Math.sin(2 * o.kx * th + o.ph * 1.7);
+        const y = y0 + o.y * (y1 - y0) + (plate ? 0.3 : 1) * (o.ay * Math.sin(o.ky * th + o.ph * 2.1) + o.ay * 0.3 * Math.cos(3 * o.ky * th + o.ph));
+        const b = atesbocegiLoopBlink(u, o.blinks, o.bph);
+        let dim = 1;
+        if (v.kind === 'card') dim = mix(1, 0.7, smooth(v.geo.bh - 8, v.geo.bh + 8, y));
+        if (plate) dim = smooth(W * 0.4, W * 0.8, x);
+        const sz = (plate ? 0.6 : 1) * (8 + 22 * o.z * o.z) * (0.6 + 0.4 * b);
+        if (o.z > 0.85 && !plate) sprite(ctx, soft, x, y, sz * 2.2, b * 0.5 * dim);
+        sprite(ctx, core, x, y, sz, b * (0.35 + 0.65 * o.z) * dim);
+      }
+    }
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+}
+
 function drawForest(ctx: Ctx, v: LayerView, t: number): void {
+  if (v.loop) return drawForestLoop(ctx, v, t, v.loop);
   ctx.globalCompositeOperation = 'lighter';
   const core = SPR.ff();
   const soft = SPR.ffb();

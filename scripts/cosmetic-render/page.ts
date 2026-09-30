@@ -64,6 +64,14 @@ export interface RenderResult {
   ms: number;
 }
 
+/**
+ * 2B katmanı YAZILIMLA çizilen setler (döngü biçiminde). Hızlandırılmış tuval küçük yolların (çiçek, yaprak)
+ * maskesini önbelleğe alıp yakın konumlarda yeniden kullanır: çok yavaş kayan bir şekil düzgün kaymak yerine
+ * arada bir çeyrek piksel sıçrar, üstelik ne zaman sıçrayacağı önceki karelere bağlıdır (dikişte fazladan fark).
+ * Yazılım tuvalinde her kare kendi konumunda çizilir (sakura dekorasyonunda dikiş farkı 0.76'dan 0.55'e indi).
+ */
+const SOFTWARE_2D: ReadonlySet<string> = new Set(['sakura']);
+
 // Pencere yalnızca bu aracın kendi dosyasını yükler: düğüm modülleri açık (kareler doğrudan diske yazılır)
 const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
 const fs = nodeRequire('node:fs') as typeof import('node:fs');
@@ -146,7 +154,7 @@ async function run(job: RenderJob): Promise<RenderResult> {
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(v.w * v.dpr);
   canvas.height = Math.round(job.h * v.dpr);
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: job.loop !== null && SOFTWARE_2D.has(job.set) });
   if (!ctx) throw new Error('2B bağlam alınamadı');
   // Alttaki bitiş: yumuşak basamak eğrisiyle (keskin başlangıç ve son yok) saydama inen maske
   let fade: CanvasGradient | null = null;
