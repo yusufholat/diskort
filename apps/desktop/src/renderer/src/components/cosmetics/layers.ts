@@ -3,7 +3,7 @@
 // kullanılamazken sade 2B zeminler. Onaylanan vitrinden (kozmetik-vitrini.html) aktarıldı.
 
 import type { CosmeticSet } from '@diskort/shared';
-import { COSMETIC_SET_INFO, type ShaderViewKind } from '@diskort/client-core';
+import { buzLoopG, COSMETIC_SET_INFO, loopRate, type ShaderViewKind } from '@diskort/client-core';
 
 /** Profil kartının ölçüleri (css px): afiş yüksekliği, avatar merkezi ve dış yarıçapı */
 export interface CardGeo {
@@ -25,6 +25,11 @@ export interface LayerView {
   geo: CardGeo;
   /** Dekorasyonda avatarın yarıçapı (css px) */
   R: number;
+  /**
+   * Döngü biçimi (yalnızca dosyaya çizim aracı verir, bkz. client-core cosmeticShaders/loop.ts): zamana bağlı
+   * her terim bu kadar saniyede kendini yineler. Verilmezse canlı çizim (uygulamada hep böyle).
+   */
+  loop?: number;
 }
 
 type Ctx = CanvasRenderingContext2D;
@@ -57,8 +62,12 @@ function rng(seed: number): () => number {
 }
 const hash = (n: number): number => rng((n * 2654435761) >>> 0)();
 
-/** Kristal Buz döngüsü (gölgelendiricideki iceG ile aynı): 0→1 büyür, durur, erir */
-export function iceG(t: number): number {
+/**
+ * Kristal Buz döngüsü (gölgelendiricideki iceG ile aynı): 0→1 büyür, durur, erir. `loop` verilirse döngü
+ * biçiminin eğrisi (o kadar saniyede bir tur); verilmezse canlıdaki 14 saniyelik eğri.
+ */
+export function iceG(t: number, loop?: number): number {
+  if (loop) return buzLoopG(t, loop);
   const s = posmod(t, 14) / 14;
   if (s < 0.45) return 1 - Math.pow(1 - s / 0.45, 3);
   if (s < 0.84) return 1;
@@ -881,7 +890,7 @@ function iceRoots(v: LayerView): Root[] {
 
 function drawIce(ctx: Ctx, v: LayerView, t: number): void {
   const D = cached(v, 'ice', () => buildDendrites(iceRoots(v), 7, v.kind === 'deco' ? 1 : 2));
-  const G = iceG(t) * D.maxB;
+  const G = iceG(t, v.loop) * D.maxB;
   if (G <= 0) return;
   ctx.globalCompositeOperation = 'lighter';
   ctx.lineCap = 'round';
@@ -914,7 +923,9 @@ function drawIce(ctx: Ctx, v: LayerView, t: number): void {
   for (const p of tips) sprite(ctx, SPR.cool(), p[0], p[1], 9, 0.8 * dim);
   for (const g of D.gl) {
     if (g.sg.b1 > G) continue;
-    const env = Math.pow(Math.max(0, Math.sin(t * g.rate + g.ph)), 14);
+    // döngü biçiminde pırıltının hızı döngüye tam sayıda sığan en yakın hıza yuvarlanır
+    const rate = v.loop ? loopRate(g.rate, v.loop) : g.rate;
+    const env = Math.pow(Math.max(0, Math.sin(t * rate + g.ph)), 14);
     if (env < 0.02) continue;
     sparkle(ctx, g.sg.x2, g.sg.y2, g.L * (0.6 + 0.4 * env), env, '#ffffff', 0.15);
     sparkle(ctx, g.sg.x2, g.sg.y2, g.L * 0.45, env * 0.7, '#bff0ff', Math.PI / 4 + 0.15);

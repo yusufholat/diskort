@@ -61,14 +61,34 @@ vec3 plateGrade(vec3 c,vec2 p){
 }
 `;
 
+/**
+ * Bantlaşmayı kıran gürültü (±yarım renk adımı):
+ * - 'frame': her karede değişir (canlı çizim);
+ * - 'static': karelerde aynı kalır (dosyaya çizilen döngü: kareler arası fark yalnızca hareketten gelir,
+ *   sıkıştırma gürültüyü yeniden yeniden kodlamaz; döngü süresi tam saniye olmasa da dikiş bozulmaz);
+ * - 'off': gürültü yok.
+ */
+export type CosmeticDither = 'frame' | 'static' | 'off';
+
+const DITHER: Record<CosmeticDither, string> = {
+  frame: 'c.rgb=clamp(c.rgb+(h21(fc+fract(u_time))-.5)/255.,0.,1.);',
+  static: 'c.rgb=clamp(c.rgb+(h21(fc)-.5)/255.,0.,1.);',
+  off: 'c.rgb=clamp(c.rgb,0.,1.);',
+};
+
 /** Giriş noktası: GL koordinatını css pikseline çevirir, dekorasyonun kare kenarını gizler, bantlaşmayı kırar */
-export const COSMETIC_SHADER_MAIN = `
+export function cosmeticShaderMain(dither: CosmeticDither): string {
+  return `
 void main(){
   vec2 fc=gl_FragCoord.xy-u_off;
   vec2 p=vec2(fc.x,u_res.y*u_k-fc.y)/u_k;
   vec4 c=effect(p);
   if(u_mode>2.5)c*=smoothstep(u_res.x*.5,u_res.x*.43,length(p-u_res*.5)); // dekorasyon: kare kenarını hiç gösterme
-  c.rgb=clamp(c.rgb+(h21(fc+fract(u_time))-.5)/255.,0.,1.);
+  ${DITHER[dither]}
   c.a=clamp(max(c.a,max(c.r,max(c.g,c.b))),0.,1.);
   gl_FragColor=c;
 }`;
+}
+
+/** Canlı çizimin giriş noktası (gürültü her karede değişir) */
+export const COSMETIC_SHADER_MAIN = cosmeticShaderMain('frame');

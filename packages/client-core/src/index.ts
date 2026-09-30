@@ -374,10 +374,17 @@ export {
 export { PROFILE_THEME_PRESETS, profileGradient } from './profileLook';
 export { COSMETIC_SET_INFO, type CosmeticSetInfo } from './cosmeticSets';
 export {
+  BUZ_LOOP,
+  buzLoopG,
+  COSMETIC_LOOP_SECONDS,
+  COSMETIC_LOOP_SHADERS,
   COSMETIC_SHADER_COMMON,
   COSMETIC_SHADER_MAIN,
   COSMETIC_SHADERS,
   COSMETIC_VERTEX_SHADER,
+  cosmeticShaderMain,
+  loopRate,
   SHADER_MODE,
+  type CosmeticDither,
   type ShaderViewKind,
 } from './cosmeticShaders';

@@ -1,8 +1,21 @@
 // Kristal Buz: kenarlardan büyüyen kırağı (Voronoi hücreleri, damarlar), kırılan yüzey ve parlama.
 // 14 saniyelik döngü: büyür, durur, erir (iceG; 2B katmandaki dendritler de aynı eğriyi kullanır).
+//
+// İki biçimi var: canlı (SHADER_BUZ: uygulamanın çizdiği, değişmedi) ve döngü (buzLoopShader: dosyaya
+// çizilen dikişsiz döngü, bkz. loop.ts). İkisi aynı kaynaktan kurulur; yalnızca zamana bağlı iki terim
+// (büyüme eğrisi iceG ve ışık süpürmesinin yeri) değişir.
 
-export const SHADER_BUZ = `
-float iceG(float t){float s=mod(t,14.)/14.; if(s<.45)return 1.-pow(1.-s/.45,3.); if(s<.84)return 1.; float k=clamp((s-.84)/.14,0.,1.); return 1.-k*k*(3.-2.*k);}
+import { glslFloat } from './loop';
+
+/** Canlı: 14 sn'lik büyüme eğrisi */
+const ICE_G_LIVE =
+  'float iceG(float t){float s=mod(t,14.)/14.; if(s<.45)return 1.-pow(1.-s/.45,3.); if(s<.84)return 1.; float k=clamp((s-.84)/.14,0.,1.); return 1.-k*k*(3.-2.*k);}';
+/** Canlı: ışık süpürmesi 1.6 birimlik yolu saniyede .22 birimle geçer (7.27 sn'de bir) */
+const SWEEP_LIVE = 'mod(t*.22,1.6)-.3';
+
+function source(iceG: string, sweep: string): string {
+  return `
+${iceG}
 vec3 voro(vec2 p){
   vec2 i=floor(p); vec2 f=fract(p); float d1=8.,d2=8.; vec2 best=vec2(0.);
   for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
@@ -20,7 +33,7 @@ vec4 frost(vec2 p,float e,float G,float t,float reach){
   float cell=v.z;
   float shade=.35+.5*cell;
   float edgeL=smoothstep(.06,0.,v.y)*.5+smoothstep(.04,0.,v2.y)*.14;
-  float sweepPos=mod(t*.22,1.6)-.3;
+  float sweepPos=${sweep};
   float diag=(p.x+p.y)/(u_res.x+u_res.y);
   float sweep=exp(-sq((diag-sweepPos)/.035))*(.4+.6*cell);
   vec3 iri=mix(vec3(.55,.95,1.),vec3(1.,.72,.96),fract(cell*3.7));
@@ -66,3 +79,43 @@ vec4 effect(vec2 p){
   if(m>1.5)c=plateGrade(c,p);
   return vec4(c,1.);
 }`;
+}
+
+/** Canlı gölgelendirici (uygulamanın çizdiği) */
+export const SHADER_BUZ = source(ICE_G_LIVE, SWEEP_LIVE);
+
+/**
+ * Döngü biçiminde bir turun payları (döngü süresinin kesri). Canlıda 14 sn: büyüme %45 (6.3 sn), bekleme %39
+ * (5.5 sn), erime %14 (2 sn), boş %2. Aynı paylar 6 sn'ye sıkıştırılınca erime 0.84 sn'ye düşüp bir anda
+ * kayboluyor gibi görünür; bu yüzden bekleme kısaltılıp büyümeye ve erimeye pay verildi:
+ * büyüme %50, bekleme %26, erime %22, boş %2 (6 sn'de 3.0 / 1.56 / 1.32 / 0.12 sn).
+ * sweepAt: ışık süpürmesinin görünümün ortasından geçtiği an (buzun en dolu olduğu aralığın ortası).
+ */
+export const BUZ_LOOP = { grow: 0.5, hold: 0.26, melt: 0.22, sweepAt: 0.53 } as const;
+
+/** Canlıdaki süpürme hızıyla bir döngüye sığan süpürme sayısı (en az 1; 6 sn'de 1) */
+const loopSweeps = (period: number): number => Math.max(1, Math.round((0.22 * period) / 1.6));
+
+/** Döngü biçiminin büyüme eğrisi (gölgelendiricideki iceG ile aynı; 2B katman bunu kullanır): 0→1 büyür, durur, erir */
+export function buzLoopG(t: number, period: number): number {
+  const s = (((t / period) % 1) + 1) % 1;
+  const { grow, hold, melt } = BUZ_LOOP;
+  if (s < grow) return 1 - Math.pow(1 - s / grow, 3);
+  if (s < grow + hold) return 1;
+  const k = Math.min(1, Math.max(0, (s - grow - hold) / melt));
+  return 1 - k * k * (3 - 2 * k);
+}
+
+/**
+ * Döngü biçimi: zamana bağlı her terim `period` saniyede kendini yineler (u_time = 0 ile u_time = period aynı
+ * kare). Büyüme eğrisi BUZ_LOOP paylarıyla tek tur atar; ışık süpürmesi canlıdaki hıza en yakın tam sayıda geçer.
+ */
+export function buzLoopShader(period: number): string {
+  const { grow, hold, melt, sweepAt } = BUZ_LOOP;
+  const P = glslFloat(period);
+  const iceG =
+    `float iceG(float t){float s=fract(t/${P}); if(s<${glslFloat(grow)})return 1.-pow(1.-s/${glslFloat(grow)},3.); ` +
+    `if(s<${glslFloat(grow + hold)})return 1.; float k=clamp((s-${glslFloat(grow + hold)})/${glslFloat(melt)},0.,1.); return 1.-k*k*(3.-2.*k);}`;
+  const sweep = `fract((t/${P}-${glslFloat(sweepAt)})*${glslFloat(loopSweeps(period))}+.5)*1.6-.3`;
+  return source(iceG, sweep);
+}

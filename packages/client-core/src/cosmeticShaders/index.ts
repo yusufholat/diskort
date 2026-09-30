@@ -3,7 +3,7 @@
 
 import type { CosmeticSet } from '@diskort/shared';
 import { SHADER_ATESBOCEGI } from './atesbocegi';
-import { SHADER_BUZ } from './buz';
+import { buzLoopShader, SHADER_BUZ } from './buz';
 import { SHADER_KARADELIK } from './karadelik';
 import { SHADER_KUZEY } from './kuzey';
 import { SHADER_NEON } from './neon';
@@ -13,9 +13,13 @@ export {
   COSMETIC_SHADER_COMMON,
   COSMETIC_SHADER_MAIN,
   COSMETIC_VERTEX_SHADER,
+  cosmeticShaderMain,
   SHADER_MODE,
+  type CosmeticDither,
   type ShaderViewKind,
 } from './common';
+export { COSMETIC_LOOP_SECONDS, glslFloat, loopRate } from './loop';
+export { BUZ_LOOP, buzLoopG } from './buz';
 
 /** Her setin `effect(p)` gölgelendiricisi */
 export const COSMETIC_SHADERS: Record<CosmeticSet, string> = {
@@ -25,4 +29,12 @@ export const COSMETIC_SHADERS: Record<CosmeticSet, string> = {
   atesbocegi: SHADER_ATESBOCEGI,
   buz: SHADER_BUZ,
   neon: SHADER_NEON,
+};
+
+/**
+ * Setlerin döngü biçimleri (bkz. loop.ts): `period` saniyede kendini yineleyen `effect(p)`. Yalnızca dosyaya
+ * çizim aracı kullanır; döngü biçimi hazırlanmamış set burada yoktur.
+ */
+export const COSMETIC_LOOP_SHADERS: Partial<Record<CosmeticSet, (period: number) => string>> = {
+  buz: buzLoopShader,
 };
