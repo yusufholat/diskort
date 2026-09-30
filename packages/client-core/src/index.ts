@@ -374,6 +374,8 @@ export {
 } from './sfx';
 export { avatarInk, PROFILE_THEME_PRESETS, profileGradient } from './profileLook';
 export { COSMETIC_SET_INFO, type CosmeticSetInfo } from './cosmeticSets';
+// Hareketli setlerin canlı gölgelendiricileri. Döngü biçimleri (dosyaya çizim) ayrı girişte:
+// @diskort/client-core/cosmeticLoops; buradan dışa aktarılmaz (telefon paketine girmesin)
 export {
   COSMETIC_SHADER_COMMON,
   COSMETIC_SHADER_MAIN,

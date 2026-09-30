@@ -1,8 +1,20 @@
 // Kristal Buz: kenarlardan büyüyen kırağı (Voronoi hücreleri, damarlar), kırılan yüzey ve parlama.
 // 14 saniyelik döngü: büyür, durur, erir (iceG; 2B katmandaki dendritler de aynı eğriyi kullanır).
+//
+// İki biçimi var: canlı (SHADER_BUZ: uygulamanın çizdiği, değişmedi) ve döngü (cosmeticLoops/buz.ts: dosyaya
+// çizilen dikişsiz döngü, bkz. ../cosmeticLoops/loop.ts). İkisi aynı kaynaktan kurulur; yalnızca zamana bağlı terimler
+// (büyüme eğrisi iceG, eğrinin çağrısı ve ışık süpürmesinin yeri) değişir.
 
-export const SHADER_BUZ = `
-float iceG(float t){float s=mod(t,14.)/14.; if(s<.45)return 1.-pow(1.-s/.45,3.); if(s<.84)return 1.; float k=clamp((s-.84)/.14,0.,1.); return 1.-k*k*(3.-2.*k);}
+/** Canlı: 14 sn'lik büyüme eğrisi */
+const ICE_G_LIVE =
+  'float iceG(float t){float s=mod(t,14.)/14.; if(s<.45)return 1.-pow(1.-s/.45,3.); if(s<.84)return 1.; float k=clamp((s-.84)/.14,0.,1.); return 1.-k*k*(3.-2.*k);}';
+/** Canlı: ışık süpürmesi 1.6 birimlik yolu saniyede .22 birimle geçer (7.27 sn'de bir) */
+const SWEEP_LIVE = 'mod(t*.22,1.6)-.3';
+
+/** `iceG`: büyüme eğrisinin tanımı, `sweep`: süpürmenin yeri, `g`: effect() içinde eğrinin çağrısı */
+function source(iceG: string, sweep: string, g = 'iceG(t)'): string {
+  return `
+${iceG}
 vec3 voro(vec2 p){
   vec2 i=floor(p); vec2 f=fract(p); float d1=8.,d2=8.; vec2 best=vec2(0.);
   for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
@@ -20,7 +32,7 @@ vec4 frost(vec2 p,float e,float G,float t,float reach){
   float cell=v.z;
   float shade=.35+.5*cell;
   float edgeL=smoothstep(.06,0.,v.y)*.5+smoothstep(.04,0.,v2.y)*.14;
-  float sweepPos=mod(t*.22,1.6)-.3;
+  float sweepPos=${sweep};
   float diag=(p.x+p.y)/(u_res.x+u_res.y);
   float sweep=exp(-sq((diag-sweepPos)/.035))*(.4+.6*cell);
   vec3 iri=mix(vec3(.55,.95,1.),vec3(1.,.72,.96),fract(cell*3.7));
@@ -29,7 +41,7 @@ vec4 frost(vec2 p,float e,float G,float t,float reach){
   return vec4(c*mask+vec3(.7,.95,1.)*rim*.35,mask);
 }
 vec4 effect(vec2 p){
-  float t=u_time; float m=u_mode; float G=iceG(t);
+  float t=u_time; float m=u_mode; float G=${g};
   if(m>2.5){
     float R=u_a.x; float r=length(p-u_res*.5);
     float e=(r-R)/(u_res.x*.5-R);
@@ -66,3 +78,10 @@ vec4 effect(vec2 p){
   if(m>1.5)c=plateGrade(c,p);
   return vec4(c,1.);
 }`;
+}
+
+/** Canlı gölgelendirici (uygulamanın çizdiği) */
+export const SHADER_BUZ = source(ICE_G_LIVE, SWEEP_LIVE);
+
+/** Setin kalıbı: döngü biçimi (cosmeticLoops/buz.ts) aynı kaynağı kendi parçalarıyla kurar */
+export { source as buzSource };

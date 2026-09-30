@@ -1,5 +1,7 @@
 // Hareketli kozmetik setlerinin gölgelendiricileri (bkz. common.ts). Bir setin tam parça gölgelendiricisi:
 // COSMETIC_SHADER_COMMON + COSMETIC_SHADERS[set] + COSMETIC_SHADER_MAIN (başına hassasiyet satırı).
+// Burada yalnızca uygulamanın çizdiği (canlı) biçimler var. Dosyaya çizilen döngü biçimleri ayrı bir girişte:
+// ../cosmeticLoops (@diskort/client-core/cosmeticLoops); bu dosya ve ana giriş oraya uzanmaz.
 
 import type { CosmeticSet } from '@diskort/shared';
 import { SHADER_ATESBOCEGI } from './atesbocegi';
