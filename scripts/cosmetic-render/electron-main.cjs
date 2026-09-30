@@ -167,12 +167,12 @@ async function verify() {
   return results;
 }
 
-/** Döngü biçimi olan setler (sayfa, client-core'un COSMETIC_LOOP_SHADERS anahtarlarını bildirir) */
+/** Döngü biçimi olan setler ve setlerin adları (sayfa bildirir: client-core COSMETIC_LOOP_SHADERS, shared COSMETIC_SET_LABELS) */
 async function info() {
   const win = new BrowserWindow({ show: false, width: 800, height: 600, webPreferences: { nodeIntegration: true, contextIsolation: false } });
   watch(win);
   await win.loadFile(spec.page);
-  return win.webContents.executeJavaScript('window.cosmeticLoopSets');
+  return win.webContents.executeJavaScript('window.cosmeticInfo');
 }
 
 app.whenReady().then(async () => {

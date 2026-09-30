@@ -23,6 +23,8 @@
 //     --dpr 2                   css pikseli başına tuval pikseli (uygulamada en fazla 2)
 //     --jump 4                  kesintisizlik eşiği: bir karenin farkı çevresinin ortancasının kaç katıysa kesme sayılır
 //     --out <klasör>            çıktı klasörü (verilmezse scripts/cosmetic-render/out; git'e girmez)
+//     --pack                    çizimden sonra yayın paketlerini de yaz (<out>/packs; bkz. pack.mjs)
+//     --platforms desktop,android,ios  paketlerin hedefleri (--pack ile; verilmezse üçü birden)
 //     --keep-raw                ham kareleri (.tmp) silme
 //     --no-verify               oynatma doğrulamasını atla
 //
@@ -55,8 +57,9 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { continuityCheck, continuityFromSeries, continuitySummary } from './continuity.mjs';
-import { encodeVideo, findFfmpeg, parseVideoSpec, VIDEO_FORMATS, writeStacked } from './video.mjs';
+import { continuityCheck, continuityFromSeries, continuitySummary, frameLevel } from './continuity.mjs';
+import { writeBundles } from './pack.mjs';
+import { decodedSeries, encodeIntraWebp, encodeVideo, findFfmpeg, parseVideoSpec, VIDEO_FORMATS, writeStacked } from './video.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
@@ -65,7 +68,7 @@ const requireServer = createRequire(path.join(root, 'apps/server/package.json'))
 
 // ---------- Seçenekler ----------
 
-const FLAGS = new Set(['keep-raw', 'no-verify', 'check', 'live-only']);
+const FLAGS = new Set(['keep-raw', 'no-verify', 'check', 'live-only', 'pack']);
 
 function parseArgs(argv) {
   const out = {};
@@ -81,7 +84,7 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2));
 // Standart döngü süresi tek yerde: client-core (düz TypeScript; Node 22.18+ doğrudan okur)
-const { COSMETIC_LOOP_SECONDS } = await import(pathToFileURL(path.join(root, 'packages/client-core/src/cosmeticShaders/loop.ts')).href);
+const { COSMETIC_LOOP_SECONDS } = await import(pathToFileURL(path.join(root, 'packages/client-core/src/cosmeticLoops/loop.ts')).href);
 const { COSMETIC_SET_INFO } = await import(pathToFileURL(path.join(root, 'packages/client-core/src/cosmeticSets.ts')).href);
 
 const ALL_SETS = Object.keys(COSMETIC_SET_INFO);
@@ -89,14 +92,25 @@ const SETS = (args.set ?? 'all') === 'all' ? ALL_SETS : args.set.split(',');
 const LOOP = Number(args.loop ?? COSMETIC_LOOP_SECONDS);
 const FPS = (args.fps ?? '30').split(',').map(Number).sort((a, b) => b - a);
 /** Kalite ayarı: renk kalitesi ve alfa kalitesi (100: alfa kayıpsız), ya da tümüyle kayıpsız */
-const QUALITIES = (args.quality ?? '60/75').split(',').map((token) => {
-  if (token === 'lossless') return { label: 'lossless', lossless: true };
-  const [q, a = '100'] = token.split('/');
-  const quality = Number(q);
-  const alphaQuality = Number(a);
-  for (const x of [quality, alphaQuality]) if (!Number.isInteger(x) || x < 0 || x > 100) throw new Error(`kalite 0-100 arası tam sayı olmalı: ${token}`);
-  return { label: alphaQuality === 100 ? `q${quality}` : `q${quality}a${alphaQuality}`, quality, alphaQuality };
-});
+const parseQualities = (text) =>
+  text === 'none'
+    ? []
+    : text.split(',').map((token) => {
+        if (token === 'lossless') return { label: 'lossless', lossless: true };
+        const [q, a = '100'] = token.split('/');
+        const quality = Number(q);
+        const alphaQuality = Number(a);
+        for (const x of [quality, alphaQuality]) if (!Number.isInteger(x) || x < 0 || x > 100) throw new Error(`kalite 0-100 arası tam sayı olmalı: ${token}`);
+        return { label: alphaQuality === 100 ? `q${quality}` : `q${quality}a${alphaQuality}`, quality, alphaQuality };
+      });
+/**
+ * WebP: dekorasyon ve plaka için (telefonun kullanacağı biçim); kart WebP olarak dağıtılmaz (6-12 MB), --quality
+ * verilirse o da kodlanır.
+ */
+const WEBP_DEFAULTS = { deco: '60/75', plate: '60/75' };
+const qualitiesFor = (piece) => parseQualities(args.quality ?? WEBP_DEFAULTS[piece] ?? 'none');
+/** Sunucunun dosya başına sınırı (bayt): aşan dosyanın kalitesi düşürülür (bkz. pack.mjs) */
+const FILE_CAP = 8 * 1024 * 1024;
 const MODE = args['live-only'] ? 'live' : args.check ? 'check' : 'full';
 // Canlı karşılaştırmada masaüstü kartına oturan ölçü de çizilir (avatar deliği ve alt kenar da görülsün)
 const PIECES = (args.pieces ?? (MODE === 'live' ? 'deco,plate,card,cardfit' : 'deco,plate,card')).split(',');
@@ -182,7 +196,13 @@ async function bundlePage() {
     configFile: false,
     root: here,
     logLevel: 'warn',
-    resolve: { alias: { '@diskort/client-core': path.join(here, 'client-core-shim.ts') } },
+    // Ana giriş araca özel küçük bir dosyayla değişir (paketin tamamı girmesin); döngü girişi kaynağına gider
+    resolve: {
+      alias: [
+        { find: /^@diskort\/client-core\/cosmeticLoops$/, replacement: path.join(root, 'packages/client-core/src/cosmeticLoops/index.ts') },
+        { find: /^@diskort\/client-core$/, replacement: path.join(here, 'client-core-shim.ts') },
+      ],
+    },
     build: {
       outDir: TMP,
       emptyOutDir: false,
@@ -323,15 +343,22 @@ function delays(count, fps) {
   return Array.from({ length: count }, (_, i) => Math.round(((i + 1) * 1000) / fps) - Math.round((i * 1000) / fps));
 }
 
+/**
+ * Hareketli WebP: her kare anahtar kare (bkz. video.mjs encodeIntraWebp: libwebp'in hareket kodlayıcısı yavaş
+ * değişen sahnede tuvali bayat bırakıp döngü başında bir anda tazeliyordu). Dosya sunucunun sınırını aşarsa
+ * kalite adım adım düşürülür; kullanılan kalite sonuçta yazılır.
+ */
 async function encodeWebp(sharp, frames, width, height, fps, quality, file) {
   const started = Date.now();
-  const raw = Buffer.concat(frames);
-  const options = { effort: EFFORT, loop: 0, delay: delays(frames.length, fps) };
-  if (quality.lossless) options.lossless = true;
-  else Object.assign(options, { quality: quality.quality, alphaQuality: quality.alphaQuality });
-  await sharp(raw, { raw: { width, height: height * frames.length, channels: 4, pageHeight: height }, limitInputPixels: false })
-    .webp(options)
-    .toFile(file);
+  let q = quality.quality;
+  let lowered = null;
+  for (;;) {
+    const options = quality.lossless ? { lossless: true, effort: EFFORT } : { quality: q, alphaQuality: quality.alphaQuality, effort: EFFORT };
+    await encodeIntraWebp(sharp, frames, width, height, delays(frames.length, fps), options, file);
+    if (quality.lossless || fs.statSync(file).size <= FILE_CAP || q <= 20) break;
+    q -= 10;
+    lowered = q;
+  }
   // Kodlanan dosyayı geri oku: kare sayısı, süreler ve dikiş dosyanın kendisinde de doğrulansın
   const meta = await sharp(file, { animated: true, limitInputPixels: false }).metadata();
   const decoded = await sharp(file, { animated: true, limitInputPixels: false }).ensureAlpha().raw().toBuffer();
@@ -343,9 +370,53 @@ async function encodeWebp(sharp, frames, width, height, fps, quality, file) {
     durationMs: total,
     loop: meta.loop,
     encodeMs: Date.now() - started,
-    // Kodlayıcı art arda aynı kareleri tek karede birleştirir (süresi uzar): kare sayısı kaynaktan az olabilir
+    method: 'intra',
+    loweredQuality: lowered,
     seam: seamStats(splitFrames(decoded, width, height, pages)),
   };
+}
+
+/**
+ * Döngü başında sıçramayan kodlama (AVIF ve yığılmış H.264). Kaynak kareler kesintisizdir ama kareler arası
+ * tahminle kodlanan dosyada son kare (uzun bir tahmin zincirinin ucu: az değişen yerler bayat kalır) ile ilk
+ * kare (taze anahtar kare) birbirini tutmaz: hep görünen, yavaş değişen içerikte döngü başında bir "tazelenme"
+ * olur. Önce olağan (en küçük) kodlama denenir; dosya geri çözülüp kesintisizlik denetiminden geçirilir (biraz
+ * payla: tarayıcıdaki denetim de geçsin). İşaretlenirse sıradaki basamağa geçilir; ilk temiz çıkan kullanılır:
+ * - AVIF: niceleme adım adım inceltilir (zincir gerçeğe yakın kalır, fark küçülür); yetmezse her kare anahtar
+ *   kare (bu kipte aynı crf ~2 dB düşük kalite verdiğinden biraz daha ince nicelenir). libaom kare başına
+ *   kalite vermediğinden H.264'teki gibi yalnızca döngünün sonu inceltilemiyor.
+ * - H.264: döngünün son %40'ında niceleme adım adım inceltilir (zincir gerçeğe yaklaşır), ilk kare de aynı
+ *   incelikte; yetmezse her kare anahtar kare.
+ * Hızlı değişen setlerde (buz, neon) olağan kodlama zaten geçer: boyut yalnızca gereken dosyada artar.
+ */
+function seamlessSteps(v) {
+  if (v.format === 'sh264') return [{ method: 'inter', crf: v.crf }, { method: 'ramp', crf: v.crf }, { method: 'ramp', crf: Math.max(4, v.crf - 4) }, { method: 'intra', crf: v.crf }];
+  const finer = [9, 15, 21].map((d) => ({ method: 'inter', crf: Math.max(2, v.crf - d) }));
+  return [{ method: 'inter', crf: v.crf }, ...finer, { method: 'intra', crf: Math.max(0, v.crf - 7) }];
+}
+
+async function encodeSeamless(ctx, v, options, known) {
+  const steps = seamlessSteps(v);
+  const attempts = [];
+  for (let i = 0; i < steps.length; i++) {
+    const { method, crf } = steps[i];
+    const vv = { ...v, crf };
+    const r = await encodeVideo(ctx.ffmpeg.exe, vv, options, method);
+    const s = await decodedSeries(ctx.ffmpeg.exe, ctx.sharp, v.format === 'avif' ? 'avif' : 'stacked', options.out, { width: options.width, height: options.height, layout: options.layout, tmp: TMP });
+    const c = continuityFromSeries(s.mean, s.level, options.fps, { threshold: JUMP * 0.9 }, known);
+    attempts.push({ method, crf, bytes: r.bytes, ok: c.ok, worstDiff: c.global.worstRatio, worstLevel: c.level.worstRatio });
+    if (!c.ok && i < steps.length - 1) continue;
+    // Sunucunun dosya sınırı: aşılıyorsa aynı yöntemle niceleme kabalaştırılır (kalite düşer, dosya atılmaz)
+    let out = { ...r, method, crf };
+    let loweredTo = null;
+    while (out.bytes > FILE_CAP && out.crf < 60) {
+      loweredTo = out.crf + 4;
+      out = { ...(await encodeVideo(ctx.ffmpeg.exe, { ...vv, crf: loweredTo }, options, method)), method, crf: loweredTo };
+      attempts.push({ method, crf: loweredTo, bytes: out.bytes, ok: null, note: 'dosya sınırı' });
+    }
+    return { ...out, attempts, loweredCrf: loweredTo };
+  }
+  throw new Error('ulaşılamaz');
 }
 
 /** Kareleri yan yana dizip düz bir zemine basar (gözle kontrol: saçak, kare kenarı, boş kare) */
@@ -379,6 +450,30 @@ function qualityCrop(id, width, height) {
   const w = Math.min(width, Math.round(width * 0.55));
   const h = Math.min(height, Math.round(width * 0.55));
   return { x: width - w, y: 0, w, h };
+}
+
+/**
+ * Kapak karesi: en "dolu" görünen an. Karelerin düzeyi (ortalama parlaklık + alfa) birkaç kare üzerinden
+ * yumuşatılır (tek karelik parlama ya da titreme anı seçilmesin), en yükseği alınır. Set, sets/<set>.mjs'te
+ * posterAt ile (döngünün kesri; parça başına ya da all) kendi anını verebilir.
+ */
+function posterFrame(frames) {
+  const n = frames.length;
+  const level = frames.map((f) => {
+    const l = frameLevel(f);
+    return l.rgb + l.alpha;
+  });
+  let best = 0;
+  let bestValue = -1;
+  for (let i = 0; i < n; i++) {
+    let s = 0;
+    for (let k = -4; k <= 4; k++) s += level[(i + k + n) % n];
+    if (s > bestValue) {
+      bestValue = s;
+      best = i;
+    }
+  }
+  return best;
 }
 
 /** Bir setin parça ayarları: ortak ölçüler + sete özgü olanlar */
@@ -451,13 +546,27 @@ async function renderSet(set, ctx) {
       const j = p.jobs.find((x) => x.role === 'live');
       console.log(`  canlı ${set}-${p.id}: ${j.result.width}×${j.result.height} × ${j.result.frames} kare, sha256 ${createHash('sha256').update(fs.readFileSync(j.job.out)).digest('hex')}`);
     }
-    return { flagged: false };
+    return { flagged: false, encodedFlags: [] };
   }
 
+  const info = COSMETIC_SET_INFO[set];
   const manifest = {
     generatedAt: new Date().toISOString(),
     set,
-    setInfo: { accent: COSMETIC_SET_INFO[set].accent, from: COSMETIC_SET_INFO[set].from, to: COSMETIC_SET_INFO[set].to },
+    setInfo: { accent: info.accent, from: info.from, to: info.to },
+    // Yayın paketinin bilgileri (pack.mjs): yerleşik setlerde uygulamanın kendi bilgileri; yeni bir set kendi
+    // sets/<id>.mjs dosyasında pack alanıyla verir
+    pack: {
+      id: set,
+      label: ctx.labels[set] ?? set,
+      accent: info.accent,
+      from: info.from,
+      to: info.to,
+      fallback: [...info.fallback],
+      description: info.description,
+      pieces: [...info.pieces],
+      ...(config.pack ?? {}),
+    },
     loopSeconds: LOOP,
     fps: FPS,
     dither: DITHER,
@@ -520,7 +629,20 @@ async function renderSet(set, ctx) {
     // tek bir kare, olduğu gibi (alfalı PNG)
     await sharp(Buffer.from(stills[3]), { raw: { width, height, channels: 4 } }).png().toFile(path.join(stillDir, `${set}-${id}-frame.png`));
 
-    // Videolar en düşük kare hızında (standart) kodlanır; aynı hızdaki WebP karşılaştırmanın referansıdır
+    // Kapak karesi (hareketi azalt, durdurulmuş görünüm, yüklenirken): dolu görünen bir an, parçayla aynı boyda
+    {
+      const at = config.posterAt?.[id] ?? config.posterAt?.all;
+      const index = at !== undefined ? Math.min(count - 1, Math.round(at * count)) : posterFrame(frames);
+      const name = `${set}-${id}-poster.webp`;
+      await sharp(Buffer.from(frames[index]), { raw: { width, height, channels: 4 } }).webp({ quality: 90, alphaQuality: 100, effort: 6 }).toFile(path.join(setDir, name));
+      piece.poster = { file: `${set}/${name}`, frame: index, time: Number((index / MASTER_FPS).toFixed(3)), bytes: fs.statSync(path.join(setDir, name)).size };
+      console.log(`  ${name}: ${fmtBytes(piece.poster.bytes)}, kare ${index} (${piece.poster.time} sn)`);
+    }
+
+    // Kaynak karelerde zaten belirgin sıçrayan kareler (setin bilerek koyduğu ani olaylar): kodlamanın
+    // eklediği kesmeler aranırken sayılmaz
+    const known = [...m.continuity.level.hot, ...m.continuity.global.hot];
+    // Videolar en düşük kare hızında (standart) kodlanır
     const videoFps = FPS[FPS.length - 1];
     const videos = ffmpeg ? videoFor(id) : [];
     for (const fps of FPS) {
@@ -529,16 +651,17 @@ async function renderSet(set, ctx) {
       const source = step === 1 ? byRole.loop.job.out : path.join(TMP, `${set}-${id}-${fps}.rgba`);
       if (step !== 1 && fps === videoFps) fs.writeFileSync(source, Buffer.concat(sub));
       const common = { fps, width, height, sourceFrames: sub.length, source };
-      for (const q of QUALITIES) {
+      for (const q of qualitiesFor(id)) {
         const name = `${set}-${id}-${fps}fps-${q.label}.webp`;
         const r = await encodeWebp(sharp, sub, width, height, fps, q, path.join(setDir, name));
-        const entry = { file: `${set}/${name}`, format: 'webp', formatLabel: 'Hareketli WebP', tag: 'img', mime: 'image/webp', stacked: null, fps, quality: q.label, ...r };
+        const entry = { file: `${set}/${name}`, format: 'webp', kind: 'webp', formatLabel: 'Hareketli WebP', tag: 'img', mime: 'image/webp', stacked: null, fps, quality: q.label, ...r };
         piece.files.push(entry);
         if (fps === videoFps) verifyItems.push({ ...common, piece: id, file: entry.file, path: path.join(setDir, name), mime: entry.mime, tag: 'img', stacked: null, format: 'webp' });
         const s = r.seam;
         console.log(
           `  ${name}: ${fmtBytes(r.bytes)}, ${r.frames} kare, ${r.durationMs} ms, kodlama ${(r.encodeMs / 1000).toFixed(1)} sn` +
-            `; dikiş son→ilk ${s.seamMean}, komşu ortanca ${s.neighbourMedian} / en büyük ${s.neighbourMax}`,
+            `; dikiş son→ilk ${s.seamMean}, komşu ortanca ${s.neighbourMedian} / en büyük ${s.neighbourMax}` +
+            (r.loweredQuality ? `; DOSYA SINIRI: kalite ${r.loweredQuality}'e düşürüldü` : ''),
         );
       }
       if (fps !== videoFps || videos.length === 0) continue;
@@ -548,21 +671,31 @@ async function renderSet(set, ctx) {
         const F = VIDEO_FORMATS[v.format];
         const name = `${set}-${id}-${fps}fps-${v.label}.${F.ext}`;
         const out = path.join(setDir, name);
-        const r = await encodeVideo(ffmpeg.exe, v, { rgba: source, stacked: stackedFile, width, height, fps, layout, out });
+        const options = { rgba: source, stacked: stackedFile, width, height, fps, layout, out, frames: sub.length };
+        const seamless = v.format === 'avif' || v.format === 'sh264';
+        const r = seamless ? await encodeSeamless({ ffmpeg, sharp }, v, options, known) : await encodeVideo(ffmpeg.exe, v, options);
         const entry = {
-          file: `${set}/${name}`, format: v.format, formatLabel: F.label, tag: F.tag, mime: F.mime, stacked: F.stacked ? layout : null,
-          fps, quality: `crf ${v.crf}`, bytes: r.bytes, frames: sub.length, durationMs: Math.round((sub.length * 1000) / fps), encodeMs: r.encodeMs, ffmpeg: r.ffmpeg,
+          file: `${set}/${name}`, format: v.format, kind: v.format === 'sh264' ? 'stacked-h264' : v.format, formatLabel: F.label, tag: F.tag, mime: F.mime,
+          stacked: F.stacked ? layout : null, fps, quality: `crf ${r.crf ?? v.crf}`, bytes: r.bytes, frames: sub.length, durationMs: Math.round((sub.length * 1000) / fps),
+          encodeMs: r.encodeMs, ffmpeg: r.ffmpeg, method: r.method ?? 'inter', attempts: r.attempts ?? null, loweredCrf: r.loweredCrf ?? null,
         };
         piece.files.push(entry);
         verifyItems.push({ ...common, piece: id, file: entry.file, path: out, mime: F.mime, tag: F.tag, stacked: entry.stacked, format: v.format });
         if (F.stacked) embedded[entry.file] = `data:${F.mime};base64,${fs.readFileSync(out).toString('base64')}`;
-        console.log(`  ${name}: ${fmtBytes(r.bytes)}, kodlama ${(r.encodeMs / 1000).toFixed(1)} sn`);
+        const METHOD = { inter: 'olağan', ramp: 'sona doğru inceltilmiş', intra: 'her kare anahtar' };
+        console.log(
+          `  ${name}: ${fmtBytes(r.bytes)}, kodlama ${(r.encodeMs / 1000).toFixed(1)} sn` +
+            (r.attempts
+              ? `; yöntem: ${METHOD[entry.method]} (${r.attempts.map((a) => `${METHOD[a.method]} crf ${a.crf}: ${fmtBytes(a.bytes)}${a.ok === null ? '' : a.ok ? ', temiz' : `, dikişte ×${Math.max(a.worstDiff, a.worstLevel)}`}`).join(' → ')})`
+              : '') +
+            (r.loweredCrf ? `; DOSYA SINIRI: crf ${r.loweredCrf}'e çıkarıldı` : ''),
+        );
       }
     }
     manifest.pieces.push(piece);
   }
 
-  if (MODE === 'check') return { flagged };
+  if (MODE === 'check') return { flagged, encodedFlags };
 
   // ---------- Oynatma doğrulaması (gizli pencere): her dosya gerçekten çözülüp oynuyor mu, alfa doğru mu ----------
   if (verifyItems.length > 0 && !args['no-verify']) {
@@ -630,8 +763,10 @@ async function renderSet(set, ctx) {
   // Her setin kendi dosyaları: önizleme sayfası klasörde hangi setler varsa onları yükler
   fs.writeFileSync(path.join(setDir, 'manifest.js'), `(window.COSMETIC_SETS = window.COSMETIC_SETS || {})[${JSON.stringify(set)}] = ${JSON.stringify(manifest, null, 2)};\n`);
   fs.writeFileSync(path.join(setDir, 'media.js'), `Object.assign((window.COSMETIC_MEDIA = window.COSMETIC_MEDIA || {}), ${JSON.stringify(embedded)});\n`);
+  // pack.mjs'in okuduğu biçim (aynı içerik, düz JSON)
+  fs.writeFileSync(path.join(setDir, 'manifest.json'), JSON.stringify(manifest));
   if (encodedFlags.length) console.log(`\n  Sıkıştırmanın kesme eklediği dosyalar: ${encodedFlags.join(', ')}`);
-  return { flagged };
+  return { flagged, encodedFlags };
 }
 
 /** Ham kareleri siler (bir sonraki set için yer açılsın) */
@@ -649,23 +784,25 @@ async function main() {
   console.log(
     MODE === 'live'
       ? `Canlı biçim kareleri: ${SETS.join(', ')} (${PIECES.join(', ')})`
-      : `Set: ${SETS.join(', ')}; döngü ${LOOP} sn, ${FPS.join('/')} kare/sn, gürültü: ${DITHER}` + (MODE === 'check' ? '; yalnızca denetim' : `, WebP ${QUALITIES.map((q) => q.label).join(', ')}`),
+      : `Set: ${SETS.join(', ')}; döngü ${LOOP} sn, ${FPS.join('/')} kare/sn, gürültü: ${DITHER}` + (MODE === 'check' ? '; yalnızca denetim' : `; WebP ${PIECES.map((p) => `${p}: ${qualitiesFor(p).map((q) => q.label).join(', ') || 'yok'}`).join('; ')}`),
   );
   if (ffmpeg) console.log(`Video: ${PIECES.map((p) => `${p}: ${videoFor(p).map((v) => v.label).join(', ') || 'yok'}`).join('; ')}; ${ffmpeg.version}`);
   console.log('Sayfa paketleniyor...');
   const page = await bundlePage();
 
-  // Döngü biçimi olan setler (client-core COSMETIC_LOOP_SHADERS): sayfanın kendisine sorulur
-  const loopSets = await runElectron({ mode: 'info', workDir: TMP, page });
+  // Döngü biçimi olan setler (client-core COSMETIC_LOOP_SHADERS) ve set adları: sayfanın kendisine sorulur
+  const { loopSets, labels } = await runElectron({ mode: 'info', workDir: TMP, page });
   const flaggedSets = [];
+  const encodedFlags = [];
   const done = [];
   for (const set of SETS) {
     if (MODE !== 'live' && !loopSets.includes(set)) {
-      console.log(`\n======== ${set} ========\nAtlandı: "${set}" setinin döngü biçimi yok (client-core cosmeticShaders COSMETIC_LOOP_SHADERS).`);
+      console.log(`\n======== ${set} ========\nAtlandı: "${set}" setinin döngü biçimi yok (client-core cosmeticLoops COSMETIC_LOOP_SHADERS).`);
       continue;
     }
-    const r = await renderSet(set, { sharp, ffmpeg, page });
+    const r = await renderSet(set, { sharp, ffmpeg, page, labels });
     if (r.flagged) flaggedSets.push(set);
+    encodedFlags.push(...(r.encodedFlags ?? []));
     done.push(set);
     if (!args['keep-raw']) clearRaw(set);
   }
@@ -683,8 +820,15 @@ async function main() {
   if (MODE === 'full') console.log(`\nÖnizleme: ${path.join(OUT, 'index.html')} (setler: ${done.join(', ') || 'yok'})`);
   if (MODE !== 'live') {
     console.log(flaggedSets.length ? `\nKESİNTİSİZLİK DENETİMİ: kesme bulundu: ${flaggedSets.join(', ')}` : '\nKesintisizlik denetimi: kesme yok.');
+    if (MODE === 'full' && !args['no-verify']) {
+      console.log(encodedFlags.length ? `KODLANMIŞ DOSYALAR: sıkıştırmanın kesme eklediği dosyalar: ${encodedFlags.join(', ')}` : 'Kodlanmış dosyalar: sıkıştırmanın eklediği kesme yok.');
+    }
     if (flaggedSets.length && MODE === 'check') process.exitCode = 2;
+    // kodlamanın eklediği kesme de başarısızlıktır (paketler yine yazılır; çıkış kodu uyarır)
+    if (encodedFlags.length && MODE === 'full' && !args['no-verify']) process.exitCode = 2;
   }
+  // Yayın paketleri: klasördeki bütün setler (bkz. pack.mjs)
+  if (MODE === 'full' && args.pack) writeBundles({ out: OUT, sets: ALL_SETS, platforms: args.platforms });
 }
 
 await main();

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { COSMETIC_SHADER_MAIN, cosmeticShaderMain, loopRate } from '../src/index';
-import { glslFloat } from '../src/cosmeticShaders/loop';
+import { cosmeticShaderMain, loopRate } from '../src/cosmeticLoops';
+import { COSMETIC_SHADER_MAIN } from '../src/index';
+import { glslFloat } from '../src/cosmeticLoops/loop';
 
 // Döngü biçimlerinin ORTAK kuralları. Setlerin kendi testleri ayrı dosyalarda: cosmeticLoop.<set>.test.ts
 

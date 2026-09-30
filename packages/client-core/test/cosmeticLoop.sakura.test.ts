@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { COSMETIC_LOOP_SHADERS, COSMETIC_SHADERS, SAKURA_LOOP, sakuraLoopBloom, sakuraLoopShed } from '../src/index';
+import { COSMETIC_LOOP_SHADERS, SAKURA_LOOP, sakuraLoopBloom, sakuraLoopShed } from '../src/cosmeticLoops';
+import { COSMETIC_SHADERS } from '../src/index';
 
 const PERIODS = [5, 6, 7];
 const TAU = Math.PI * 2;

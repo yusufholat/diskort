@@ -3,10 +3,22 @@
 // kullanılamazken sade 2B zeminler. Onaylanan vitrinden (kozmetik-vitrini.html) aktarıldı.
 
 import type { CosmeticSet } from '@diskort/shared';
-import { BUZ_LOOP, buzLoopG, COSMETIC_SET_INFO, loopRate, type ShaderViewKind } from '@diskort/client-core';
-
-// Sakura ve ateşböceği döngü biçimlerinin hareket eğrileri (bkz. client-core cosmeticShaders/loopMotion.ts)
-import { atesbocegiLoopBlink, atesbocegiLoopBlinks, loopPhase, loopTrackPhase, SAKURA_LOOP, sakuraLoopBloom, sakuraLoopShed } from '@diskort/client-core';
+import { COSMETIC_SET_INFO, type ShaderViewKind } from '@diskort/client-core';
+// Döngü biçimlerinin eğrileri ve ayarları (yalnızca `loop` verilince çalışan dallar kullanır; bkz. client-core
+// cosmeticLoops). Ayrı giriş: client-core'un ana girişinde yoklar.
+import {
+  atesbocegiLoopBlink,
+  atesbocegiLoopBlinks,
+  BUZ_LOOP,
+  buzLoopG,
+  KARADELIK_LOOP,
+  loopPhase,
+  loopRate,
+  loopTrackPhase,
+  SAKURA_LOOP,
+  sakuraLoopBloom,
+  sakuraLoopShed,
+} from '@diskort/client-core/cosmeticLoops';
 
 /** Profil kartının ölçüleri (css px): afiş yüksekliği, avatar merkezi ve dış yarıçapı */
 export interface CardGeo {
@@ -29,7 +41,7 @@ export interface LayerView {
   /** Dekorasyonda avatarın yarıçapı (css px) */
   R: number;
   /**
-   * Döngü biçimi (yalnızca dosyaya çizim aracı verir, bkz. client-core cosmeticShaders/loop.ts): zamana bağlı
+   * Döngü biçimi (yalnızca dosyaya çizim aracı verir, bkz. client-core cosmeticLoops/loop.ts): zamana bağlı
    * her terim bu kadar saniyede kendini yineler. Verilmezse canlı çizim (uygulamada hep böyle).
    */
   loop?: number;
@@ -151,7 +163,8 @@ function cached<T>(v: LayerView, key: string, make: () => T): T {
 /** Deliğin yeri ve yarıçapı (gölgelendiricideki effect() ile aynı) */
 function bhLayout(v: LayerView): { cx: number; cy: number; RS: number } {
   if (v.kind === 'card') return { cx: v.w * 0.73, cy: v.geo.bh * 0.48, RS: v.geo.bh * 0.15 };
-  if (v.kind === 'plate') return { cx: v.w - v.h * 1.35, cy: v.h * 0.5, RS: v.h * 0.24 };
+  // döngü biçiminde delik sağ kenara daha yakın (gölgelendiricideki plateX ile aynı)
+  if (v.kind === 'plate') return { cx: v.w - v.h * (v.loop ? KARADELIK_LOOP.plateX : 1.35), cy: v.h * 0.5, RS: v.h * 0.24 };
   if (v.kind === 'deco') return { cx: v.w / 2, cy: v.h / 2, RS: v.R };
   return { cx: v.w / 2, cy: v.h / 2, RS: Math.min(v.w, v.h) * 0.14 };
 }
@@ -263,7 +276,7 @@ function drawKaradelik(ctx: Ctx, v: LayerView, t: number): void {
 }
 
 /**
- * Karadeliğin döngü biçimi (yalnızca dosyaya çizim aracı; bkz. client-core cosmeticShaders/loop.ts). Canlıdan
+ * Karadeliğin döngü biçimi (yalnızca dosyaya çizim aracı; bkz. client-core cosmeticLoops/loop.ts). Canlıdan
  * farkları:
  * - her yıldızın düşüşü ve her lekenin turu döngüye tam sayıda sığar (en yakın süre). Hepsi aynı sürede
  *   döndüğünden başlangıçlar rastgele değil, döngüye eşit aralıklarla (biraz oynatılarak) dağıtılır: döngünün
@@ -332,9 +345,14 @@ function drawKaradelikLoop(ctx: Ctx, v: LayerView, t: number, P: number): void {
     };
     const h = at(u);
     const r = h[2];
+    // Plakada son düşüş çok hızlıdır: parlak bir yıldız deliğin arkasına geçerken bir iki karede kayboluyor,
+    // sakin plakada bu "kesme" gibi okunuyordu (kesintisizlik denetimi işaretliyordu). Plakada yıldız ömrünün
+    // son beşte birinde yavaş yavaş söner: deliğe vardığında zaten soluktur.
+    const plunge = v.kind === 'plate' ? 1 - smooth(0.8, 1, u) : 1;
     // kartın gövdesinde (yazıların üstünde) iyice sönük
-    const al = smooth(0, 0.1, u) * smooth(RS * 1.05, RS * 1.7, r) * mix(0.3, 1, smooth(bh + 12, bh - 14, h[1]));
-    if (al < 0.004) continue;
+    const al = smooth(0, 0.1, u) * plunge * smooth(RS * 1.05, RS * 1.7, r) * mix(0.3, 1, smooth(bh + 12, bh - 14, h[1]));
+    // (eşik çok küçük: yıldız yavaş sönerken bütün izi birden kesilmesin)
+    if (al < 0.0004) continue;
     const heat = smooth(RS * 4, RS * 1.3, r);
     const warm = smooth(0.3, 0.7, heat);
     const col = `rgb(${Math.round(mix(205, 255, warm))},${Math.round(mix(225, 196, warm))},${Math.round(mix(255, 130, warm))})`;
@@ -1220,7 +1238,7 @@ function shootingStarLoop(ctx: Ctx, t: number, W: number, yMax: number, P: numbe
 }
 
 /**
- * Kuzey Işıkları'nın döngü biçimi (yalnızca dosyaya çizim aracı; bkz. client-core cosmeticShaders/loop.ts):
+ * Kuzey Işıkları'nın döngü biçimi (yalnızca dosyaya çizim aracı; bkz. client-core cosmeticLoops/loop.ts):
  * pırıltıların hızı döngüye tam sayıda sığar; halkadaki pırıltılar canlıdaki çok yavaş dönüş (6 sn'de bir turu
  * tamamlayamaz) yerine oldukları yerde hafifçe salınır; kayan yıldızlar shootingStarLoop.
  */

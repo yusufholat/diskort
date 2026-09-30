@@ -147,28 +147,49 @@ export function writeStacked(frames, width, height, file) {
 const YUV = 'scale=out_color_matrix=bt709:out_range=limited';
 const TAGS = ['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv'];
 
-/** Bir biçimin ffmpeg parametreleri (girdi: `input` ham dosyası; rapora da yazılır) */
-export function ffmpegArgs(v, { rgba, stacked, width, height, fps, layout, out }) {
+/**
+ * Kodlamanın döngü başındaki sıçramaya karşı yöntemi (bkz. encodeSeamless):
+ * - 'inter': olağan (tek anahtar kare, gerisi kareler arası tahmin): en küçük dosya;
+ * - 'ramp' (yalnızca H.264): döngünün son %40'ında niceleme adım adım inceltilir, ilk kare de aynı incelikte;
+ * - 'intra': her kare anahtar kare.
+ */
+const x264Ramp = (frames, crf) => {
+  // altı basamak: döngünün %40'ı boyunca crf+1'den crf−11'e; ilk kare (anahtar) son basamakla aynı
+  const q = [1, -1, -3, -5, -8, -11].map((d) => Math.max(4, crf + d));
+  const start = Math.round(frames * 0.6);
+  const step = (frames - start) / q.length;
+  const zones = [`0,0,q=${q[q.length - 1]}`];
+  for (let i = 0; i < q.length; i++) zones.push(`${Math.round(start + i * step)},${Math.round(start + (i + 1) * step) - 1},q=${q[i]}`);
+  return `zones=${zones.join('/')}`;
+};
+
+/** Bir biçimin ffmpeg parametreleri (girdi: ham dosya; rapora da yazılır). `method`: bkz. yukarı */
+export function ffmpegArgs(v, { rgba, stacked, width, height, fps, layout, out, frames }, method = 'inter') {
   const F = VIDEO_FORMATS[v.format];
   const input = F.stacked
     ? ['-f', 'rawvideo', '-pixel_format', 'rgb24', '-video_size', `${layout.width}x${layout.height}`, '-framerate', String(fps), '-i', stacked]
     : ['-f', 'rawvideo', '-pixel_format', 'rgba', '-video_size', `${width}x${height}`, '-framerate', String(fps), '-i', rgba];
-  const vp9 = ['-c:v', 'libvpx-vp9', '-crf', String(v.crf), '-b:v', '0', '-deadline', 'good', '-cpu-used', '1', '-row-mt', '1', '-g', '600'];
+  const gop = method === 'intra' ? '1' : '600';
+  const vp9 = ['-c:v', 'libvpx-vp9', '-crf', String(v.crf), '-b:v', '0', '-deadline', 'good', '-cpu-used', '1', '-row-mt', '1', '-g', gop];
   let codec;
   if (v.format === 'vp9a') codec = ['-vf', `${YUV},format=yuva420p`, ...vp9, ...TAGS];
   else if (v.format === 'svp9') codec = ['-vf', `${YUV},format=yuv420p`, ...vp9, ...TAGS];
-  else if (v.format === 'sh264')
-    codec = ['-vf', `${YUV},format=yuv420p`, '-c:v', 'libx264', '-preset', 'slow', '-crf', String(v.crf), '-profile:v', 'high', ...TAGS, '-movflags', '+faststart'];
-  else if (v.format === 'sav1')
-    codec = ['-vf', `${YUV},format=yuv420p`, '-c:v', 'libsvtav1', '-preset', '5', '-crf', String(v.crf), '-g', '600', ...TAGS, '-movflags', '+faststart'];
+  else if (v.format === 'sh264') {
+    const extra = method === 'intra' ? ['-g', '1'] : method === 'ramp' ? ['-x264-params', x264Ramp(frames, v.crf)] : [];
+    codec = ['-vf', `${YUV},format=yuv420p`, '-c:v', 'libx264', '-preset', 'slow', '-crf', String(v.crf), '-profile:v', 'high', ...extra, ...TAGS, '-movflags', '+faststart'];
+  } else if (v.format === 'sav1')
+    codec = ['-vf', `${YUV},format=yuv420p`, '-c:v', 'libsvtav1', '-preset', '5', '-crf', String(v.crf), '-g', gop, ...TAGS, '-movflags', '+faststart'];
   else {
-    // AVIF: renk ve alfa iki ayrı akış (alfa tek renkli, tam aralık); ffmpeg'in avif yazıcısı ikinciyi alfa sayar
+    // AVIF: renk ve alfa iki ayrı akış (alfa tek renkli, tam aralık); ffmpeg'in avif yazıcısı ikinciyi alfa sayar.
+    // Anahtar karenin zamansal süzgeci kapalı: süzülmüş ilk kare, döngünün son karesinden daha çok ayrışıyordu.
+    // Her kare anahtar iken ileriye bakış da kapalı (libaom küçük tek renkli akışta bellek hatası veriyor).
     codec = [
       '-filter_complex',
       // (alfa akışı RGB'den ayrıldığı için "gbr" etiketiyle gelir; libaom tek renkli akışta bunu kabul etmez)
       `[0:v]split[c][a];[c]${YUV},format=yuv420p[cv];[a]alphaextract,format=gray,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=pc[av]`,
       '-map', '[cv]', '-map', '[av]',
-      '-c:v', 'libaom-av1', '-crf', String(v.crf), '-b:v', '0', '-cpu-used', '4', '-row-mt', '1', '-g', '600',
+      '-c:v', 'libaom-av1', '-crf', String(v.crf), '-b:v', '0', '-cpu-used', '4', '-row-mt', '1', '-g', gop,
+      ...(method === 'intra' ? ['-lag-in-frames', '0'] : ['-aom-params', 'enable-keyframe-filtering=0']),
       '-colorspace:v:0', 'bt709', '-color_primaries:v:0', 'bt709', '-color_trc:v:0', 'bt709', '-color_range:v:0', 'tv',
       '-loop', '0',
     ];
@@ -176,9 +197,196 @@ export function ffmpegArgs(v, { rgba, stacked, width, height, fps, layout, out }
   return ['-hide_banner', '-y', ...input, ...codec, '-an', out];
 }
 
-export async function encodeVideo(ffmpeg, v, options) {
+export async function encodeVideo(ffmpeg, v, options, method = 'inter') {
   const started = Date.now();
-  const args = ffmpegArgs(v, options);
+  const args = ffmpegArgs(v, options, method);
   await run(ffmpeg, args);
   return { bytes: fs.statSync(options.out).size, encodeMs: Date.now() - started, ffmpeg: args.filter((a) => a !== options.rgba && a !== options.stacked && a !== options.out).join(' ') };
+}
+
+// ---------- Kodlanmış dosyayı geri çözüp kare dizilerini çıkarma (ffmpeg / sharp ile, Node'da) ----------
+
+/** Bir ham dosyayı kare kare okur (belleğe tümünü almadan) */
+function* readFrames(file, frameBytes) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const total = Math.floor(fs.fstatSync(fd).size / frameBytes);
+    for (let i = 0; i < total; i++) {
+      const buf = Buffer.allocUnsafe(frameBytes);
+      fs.readSync(fd, buf, 0, frameBytes, i * frameBytes);
+      yield buf;
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/** Alfayla çarpılmış kare dizisinden ardışık fark ve düzey dizileri (son eleman: son kare → ilk kare) */
+function seriesOf(frames) {
+  const mean = [];
+  const level = [];
+  let first = null;
+  let firstLevel = null;
+  let prev = null;
+  let prevLevel = null;
+  const diff = (a, b) => {
+    let s = 0;
+    for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
+    return s / a.length;
+  };
+  const levelOf = (d) => {
+    let rgb = 0;
+    let alpha = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      rgb += (d[i] + d[i + 1] + d[i + 2]) / 3;
+      alpha += d[i + 3];
+    }
+    return [rgb / (d.length / 4), alpha / (d.length / 4)];
+  };
+  const step = (x, y) => Math.abs(x[0] - y[0]) + Math.abs(x[1] - y[1]);
+  for (const f of frames) {
+    const lv = levelOf(f);
+    if (prev) {
+      mean.push(diff(prev, f));
+      level.push(step(prevLevel, lv));
+    } else {
+      first = f;
+      firstLevel = lv;
+    }
+    prev = f;
+    prevLevel = lv;
+  }
+  mean.push(diff(prev, first));
+  level.push(step(prevLevel, firstLevel));
+  return { mean, level };
+}
+
+/**
+ * Kodlanmış dosyanın (avif, sh264, webp) kare dizileri: ardışık karelerin ortalama farkı ve düzey değişimi
+ * (alfayla çarpılmış renk + alfa, 0-255). Tarayıcıdaki doğrulamayla (verify.html) aynı ölçü; burada kodlama
+ * yöntemini seçmek için hızlıca, Node'da hesaplanır.
+ */
+export async function decodedSeries(ffmpeg, sharp, kind, file, { width, height, layout, tmp }) {
+  const px = width * height;
+  const dec = (args) => run(ffmpeg, ['-hide_banner', '-y', '-i', file, ...args]);
+  if (kind === 'webp') {
+    const buf = await sharp(file, { animated: true, limitInputPixels: false }).ensureAlpha().raw().toBuffer();
+    const pages = buf.length / (px * 4);
+    const gen = (function* () {
+      for (let k = 0; k < pages; k++) {
+        const s = buf.subarray(k * px * 4, (k + 1) * px * 4);
+        const f = new Float32Array(px * 4);
+        for (let i = 0; i < px * 4; i += 4) {
+          const a = s[i + 3];
+          f[i] = (s[i] * a) / 255;
+          f[i + 1] = (s[i + 1] * a) / 255;
+          f[i + 2] = (s[i + 2] * a) / 255;
+          f[i + 3] = a;
+        }
+        yield f;
+      }
+    })();
+    return seriesOf(gen);
+  }
+  if (kind === 'avif') {
+    // ffmpeg hareketli AVIF'i dört akış olarak açar: 0 ve 1 kapak resmi (renk, alfa), 2 ve 3 kare dizisi
+    const c = path.join(tmp, 'dec-color.raw');
+    const a = path.join(tmp, 'dec-alpha.raw');
+    await dec(['-map', '0:v:2', '-f', 'rawvideo', '-pix_fmt', 'rgb24', c]);
+    await dec(['-map', '0:v:3', '-f', 'rawvideo', '-pix_fmt', 'gray', a]);
+    const alpha = readFrames(a, px);
+    const gen = (function* () {
+      for (const col of readFrames(c, px * 3)) {
+        const al = alpha.next().value;
+        const f = new Float32Array(px * 4);
+        for (let p = 0; p < px; p++) {
+          const v = al[p];
+          f[p * 4] = (col[p * 3] * v) / 255;
+          f[p * 4 + 1] = (col[p * 3 + 1] * v) / 255;
+          f[p * 4 + 2] = (col[p * 3 + 2] * v) / 255;
+          f[p * 4 + 3] = v;
+        }
+        yield f;
+      }
+    })();
+    const out = seriesOf(gen);
+    fs.rmSync(c, { force: true });
+    fs.rmSync(a, { force: true });
+    return out;
+  }
+  // yığılmış video: iki yarı, oynatıcının yaptığı gibi birleştirilir (renk alfanın üstüne çıkamaz)
+  const s = path.join(tmp, 'dec-stacked.raw');
+  await dec(['-f', 'rawvideo', '-pix_fmt', 'rgb24', s]);
+  const gen = (function* () {
+    for (const b of readFrames(s, layout.width * layout.height * 3)) {
+      const f = new Float32Array(px * 4);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const ci = (y * layout.width + x) * 3;
+          const al = b[(y * layout.width + layout.alphaX + x) * 3 + 1];
+          const o = (y * width + x) * 4;
+          f[o] = Math.min(b[ci], al);
+          f[o + 1] = Math.min(b[ci + 1], al);
+          f[o + 2] = Math.min(b[ci + 2], al);
+          f[o + 3] = al;
+        }
+      }
+      yield f;
+    }
+  })();
+  const out = seriesOf(gen);
+  fs.rmSync(s, { force: true });
+  return out;
+}
+
+// ---------- Hareketli WebP: her kare anahtar kare ----------
+
+/**
+ * Tek tek kodlanmış karelerden hareketli WebP kurar (RIFF: VP8X + ANIM + kare başına ANMF). libwebp'in kendi
+ * hareket kodlayıcısı kayıplı kipte az değişen pikselleri "değişmedi" sayıp eski değerinde bırakır (eşik
+ * kaliteye bağlı: q60'ta ~8 düzey); yavaş değişen sahnede tuval gerçeğin gerisinde kalır ve döngü başındaki tam
+ * kare onu bir anda tazeler (ortalama parlaklık tek karede sıçrar). Her kare bağımsız kodlanınca böyle bir
+ * birikme olmaz; bu içerikte boyut aynı kalır ya da biraz artar, kalite yükselir.
+ * Her kare tuvalin tamamını değiştirir (karıştırma yok). `delays`: kare süreleri (ms).
+ */
+export async function encodeIntraWebp(sharp, frames, width, height, delays, options, file) {
+  const parts = [];
+  let alpha = false;
+  for (let i = 0; i < frames.length; i++) {
+    const still = await sharp(Buffer.from(frames[i]), { raw: { width, height, channels: 4 } }).webp(options).toBuffer();
+    // durağan dosyanın veri parçaları: (ALPH) + VP8 / VP8L
+    const chunks = [];
+    for (let off = 12; off < still.length; ) {
+      const id = still.toString('ascii', off, off + 4);
+      const padded = still.readUInt32LE(off + 4) + (still.readUInt32LE(off + 4) & 1);
+      if (id === 'ALPH' || id === 'VP8 ' || id === 'VP8L') chunks.push(still.subarray(off, off + 8 + padded));
+      if (id === 'ALPH' || id === 'VP8L') alpha = true;
+      off += 8 + padded;
+    }
+    const body = Buffer.concat(chunks);
+    const head = Buffer.alloc(24);
+    head.write('ANMF', 0, 'ascii');
+    head.writeUInt32LE(16 + body.length, 4);
+    head.writeUIntLE(0, 8, 3); // x / 2
+    head.writeUIntLE(0, 11, 3); // y / 2
+    head.writeUIntLE(width - 1, 14, 3);
+    head.writeUIntLE(height - 1, 17, 3);
+    head.writeUIntLE(delays[i], 20, 3);
+    head.writeUInt8(0x02, 23); // karıştırma yok, önceki kare atılmaz: kare tuvalin tamamını değiştirir
+    parts.push(head, body);
+  }
+  const vp8x = Buffer.alloc(18);
+  vp8x.write('VP8X', 0, 'ascii');
+  vp8x.writeUInt32LE(10, 4);
+  vp8x.writeUInt8(0x02 | (alpha ? 0x10 : 0), 8); // hareketli (+ alfa)
+  vp8x.writeUIntLE(width - 1, 12, 3);
+  vp8x.writeUIntLE(height - 1, 15, 3);
+  const anim = Buffer.alloc(14);
+  anim.write('ANIM', 0, 'ascii');
+  anim.writeUInt32LE(6, 4); // zemin rengi 0, döngü sayısı 0 (sonsuz)
+  const payload = Buffer.concat([Buffer.from('WEBP', 'ascii'), vp8x, anim, ...parts]);
+  const riff = Buffer.alloc(8);
+  riff.write('RIFF', 0, 'ascii');
+  riff.writeUInt32LE(payload.length, 4);
+  fs.writeFileSync(file, Buffer.concat([riff, payload]));
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ATESBOCEGI_LOOP, atesbocegiLoopBlink, atesbocegiLoopBlinks, COSMETIC_LOOP_SHADERS, COSMETIC_SHADERS, loopTrackPhase } from '../src/index';
-import { glslFloat } from '../src/cosmeticShaders/loop';
+import { ATESBOCEGI_LOOP, atesbocegiLoopBlink, atesbocegiLoopBlinks, COSMETIC_LOOP_SHADERS, loopTrackPhase } from '../src/cosmeticLoops';
+import { COSMETIC_SHADERS } from '../src/index';
+import { glslFloat } from '../src/cosmeticLoops/loop';
 
 const PERIODS = [5, 6, 7];
 const TAU = Math.PI * 2;

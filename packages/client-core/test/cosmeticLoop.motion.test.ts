@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { loopPhase, loopTrackPhase, loopWindow } from '../src/index';
-import { loopDriftGlsl } from '../src/cosmeticShaders/loopMotion';
+import { loopPhase, loopTrackPhase, loopWindow } from '../src/cosmeticLoops';
+import { loopDriftGlsl } from '../src/cosmeticLoops/loopMotion';
 
 const PERIODS = [5, 6, 7];
 

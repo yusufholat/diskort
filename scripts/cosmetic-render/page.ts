@@ -5,16 +5,9 @@
 // katmanı (layers.ts) ve plakada perde çizilir. Kare getImageData ile okunur: düz (çarpılmamış) RGBA.
 
 import { drawPlateScrim, LAYERS, type CardGeo, type LayerView } from '../../apps/desktop/src/renderer/src/components/cosmetics/layers';
-import {
-  COSMETIC_LOOP_SHADERS,
-  COSMETIC_SHADER_COMMON,
-  COSMETIC_SHADERS,
-  COSMETIC_VERTEX_SHADER,
-  cosmeticShaderCommon,
-  cosmeticShaderMain,
-  SHADER_MODE,
-  type CosmeticDither,
-} from '../../packages/client-core/src/cosmeticShaders';
+import { COSMETIC_SHADER_COMMON, COSMETIC_SHADERS, COSMETIC_VERTEX_SHADER, SHADER_MODE } from '../../packages/client-core/src/cosmeticShaders';
+import { COSMETIC_SET_LABELS } from '../../packages/shared/src/index';
+import { COSMETIC_LOOP_SHADERS, cosmeticShaderCommon, cosmeticShaderMain, type CosmeticDither } from '../../packages/client-core/src/cosmeticLoops';
 
 type CosmeticSet = keyof typeof COSMETIC_SHADERS;
 
@@ -82,7 +75,7 @@ function compile(gl: WebGLRenderingContext, job: RenderJob): WebGLProgram {
   // Döngü biçiminin üreticisi ikinci bir parametre (sete özgü seçenekler) alabilir
   const make = COSMETIC_LOOP_SHADERS[job.set] as ((period: number, options?: Record<string, unknown>) => string) | undefined;
   const effect = job.loop === null ? COSMETIC_SHADERS[job.set] : make?.(job.loop, job.shaderOptions);
-  if (!effect) throw new Error(`"${job.set}" setinin döngü biçimi yok (client-core cosmeticShaders COSMETIC_LOOP_SHADERS)`);
+  if (!effect) throw new Error(`"${job.set}" setinin döngü biçimi yok (client-core cosmeticLoops COSMETIC_LOOP_SHADERS)`);
   const shader = (type: number, src: string): WebGLShader => {
     const s = gl.createShader(type);
     if (!s) throw new Error('gölgelendirici oluşturulamadı');
@@ -218,6 +211,7 @@ async function run(job: RenderJob): Promise<RenderResult> {
   return { width: canvas.width, height: canvas.height, frames: job.times.length, renderer, ms: Math.round(performance.now() - started) };
 }
 
-const api = window as unknown as { cosmeticRender: typeof run; cosmeticLoopSets: string[] };
+// Aracın Node tarafı için bilgiler: döngü biçimi olan setler ve setlerin görünen adları (paket bilgisi)
+const api = window as unknown as { cosmeticRender: typeof run; cosmeticInfo: { loopSets: string[]; labels: Record<string, string> } };
 api.cosmeticRender = run;
-api.cosmeticLoopSets = Object.keys(COSMETIC_LOOP_SHADERS);
+api.cosmeticInfo = { loopSets: Object.keys(COSMETIC_LOOP_SHADERS), labels: COSMETIC_SET_LABELS };

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { COSMETIC_LOOP_SECONDS, COSMETIC_LOOP_SHADERS, COSMETIC_SHADERS, KUZEY_LOOP } from '../src/cosmeticShaders';
+import { COSMETIC_LOOP_SECONDS, COSMETIC_LOOP_SHADERS, KUZEY_LOOP } from '../src/cosmeticLoops';
+import { COSMETIC_SHADERS } from '../src/cosmeticShaders';
 import { isWhole, sha256, timeTerms } from './cosmeticLoop.timeTerms';
 
 const TAU = Math.PI * 2;

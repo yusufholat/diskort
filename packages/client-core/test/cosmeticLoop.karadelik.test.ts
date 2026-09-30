@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { COSMETIC_LOOP_SECONDS, COSMETIC_LOOP_SHADERS, COSMETIC_SHADERS, KARADELIK_LOOP } from '../src/cosmeticShaders';
+import { COSMETIC_LOOP_SECONDS, COSMETIC_LOOP_SHADERS, KARADELIK_LOOP } from '../src/cosmeticLoops';
+import { COSMETIC_SHADERS } from '../src/cosmeticShaders';
 import { isWhole, sha256, timeTerms } from './cosmeticLoop.timeTerms';
 
 const TAU = Math.PI * 2;
@@ -13,6 +14,11 @@ const LIVE_TIME_LINES = [
   '  float nz=fbm(vec2(rd/RS*5.5,0.)+2.*vec2(cos(a),sin(a)));',
   '  float a2=atan(n.y,n.x)+t*1.3;',
 ];
+
+/** Canlıda plakadaki deliğin yeri: döngü biçiminde delik sağ kenara daha yakın (bkz. cosmeticLoop.karadelikPlate.test.ts) */
+const LIVE_PLATE_LINE = '  else if(m>1.5&&m<2.5){C=vec2(u_res.x-u_res.y*1.35,u_res.y*.5);RS=u_res.y*.24;tilt=.22;}';
+/** Döngü biçiminde değişen satırlar */
+const LIVE_CHANGED_LINES = [...LIVE_TIME_LINES, LIVE_PLATE_LINE];
 
 describe('karadelik döngü biçimi', () => {
   it('canlı gölgelendirici döngü çalışmasından önceki hâliyle harfi harfine aynı', async () => {
@@ -36,16 +42,16 @@ describe('karadelik döngü biçimi', () => {
     for (const P of [5, COSMETIC_LOOP_SECONDS, 7]) {
       const src = make!(P);
       const lines = src.split('\n');
-      // canlının zamana bağlı olmayan her satırı döngüde de var, aynı sırayla
-      const kept = live.filter((line) => !LIVE_TIME_LINES.includes(line));
-      expect(kept.length).toBe(live.length - LIVE_TIME_LINES.length);
+      // canlının zamana bağlı olmayan her satırı (plakadaki deliğin yeri dışında) döngüde de var, aynı sırayla
+      const kept = live.filter((line) => !LIVE_CHANGED_LINES.includes(line));
+      expect(kept.length).toBe(live.length - LIVE_CHANGED_LINES.length);
       let at = -1;
       for (const line of kept) {
         const next = lines.indexOf(line, at + 1);
         expect(next, line).toBeGreaterThan(at);
         at = next;
       }
-      for (const line of LIVE_TIME_LINES) expect(lines).not.toContain(line);
+      for (const line of LIVE_CHANGED_LINES) expect(lines).not.toContain(line);
       expect(src).not.toContain('t*3.');
       expect(src).not.toContain('ang+t*om');
       expect(src).not.toContain('stars(');

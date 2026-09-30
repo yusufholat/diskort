@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { COSMETIC_LOOP_SHADERS, COSMETIC_SHADERS } from '../src/index';
-import { neonLoopShader } from '../src/cosmeticShaders/neon';
+import { COSMETIC_LOOP_SHADERS } from '../src/cosmeticLoops';
+import { COSMETIC_SHADERS } from '../src/index';
+import { neonLoopShader } from '../src/cosmeticLoops/neon';
 
 /** Canlı kaynaktaki zamana bağlı terimler (hepsi döngü biçiminde değişmiş olmalı) */
 const LIVE_TERMS = [

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { BUZ_LOOP, buzLoopG, COSMETIC_LOOP_SECONDS, COSMETIC_LOOP_SHADERS, COSMETIC_SHADERS } from '../src/index';
+import { BUZ_LOOP, buzLoopG, COSMETIC_LOOP_SECONDS, COSMETIC_LOOP_SHADERS } from '../src/cosmeticLoops';
+import { COSMETIC_SHADERS } from '../src/index';
 
 describe('kozmetik döngü biçimi: buz', () => {
   it('canlı gölgelendirici canlı zamanlamayı kullanır (döngü biçimi uygulamanın çizdiği kaynağa karışmaz)', () => {

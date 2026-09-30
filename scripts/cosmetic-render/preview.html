@@ -359,11 +359,13 @@ Kalite karşılaştırması: aynı karenin aynı parçası, kaynak ve her dosyad
     buildList();
 
     // ----- Tablolar -----
+    // Kodlama yöntemi: döngü başında sıçramayan ilk basamak (bkz. render.mjs encodeSeamless)
+    const METHOD = { inter: 'olağan', ramp: 'sona doğru inceltilmiş', intra: 'her kare anahtar' };
     const files = $('files');
-    files.append(el('tr', {}, ...['Parça', 'Biçim', 'Kare/sn', 'Kalite', 'Piksel', 'Boyut', 'PSNR', 'Oynadı', 'Kodlama'].map((h) => el('th', {}, h))));
+    files.append(el('tr', {}, ...['Parça', 'Biçim', 'Kare/sn', 'Kalite', 'Yöntem', 'Piksel', 'Boyut', 'PSNR', 'Oynadı', 'Kodlama'].map((h) => el('th', {}, h))));
     for (const p of M.pieces) for (const f of p.files) {
       const v = f.verify;
-      files.append(el('tr', {}, el('td', {}, p.label), el('td', {}, f.formatLabel), el('td', { class: 'num' }, String(f.fps)), el('td', {}, f.quality),
+      files.append(el('tr', {}, el('td', {}, p.label), el('td', {}, f.formatLabel), el('td', { class: 'num' }, String(f.fps)), el('td', {}, f.quality), el('td', {}, METHOD[f.method] ?? '—'),
         el('td', {}, f.stacked ? `${f.stacked.width}×${f.stacked.height} (yığılmış)` : `${p.px.w}×${p.px.h}`),
         el('td', { class: 'num size' }, bytes(f.bytes)), el('td', { class: 'num' }, v && !v.error ? v.psnr + ' dB' : '—'),
         el('td', { class: v && (v.error || !(v.onScreenDiff > 0.05)) ? 'warn' : '' }, !v ? '—' : v.error ? 'hayır: ' + v.error : v.onScreenDiff > 0.05 ? 'evet' : 'hayır'),
@@ -404,6 +406,7 @@ Kalite karşılaştırması: aynı karenin aynı parçası, kaynak ve her dosyad
 
     const stills = $('stills');
     for (const p of M.pieces) {
+      if (p.poster) stills.append(el('div', {}, `${p.poster.file}: kapak karesi (${p.poster.time} sn, ${bytes(p.poster.bytes)})`), el('img', { src: p.poster.file, alt: p.poster.file, loading: 'lazy', style: { background: 'var(--bg-float)', width: p.css.w + 'px' } }));
       for (const s of p.stills) stills.append(el('div', {}, s), el('img', { src: s, alt: s, loading: 'lazy' }));
       if (p.quality) for (const s of p.quality.sheets) stills.append(el('div', {}, `${s}: ${p.quality.order.join(' | ')}`), el('img', { src: s, alt: s, loading: 'lazy' }));
     }
