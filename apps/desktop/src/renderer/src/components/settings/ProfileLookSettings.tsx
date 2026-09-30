@@ -106,6 +106,7 @@ export function ProfileLookSettings({ user }: { user: User }) {
   const { effect, decoration, nameplate, pick } = useLook(user);
   // Seçilebilir setler sunucunun bildiriminden gelir; bölüm açılırken tazelenir (yeni yayınlanan set görünsün)
   const sets = useSelectableCosmeticSets();
+  const manifestLoaded = useCosmeticManifest() !== null;
   useEffect(() => {
     void refreshCosmeticPacks();
   }, []);
@@ -122,8 +123,10 @@ export function ProfileLookSettings({ user }: { user: User }) {
     (set) => effect === set.id && animatedDecorationId(decoration) === set.id && nameplate === set.id,
   );
   // Seçili kimlik bildirimde yoksa (paketi yayından kalkmış) hiçbir şey çizilmez: seçicilerde "Yok" işaretlidir
-  // (grubun hep bir seçimi olur); "Yok"a tıklamak kaydedilmiş seçimi de temizler
-  const known = (id: CosmeticSetId | null): boolean => id !== null && sets.some((set) => set.id === id);
+  // (grubun hep bir seçimi olur); "Yok"a tıklamak kaydedilmiş seçimi de temizler. Bildirim hiç yüklenemediyse
+  // kayıtlı seçim bilinmiyor sayılmaz (yoksa "Yok" yanlışlıkla seçili görünürdü)
+  const known = (id: CosmeticSetId | null): boolean =>
+    id !== null && (!manifestLoaded || sets.some((set) => set.id === id));
   const shownEffect = known(effect) ? effect : null;
   const shownDecoration = known(animatedDecorationId(decoration)) ? decoration : null;
   const shownNameplate = known(nameplate) ? nameplate : null;

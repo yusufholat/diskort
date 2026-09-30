@@ -78,7 +78,7 @@ export function ProfilePhoto({ user }: { user: User }) {
         </div>
       </div>
       <p className="mt-2 text-xs text-text-muted">
-        PNG, JPEG, WebP ya da GIF. Fotoğraf yokken baş harflerin aşağıdaki renkle gösterilir.
+        PNG, JPEG, WebP ya da GIF. Fotoğraf yokken baş harflerin profil temanın renginde (tema yoksa hesabının renginde) gösterilir.
       </p>
       <input
         ref={input}
