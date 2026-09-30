@@ -12,6 +12,12 @@ export const ACTIVITY_ICON_MIN_SIZE_PX = 16;
 export const ACTIVITY_ICON_MAX_COUNT = 5000;
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+/**
+ * Kabul edilen parçalar: resmin kendisi ve zararsız renk/ölçü bilgisi. Metin (tEXt…), hareket (APNG: acTL,
+ * fcTL, fdAT), renk profili ve özel parçalar reddedilir: dosya olduğu gibi sunulduğundan içinde başka veri
+ * taşınmasın.
+ */
+const PNG_CHUNKS = new Set(['IHDR', 'PLTE', 'tRNS', 'IDAT', 'IEND', 'gAMA', 'sRGB', 'pHYs']);
 /** Renk türü → geçerli bit derinlikleri (PNG belirtimi) */
 const PNG_BIT_DEPTHS: Record<number, readonly number[]> = {
   0: [1, 2, 4, 8, 16],
@@ -22,8 +28,8 @@ const PNG_BIT_DEPTHS: Record<number, readonly number[]> = {
 };
 
 /**
- * PNG'nin yapısını denetler: imza, ilk parça IHDR, parçalar (uzunluk, ad, CRC) IEND'e dek sırayla, IEND'den
- * sonra artık bayt yok. Geçerliyse boyutları döner. Piksel verisi burada çözülmez (bkz. decodes).
+ * PNG'nin yapısını denetler: imza, ilk parça IHDR, parçalar (uzunluk, izinli ad, CRC) IEND'e dek sırayla,
+ * IEND'den sonra artık bayt yok. Geçerliyse boyutları döner. Piksel verisi burada çözülmez (bkz. decodes).
  */
 export function inspectPng(buf: Buffer): { width: number; height: number } | null {
   if (buf.length < PNG_SIGNATURE.length || !buf.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) return null;
@@ -34,7 +40,7 @@ export function inspectPng(buf: Buffer): { width: number; height: number } | nul
     const length = buf.readUInt32BE(offset);
     const type = buf.toString('latin1', offset + 4, offset + 8);
     const end = offset + 12 + length;
-    if (end > buf.length || !/^[A-Za-z]{4}$/.test(type)) return null;
+    if (end > buf.length || !PNG_CHUNKS.has(type)) return null;
     if (crc32(buf.subarray(offset + 4, end - 4)) !== buf.readUInt32BE(end - 4)) return null;
     if (!size) {
       if (type !== 'IHDR' || length !== 13) return null;
@@ -71,11 +77,17 @@ async function decodes(png: Buffer, size: number): Promise<boolean> {
  */
 export class ActivityIconStore {
   private readonly keys = new Set<string>();
+  private readonly maxCount: number;
+  private readonly log: { warn(obj: unknown, msg?: string): void } | undefined;
+  /** Depo doldu uyarısı bir kez yazılır */
+  private fullLogged = false;
 
   constructor(
     readonly dir: string,
-    private readonly maxCount = ACTIVITY_ICON_MAX_COUNT,
+    opts: { maxCount?: number; log?: { warn(obj: unknown, msg?: string): void } } = {},
   ) {
+    this.maxCount = opts.maxCount ?? ACTIVITY_ICON_MAX_COUNT;
+    this.log = opts.log;
     let files: string[] = [];
     try {
       files = fs.readdirSync(dir);
@@ -83,10 +95,15 @@ export class ActivityIconStore {
       // Klasör yok: henüz ikon yüklenmemiş
     }
     for (const file of files) {
+      const full = path.join(dir, file);
       const key = file.endsWith('.png') ? file.slice(0, -4) : '';
-      if (ACTIVITY_ICON_KEY_PATTERN.test(key)) this.keys.add(key);
+      if (ACTIVITY_ICON_KEY_PATTERN.test(key)) {
+        // Boş dosya (yazılırken elektrik kesilmiş): silinir, istemci yeniden yükler
+        if (fs.statSync(full, { throwIfNoEntry: false })?.size) this.keys.add(key);
+        else fs.rmSync(full, { force: true });
+      }
       // Yarım kalmış yükleme (sunucu yazarken kapanmış)
-      else if (/^[0-9a-f]{16}\.tmp$/.test(file)) fs.rmSync(path.join(dir, file), { force: true });
+      else if (/^[0-9a-f]{16}\.tmp$/.test(file)) fs.rmSync(full, { force: true });
     }
   }
 
@@ -135,11 +152,22 @@ export class ActivityIconStore {
     }
     // Beklerken başka bir istek aynı ikonu yazmış olabilir
     if (this.keys.has(key)) return false;
-    if (this.keys.size >= this.maxCount) throw new UploadError(507, 'storage_full', 'İkon deposu dolu.');
+    if (this.keys.size >= this.maxCount) {
+      if (!this.fullLogged) this.log?.warn({ count: this.keys.size }, 'etkinlik ikonu deposu dolu: yeni ikon alınmıyor');
+      this.fullLogged = true;
+      throw new UploadError(507, 'storage_full', 'İkon deposu dolu.');
+    }
     await fs.promises.mkdir(this.dir, { recursive: true });
     const temp = path.join(this.dir, `${randomBytes(8).toString('hex')}.tmp`);
     try {
-      await fs.promises.writeFile(temp, png, { flag: 'wx' });
+      // Diske indiği kesinleşmeden adı verilmez: ani kapanmada boş ya da yarım ikon kalmasın
+      const handle = await fs.promises.open(temp, 'wx');
+      try {
+        await handle.writeFile(png);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
       await fs.promises.rename(temp, path.join(this.dir, `${key}.png`));
     } catch (err) {
       await fs.promises.rm(temp, { force: true });

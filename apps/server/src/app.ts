@@ -139,7 +139,9 @@ export async function buildApp(
     opts.gifFetch,
     app.log,
   );
-  const activityIcons = new ActivityIconStore(opts.activityIconsDir ?? path.join(config.dataDir, 'activity-icons'));
+  const activityIcons = new ActivityIconStore(opts.activityIconsDir ?? path.join(config.dataDir, 'activity-icons'), {
+    log: app.log,
+  });
   const gateway = new Gateway(
     store,
     auth,

@@ -9,7 +9,7 @@ import {
   GATEWAY_HEARTBEAT_INTERVAL_MS,
   Permission,
   STREAM_WATCH_MAX,
-  sameActivity,
+  sameActivities,
   sortRoles,
   type Activity,
   type GatewayClientMessage,
@@ -28,7 +28,7 @@ import type { AuthService } from './auth.js';
 import type { ClientVersionPolicy } from './clientVersion.js';
 import type { Store } from './db.js';
 import type { PermissionService } from './permissions.js';
-import { StatusStore, mergeActivity, parseActivityReport } from './presence.js';
+import { StatusStore, combineActivities, mergeActivities, parseActivityReports } from './presence.js';
 import type { VoiceStateStore } from './voiceState.js';
 
 const IDENTIFY_TIMEOUT_MS = 10_000;
@@ -41,6 +41,10 @@ const STATE_BURST = 5;
 const STATE_MIN_INTERVAL_MS = 500;
 /** Kapatılan (ör. oturumu iptal edilen) bağlantı bu sürede kapanma el sıkışmasını bitirmezse koparılır */
 const CLOSE_GRACE_MS = 2_000;
+/** Etkinlik listesi seyrek değişir (oyun açılır/kapanır): art arda en fazla bu kadar anında uygulanır... */
+const ACTIVITY_BURST = 3;
+/** ...sonra en fazla bu aralıkla bir tane (her değişiklik ortak sunuculardaki herkese yayılır) */
+const ACTIVITY_MIN_INTERVAL_MS = 5_000;
 
 /**
  * Sel koruması, son durumu kaybetmeden: kova doluyken değer hemen uygulanır; boşken yalnızca en son değer
@@ -117,7 +121,7 @@ interface Session {
   /** İzlenen yayınlar bildirimi sel koruması */
   watchUpdates: Coalescer<unknown[]>;
   /** Etkinlik bildirimi sel koruması */
-  activityUpdates: Coalescer<Activity | null>;
+  activityUpdates: Coalescer<Activity[]>;
   /** Bağlantının kimliği (izleme istekleri bağlantı başına tutulur) */
   id: string;
   /** Bu bağlantı izlediği yayınları bildirdi (kapanınca isteği silinir) */
@@ -136,8 +140,8 @@ interface Session {
   reportsIdle: boolean;
   /** Oturum boşta (masaüstünde girdi yok / ekran kilitli, telefonda uygulama arka planda) */
   idle: boolean;
-  /** Bu cihazda oynanan oyun (yalnızca bellekte; bağlantı kapanınca kaybolur) */
-  activity: Activity | null;
+  /** Bu cihazda açık oyunlar, en son başlayan ilk sırada (yalnızca bellekte; bağlantı kapanınca kaybolur) */
+  activities: Activity[];
 }
 
 type IdentifyData = Extract<GatewayClientMessage, { t: 'IDENTIFY' }>['d'];
@@ -218,8 +222,8 @@ export class Gateway {
   /**
    * Kullanıcının başkalarına görünen durumu: bağlı değilse ya da görünmezse çevrimdışı. Seçtiği durum
    * "Çevrim içi" iken tüm oturumları boştaysa "Boşta" (bir cihazda etkin olmak otomatik boştayı yener);
-   * elle seçilen Boşta / Rahatsız Etmeyin olduğu gibi kalır. Etkinlik, oturumlarının bildirdiklerinden en son
-   * başlayanıdır; görünmez kullanıcınınki de görünmez.
+   * elle seçilen Boşta / Rahatsız Etmeyin olduğu gibi kalır. Etkinlikler, oturumlarının bildirdiklerinin
+   * birleşimidir (bkz. combineActivities); görünmez kullanıcınınkiler de görünmez.
    */
   presenceOf(userId: string): Presence {
     const sessions = this.byUser.get(userId);
@@ -228,11 +232,8 @@ export class Gateway {
     if (self.status === 'invisible') return OFFLINE_PRESENCE;
     let status: PresenceStatus = self.status;
     if (status === 'online' && [...sessions].every((s) => s.idle)) status = 'idle';
-    let activity: Activity | null = null;
-    for (const s of sessions) {
-      if (s.activity && (!activity || s.activity.startedAt > activity.startedAt)) activity = s.activity;
-    }
-    return { status, customStatus: self.customStatus, activity };
+    const activities = combineActivities([...sessions].map((s) => s.activities));
+    return { status, customStatus: self.customStatus, activities };
   }
 
   /** Başkalarına çevrimiçi görünüyor (bağlı ve görünmez değil) */
@@ -550,13 +551,20 @@ export class Gateway {
         session.reportsWatching = true;
         this.voice.setWatching(session.userId, userIds, session.id);
       }),
-      activityUpdates: new Coalescer((reported) => {
-        if (session.closed || !session.userId) return;
-        const activity = mergeActivity(session.activity, reported);
-        if (sameActivity(session.activity, activity)) return;
-        session.activity = activity;
-        this.announcePresence(session.userId);
-      }),
+      activityUpdates: new Coalescer(
+        (reported) => {
+          if (session.closed || !session.userId) return;
+          // Önce bu oturumun önceki listesi, sonra kişinin öteki oturumları (yeniden bağlanmada eskisi düşmeden)
+          const others = [...(this.byUser.get(session.userId) ?? [])].filter((o) => o !== session);
+          const known = [session.activities, ...others.map((o) => o.activities)].flat();
+          const activities = mergeActivities(known, reported);
+          if (sameActivities(session.activities, activities)) return;
+          session.activities = activities;
+          this.announcePresence(session.userId);
+        },
+        ACTIVITY_BURST,
+        ACTIVITY_MIN_INTERVAL_MS,
+      ),
       id: String(++this.nextSessionId),
       reportsWatching: false,
       lastTyping: new Map(),
@@ -566,7 +574,7 @@ export class Gateway {
       connectedAt: Date.now(),
       reportsIdle: false,
       idle: false,
-      activity: null,
+      activities: [],
     };
     this.sessions.add(session);
     this.traffic.connections++;
@@ -605,7 +613,7 @@ export class Gateway {
 
   /**
    * Oturumu tüm listelerden çıkarır (tekrar çağrılması zararsızdır). Kullanıcının son oturumuysa çevrimdışı,
-   * kalan oturumların hepsi boştaysa "Boşta" duyurulur; bu oturumun bildirdiği etkinlik de kalkar.
+   * kalan oturumların hepsi boştaysa "Boşta" duyurulur; bu oturumun bildirdiği etkinlikler de kalkar.
    */
   private drop(session: Session): void {
     if (session.closed) return;
@@ -614,7 +622,7 @@ export class Gateway {
     session.voiceUpdates.cancel();
     session.watchUpdates.cancel();
     session.activityUpdates.cancel();
-    session.activity = null;
+    session.activities = [];
     this.sessions.delete(session);
     const userId = session.userId;
     if (!userId) return;
@@ -633,7 +641,7 @@ export class Gateway {
 
   /**
    * Görünen durum değiştiyse ortak sunucusu olanlara (ve kişinin kendisine) duyurur. Görünmez kullanıcı
-   * hep çevrimdışı görünür: bağlanması, boşta olması, özel durumu ya da etkinliği hiçbir olay üretmez.
+   * hep çevrimdışı görünür: bağlanması, boşta olması, özel durumu ya da etkinlikleri hiçbir olay üretmez.
    */
   private announcePresence(userId: string, except?: Session): void {
     if (this.closing) return;
@@ -685,11 +693,11 @@ export class Gateway {
         break;
       }
       case 'ACTIVITY_SET': {
-        // Geçersiz bildirim yok sayılır (önceki etkinlik kalır)
-        const activity = parseActivityReport((msg.d as { activity?: unknown } | null)?.activity, (key) =>
+        // Liste olmayan bildirim yok sayılır (önceki etkinlikler kalır); listedeki geçersiz öğeler atlanır
+        const activities = parseActivityReports((msg.d as { activities?: unknown } | null)?.activities, (key) =>
           this.activityIcons.has(key),
         );
-        if (activity !== undefined) s.activityUpdates.push(activity);
+        if (activities) s.activityUpdates.push(activities);
         break;
       }
       case 'TYPING_START': {

@@ -2,11 +2,13 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { crc32 } from 'node:zlib';
 import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   ACTIVITY_ELAPSED_MAX_MS,
   ACTIVITY_ICON_MAX_BYTES,
+  ACTIVITY_MAX_COUNT,
   ACTIVITY_NAME_MAX_LENGTH,
   CLIENT_FEATURE_DM,
   CLIENT_FEATURE_PRESENCE,
@@ -14,6 +16,7 @@ import {
   type Activity,
 } from '@diskort/shared';
 import { ActivityIconStore, inspectPng } from '../src/activityIcons.js';
+import { combineActivities, parseActivityReports } from '../src/presence.js';
 import { auth, connectGateway, type GatewayClient, type TestServer, startServer } from './helpers.js';
 
 let s: TestServer;
@@ -38,8 +41,12 @@ const connect = async (token: string): Promise<GatewayClient> => {
   return client;
 };
 
-const report = (c: GatewayClient, activity: unknown): void => c.ws.send(JSON.stringify({ t: 'ACTIVITY_SET', d: { activity } }));
+// Not: etkinlik bildirimleri oturum başına art arda 3 kez anında uygulanır, sonrası 5 saniyede bir; testler
+// (sel koruması testi dışında) oturum başına en fazla 3 bildirim gönderir.
+const report = (c: GatewayClient, activities: unknown): void =>
+  c.ws.send(JSON.stringify({ t: 'ACTIVITY_SET', d: { activities } }));
 const game = (name: string, elapsedMs = 0, icon: string | null = null) => ({ type: 'game', name, icon, elapsedMs });
+const names = (activities: readonly Activity[] | undefined): string[] => (activities ?? []).map((a) => a.name);
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -52,6 +59,16 @@ const png = (width: number, height = width, color = '#3366cc'): Promise<Buffer> 
     .png()
     .toBuffer();
 
+/** IHDR'den hemen sonra (CRC'si doğru) bir parça ekler */
+function withChunk(image: Buffer, type: string, data: Buffer): Buffer {
+  const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+  const chunk = Buffer.alloc(12 + data.length);
+  chunk.writeUInt32BE(data.length, 0);
+  body.copy(chunk, 4);
+  chunk.writeUInt32BE(crc32(body), 8 + data.length);
+  return Buffer.concat([image.subarray(0, 33), chunk, image.subarray(33)]);
+}
+
 const put = (token: string | null, key: string, body: Buffer, contentType = 'image/png') =>
   s.app.inject({
     method: 'PUT',
@@ -61,19 +78,19 @@ const put = (token: string | null, key: string, body: Buffer, contentType = 'ima
   });
 
 describe('etkinlik', () => {
-  it('ACTIVITY_SET ortak sunucudakilere PRESENCE_UPDATE ile gider; READY ve GUILD_CREATE içerir; null temizler', async () => {
+  it('ACTIVITY_SET ortak sunucudakilere PRESENCE_UPDATE ile gider; READY ve GUILD_CREATE içerir; boş liste temizler', async () => {
     const ali = await s.member('ali');
     const veli = await s.member('veli');
     const cv = await connect(veli.token);
     const ca = await connect(ali.token);
     await cv.settle();
     expect(cv.of('PRESENCE_UPDATE')).toEqual([
-      { userId: ali.user.id, online: true, status: 'online', customStatus: null, activity: null },
+      { userId: ali.user.id, online: true, status: 'online', customStatus: null, activities: [] },
     ]);
     cv.events.length = 0;
 
     const before = Date.now();
-    report(ca, game('  Counter-Strike\n2  ', 5 * MIN));
+    report(ca, [game('  Counter-Strike\n2  ', 5 * MIN)]);
     await cv.settle();
     const updates = cv.of('PRESENCE_UPDATE');
     expect(updates).toHaveLength(1);
@@ -81,52 +98,66 @@ describe('etkinlik', () => {
       userId: ali.user.id,
       online: true,
       status: 'online',
-      activity: { type: 'game', name: 'Counter-Strike 2', icon: null },
+      activities: [{ type: 'game', name: 'Counter-Strike 2', icon: null }],
     });
-    const startedAt = updates[0]!.activity!.startedAt;
-    expect(startedAt).toBeGreaterThanOrEqual(before - 5 * MIN);
-    expect(startedAt).toBeLessThanOrEqual(Date.now() - 5 * MIN);
+    const activities = updates[0]!.activities!;
+    expect(activities[0]!.startedAt).toBeGreaterThanOrEqual(before - 5 * MIN);
+    expect(activities[0]!.startedAt).toBeLessThanOrEqual(Date.now() - 5 * MIN);
     // Kendi oturumu da alır
-    expect(ca.of('PRESENCE_UPDATE').at(-1)).toMatchObject({ userId: ali.user.id, activity: { name: 'Counter-Strike 2' } });
+    expect(ca.of('PRESENCE_UPDATE').at(-1)).toMatchObject({ userId: ali.user.id, activities: [{ name: 'Counter-Strike 2' }] });
 
     // Sonradan bağlanan READY'de, yeni katıldığı sunucuda GUILD_CREATE'te görür
     const cv2 = await connect(veli.token);
-    expect(cv2.ready.presences?.[ali.user.id]?.activity).toEqual(updates[0]!.activity);
+    expect(cv2.ready.presences?.[ali.user.id]?.activities).toEqual(activities);
     const guild = (await s.req(ali.token, 'POST', '/api/guilds', { name: 'İkinci' })).json() as { guild: { id: string } };
     const code = (await s.req(ali.token, 'POST', `/api/guilds/${guild.guild.id}/invites`, {})).json().code as string;
     await s.req(veli.token, 'POST', `/api/invites/${code}/accept`, {});
     await cv.settle();
-    expect(cv.of('GUILD_CREATE').at(-1)?.presences?.[ali.user.id]?.activity).toEqual(updates[0]!.activity);
+    expect(cv.of('GUILD_CREATE').at(-1)?.presences?.[ali.user.id]?.activities).toEqual(activities);
 
     // Boşta ve Rahatsız Etmeyin'de de görünür
     await s.req(ali.token, 'PATCH', '/api/me/status', { status: 'dnd' });
     await cv.settle();
-    expect(cv.of('PRESENCE_UPDATE').at(-1)).toMatchObject({ status: 'dnd', activity: { name: 'Counter-Strike 2' } });
+    expect(cv.of('PRESENCE_UPDATE').at(-1)).toMatchObject({ status: 'dnd', activities: [{ name: 'Counter-Strike 2' }] });
 
     cv.events.length = 0;
-    report(ca, null);
+    report(ca, []);
     await cv.settle();
     expect(cv.of('PRESENCE_UPDATE')).toEqual([
-      { userId: ali.user.id, online: true, status: 'dnd', customStatus: null, activity: null },
+      { userId: ali.user.id, online: true, status: 'dnd', customStatus: null, activities: [] },
     ]);
     // Zaten yokken temizlemek olay üretmez
     cv.events.length = 0;
-    report(ca, null);
+    report(ca, []);
     await cv.settle();
     expect(cv.of('PRESENCE_UPDATE')).toEqual([]);
   });
 
-  it('geçersiz bildirimler yok sayılır; süre sınırlanır', async () => {
+  it('liste olmayan bildirim yok sayılır; listedeki geçersiz öğeler atlanır; süre sınırlanır', async () => {
     const ali = await s.member('ali');
     const veli = await s.member('veli');
     const cv = await connect(veli.token);
     const ca = await connect(ali.token);
-    report(ca, game('Hades', MIN));
+    report(ca, [game('Hades', MIN)]);
     await cv.settle();
     cv.events.length = 0;
 
-    const bad: unknown[] = [
-      undefined,
+    for (const activities of [undefined, null, 'Hades', 42, {}, game('Tek Oyun'), { 0: game('Sahte Liste'), length: 1 }]) {
+      report(ca, activities);
+    }
+    ca.ws.send(JSON.stringify({ t: 'ACTIVITY_SET' }));
+    ca.ws.send(JSON.stringify({ t: 'ACTIVITY_SET', d: null }));
+    ca.ws.send(JSON.stringify({ t: 'ACTIVITY_SET', d: { activity: null } }));
+    await cv.settle();
+    expect(cv.of('PRESENCE_UPDATE')).toEqual([]);
+    expect(names(s.ctx.gateway.presenceOf(ali.user.id).activities)).toEqual(['Hades']);
+    expect(ca.ws.readyState).toBe(ca.ws.OPEN);
+
+    // Geçersiz öğeler atlanır, geçerliler alınır. En uzun ad kabul edilir (kod noktası sayılır); süre eksi ya
+    // da aşırıysa sınıra çekilir; biçimi bozuk ya da sunucuda olmayan ikon: etkinlik ikonsuz görünür
+    const long = '🎮'.repeat(ACTIVITY_NAME_MAX_LENGTH);
+    report(ca, [
+      null,
       'Hades',
       42,
       [],
@@ -136,100 +167,156 @@ describe('etkinlik', () => {
       game(''),
       game(' \n\t\u0000 '),
       game('x'.repeat(ACTIVITY_NAME_MAX_LENGTH + 1)),
-      { type: 'game', name: 'Oyun', icon: null },
-      { type: 'game', name: 'Oyun', icon: null, elapsedMs: '5' },
-      { type: 'game', name: 'Oyun', icon: null, elapsedMs: null },
-    ];
-    for (const activity of bad) report(ca, activity);
-    ca.ws.send(JSON.stringify({ t: 'ACTIVITY_SET' }));
-    ca.ws.send(JSON.stringify({ t: 'ACTIVITY_SET', d: null }));
-    ca.ws.send(JSON.stringify({ t: 'ACTIVITY_SET', d: { activity: { type: 'game', name: 'Oyun', elapsedMs: 1e999 } } }));
+      { type: 'game', name: 'Süresiz', icon: null },
+      { type: 'game', name: 'Süresi Yazı', icon: null, elapsedMs: '5' },
+      { type: 'game', name: 'Süresi Boş', icon: null, elapsedMs: null },
+      game(long, -5000),
+      game('Eski', ACTIVITY_ELAPSED_MAX_MS * 10),
+      game('İkonlu', MIN, '../../etc/passwd'),
+      game('İkonlu 2', 2 * MIN, 'a'.repeat(64)),
+    ]);
     await cv.settle();
-    expect(cv.of('PRESENCE_UPDATE')).toEqual([]);
-    expect(s.ctx.gateway.presenceOf(ali.user.id).activity).toMatchObject({ name: 'Hades' });
-    expect(ca.ws.readyState).toBe(ca.ws.OPEN);
+    const list = cv.of('PRESENCE_UPDATE').at(-1)!.activities!;
+    expect(names(list)).toEqual([long, 'İkonlu', 'İkonlu 2', 'Eski']);
+    expect(Math.abs(list[0]!.startedAt - Date.now())).toBeLessThan(5000);
+    expect(Math.abs(Date.now() - ACTIVITY_ELAPSED_MAX_MS - list[3]!.startedAt)).toBeLessThan(5000);
+    expect(list.map((a) => a.icon)).toEqual([null, null, null, null]);
 
-    // En uzun ad kabul edilir (kod noktası sayılır); süre eksi ya da aşırıysa sınıra çekilir
-    const long = '🎮'.repeat(ACTIVITY_NAME_MAX_LENGTH);
-    report(ca, game(long, -5000));
+    // Görünmez ad (yalnızca sıfır genişlikli / yön karakterleri) reddedilir; adın içindekiler atılır
+    report(ca, [game('​‏⁠­﻿'), game('‮Ha​des‬')]);
     await cv.settle();
-    const fresh = cv.of('PRESENCE_UPDATE').at(-1)!.activity!;
-    expect(fresh.name).toBe(long);
-    expect(Math.abs(fresh.startedAt - Date.now())).toBeLessThan(5000);
-    report(ca, game('Eski', ACTIVITY_ELAPSED_MAX_MS * 10));
-    await cv.settle();
-    const old = cv.of('PRESENCE_UPDATE').at(-1)!.activity!;
-    expect(Math.abs(Date.now() - ACTIVITY_ELAPSED_MAX_MS - old.startedAt)).toBeLessThan(5000);
-    // Biçimi bozuk ya da sunucuda olmayan ikon: etkinlik ikonsuz görünür
-    report(ca, game('İkonlu', 0, '../../etc/passwd'));
-    await cv.settle();
-    expect(cv.of('PRESENCE_UPDATE').at(-1)!.activity).toMatchObject({ name: 'İkonlu', icon: null });
-    report(ca, game('İkonlu 2', 0, 'a'.repeat(64)));
-    await cv.settle();
-    expect(cv.of('PRESENCE_UPDATE').at(-1)!.activity).toMatchObject({ name: 'İkonlu 2', icon: null });
+    expect(names(cv.of('PRESENCE_UPDATE').at(-1)!.activities)).toEqual(['Hades']);
   });
 
-  it('aynı oyun yeniden bildirilince başlangıç korunur; ikon değişikliği ve büyük fark duyurulur', async () => {
+  it('aynı oyun yeniden bildirilince başlangıç korunur; ikon değişikliği duyurulur', async () => {
     const ali = await s.member('ali');
     const veli = await s.member('veli');
     const cv = await connect(veli.token);
     const ca = await connect(ali.token);
-    const last = async (): Promise<Activity> => {
-      await cv.settle();
-      return cv.of('PRESENCE_UPDATE').at(-1)!.activity!;
-    };
-    report(ca, game('Factorio', 10_000));
-    const first = await last();
+    report(ca, [game('Factorio', 10_000)]);
+    await cv.settle();
+    const first = cv.of('PRESENCE_UPDATE').at(-1)!.activities!;
+    expect(first).toHaveLength(1);
     cv.events.length = 0;
 
-    report(ca, game('Factorio', 35_000));
+    report(ca, [game('Factorio', 35_000)]);
     await cv.settle();
     expect(cv.of('PRESENCE_UPDATE')).toEqual([]);
-    expect(s.ctx.gateway.presenceOf(ali.user.id).activity).toEqual(first);
+    expect(s.ctx.gateway.presenceOf(ali.user.id).activities).toEqual(first);
 
     // İkon sonradan yüklendi: başlangıç aynı kalır, ikon gelir
     const icon = await png(32);
     expect((await put(ali.token, sha(icon), icon)).statusCode).toBe(201);
-    report(ca, game('Factorio', 40_000, sha(icon)));
-    expect(await last()).toEqual({ ...first, icon: sha(icon) });
-
-    // Bir dakikadan büyük fark gerçek bir değişikliktir
-    report(ca, game('Factorio', 10 * MIN, sha(icon)));
-    const moved = await last();
-    expect(first.startedAt - moved.startedAt).toBeGreaterThan(9 * MIN);
-    // Başka oyun: başlangıç korunmaz
-    report(ca, game('Satisfactory', 10 * MIN));
-    expect(await last()).toMatchObject({ name: 'Satisfactory', icon: null });
+    report(ca, [game('Factorio', 40_000, sha(icon))]);
+    await cv.settle();
+    expect(cv.of('PRESENCE_UPDATE').at(-1)!.activities).toEqual([{ ...first[0]!, icon: sha(icon) }]);
   });
 
-  it('iki oturum: en son başlayan görünür; oturum kapanınca etkinliği kalkar', async () => {
+  it('bir dakikadan büyük fark ve yeni oyun duyurulur; öteki oyunların başlangıcı korunur', async () => {
+    const ali = await s.member('ali');
+    const veli = await s.member('veli');
+    const cv = await connect(veli.token);
+    const ca = await connect(ali.token);
+    const last = async (): Promise<Activity[]> => {
+      await cv.settle();
+      return cv.of('PRESENCE_UPDATE').at(-1)!.activities!;
+    };
+    report(ca, [game('Factorio', 10_000)]);
+    const [first] = await last();
+    report(ca, [game('Factorio', 10 * MIN)]);
+    const [moved] = await last();
+    expect(first!.startedAt - moved!.startedAt).toBeGreaterThan(9 * MIN);
+    // İkinci oyun açıldı: ilkinin başlangıcı oynamaz
+    report(ca, [game('Factorio', 10 * MIN + 20_000), game('Satisfactory', MIN)]);
+    const both = await last();
+    expect(names(both)).toEqual(['Satisfactory', 'Factorio']);
+    expect(both[1]).toEqual(moved);
+  });
+
+  it('bir oturumda birden çok oyun: en son başlayan ilk sırada, en fazla ACTIVITY_MAX_COUNT, aynı oyun bir kez', async () => {
+    const ali = await s.member('ali');
+    const veli = await s.member('veli');
+    const cv = await connect(veli.token);
+    const ca = await connect(ali.token);
+    const last = async (): Promise<Activity[]> => {
+      await cv.settle();
+      return cv.of('PRESENCE_UPDATE').at(-1)!.activities!;
+    };
+    report(ca, [game('Eski Oyun', HOUR), game('Yeni Oyun', MIN)]);
+    const two = await last();
+    expect(names(two)).toEqual(['Yeni Oyun', 'Eski Oyun']);
+    expect(two[0]!.startedAt).toBeGreaterThan(two[1]!.startedAt);
+
+    // Fazlası alınmaz (ilk geçerli ACTIVITY_MAX_COUNT öğe), sonra sıralanır
+    report(ca, Array.from({ length: ACTIVITY_MAX_COUNT + 3 }, (_, i) => game(`Oyun ${i}`, (10 - i) * MIN)));
+    expect(names(await last())).toEqual(['Oyun 3', 'Oyun 2', 'Oyun 1', 'Oyun 0']);
+
+    // Aynı oyun iki kez: ilki geçerli
+    report(ca, [game('Çift', 5 * MIN), game('Çift', HOUR), game('Tek', MIN)]);
+    const deduped = await last();
+    expect(names(deduped)).toEqual(['Tek', 'Çift']);
+    expect(Math.abs(Date.now() - 5 * MIN - deduped[1]!.startedAt)).toBeLessThan(5000);
+  });
+
+  it('iki oturum: listeler birleşir, aynı oyun tek öğedir; oturum kapanınca etkinlikleri kalkar', async () => {
     const ali = await s.member('ali');
     const veli = await s.member('veli');
     const cv = await connect(veli.token);
     const desk = await connect(ali.token);
     const laptop = await connect(ali.token);
-    const last = async (): Promise<Activity | null | undefined> => {
+    const last = async (): Promise<Activity[] | undefined> => {
       await cv.settle();
-      return cv.of('PRESENCE_UPDATE').at(-1)?.activity;
+      return cv.of('PRESENCE_UPDATE').at(-1)?.activities;
     };
-    report(desk, game('Eski Oyun', HOUR));
-    expect(await last()).toMatchObject({ name: 'Eski Oyun' });
-    report(laptop, game('Yeni Oyun', MIN));
-    expect(await last()).toMatchObject({ name: 'Yeni Oyun' });
-    // Daha eski başlayan bir oyun görüneni değiştirmez
+    report(desk, [game('Eski Oyun', HOUR)]);
+    const [old] = (await last())!;
+    report(laptop, [game('Yeni Oyun', MIN)]);
+    expect(names(await last())).toEqual(['Yeni Oyun', 'Eski Oyun']);
+
+    // Aynı oyun öteki oturumda da bildirildi (yeniden bağlanma, eski oturum henüz düşmedi): tek öğe, başlangıç
+    // aynı, hiçbir duyuru yok
     cv.events.length = 0;
-    report(desk, game('Daha Eski', 2 * HOUR));
+    report(laptop, [game('Yeni Oyun', MIN), game('Eski Oyun', HOUR + 20_000)]);
     await cv.settle();
     expect(cv.of('PRESENCE_UPDATE')).toEqual([]);
-
-    laptop.ws.close();
-    expect(await last()).toMatchObject({ name: 'Daha Eski' });
+    const combined = s.ctx.gateway.presenceOf(ali.user.id).activities!;
+    expect(names(combined)).toEqual(['Yeni Oyun', 'Eski Oyun']);
+    expect(combined[1]).toEqual(old);
+    // Eski oturum düşünce de değişmez: başlangıç yeni oturuma taşınmıştı
     desk.ws.close();
     await cv.settle();
+    expect(cv.of('PRESENCE_UPDATE')).toEqual([]);
+    expect(s.ctx.gateway.presenceOf(ali.user.id).activities).toEqual(combined);
+
+    // Aynı oyun iki cihazda ayrı zamanlarda başlamış: yine tek öğe, en son başlayan
+    const phone = await connect(ali.token);
+    report(phone, [game('Eski Oyun', 10 * MIN)]);
+    const merged = (await last())!;
+    expect(names(merged)).toEqual(['Yeni Oyun', 'Eski Oyun']);
+    expect(merged[1]!.startedAt - old!.startedAt).toBeGreaterThan(45 * MIN);
+
+    phone.ws.close();
+    expect((await last())![1]).toEqual(old);
+    laptop.ws.close();
+    await cv.settle();
     expect(cv.of('PRESENCE_UPDATE').at(-1)).toEqual({ userId: ali.user.id, online: false, status: 'offline', customStatus: null });
-    // Yeniden bağlanınca eski etkinlik geri gelmez
+    // Yeniden bağlanınca eski etkinlikler geri gelmez
     await connect(ali.token);
-    expect(await last()).toBeNull();
+    expect(await last()).toEqual([]);
+  });
+
+  it('birleştirme: yakın başlangıçlarda eskisi, uzakta en son başlayan; ikonu olan; sıra ve sınır', () => {
+    const at = (name: string, startedAt: number, icon: string | null = null): Activity => ({ type: 'game', name, icon, startedAt });
+    expect(combineActivities([])).toEqual([]);
+    expect(combineActivities([[at('A', 1000)], [at('A', 31_000, 'k')], [at('B', 500)]])).toEqual([at('A', 1000, 'k'), at('B', 500)]);
+    expect(combineActivities([[at('A', 31_000, 'k')], [at('A', 1000)]])).toEqual([at('A', 1000, 'k')]);
+    expect(combineActivities([[at('A', 1000, 'k')], [at('A', 200_000)]])).toEqual([at('A', 200_000, 'k')]);
+    // Eşit başlangıçta ada göre; en fazla ACTIVITY_MAX_COUNT
+    const many = combineActivities([[at('c', 5), at('a', 5)], [at('b', 5), at('e', 9)], [at('d', 1), at('f', 0)]]);
+    expect(names(many)).toEqual(['e', 'a', 'b', 'c']);
+    // Liste olmayan: undefined; boş liste: boş
+    expect(parseActivityReports({ length: 0 }, () => true)).toBeUndefined();
+    expect(parseActivityReports([], () => true)).toEqual([]);
   });
 
   it('görünmez kullanıcının etkinliği sızmaz; görünür olunca duyurulur', async () => {
@@ -238,7 +325,7 @@ describe('etkinlik', () => {
     const ca = await connect(ali.token);
     await s.req(ali.token, 'PATCH', '/api/me/status', { status: 'invisible' });
     const cv = await connect(veli.token);
-    report(ca, game('Gizli Oyun', MIN));
+    report(ca, [game('Gizli Oyun', MIN)]);
     await cv.settle();
     expect(JSON.stringify(cv.events)).not.toContain('Gizli Oyun');
     expect(s.ctx.gateway.presenceOf(ali.user.id)).toEqual({ status: 'offline', customStatus: null });
@@ -247,30 +334,30 @@ describe('etkinlik', () => {
 
     await s.req(ali.token, 'PATCH', '/api/me/status', { status: 'online' });
     await cv.settle();
-    expect(cv.of('PRESENCE_UPDATE').at(-1)).toMatchObject({ status: 'online', activity: { name: 'Gizli Oyun' } });
+    expect(cv.of('PRESENCE_UPDATE').at(-1)).toMatchObject({ status: 'online', activities: [{ name: 'Gizli Oyun' }] });
     // Yeniden görünmez: çevrimdışı duyurusunda etkinlik yok
     await s.req(ali.token, 'PATCH', '/api/me/status', { status: 'invisible' });
     await cv.settle();
     expect(cv.of('PRESENCE_UPDATE').at(-1)).toEqual({ userId: ali.user.id, online: false, status: 'offline', customStatus: null });
   });
 
-  it('sel koruması: art arda bildirimler birleştirilir, son hâl uygulanır', async () => {
+  it('sel koruması: art arda 3 bildirimden sonrası 5 saniyede bire iner, son hâl mutlaka uygulanır', async () => {
     const ali = await s.member('ali');
     const veli = await s.member('veli');
     const cv = await connect(veli.token);
     const ca = await connect(ali.token);
     await cv.settle();
     cv.events.length = 0;
-    for (let i = 0; i < 40; i++) report(ca, game(`Oyun ${i}`));
-    await new Promise((r) => setTimeout(r, 1200));
-    const updates = cv.of('PRESENCE_UPDATE');
-    expect(updates.length).toBeLessThan(10);
-    expect(updates.at(-1)!.activity).toMatchObject({ name: 'Oyun 39' });
+    for (let i = 0; i < 40; i++) report(ca, [game(`Oyun ${i}`)]);
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(cv.of('PRESENCE_UPDATE').map((u) => names(u.activities))).toEqual([['Oyun 0'], ['Oyun 1'], ['Oyun 2']]);
+    await new Promise((r) => setTimeout(r, 4600));
+    expect(cv.of('PRESENCE_UPDATE').map((u) => names(u.activities))).toEqual([['Oyun 0'], ['Oyun 1'], ['Oyun 2'], ['Oyun 39']]);
   });
 });
 
 describe('etkinlik ikonları', () => {
-  it('yükleme doğrulanır: oturum, anahtar, özet, PNG, kare, kenar, boyut', async () => {
+  it('yükleme doğrulanır: oturum, anahtar, özet, PNG, parçalar, kare, kenar, boyut', async () => {
     const ali = await s.member('ali');
     const icon = await png(64);
     const key = sha(icon);
@@ -299,6 +386,12 @@ describe('etkinlik ikonları', () => {
     const corrupt = Buffer.from(icon);
     corrupt[40] = corrupt[40]! ^ 0xff;
     await rejected(corrupt, 415, 'unsupported_type');
+    // İzinli olmayan parçalar: hareketli PNG (APNG), metin, özel parça
+    const actl = Buffer.alloc(8);
+    actl.writeUInt32BE(1, 0);
+    await rejected(withChunk(icon, 'acTL', actl), 415, 'unsupported_type');
+    await rejected(withChunk(icon, 'tEXt', Buffer.from('Comment\0gizli veri')), 415, 'unsupported_type');
+    await rejected(withChunk(icon, 'prVt', Buffer.from('özel')), 415, 'unsupported_type');
     // Kare değil, çok küçük, çok büyük kenar
     await rejected(await png(64, 32), 400, 'invalid_image');
     await rejected(await png(8), 400, 'invalid_image');
@@ -307,6 +400,14 @@ describe('etkinlik ikonları', () => {
     await rejected(Buffer.alloc(ACTIVITY_ICON_MAX_BYTES + 1, 1), 413, 'too_large');
     expect(fs.readdirSync(dir)).toEqual([]);
     expect(s.ctx.activityIcons.count).toBe(0);
+
+    // Zararsız ek parça (piksel yoğunluğu) kabul edilir
+    const phys = Buffer.alloc(9);
+    phys.writeUInt32BE(2835, 0);
+    phys.writeUInt32BE(2835, 4);
+    phys[8] = 1;
+    const dense = withChunk(icon, 'pHYs', phys);
+    expect((await put(ali.token, sha(dense), dense)).statusCode).toBe(201);
   });
 
   it('yüklenen ikon sunulur; yeniden yükleme dosyaya dokunmaz; ACTIVITY_SET ikonu taşır', async () => {
@@ -350,9 +451,12 @@ describe('etkinlik ikonları', () => {
 
     const cv = await connect(veli.token);
     const ca = await connect(ali.token);
-    report(ca, game('Hades', 0, key));
+    report(ca, [game('Hades', 0, key), game('İkonsuz', MIN, sha(Buffer.from('yok')))]);
     await cv.settle();
-    expect(cv.of('PRESENCE_UPDATE').at(-1)!.activity).toMatchObject({ name: 'Hades', icon: key });
+    expect(cv.of('PRESENCE_UPDATE').at(-1)!.activities).toMatchObject([
+      { name: 'Hades', icon: key },
+      { name: 'İkonsuz', icon: null },
+    ]);
   });
 
   it('kullanıcı başına yükleme sınırı yalnızca yeni ikonları sayar', async () => {
@@ -368,29 +472,37 @@ describe('etkinlik ikonları', () => {
     expect((await put(veli.token, sha(icons[30]!), icons[30]!)).statusCode).toBe(201);
   });
 
-  it('depo: toplam ikon sınırı, açılışta var olanları tanır, yarım dosyaları siler', async () => {
+  it('depo: toplam ikon sınırı (bir kez günlüğe yazılır), açılışta var olanları tanır, yarım ve boş dosyaları siler', async () => {
     const a = await png(16, 16, '#ff0000');
     const b = await png(16, 16, '#00ff00');
     const c = await png(16, 16, '#0000ff');
-    const store = new ActivityIconStore(dir, 2);
+    const warnings: string[] = [];
+    const store = new ActivityIconStore(dir, { maxCount: 2, log: { warn: (_obj, msg) => void warnings.push(msg ?? '') } });
     expect(await store.save(sha(a), a)).toBe(true);
     expect(await store.save(sha(b), b)).toBe(true);
+    expect(warnings).toEqual([]);
     await expect(store.save(sha(c), c)).rejects.toMatchObject({ status: 507, code: 'storage_full' });
+    await expect(store.save(sha(c), c)).rejects.toMatchObject({ status: 507, code: 'storage_full' });
+    expect(warnings).toHaveLength(1);
     // Dolu depoda var olan ikon yine başarılıdır
     expect(await store.save(sha(a), a)).toBe(false);
     expect(store.has(sha(c))).toBe(false);
     expect(store.pathOf(sha(c))).toBeNull();
 
     fs.writeFileSync(path.join(dir, '0123456789abcdef.tmp'), 'yarım');
+    fs.writeFileSync(path.join(dir, `${sha(c)}.png`), '');
     fs.writeFileSync(path.join(dir, 'notlar.txt'), 'bize ait değil');
     const reopened = new ActivityIconStore(dir);
     expect(reopened.count).toBe(2);
     expect(reopened.has(sha(a))).toBe(true);
+    expect(reopened.has(sha(c))).toBe(false);
     expect(reopened.pathOf(sha(b))).toBe(path.join(dir, `${sha(b)}.png`));
     expect(fs.readdirSync(dir).sort()).toEqual([`${sha(a)}.png`, `${sha(b)}.png`, 'notlar.txt'].sort());
+    // Silinen boş dosyanın yerine ikon yeniden yüklenebilir
+    expect(await reopened.save(sha(c), c)).toBe(true);
   });
 
-  it('PNG yapısı: boyutlar okunur, bozuk başlık reddedilir', async () => {
+  it('PNG yapısı: boyutlar okunur, bozuk başlık ve izinsiz parça reddedilir', async () => {
     const icon = await png(48);
     expect(inspectPng(icon)).toEqual({ width: 48, height: 48 });
     expect(inspectPng(await png(20, 30))).toEqual({ width: 20, height: 30 });
@@ -399,5 +511,10 @@ describe('etkinlik ikonları', () => {
     expect(inspectPng(icon.subarray(0, 33))).toBeNull();
     // IEND'siz: imza + IHDR + IDAT
     expect(inspectPng(icon.subarray(0, icon.length - 12))).toBeNull();
+    expect(inspectPng(withChunk(icon, 'sRGB', Buffer.from([0])))).toEqual({ width: 48, height: 48 });
+    expect(inspectPng(withChunk(icon, 'gAMA', Buffer.from([0, 0, 0xb1, 0x8f])))).toEqual({ width: 48, height: 48 });
+    for (const type of ['acTL', 'fcTL', 'fdAT', 'tEXt', 'zTXt', 'iTXt', 'iCCP', 'eXIf', 'tIME', 'abCd']) {
+      expect(inspectPng(withChunk(icon, type, Buffer.alloc(4)))).toBeNull();
+    }
   });
 });

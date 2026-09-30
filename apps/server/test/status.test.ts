@@ -81,7 +81,7 @@ describe('durum', () => {
     const ca = await connect(ali.token);
     await cv.settle();
     expect(cv.of('PRESENCE_UPDATE')).toEqual([
-      { userId: ali.user.id, online: true, status: 'online', customStatus: null, activity: null },
+      { userId: ali.user.id, online: true, status: 'online', customStatus: null, activities: [] },
     ]);
     cv.events.length = 0;
 
@@ -123,7 +123,7 @@ describe('durum', () => {
     await setStatus(ali, { status: 'online' });
     await cv2.settle();
     expect(cv2.of('PRESENCE_UPDATE')).toEqual([
-      { userId: ali.user.id, online: true, status: 'online', customStatus: { text: 'yine gizli', emoji: null }, activity: null },
+      { userId: ali.user.id, online: true, status: 'online', customStatus: { text: 'yine gizli', emoji: null }, activities: [] },
     ]);
     void ca3;
   });
@@ -159,7 +159,7 @@ describe('durum', () => {
       online: true,
       status: 'online',
       customStatus: null,
-      activity: null,
+      activities: [],
     });
     expect(s.ctx.gateway.statuses.get(ali.user.id).customStatus).toBeNull();
   });
