@@ -30,7 +30,7 @@ const VEIL = 0.55;
 
 /**
  * Profil kartının üst kısmı (masaüstündeki profil kartı gibi): üstte afiş (resim, yoksa tema rengi, o da
- * yoksa profil rengi), afişe taşan avatar (halkası kartın renginde), ad, kullanıcı adı ve satırlar. Tema
+ * yoksa avatarın rengi), afişe taşan avatar (halkası kartın renginde), ad, kullanıcı adı ve satırlar. Tema
  * varsa zemin iki renkli degradedir, üstüne yazılar okunsun diye sayfanın renginde yarı saydam bir tül
  * serilir. Hareketli set efekti en üsttedir. Üye menüsü ve Ayarlar → Profil'deki önizleme kullanır.
  */

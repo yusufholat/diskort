@@ -29,7 +29,7 @@ export function themedRingColor(theme: ProfileTheme | null | undefined): string 
 
 /**
  * Kartın üstündeki afiş: resim, yoksa tema rengi, yoksa hareketli set efektinin gökyüzü degradesi, o da yoksa
- * profil rengi
+ * avatarın rengi (sunucu, tema varsa onun ana rengini avatarColor olarak gönderir)
  */
 export function ProfileBanner({
   user,

@@ -4,7 +4,6 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   animatedDecoration,
   animatedDecorationSet,
-  AVATAR_COLORS,
   COSMETIC_SET_LABELS,
   COSMETIC_SETS,
   NAMEPLATE_LABELS,
@@ -21,7 +20,6 @@ import {
 } from '@diskort/shared';
 import {
   COSMETIC_SET_INFO,
-  api,
   errorMessage,
   PROFILE_THEME_PRESETS,
   profileGradient,
@@ -44,8 +42,8 @@ import { StatusChip } from '../StatusPicker';
 import { Button, Card, Choices, SectionTitle } from '../ui';
 
 /**
- * Ayarlar → Profil (masaüstündeki profil fotoğrafı ve Profil Rengi): fotoğraf galeriden seçilip kare
- * kırpılır; durum ve özel durum; fotoğraf yokken avatarın zemin rengi; profil süsleri (afiş, tema, efekt).
+ * Ayarlar → Profil (masaüstündeki profil fotoğrafı ve süsler): fotoğraf galeriden seçilip kare
+ * kırpılır; durum ve özel durum; profil süsleri (afiş, tema, efekt).
  * En üstteki kart, üyelerin gördüğü profil kartının canlı önizlemesidir.
  */
 export function ProfileSettings() {
@@ -53,21 +51,8 @@ export function ProfileSettings() {
   const photo = useProfilePhoto();
   const banner = useProfileBanner();
   const look = useProfileLook();
-  const [savingColor, setSavingColor] = useState(false);
   // Hareketli setler yalnızca Skia'lı uygulamada sunulur (yoksa çizilemez)
   const animated = useHasSkia();
-
-  const setColor = async (avatarColor: string): Promise<void> => {
-    setSavingColor(true);
-    try {
-      const updated = await api.updateMe({ avatarColor });
-      useSession.getState().setUser(updated);
-    } catch (err) {
-      toast(errorMessage(err), 'error');
-    } finally {
-      setSavingColor(false);
-    }
-  };
 
   if (!user) return null;
   // Önizleme: seçimler kaydedilmeden önce de kartta görünür
@@ -119,29 +104,6 @@ export function ProfileSettings() {
           <Text style={styles.photoHint}>Fotoğraf eklemek için avatara dokun</Text>
         )}
       </ProfileHeader>
-
-      <SectionTitle>Profil rengi</SectionTitle>
-      <Card style={styles.pad}>
-        <Text style={styles.hint}>Profil fotoğrafın yokken avatarının zemin rengi.</Text>
-        <View style={styles.colors} accessibilityRole="radiogroup" accessibilityLabel="Profil rengi">
-          {AVATAR_COLORS.map((color) => {
-            const selected = user.avatarColor === color;
-            return (
-              <Pressable
-                key={color}
-                disabled={savingColor}
-                onPress={() => void setColor(color)}
-                style={[styles.swatch, { backgroundColor: color }, selected && styles.swatchOn]}
-                accessibilityRole="radio"
-                accessibilityState={{ selected }}
-                accessibilityLabel={color}
-              >
-                {selected ? <Ionicons name="checkmark" size={20} color="#fff" /> : null}
-              </Pressable>
-            );
-          })}
-        </View>
-      </Card>
 
       <SectionTitle>Afiş</SectionTitle>
       <Card style={styles.pad}>
@@ -455,7 +417,7 @@ function useProfileBanner() {
   const remove = async (): Promise<void> => {
     const ok = await confirmDialog({
       title: 'Afiş kaldırılsın mı?',
-      message: 'Kartının üstünde yeniden tema rengin (yoksa profil rengin) görünür.',
+      message: 'Kartının üstünde yeniden tema rengin (yoksa avatarının rengi) görünür.',
       confirmLabel: 'Kaldır',
       danger: true,
     });
@@ -498,7 +460,7 @@ function useProfilePhoto() {
   const remove = async (): Promise<void> => {
     const ok = await confirmDialog({
       title: 'Fotoğraf kaldırılsın mı?',
-      message: 'Avatarında adının baş harfleri ve profil rengin görünür.',
+      message: 'Avatarında adının baş harfleri görünür.',
       confirmLabel: 'Kaldır',
       danger: true,
     });

@@ -7,7 +7,7 @@ import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import WebSocket from 'ws';
-import { AVATAR_MAX_BYTES, type GatewayServerMessage, type ReadyPayload, type User } from '@diskort/shared';
+import { AVATAR_COLORS, AVATAR_MAX_BYTES, type GatewayServerMessage, type ReadyPayload, type User } from '@diskort/shared';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import type { AppContext } from '../src/context.js';
@@ -449,5 +449,37 @@ describe('profil afişi, tema ve efekt', () => {
     const cleared = (await patch({ profileTheme: null, profileEffect: null })).json() as User;
     expect(cleared.profileTheme).toBeNull();
     expect(cleared.animatedEffect).toBeNull();
+  });
+
+  it('avatar rengi: tema varsa ana renk, yoksa saklı renk (eski istemci avatarColor göndermeye devam eder)', async () => {
+    const { member } = await setup();
+    const patch = (payload: unknown) =>
+      app.inject({ method: 'PATCH', url: '/api/me', headers: auth(member.token), payload: payload as object });
+    const me = async () =>
+      (await app.inject({ method: 'GET', url: '/api/me', headers: auth(member.token) })).json() as User;
+
+    const stored = (await me()).avatarColor;
+    expect(AVATAR_COLORS).toContain(stored);
+
+    // Tema kaydedilince güncelleme yanıtı (USER_UPDATE ile aynı nesne) ve okuma yeni rengi taşır
+    const themed = (await patch({ profileTheme: { primary: '#123abc', accent: '#00ff00' } })).json() as User;
+    expect(themed.avatarColor).toBe('#123abc');
+    expect((await me()).avatarColor).toBe('#123abc');
+
+    // Tema değişince renk de değişir
+    expect(((await patch({ profileTheme: { primary: '#ABCDEF', accent: '#00ff00' } })).json() as User).avatarColor).toBe('#abcdef');
+
+    // Eski istemci avatarColor gönderir: kabul edilir ve saklanır, ama tema varken görünen renk temanınkidir
+    const other = AVATAR_COLORS.find((c) => c !== stored)!;
+    const old = await patch({ avatarColor: other });
+    expect(old.statusCode).toBe(200);
+    expect((old.json() as User).avatarColor).toBe('#abcdef');
+    expect((await patch({ avatarColor: '#010203' })).statusCode).toBe(400);
+
+    // Tema kalkınca saklı renk (eski istemcinin son gönderdiği) görünür
+    const cleared = (await patch({ profileTheme: null })).json() as User;
+    expect(cleared.profileTheme).toBeNull();
+    expect(cleared.avatarColor).toBe(other);
+    expect((await me()).avatarColor).toBe(other);
   });
 });
