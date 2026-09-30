@@ -24,7 +24,7 @@ const rel = (path: string): string => relative(SRC, path).split(sep).join('/');
 const read = (path: string): string => readFileSync(join(SRC, path), 'utf8');
 
 /** JSX'te hareket isteyen öznitelik (ör. `animate`, `animate={x}`, `animateDecoration />`) */
-const ANIMATE_PROP = /\s(animate|animateDecoration)(?=[\s=/>])/g;
+const ANIMATE_PROP = /\s(animate|animateDecoration)(?=[\s=/>]|$)/m;
 
 /** Hareketi yalnızca ileten bileşenler (kendileri istemez) */
 const FORWARDERS = new Set(['components/Avatar.tsx', 'components/cosmetics/Cosmetics.tsx']);
@@ -35,7 +35,7 @@ function animateSites(): Map<string, string[]> {
     const file = rel(path);
     if (FORWARDERS.has(file)) continue;
     const lines = readFileSync(path, 'utf8').split('\n');
-    const hits = lines.filter((line) => new RegExp(ANIMATE_PROP.source).test(line));
+    const hits = lines.filter((line) => ANIMATE_PROP.test(line));
     if (hits.length > 0) sites.set(file, hits);
   }
   return sites;
@@ -70,7 +70,7 @@ describe('kozmetikler yalnızca açık profilde oynar', () => {
       'components/PinsSheet.tsx',
       'app/search.tsx',
     ];
-    for (const file of lists) expect(read(file), file).not.toMatch(new RegExp(ANIMATE_PROP.source));
+    for (const file of lists) expect(read(file), file).not.toMatch(ANIMATE_PROP);
   });
 
   it('eski "oynat / durdur" yolları kalmadı (sesli sahnede konuşurken oynama, seçicide seçili olanın oynaması)', () => {
@@ -79,6 +79,14 @@ describe('kozmetikler yalnızca açık profilde oynar', () => {
       expect(text, rel(path)).not.toMatch(/decorationLite|decorationStill/);
       expect(text, rel(path)).not.toMatch(/<NameplateBackground[^>]*still=/);
     }
+  });
+
+  it('ileten bileşenler hareketi kendiliğinden açmaz', () => {
+    // Avatar yalnızca kendisine verilen isteği iletir; dekorasyon yalnızca istenince canlıdır; varsayılan hep sabit
+    expect(read('components/Avatar.tsx')).toContain('animate={animateDecoration}');
+    const cosmetics = read('components/cosmetics/Cosmetics.tsx');
+    expect(cosmetics).toContain("animate={look === 'live'}");
+    expect(cosmetics).not.toMatch(/animate = true|animate=\{true\}/);
   });
 
   it('sabit parça oynatıcıya bağlanmaz, Skia yüzeyi ya da paylaşılan değer kurmaz', () => {
