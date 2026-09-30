@@ -182,3 +182,29 @@ Paketler masaüstünde başlar; telefonda oynatma denendikçe platform platform 
 (`animatedEffect`, `avatarDecoration`, `nameplate`) **yalnızca yerleşik altı kimliği** gönderir; diğerleri `null`
 olur. Yeni istemciler bunu gateway'de `IDENTIFY.features` içinde `cosmetic_packs`, HTTP isteklerinde
 `X-Diskort-Features` başlığıyla bildirir (bkz. `apps/server/src/cosmeticCompat.ts`).
+
+## Telefonda (Android, iOS)
+
+Telefon setleri kodla çizmez; oynatıcı `apps/mobile/src/components/cosmetics/` altındadır (Skia).
+
+| Parça | Oynatılan dosya | Hareket yokken |
+|---|---|---|
+| Avatar dekorasyonu (`deco`), isim plakası (`plate`) | `webp` (hareketli WebP) | `poster` |
+| Profil efekti (`card`), iOS ve Android 10+ | `stacked-h264`; yoksa `webp` | `poster` |
+| Profil efekti (`card`), Android 8–9 | `webp` varsa o; yoksa yalnızca `poster` (hareketsiz) | `poster` |
+
+- **Uygulama en az Android 8 (API 26) ister.** Skia'nın videosu ancak API 26 ve üstüyle derlenen uygulamada
+  vardır (`app.config.ts` → `minSdkVersion: 26`).
+- **Android 8 ve 9'da kart videosu oynatılmaz** (`packSource.ts` → `STACKED_VIDEO_MIN_ANDROID_API = 29`): Skia'nın
+  Android videosu her karede Android 9'da gelen bir yöntemi çağırır (Android 8'de uygulamayı kapatırdı) ve kare
+  arabelleğini ancak Android 10'da GPU için açıkça ister. O telefonlarda kartın hareketli olması istenirse pakete
+  kart için bir `webp` eklenebilir (kareleri arayüz iş parçacığında çözülür: ağır kalırsa oynatıcı kendiliğinden
+  postere döner).
+- Android'de video çözücüsü telefonun donanım çözücüsüdür: uygulama arka plana geçince ve kimse oynatmıyorken
+  yarım dakika sonra bırakılır; aynı anda en çok bir boşta video tutulur.
+- `avif` telefonda kullanılmaz. Poster düz bir resim olarak gösterilir: "hareketi azalt" açıkken, durdurulmuş
+  görünümde (seçicide seçili olmayan seçenek, seste konuşmayan katılımcı), ekran dışında ve dosya yüklenirken.
+- Küçük avatarlarda (64 pikselden küçük: mesajlar, listeler) dekorasyon yerine setin `accent` renginde sabit bir
+  halka çizilir. Paket platformda kapalıysa: halka, plakada `fallback` renklerinden koyu bir zemin, kartta
+  afişin üstünde hafif bir ışık.
+- Dosyalar cihazda sürümlü adresleriyle önbelleklenir; bildirimde kalmayan sürümler silinir.

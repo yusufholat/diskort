@@ -1,7 +1,7 @@
 import { memo, useCallback, useMemo, useState, type ReactElement } from 'react';
 import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { userNameplate, type User } from '@diskort/shared';
+import { userNameplateId, type User } from '@diskort/shared';
 import {
   channelMemberGroups,
   memberGroups,
@@ -15,7 +15,7 @@ import {
 } from '@diskort/client-core';
 import { PresenceSubline } from '../ActivityCard';
 import { Avatar } from '../Avatar';
-import { useHasSkia, NAMEPLATE_TEXT_SHADOW, NameplateBackground, nameplateNameColor } from '../cosmetics/Cosmetics';
+import { NAMEPLATE_TEXT_SHADOW, NameplateBackground, nameplateNameColor, useNameplateShown } from '../cosmetics/Cosmetics';
 import { MemberSheet } from '../MemberSheet';
 import { ListSkeleton } from '../Skeleton';
 import { EmptyState } from '../States';
@@ -126,7 +126,7 @@ export function MemberList({
         sections={sections}
         keyExtractor={(u) => u.id}
         stickySectionHeadersEnabled={false}
-        // Varsayılan 21 ekranlık pencere yerine 11: pencerenin dışında kurulan satır (isim plakası yüzeyi) azalır
+        // Varsayılan 21 ekranlık pencere yerine 11: pencerenin dışında kurulan satır (isim plakası resmi) azalır
         windowSize={11}
         contentContainerStyle={styles.content}
         ListHeaderComponent={header}
@@ -174,9 +174,9 @@ const MemberRow = memo(function MemberRow({
   const custom = useCustomStatus(user.id);
   // Oynadığı oyun hesap düzeyidir: konuşmada da görünür (satırda yalnızca asıl oyun)
   const activity = useActivity(user.id);
-  // İsim plakası: satırın arkasında hareketli zemin; üstündeki yazılar açık renkli ve gölgeli (Skia yoksa
-  // plaka çizilmez, satır eskisi gibi kalır)
-  const plate = useHasSkia() ? userNameplate(user) : null;
+  // İsim plakası: satırın arkasında hareketli zemin; üstündeki yazılar açık renkli ve gölgeli (set bildirimde
+  // yoksa ya da Skia yoksa plaka gösterilmez, satır eskisi gibi kalır)
+  const plate = useNameplateShown(userNameplateId(user));
   return (
     <View style={[styles.cardRow, first && styles.cardFirst, last && styles.cardLast]}>
       <Pressable

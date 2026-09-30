@@ -103,6 +103,10 @@ const config: ExpoConfig = {
         android: {
           // Yalnızca arm64 ve armv7: APK boyutu küçülür (x86 yalnızca emülatörlerde gerekir)
           buildArchs: ['arm64-v8a', 'armeabi-v7a'],
+          // En az Android 8 (API 26). Skia'nın videosu (profil kartı efekti: yan yana video) yalnızca API 26 ve
+          // üstüyle derlenen uygulamada vardır (RNSkAndroidVideo.cpp: `__ANDROID_API__ < 26` ise kurucu hata
+          // fırlatır); yerel kod uygulamanın en düşük sürümüyle derlenir.
+          minSdkVersion: 26,
         },
       },
     ],

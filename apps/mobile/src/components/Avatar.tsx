@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Image, Text, View } from 'react-native';
-import { animatedDecorationSet, type User } from '@diskort/shared';
+import { animatedDecorationId, type User } from '@diskort/shared';
 import { avatarInk, avatarUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
 import { colors, createStyles } from '../theme';
 import { AnimatedDecoration } from './cosmetics/Cosmetics';
@@ -27,9 +27,9 @@ interface Props {
   decoration?: string | null;
   /** Hareketli dekorasyon küçük avatarda da canlı çizilsin (ayarlardaki seçici) */
   animateDecoration?: boolean;
-  /** Hareketli dekorasyonun hafif modu (sesli sahne): 'paused' ise son kare sabit kalır */
+  /** Sesli sahnedeki hareketli dekorasyon: 'on' ise oynar, 'paused' ise sabit resim (konuşmuyor) */
   decorationLite?: 'on' | 'paused';
-  /** Hareketli dekorasyon tek sabit kare (seçicide seçili olmayan seçenek) */
+  /** Hareketli dekorasyon sabit resim (seçicide seçili olmayan seçenek) */
   decorationStill?: boolean;
 }
 
@@ -52,8 +52,8 @@ export function Avatar({
   const src = avatarUrl(user);
   // Yüklenemeyen fotoğrafın yerine baş harfler (adres değişince yeniden denenir)
   const [failed, setFailed] = useState<string | null>(null);
-  // Hareketli dekorasyon (anim:<set>) kodla çizilir; tanınmayan kimlik çizilmez
-  const animated = animatedDecorationSet(decoration);
+  // Hareketli dekorasyon (anim:<set>): setin paketi oynatılır; bildirimde olmayan set gösterilmez
+  const animated = animatedDecorationId(decoration);
   return (
     <View style={{ width: size, height: size }}>
       <View
