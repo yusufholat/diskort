@@ -885,7 +885,9 @@ const toneOf = (v, warn, bad) => (v === null || v === undefined ? undefined : v 
 
 function micText(mic) {
   if (!mic) return '—';
-  const name = NOISE[mic.noise] ?? mic.noise;
+  let name = NOISE[mic.noise] ?? mic.noise;
+  // Masaüstü: seçili model düştüyse gerçekte çalışan (ör. "DPDFNet → Standart")
+  if (mic.fallback) name += ` → ${NOISE[mic.fallback.to] ?? mic.fallback.to}`;
   const load = mic.load !== null && mic.load !== undefined ? ` · %${nf.format(Math.round(mic.load * 100))} yük` : '';
   return `${mic.muted ? 'Kapalı · ' : ''}${name}${load}`;
 }

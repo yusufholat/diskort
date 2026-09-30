@@ -3,6 +3,7 @@ import { PREVIEW_SOUND_NAMES, SOUND_LABELS } from '@diskort/client-core';
 import { useEffect, useRef, useState } from 'react';
 import { voice } from '../../features/voice/voiceClient';
 import { MIC_TEST_RECORD_MS, type MicTest, type MicTestPhase } from '../../features/voice/micTest';
+import { fallbackLabel } from '../../features/voice/noiseFallback';
 import { bridge } from '../../lib/bridge';
 import { playSound } from '../../lib/sfx';
 import { cn, clamp } from '../../lib/utils';
@@ -15,6 +16,18 @@ import { KeybindInput } from './KeybindInput';
 interface Device {
   deviceId: string;
   label: string;
+}
+
+/** Görüşmede seçili model yerine başkası çalışıyorsa: "Şu an: DPDFNet → DeepFilterNet (işlemci yoğun)" */
+function NoiseFallbackHint() {
+  const fallback = useVoice((s) => s.noiseFallback);
+  if (!fallback) return null;
+  return (
+    <p className="mt-2 text-xs text-warn">
+      Şu an: {fallbackLabel(fallback)}
+      {fallback.transient ? ' · birkaç dakika sonra yeniden denenecek' : ' · bu oturumda denenmeyecek'}
+    </p>
+  );
 }
 
 function useDevices(): { inputs: Device[]; outputs: Device[] } {
@@ -314,7 +327,7 @@ export function VoiceSettings() {
             value: 'dpdfnet',
             label: 'Gelişmiş yapay zekâ (DPDFNet)',
             description:
-              'En temiz ses: klavye, fan, arkadaki konuşmalar ve TV sesini daha iyi ayırır. DeepFilterNet’ten yaklaşık 3 kat fazla işlemci kullanır ve ~20 ms daha gecikmelidir; işlemci yetmezse DeepFilterNet’e geçilir.',
+              'En temiz ses: klavye, fan, arkadaki konuşmalar ve TV sesini daha iyi ayırır. DeepFilterNet’ten yaklaşık 3 kat fazla işlemci kullanır ve ~20 ms daha gecikmelidir; işlemci yetmezse geçici olarak DeepFilterNet’e geçilir, birkaç dakika sonra yeniden denenir.',
           },
           {
             value: 'deepfilter',
@@ -325,6 +338,7 @@ export function VoiceSettings() {
           { value: 'off', label: 'Kapalı', description: 'Stüdyo mikrofonları veya müzik için.' },
         ]}
       />
+      <NoiseFallbackHint />
       {(s.noise === 'deepfilter' || s.noise === 'dpdfnet') && (
         <>
           <SectionTitle>Gürültü engelleme gücü</SectionTitle>

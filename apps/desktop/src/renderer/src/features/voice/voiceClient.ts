@@ -8,6 +8,7 @@ import {
   RoomEvent,
   setLogExtension,
   Track,
+  TrackEvent,
   type AudioCaptureOptions,
   type Participant,
   type RemoteParticipant,
@@ -49,13 +50,20 @@ import {
   type VoiceServerInfo,
 } from '../../stores/connectionStats';
 import {
-  deepFilterAvailable,
-  dpdfnetAvailable,
+  firstAvailableDenoiser,
   MicProcessor,
   type Denoiser,
   type GateConfig,
   type MicProcessingStats,
 } from './micProcessor';
+import { denoiserHealth, ladderFor, type DenoiserFailure, type FailureReason } from './denoiserHealth';
+import { MicSequencer } from './micSequencer';
+import {
+  EFFECTIVE_NOISE_LABELS,
+  fallbackNoticeText,
+  type EffectiveNoise,
+  type NoiseFallbackState,
+} from './noiseFallback';
 import { prepareHardwareEncoder, releaseHardwareEncoder, type HwEncoderChoice } from './hardwareEncoder';
 import { SCREEN_PRESETS } from './screenPresets';
 import { MicTest } from './micTest';
@@ -100,6 +108,8 @@ const RESET_ROOM_STATE = {
   shareQuality: null,
   shareIcon: null,
   pttActive: false,
+  noiseFallback: null,
+  noiseNotice: null,
 };
 
 /** Yayının gerçek çözünürlüğü ve kare hızı (ör. "1080p 60 FPS"); tarayıcı bildirmezse seçilen kalite */
@@ -124,6 +134,9 @@ function sourceOf(opts: ScreenShareOptions, track: MediaStreamTrack): { name: st
  */
 const MIC_TEST_RESUME_SEND_MS = 300;
 
+/** Model düşünce LiveKit'in süren yeniden kurulumunun bitmesi en çok bu kadar beklenir */
+const LIVEKIT_RESTART_WAIT_MS = 3000;
+
 /** "Katıldın" sesi mikrofonun hazır olmasını en çok bu kadar bekler */
 const JOIN_SOUND_MAX_WAIT_MS = 1500;
 
@@ -147,7 +160,15 @@ function disconnectMessage(reason?: DisconnectReason): string {
 class VoiceClient {
   private room: Room | null = null;
   private mic: LocalAudioTrack | null = null;
-  private processor: MicProcessor | null = null;
+  /** Mikrofonun yayınlama/yeniden yayınlama sırası ve güncel işlemcisi */
+  private readonly micSeq = new MicSequencer<MicProcessor>();
+  /** Seçili model düştüyse bekleme süresi dolunca (görüşme ortasında da) yeniden denenir */
+  private reupgradeTimer: number | null = null;
+  private reupgrading = false;
+  /** Bildirilen son düşüş (her düşüş bir kez bildirilir) */
+  private lastNotifiedFailure = 0;
+  /** Düşüşten hemen önceki ölçümler (sunucu kaydı için; o zincir yeniden kurulunca kaybolur) */
+  private failureStats: { id: number; stats: MicProcessingStats | null } | null = null;
   private screen: { video: LocalVideoTrack; audio: LocalAudioTrack | null; preview: StreamPreviewUploader } | null = null;
   /** Yayında istenen donanım kodlama yolu (null: ekran kartı kodlayıcısı yok, Chromium'un varsayılanı) */
   screenHardwareEncoder: HwEncoderChoice | null = null;
@@ -165,8 +186,6 @@ class VoiceClient {
   private readonly duplicates = new SpuriousDuplicateGuard();
   private remoteSpeaking = new Set<string>();
   private selfSpeaking = false;
-  /** Katılırken ya da izin gelince mikrofon yayınlanıyor (iki kez yayınlanmasın) */
-  private micStarting = false;
   /** Görüşmede mikrofon açılamadı (izin yok, aygıt yok); mikrofon testi kendi zincirini dener */
   private micFailed = false;
   /** Ayarlardaki mikrofon testi; görüşmedeyken sürdükçe odaya sessizlik gider ve susturulmuş görünürsün */
@@ -179,6 +198,15 @@ class VoiceClient {
   /** Bağlantı kısa süre içinde geri gelmezse "koptu" sesi; geri gelince "geri geldi" */
   private reconnectTimer: number | null = null;
   private lostSoundPlayed = false;
+
+  /** Odada yayınlanan mikrofonun işlemcisi; seviye/hata/yeniden kurulum yalnızca ondan dikkate alınır */
+  private get processor(): MicProcessor | null {
+    return this.micSeq.current;
+  }
+
+  private set processor(p: MicProcessor | null) {
+    this.micSeq.current = p;
+  }
 
   constructor() {
     this.audioSink = document.createElement('div');
@@ -320,6 +348,8 @@ class VoiceClient {
   private async teardownRoom(): Promise<void> {
     this.channelSounds.cancel();
     this.clearReconnectTimer();
+    this.scheduleReupgrade(null);
+    this.micSeq.clearDeferred();
     this.stopStats();
     // Yarım kalan ses kalitesi özeti (kanal ve mikrofon bilgisi henüz duruyor)
     voiceTelemetry.reset();
@@ -350,7 +380,7 @@ class VoiceClient {
    */
   private captureOptions(denoiser: Denoiser | null): AudioCaptureOptions {
     const s = getSettings();
-    const wantsAi = s.noise === 'deepfilter' || s.noise === 'dpdfnet';
+    const wantsAi = ladderFor(s.noise).length > 0;
     return {
       deviceId: s.inputDeviceId,
       echoCancellation: s.echoCancellation,
@@ -362,20 +392,26 @@ class VoiceClient {
   }
 
   /**
-   * Ayardaki yapay zekâ gürültü engelleyicisinin dosyalarını önceden yükler. DPDFNet kullanılamıyorsa
-   * (yüklenemedi, işlemci yetmedi) DeepFilterNet'e, o da olmazsa standart engellemeye (null) düşülür.
+   * Ayardaki yapay zekâ gürültü engelleyicisinin dosyalarını önceden yükler. Seçili model kullanılamıyorsa
+   * (yüklenemedi, işlemci yetmedi ve bekleme süresi dolmadı) sıradakine (bkz. DENOISER_LADDER), hiçbiri
+   * olmazsa standart engellemeye (null) düşülür.
    */
-  private async wantedDenoiser(): Promise<Denoiser | null> {
+  private wantedDenoiser(): Promise<Denoiser | null> {
+    return firstAvailableDenoiser(ladderFor(getSettings().noise));
+  }
+
+  /** Gerçekte çalışan gürültü engelleme (seçili model düştüyse bir alttaki ya da standart) */
+  private effectiveNoise(): EffectiveNoise | 'off' {
     const noise = getSettings().noise;
-    if (noise === 'dpdfnet' && (await dpdfnetAvailable())) return 'dpdfnet';
-    if ((noise === 'dpdfnet' || noise === 'deepfilter') && (await deepFilterAvailable())) return 'deepfilter';
-    return null;
+    if (!ladderFor(noise).length) return noise === 'off' ? 'off' : 'standard';
+    return this.processor?.activeDenoiser ?? 'standard';
   }
 
   /** Ses kalitesi özetinin kanal ve mikrofon bilgisi (yalnızca ölçümler; ad, içerik yok) */
   private telemetryContext(): TelemetryContext {
     const v = useVoice.getState();
     const stats = this.processor?.stats ?? null;
+    const f = v.noiseFallback;
     return {
       channelId: v.status === 'idle' ? null : v.channelId,
       mic: this.mic
@@ -389,6 +425,11 @@ class VoiceClient {
             underruns: stats?.underruns ?? null,
             droppedSamples: stats?.droppedSamples ?? null,
             muted: this.micMuted(),
+            effectiveNoise: this.effectiveNoise(),
+            noiseFallback: f ? `${f.from} → ${f.to}: ${f.reason}` : null,
+            fallback: f
+              ? { from: f.from, to: f.to, reason: f.reason, transient: f.transient, at: f.at, retryAt: f.retryAt }
+              : null,
           }
         : null,
       settings: this.telemetrySettings(),
@@ -451,63 +492,104 @@ class VoiceClient {
 
   /** İzinler değişti (rol, kanal izni, sunucuda susturma): mikrofonu ve yayını ona göre aç/kapat. */
   private async onPermissionsChanged(room: Room): Promise<void> {
-    const micAllowed = this.canPublish(room, PROTO_SOURCE.microphone);
-    setVoice({ micAllowed });
-    if (!micAllowed && this.mic) {
-      const old = this.mic;
-      const oldProcessor = this.processor;
-      this.mic = null;
-      this.processor = null;
-      this.micTest?.liveChanged();
-      await room.localParticipant.unpublishTrack(old, true).catch(() => undefined);
-      old.stop();
-      await oldProcessor?.destroy().catch(() => undefined);
-      if (this.selfSpeaking) {
-        this.selfSpeaking = false;
-        this.publishSpeaking();
+    setVoice({ micAllowed: this.canPublish(room, PROTO_SOURCE.microphone) });
+    // Sürmekte olan bir yayınlama/yeniden kurulum bittikten sonra, o anki izne göre
+    await this.micSeq.run(async () => {
+      if (room !== this.room) return;
+      const micAllowed = this.canPublish(room, PROTO_SOURCE.microphone);
+      if (!micAllowed && this.mic) {
+        await this.detachMic(room);
+        this.updateNoiseState();
+      } else if (micAllowed && !this.mic && useVoice.getState().status === 'connected') {
+        await this.publishMic(room);
       }
-    } else if (micAllowed && !this.mic && useVoice.getState().status === 'connected') {
-      await this.startMic(room);
-    }
+    });
     if (this.screen && !this.canPublish(room, PROTO_SOURCE.screenShare)) await this.stopScreenShare();
   }
 
-  private async startMic(room: Room): Promise<void> {
-    if (this.micStarting) return;
-    this.micStarting = true;
-    try {
+  /** Katılınca mikrofonu yayınlar (sıradaki bir yeniden kurulum yayınladıysa ikinci kez yayınlanmaz). */
+  private startMic(room: Room): Promise<void> {
+    return this.micSeq.run(async () => {
+      if (room !== this.room || this.mic) return;
       await this.publishMic(room);
-    } finally {
-      this.micStarting = false;
+    });
+  }
+
+  /** Yayındaki mikrofonu kaldırır; eski zincirden gelen seviye ve hatalar artık dikkate alınmaz. */
+  private async detachMic(room: Room): Promise<void> {
+    const old = this.mic;
+    const oldProcessor = this.processor;
+    this.mic = null;
+    this.processor = null;
+    this.micTest?.liveChanged();
+    if (this.selfSpeaking) {
+      this.selfSpeaking = false;
+      this.publishSpeaking();
+    }
+    if (old) {
+      await room.localParticipant.unpublishTrack(old, true).catch(() => undefined);
+      old.stop();
+    }
+    await oldProcessor?.destroy().catch(() => undefined);
+  }
+
+  /**
+   * Mikrofonu açıp işlem zincirini kurar. Sıradaki modeller denenir: kurulamayan (ör. ısınmada işlemci
+   * yetmedi) kaydedilir ve bir alttaki denenir; hiçbiri olmazsa tarayıcının gürültü engellemesi açık yakalanır
+   * (standart). Yakalama her denemede yeniden açılır: modelsiz ama tarayıcı engellemesi de kapalı ham ses kalmaz.
+   */
+  private async openMic(room: Room): Promise<{ track: LocalAudioTrack; processor: MicProcessor } | null> {
+    for (;;) {
+      const denoiser = await this.wantedDenoiser();
+      const track = await createLocalAudioTrack(this.captureOptions(denoiser));
+      track.setAudioContext(sharedAudioContext());
+      const processor: MicProcessor = new MicProcessor(
+        this.gateConfig(),
+        denoiser,
+        getSettings().noiseStrengthDb,
+        // Yalnızca yayındaki (güncel) zincirden: eski ya da henüz kurulan zincirler halkayı ve göstergeyi karıştırmaz
+        (level) => {
+          if (this.micSeq.isCurrent(processor)) this.onMicLevel(level);
+        },
+        (failure, restarting) => {
+          if (this.micSeq.isCurrent(processor)) this.onDenoiserFailed(failure, processor.stats, restarting);
+        },
+      );
+      // Mikrofon testi sürüyorsa odaya daha ilk andan sessizlik gider
+      processor.setSendMuted(this.micTest !== null || this.resumeSendTimer !== null);
+      processor.onRebuilt = () => {
+        if (this.micSeq.isCurrent(processor)) this.micTest?.liveChanged();
+      };
+      processor.setInputGain(getSettings().inputVolume);
+      try {
+        await track.setProcessor(processor);
+      } catch (err) {
+        track.stop();
+        await processor.destroy().catch(() => undefined);
+        throw err;
+      }
+      if (!processor.denoiserFailed) return { track, processor };
+      // Model kurulamadı (düşüş kaydedildi, wantedDenoiser artık onu vermez): bir alttakiyle yeniden açılır
+      track.stop();
+      await processor.destroy().catch(() => undefined);
+      if (room !== this.room) return null;
     }
   }
 
+  /** Mikrofonu yayınlar. Yalnızca micSeq sırasında çağrılır (bkz. startMic, republishMic). */
   private async publishMic(room: Room): Promise<void> {
     // Konuşma izni yoksa (ya da sunucuda susturulduysa) yalnızca dinlenir; izin gelince yayınlanır
     if (!this.canPublish(room, PROTO_SOURCE.microphone)) return;
     const s = getSettings();
     this.micFailed = false;
+    // Güncel ayarlarla baştan kuruluyor: yeniden bağlanınca yapılacak ertelenmiş kurulum gereksiz
+    this.micSeq.clearDeferred();
     let track: LocalAudioTrack | null = null;
     try {
-      const denoiser = await this.wantedDenoiser();
-      track = await createLocalAudioTrack(this.captureOptions(denoiser));
-      track.setAudioContext(sharedAudioContext());
-      const processor = new MicProcessor(
-        this.gateConfig(),
-        denoiser,
-        getSettings().noiseStrengthDb,
-        (level) => this.onMicLevel(level),
-        () => void this.republishMic(),
-      );
-      // Mikrofon testi sürüyorsa odaya daha ilk andan sessizlik gider
-      processor.setSendMuted(this.micTest !== null || this.resumeSendTimer !== null);
-      processor.onRebuilt = () => {
-        if (this.processor === processor) this.micTest?.liveChanged();
-      };
-      processor.setInputGain(getSettings().inputVolume);
-      await track.setProcessor(processor);
-      // Gürültü engelleyici kurulamadıysa mikrofonu tarayıcının gürültü engellemesiyle yeniden aç
-      if (processor.denoiserFailed) await track.restartTrack(this.captureOptions(null));
+      const opened = await this.openMic(room);
+      if (!opened) return;
+      track = opened.track;
+      const processor = opened.processor;
       if (this.micMuted()) await track.mute();
       if (room !== this.room) {
         track.stop();
@@ -520,6 +602,13 @@ class VoiceClient {
         red: true,
         audioPreset: { maxBitrate: s.audioBitrateKbps * 1000 },
       });
+      // Yayınlanırken odadan çıkıldı ya da başka odaya geçildi: sahipsiz bir mikrofon yayını kalmasın
+      if (room !== this.room) {
+        await room.localParticipant.unpublishTrack(track, true).catch(() => undefined);
+        track.stop();
+        await processor.destroy().catch(() => undefined);
+        return;
+      }
       this.mic = track;
       this.processor = processor;
       // Kurulum sürerken test başladı/bittiyse güncel duruma getir
@@ -527,9 +616,7 @@ class VoiceClient {
       processor.updateGate(this.gateConfig());
       if (this.micMuted() !== track.isMuted) this.applyMicMute();
       this.micTest?.liveChanged();
-      // DPDFNet kurulamadıysa (ör. işlemci yetmedi) şimdilik standart engellemeyle yayınlanır; DeepFilterNet
-      // ile yeniden denenir.
-      if (processor.denoiserFailed && denoiser === 'dpdfnet') void this.republishMic();
+      this.updateNoiseState();
     } catch (err) {
       track?.stop();
       this.micFailed = true;
@@ -546,21 +633,145 @@ class VoiceClient {
     }
   }
 
-  /** Gürültü engelleme vb. değişince mikrofonu yeni ayarlarla yeniden yayınla. */
-  private async republishMic(): Promise<void> {
-    const room = this.room;
-    if (!room || useVoice.getState().status !== 'connected') return;
-    const old = this.mic;
-    const oldProcessor = this.processor;
-    this.mic = null;
-    this.processor = null;
-    this.micTest?.liveChanged();
-    if (old) {
-      await room.localParticipant.unpublishTrack(old, true).catch(() => undefined);
-      old.stop();
+  /**
+   * Gürültü engelleme vb. değişince (ya da model düşünce / yeniden denenince) mikrofonu yeni ayarlarla yeniden
+   * yayınla. İstekler sıraya girer ve birleşir; bağlantı o an yoksa yeniden bağlanınca yapılır.
+   */
+  private republishMic(): Promise<void> {
+    return this.micSeq.requestRebuild(
+      () => this.room !== null && useVoice.getState().status === 'connected',
+      async () => {
+        const room = this.room;
+        if (!room) return;
+        await this.detachMic(room);
+        await this.publishMic(room);
+        // Yayınlanamadıysa (hata, izin yok) düşüş durumu da temizlenir
+        if (!this.mic) this.updateNoiseState();
+      },
+    );
+  }
+
+  /**
+   * Güncel zincirin modeli düştü (çalışırken ya da LiveKit zinciri yeniden kurarken): bir alt seçenekle kur.
+   * LiveKit'in yeniden kurulumu (aygıt değişti, yeniden bağlanma) sürerken iz yayından kaldırılırsa LiveKit
+   * yarım kalır; önce onun bitmesi (Restarted) beklenir.
+   */
+  private onDenoiserFailed(failure: DenoiserFailure | null, stats: MicProcessingStats | null, restarting: boolean): void {
+    if (failure) this.failureStats = { id: failure.id, stats };
+    const track = this.mic;
+    if (!restarting || !track) {
+      void this.republishMic();
+      return;
     }
-    await oldProcessor?.destroy().catch(() => undefined);
-    await this.publishMic(room);
+    let done = false;
+    const go = (): void => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timer);
+      track.off(TrackEvent.Restarted, go);
+      void this.republishMic();
+    };
+    const timer = window.setTimeout(go, LIVEKIT_RESTART_WAIT_MS);
+    track.on(TrackEvent.Restarted, go);
+  }
+
+  /**
+   * Seçili gürültü engelleyici ile çalışanı karşılaştırır: arayüzdeki durum, her düşüşte bir kez bildirim ve
+   * sunucu kaydı, bekleme süresi dolunca yeniden deneme.
+   */
+  private updateNoiseState(): void {
+    const ladder = ladderFor(getSettings().noise);
+    const processor = this.processor;
+    const wanted = ladder[0];
+    const active = processor?.activeDenoiser ?? null;
+    if (!wanted || !processor || !this.mic || active === wanted) {
+      setVoice({ noiseFallback: null, noiseNotice: null });
+      this.scheduleReupgrade(null);
+      return;
+    }
+    // Çalışandan üstteki modeller düşmüş ya da bekleme süresinde; en yeni düşüş nedeni verir
+    const above = ladder.slice(0, active ? ladder.indexOf(active) : ladder.length);
+    let latest: DenoiserFailure | null = null;
+    for (const which of above) {
+      const f = denoiserHealth.lastFailure(which);
+      if (f && (!latest || f.id > latest.id)) latest = f;
+    }
+    const retryAt = denoiserHealth.nextRetryAt(above);
+    const fallback: NoiseFallbackState = {
+      from: wanted,
+      to: active ?? 'standard',
+      reason: latest?.reason ?? 'error',
+      transient: retryAt !== null,
+      at: latest?.at ?? Date.now(),
+      retryAt,
+    };
+    setVoice({ noiseFallback: fallback });
+    if (latest && latest.id > this.lastNotifiedFailure) {
+      this.lastNotifiedFailure = latest.id;
+      this.reportFallback(fallback, latest);
+      // Yeniden deneme yine olmadıysa yeni bildirim yok (bekleme süresi uzar, durum ayarlarda görünür)
+      if (!this.reupgrading) setVoice({ noiseNotice: { id: latest.id, text: fallbackNoticeText(fallback) } });
+    }
+    this.scheduleReupgrade(retryAt);
+  }
+
+  /** Düşüşü sunucu kayıtlarına bir kez bildirir (aynı düşüş oturumda bir kez; ayrıntılar yığın alanında). */
+  private reportFallback(f: NoiseFallbackState, failure: DenoiserFailure): void {
+    const name = (w: EffectiveNoise): string => EFFECTIVE_NOISE_LABELS[w];
+    const err = new Error(`${name(failure.which)} bırakıldı (${failure.reason}), ${name(f.to)} kullanılıyor`);
+    const stats = this.failureStats?.id === failure.id ? this.failureStats.stats : null;
+    const n = (v: number | null | undefined, d = 2): string => (v == null ? '-' : v.toFixed(d));
+    err.stack = [
+      err.message,
+      `ayrıntı: ${failure.message}`,
+      failure.retryAt
+        ? `geçici: ${Math.round((failure.retryAt - failure.at) / 60_000)} dk sonra yeniden denenecek`
+        : 'kalıcı: bu oturumda yeniden denenmeyecek',
+      stats
+        ? `son ölçüm: yük ${n(stats.load)}, kare ort ${n(stats.avgFrameMs)} / p99 ${n(stats.p99FrameMs)} / en uzun ${n(stats.maxFrameMs)} ms, boşluk ${stats.underruns}, atılan ${stats.droppedSamples}, barındırıcı ${stats.host}`
+        : 'son ölçüm: yok (kurulumda)',
+    ].join('\n');
+    reportClientError(err, failure.which === 'dpdfnet' ? 'dpdfnet' : 'denoiser');
+  }
+
+  /** Seçili model bekleme süresinden sonra (görüşme ortasında da) yeniden denenir; kısa bir yeniden yayın boşluğu olur. */
+  private scheduleReupgrade(at: number | null): void {
+    if (this.reupgradeTimer !== null) window.clearTimeout(this.reupgradeTimer);
+    this.reupgradeTimer = null;
+    if (at === null) return;
+    this.reupgradeTimer = window.setTimeout(
+      () => {
+        this.reupgradeTimer = null;
+        void this.tryReupgrade();
+      },
+      Math.max(0, at - Date.now()) + 1000,
+    );
+  }
+
+  private async tryReupgrade(): Promise<void> {
+    if (!this.mic || useVoice.getState().status === 'idle') return;
+    const best = await this.wantedDenoiser();
+    if (best === (this.processor?.activeDenoiser ?? null)) {
+      this.updateNoiseState();
+      return;
+    }
+    this.reupgrading = true;
+    try {
+      await this.republishMic();
+    } finally {
+      this.reupgrading = false;
+    }
+  }
+
+  /** Başlık çubuğundaki düşüş bildirimi kapatıldı */
+  dismissNoiseNotice(): void {
+    setVoice({ noiseNotice: null });
+  }
+
+  /** Yalnızca geliştirme: çalışan gürültü engelleyiciyi düşürür (düşüş ve yeniden deneme denemesi için). */
+  debugFailDenoiser(reason: FailureReason = 'underrun'): boolean {
+    if (!import.meta.env.DEV) return false;
+    return this.processor?.debugFail(reason) ?? false;
   }
 
   private onMicLevel(level: MicLevel): void {
@@ -764,6 +975,8 @@ class VoiceClient {
         const wasLost = this.lostSoundPlayed;
         this.clearReconnectTimer();
         if (wasLost) playSound('reconnected');
+        // Bağlantı yokken istenen yeniden kurulum (model düştü, ayar değişti, yeniden deneme) şimdi yapılır
+        if (this.micSeq.takeDeferred()) void this.republishMic();
       })
       .on(RoomEvent.AudioPlaybackStatusChanged, () => {
         if (!room.canPlaybackAudio) void room.startAudio().catch(() => undefined);

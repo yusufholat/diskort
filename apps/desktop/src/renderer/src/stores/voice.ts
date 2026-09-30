@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { NoiseFallbackState, NoiseNotice } from '../features/voice/noiseFallback';
 
 export type VoiceStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting';
 export type ConnectionQualityLabel = 'excellent' | 'good' | 'poor' | 'lost' | 'unknown';
@@ -45,6 +46,10 @@ interface VoiceStore {
   micLevel: MicLevel;
   /** Ayarlarda mikrofon testi sürüyor (görüşmedeyken odaya sessizlik gider, susturulmuş görünürsün) */
   micTesting: boolean;
+  /** Görüşmede seçili gürültü engelleyici yerine başkası çalışıyor (işlemci yetmedi vb.); yoksa null */
+  noiseFallback: NoiseFallbackState | null;
+  /** Düşüş bildirimi (her düşüşte bir kez; kapatılınca ya da model geri gelince null) */
+  noiseNotice: NoiseNotice | null;
   error: string | null;
 }
 
@@ -67,6 +72,8 @@ export const useVoice = create<VoiceStore>()(() => ({
   micAllowed: true,
   micLevel: { db: -100, threshold: -50, open: false },
   micTesting: false,
+  noiseFallback: null,
+  noiseNotice: null,
   error: null,
 }));
 

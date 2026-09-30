@@ -39,6 +39,25 @@ export interface TelemetryMic {
   core?: string | null;
   /** Seçili model çalışmıyorsa nedeni (ör. telefonda DPDFNet yetişemedi → standart engelleme) */
   noiseFallback?: string | null;
+  /** Masaüstü: gerçekte çalışan engelleme (dpdfnet, deepfilter, standard, off); seçiliden farklı olabilir */
+  effectiveNoise?: string | null;
+  /** Masaüstü: seçili modelden düşüş (hangi modelden hangisine, neden, ne zaman); düşüş yoksa null */
+  fallback?: TelemetryNoiseFallback | null;
+}
+
+/** Masaüstünde gürültü engelleyicinin bir alt seçeneğe düşmesi */
+export interface TelemetryNoiseFallback {
+  /** Seçili model (ör. dpdfnet) */
+  from: string;
+  /** Çalışan (ör. deepfilter, standard) */
+  to: string;
+  /** overload, underrun, slow-start, timeout, error */
+  reason: string;
+  /** Geçici mi (bekleme süresinden sonra yeniden denenir) */
+  transient: boolean;
+  /** Düşüş zamanı ve yeniden deneme zamanı (Unix ms) */
+  at: number;
+  retryAt: number | null;
 }
 
 /** İzlenen ekran yayınının görünümü (telefon): tam ekran ya da ses ekranındaki küçük görünüm */

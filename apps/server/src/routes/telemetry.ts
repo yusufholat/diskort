@@ -51,6 +51,18 @@ const reportSchema = z.object({
       modelFrameMs: num(10_000).optional(),
       core: text(48).optional(),
       noiseFallback: text(80).optional(),
+      effectiveNoise: text(32).optional(),
+      fallback: z
+        .object({
+          from: z.string().max(32),
+          to: z.string().max(32),
+          reason: z.string().max(32),
+          transient: z.boolean(),
+          at: z.number().finite(),
+          retryAt: z.number().finite().nullable(),
+        })
+        .nullable()
+        .optional(),
     })
     .nullable(),
   screen: z
