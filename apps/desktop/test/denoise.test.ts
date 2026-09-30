@@ -214,9 +214,13 @@ describe('gürültü engelleyici köprüsü', () => {
       }
       bridge.process([[block]], [[out]]);
       compute.process([[]], [[new Float32Array(128)]]);
+      // DPDFNet (onnxruntime) kareyi Promise ile bitirir: sıradaki ses bloğundan önce tamamlanmasına izin ver
+      await new Promise((r) => setImmediate(r));
       if (b > blocks / 2) y.push(...out);
     }
     const { ctrl } = ringViews(sab);
+    // Model gerçekten kare işledi: 1500 blok × 128 örnek ≈ 400 kare (baştaki ısınma payı hariç)
+    expect(Atomics.load(ctrl, OUT_WRITE)).toBeGreaterThan(390 * HOP);
     expect(Atomics.load(ctrl, UNDERRUNS)).toBe(0);
     const rms = Math.sqrt(y.reduce((a, v) => a + v * v, 0) / y.length);
     // Beyaz gürültü (−35 dBFS civarı) sınırsız bastırmayla belirgin şekilde kısılır
