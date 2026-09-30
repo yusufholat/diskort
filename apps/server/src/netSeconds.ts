@@ -251,6 +251,8 @@ export interface SamplerOptions {
 const RING_MS = 30 * 60_000;
 /** Bir satır kalıcı yazılmadan önce beklenen süre: sonda yanıtları (zaman aşımı ≤ 1.2 sn) satıra işlensin */
 const PERSIST_LAG_MS = 3_000;
+/** Bekleyen satırlar en geç bu kadar sürede diske yazılır (olay sırasında kanıt kaybolmasın) */
+const FLUSH_EVERY_MS = 15_000;
 const PERSIST_AROUND_MS = 30_000;
 const DAY_MAX_BYTES = 40 * 1024 * 1024;
 const RETENTION_DAYS = 7;
@@ -281,6 +283,7 @@ export class SecondSampler {
   private writtenT = 0;
   private keepUntil = 0;
   private buffer: string[] = [];
+  private lastFlushAt = 0;
   private dayBytes = new Map<string, number>();
   private flushing: Promise<void> | null = null;
   private lastCleanup = 0;
@@ -385,7 +388,7 @@ export class SecondSampler {
       }
       if (r.t <= this.keepUntil && r.t > this.writtenT) this.write(r);
     }
-    if (this.buffer.length >= 30) void this.flush(now);
+    if (this.buffer.length >= 30 || (this.buffer.length > 0 && now - this.lastFlushAt >= FLUSH_EVERY_MS)) void this.flush(now);
   }
 
   private write(r: SecondRow): void {
@@ -400,6 +403,7 @@ export class SecondSampler {
     const run = async (): Promise<void> => {
       const lines = this.buffer;
       this.buffer = [];
+      this.lastFlushAt = now;
       try {
         await fs.promises.mkdir(dir, { recursive: true });
         const byDay = new Map<string, string[]>();
