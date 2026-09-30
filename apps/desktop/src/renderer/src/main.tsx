@@ -7,6 +7,7 @@ import { AppCrashScreen, ErrorBoundary } from './components/ErrorBoundary';
 import { installTurnPortRewrite } from './features/voice/turnPort';
 import { installTheme } from './lib/theme';
 import { voice } from './features/voice/voiceClient';
+import { micDebug } from './features/voice/micProcessor';
 import { reportClientError, useGuild, useMessages, useSession } from '@diskort/client-core';
 import { useSettings } from './stores/settings';
 import { useVoice } from './stores/voice';
@@ -22,9 +23,11 @@ installTurnPortRewrite();
 window.addEventListener('error', (e) => reportClientError(e.error ?? e.message, 'pencere'));
 window.addEventListener('unhandledrejection', (e) => reportClientError(e.reason, 'promise'));
 
-// Yalnızca geliştirme: otomatik testlerin iç duruma erişebilmesi için.
+// Yalnızca geliştirme: otomatik testlerin iç duruma erişebilmesi için. Gürültü engelleyici düşüşü denemesi:
+// __diskort.voice.debugFailDenoiser() (çalışan modeli düşürür), __diskort.micDebug.failNextSetups = 1 (sonraki
+// model kurulumu "işlemci yetersiz" olur).
 if (import.meta.env.DEV) {
-  Object.assign(window, { __diskort: { voice, useVoice, useGuild, useSettings, useMessages, useSession } });
+  Object.assign(window, { __diskort: { voice, micDebug, useVoice, useGuild, useSettings, useMessages, useSession } });
 }
 
 createRoot(document.getElementById('root')!).render(

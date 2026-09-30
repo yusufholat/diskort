@@ -3,6 +3,7 @@ import { sharedAudioContext } from '../../lib/sfx';
 import { getSettings, useSettings, type Settings } from '../../stores/settings';
 import { setVoice, useVoice } from '../../stores/voice';
 import { MicProcessor, type Denoiser, type GateConfig } from './micProcessor';
+import { DENOISER_LADDER } from './denoiserHealth';
 
 /** Gerçek görüşmedeki mikrofon zincirini kuran yardımcılar (voiceClient'tan) */
 export interface MicTestDeps {
@@ -279,9 +280,9 @@ export class MicTest {
   }
 
   private async build(): Promise<void> {
-    // DPDFNet kurulamazsa DeepFilterNet, o da olmazsa standart engelleme (görüşmedeki sırayla)
-    for (let attempt = 0; attempt < 3 && !this.stopped; attempt++) {
-      const denoiser = attempt < 2 ? await this.deps.wantedDenoiser() : null;
+    // Seçili model kurulamazsa sıradaki, o da olmazsa standart engelleme (görüşmedeki sırayla, DENOISER_LADDER)
+    for (let attempt = 0; attempt <= DENOISER_LADDER.length && !this.stopped; attempt++) {
+      const denoiser = attempt < DENOISER_LADDER.length ? await this.deps.wantedDenoiser() : null;
       await this.open(denoiser);
       if (!this.processor?.denoiserFailed) return;
       await this.teardown();

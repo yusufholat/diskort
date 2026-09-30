@@ -3,6 +3,7 @@ import { PREVIEW_SOUND_NAMES, SOUND_LABELS } from '@diskort/client-core';
 import { useEffect, useRef, useState } from 'react';
 import { voice } from '../../features/voice/voiceClient';
 import { MIC_TEST_RECORD_MS, type MicTest, type MicTestPhase } from '../../features/voice/micTest';
+import { fallbackLabel } from '../../features/voice/noiseFallback';
 import { bridge } from '../../lib/bridge';
 import { playSound } from '../../lib/sfx';
 import { cn, clamp } from '../../lib/utils';
@@ -15,6 +16,18 @@ import { KeybindInput } from './KeybindInput';
 interface Device {
   deviceId: string;
   label: string;
+}
+
+/** Görüşmede seçili model yerine başkası çalışıyorsa: "Şu an: DPDFNet → Standart (işlemci yoğun)" */
+function NoiseFallbackHint() {
+  const fallback = useVoice((s) => s.noiseFallback);
+  if (!fallback) return null;
+  return (
+    <p className="mt-2 text-xs text-warn">
+      Şu an: {fallbackLabel(fallback)}
+      {fallback.transient ? ' · birkaç dakika sonra yeniden denenecek' : ' · bu oturumda denenmeyecek'}
+    </p>
+  );
 }
 
 function useDevices(): { inputs: Device[]; outputs: Device[] } {
@@ -314,18 +327,14 @@ export function VoiceSettings() {
             value: 'dpdfnet',
             label: 'Gelişmiş yapay zekâ (DPDFNet)',
             description:
-              'En temiz ses: klavye, fan, arkadaki konuşmalar ve TV sesini daha iyi ayırır. DeepFilterNet’ten yaklaşık 3 kat fazla işlemci kullanır ve ~20 ms daha gecikmelidir; işlemci yetmezse DeepFilterNet’e geçilir.',
-          },
-          {
-            value: 'deepfilter',
-            label: 'Yapay zekâ (DeepFilterNet 3)',
-            description: 'Klavye, fan, köpek havlaması gibi arka plan seslerini bastırır, sesini doğal bırakır.',
+              'En temiz ses: klavye, fan, arkadaki konuşmalar ve TV sesini daha iyi ayırır. İşlemci yetmezse geçici olarak standart engellemeye geçilir, birkaç dakika sonra yeniden denenir.',
           },
           { value: 'standard', label: 'Standart', description: 'Tarayıcı motorunun yerleşik gürültü engellemesi; daha az işlemci kullanır.' },
           { value: 'off', label: 'Kapalı', description: 'Stüdyo mikrofonları veya müzik için.' },
         ]}
       />
-      {(s.noise === 'deepfilter' || s.noise === 'dpdfnet') && (
+      <NoiseFallbackHint />
+      {s.noise === 'dpdfnet' && (
         <>
           <SectionTitle>Gürültü engelleme gücü</SectionTitle>
           <Segmented<NoiseStrengthDb>

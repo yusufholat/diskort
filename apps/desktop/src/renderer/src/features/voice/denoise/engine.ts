@@ -1,28 +1,19 @@
-// Gürültü engelleme motorları (DeepFilterNet 3, DPDFNet) ve ortak ölçüm/ısınma kodu. İki barındırıcıda da
+// Gürültü engelleme motoru (DPDFNet) ve ortak ölçüm/ısınma kodu. İki barındırıcıda da
 // aynen çalışır: gerçek zamanlı hesap worklet'i (compute.worklet.ts, birincil) ve Web Worker
 // (denoise.worker.ts, yedek). İkisi de köprüyle (bridge-worklet.js) aynı paylaşımlı halkalar üzerinden konuşur.
 import * as ort from 'onnxruntime-web/wasm';
-import { DeepFilterEngine } from '../deepfilter/dfn-engine.js';
 import { DpdfnetDenoiser, readOnnxMetadata } from '../dpdfnet/dsp.js';
 import { HOP } from './ring';
 
-export type EngineInit =
-  | {
-      kind: 'deepfilter';
-      attenLimDb: number;
-      wasmModule: WebAssembly.Module;
-      model: ArrayBuffer;
-      postFilterBeta: number;
-    }
-  | {
-      kind: 'dpdfnet';
-      attenLimDb: number;
-      ortWasm: ArrayBuffer;
-      model: ArrayBuffer;
-    };
+export interface EngineInit {
+  kind: 'dpdfnet';
+  attenLimDb: number;
+  ortWasm: ArrayBuffer;
+  model: ArrayBuffer;
+}
 
 export interface Engine {
-  /** Bir kareyi (480 örnek) işler; DeepFilterNet eşzamanlı, DPDFNet (onnxruntime) Promise döndürür. */
+  /** Bir kareyi (480 örnek) işler; DPDFNet (onnxruntime) Promise döndürür. */
   process(hop: Float32Array, out: Float32Array): unknown;
   setAttenLimit(db: number): void;
 }
@@ -61,13 +52,6 @@ const WARMUP_FRAMES = 40;
 
 /** Modeli kurar; her çağrıda temiz durumlu yeni bir motor döndüren fabrika verir. */
 export async function createEngineFactory(init: EngineInit): Promise<() => Engine> {
-  if (init.kind === 'deepfilter') {
-    const model = new Uint8Array(init.model);
-    return () => {
-      const e = new DeepFilterEngine(init.wasmModule, model, init.attenLimDb, init.postFilterBeta);
-      return { process: (hop, out) => e.processHop(hop, out), setAttenLimit: (db) => e.setAttenLimit(db) };
-    };
-  }
   ort.env.wasm.numThreads = 1;
   ort.env.wasm.proxy = false;
   ort.env.wasm.wasmBinary = init.ortWasm;

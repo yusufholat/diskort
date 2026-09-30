@@ -8,8 +8,8 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
 ## Özellikler
 
 - **Ses:** Opus 64 kbps (32–128 ayarlanabilir), DTX + RED (paket kaybına dayanıklı)
-- **Gürültü engelleme:** yapay zekâ: DPDFNet-2 48 kHz (varsayılan) ya da daha hafif DeepFilterNet 3
-  (uygulamanın içinde, sunucusuz; model ayrı gerçek zamanlı iş parçacığında) / standart / kapalı;
+- **Gürültü engelleme:** yapay zekâ: DPDFNet-2 48 kHz (varsayılan; uygulamanın içinde, sunucusuz; model ayrı
+  gerçek zamanlı iş parçacığında, işlemci yetmezse geçici olarak standarda düşer) / standart / kapalı;
   Android'de de DPDFNet (varsayılan; ONNX Runtime ile telefonda, WebRTC'nin ses işleme hattının sonunda) / standart / kapalı;
   yankı engelleme, otomatik kazanç
 - **Ses aktivitesi** (otomatik veya elle eşik) ve **bas-konuş** (global kısayol, fare yan tuşları, bırakma gecikmesi)
@@ -304,9 +304,8 @@ Masaüstü (Electron + React) ──HTTPS/WSS──► Caddy :443 ──► API 
   - Ses motoru: `src/renderer/src/features/voice/voiceClient.ts`
   - Mikrofon zinciri (gürültü engelleyici + ses kapısı): `micProcessor.ts`, `gate-worklet.js`, `denoise/`
     (köprü worklet'i ⇄ paylaşımlı halka tamponlar ⇄ ayrı, sessiz AudioContext'te hesap worklet'i; yedek: Web Worker),
-    `deepfilter/` (DeepFilterNet 3), `dpdfnet/` (DPDFNet-2 48 kHz, onnxruntime-web).
-    `deepfilter/df.wasm` kaynaktan `node scripts/build-deepfilter-wasm.mjs` ile üretilir (Rust gerekir;
-    sarmalayıcı: `apps/desktop/deepfilter-wasm`). Çevrimdışı karşılaştırma (WAV + DNSMOS + kare süreleri):
+    `dpdfnet/` (DPDFNet-2 48 kHz, onnxruntime-web), `denoiserHealth.ts` (düşüş ve yeniden deneme).
+    Çevrimdışı karşılaştırma (WAV + DNSMOS + kare süreleri):
     `apps/desktop/scripts/gurultu-degerlendir.mjs`
   - TURN/TLS portu güvencesi (olası 5349 bildirimini 443'e çevirir): `turnPort.ts`
   - Metin kanalları: `features/messages` (mesaj deposu, biçimlendirme), `components/text` (görünüm)

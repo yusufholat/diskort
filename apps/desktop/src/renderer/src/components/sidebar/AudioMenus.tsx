@@ -3,6 +3,8 @@ import { Settings } from 'lucide-react';
 import { deviceLabel, stripDefaultPrefix, useAudioDevices, type AudioDevice } from '../../lib/audioDevices';
 import { MAX_VOLUME, useSettings, type NoiseMode, type NoiseStrengthDb } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
+import { useVoice } from '../../stores/voice';
+import { fallbackLabel, type NoiseFallbackState } from '../../features/voice/noiseFallback';
 import {
   MenuHeading,
   MenuItem,
@@ -15,14 +17,12 @@ import {
 
 export const NOISE_LABELS: Record<NoiseMode, string> = {
   dpdfnet: 'DPDFNet',
-  deepfilter: 'DeepFilterNet 3',
   standard: 'Standart',
   off: 'Kapalı',
 };
 
 const NOISE_HINTS: Record<NoiseMode, string> = {
   dpdfnet: 'Gelişmiş yapay zekâ, en temiz ses',
-  deepfilter: 'Yapay zekâ, daha az işlemci',
   standard: 'Tarayıcının yerleşik engellemesi',
   off: 'Stüdyo mikrofonu ya da müzik için',
 };
@@ -34,13 +34,17 @@ export const NOISE_STRENGTH_LABELS: Record<NoiseStrengthDb, string> = {
   100: 'Maksimum',
 };
 
-const NOISE_MODES: NoiseMode[] = ['dpdfnet', 'deepfilter', 'standard', 'off'];
+const NOISE_MODES: NoiseMode[] = ['dpdfnet', 'standard', 'off'];
 const STRENGTHS: NoiseStrengthDb[] = [12, 24, 40, 100];
 
-export const isAiNoise = (noise: NoiseMode): boolean => noise === 'dpdfnet' || noise === 'deepfilter';
+export const isAiNoise = (noise: NoiseMode): boolean => noise === 'dpdfnet';
 
-/** "Gürültü engelleme: DPDFNet · Dengeli" gibi kısa özet */
-export function noiseSummary(noise: NoiseMode, strength: NoiseStrengthDb): string {
+/**
+ * "Gürültü engelleme: DPDFNet · Dengeli" gibi kısa özet; görüşmede seçili model çalışmıyorsa gerçekte çalışan:
+ * "DPDFNet → Standart (işlemci yoğun)"
+ */
+export function noiseSummary(noise: NoiseMode, strength: NoiseStrengthDb, fallback?: NoiseFallbackState | null): string {
+  if (fallback) return fallbackLabel(fallback);
   return isAiNoise(noise) ? `${NOISE_LABELS[noise]} · ${NOISE_STRENGTH_LABELS[strength]}` : NOISE_LABELS[noise];
 }
 
@@ -49,6 +53,8 @@ export function NoiseMenuItems() {
   const noise = useSettings((s) => s.noise);
   const strength = useSettings((s) => s.noiseStrengthDb);
   const set = useSettings((s) => s.set);
+  // Görüşmede seçili model çalışmıyorsa (işlemci yetmedi) seçili satırda gerçekte çalışan gösterilir
+  const fallback = useVoice((s) => s.noiseFallback);
   return (
     <>
       <MenuHeading>Gürültü Engelleme</MenuHeading>
@@ -56,7 +62,7 @@ export function NoiseMenuItems() {
         <MenuRadioItem
           key={mode}
           label={NOISE_LABELS[mode]}
-          hint={NOISE_HINTS[mode]}
+          hint={fallback && noise === mode ? `Şu an: ${fallbackLabel(fallback)}` : NOISE_HINTS[mode]}
           checked={noise === mode}
           onSelect={() => set({ noise: mode })}
         />
@@ -143,12 +149,13 @@ export function MicMenu({ open, anchorRef, onClose }: MenuProps) {
   const noise = useSettings((s) => s.noise);
   const strength = useSettings((s) => s.noiseStrengthDb);
   const set = useSettings((s) => s.set);
+  const fallback = useVoice((s) => s.noiseFallback);
   return (
     <PanelMenu open={open} anchorRef={anchorRef} onClose={onClose} label="Mikrofon seçenekleri">
       <MenuSubmenu label="Giriş Cihazı" hint={deviceLabel(inputs, inputDeviceId)}>
         <DeviceItems devices={inputs} value={inputDeviceId} onSelect={(id) => set({ inputDeviceId: id })} />
       </MenuSubmenu>
-      <MenuSubmenu label="Gürültü Engelleme" hint={noiseSummary(noise, strength)} width={250}>
+      <MenuSubmenu label="Gürültü Engelleme" hint={noiseSummary(noise, strength, fallback)} width={250}>
         <NoiseMenuItems />
       </MenuSubmenu>
       <MenuSeparator />

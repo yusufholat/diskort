@@ -1,6 +1,8 @@
-import { Download } from 'lucide-react';
+import { AudioLines, Download } from 'lucide-react';
+import { voice } from '../features/voice/voiceClient';
 import { bridge, isMac, isWindows } from '../lib/bridge';
 import { useUpdate } from '../stores/update';
+import { useVoice } from '../stores/voice';
 
 /**
  * Discord tarzı ince başlık çubuğu. Windows'ta pencere düğmeleri Electron'un
@@ -15,10 +17,31 @@ export function TitleBar() {
         <span className="text-xs font-bold tracking-wide text-text-muted">Diskort</span>
       </span>
       {/* Windows'ta sağdaki ~140 px pencere düğmelerine ayrılmış */}
-      <span className={isWindows ? 'ml-auto pr-[146px]' : 'ml-auto pr-2'}>
+      <span className={isWindows ? 'ml-auto flex items-center gap-1 pr-[146px]' : 'ml-auto flex items-center gap-1 pr-2'}>
+        <NoiseFallbackButton />
         <UpdateButton />
       </span>
     </div>
+  );
+}
+
+/**
+ * Görüşmede gürültü engelleme bir alt seçeneğe düştüyse (işlemci yetmedi) güncelleme simgesi gibi sarı bir
+ * simge: her düşüşte bir kez görünür, tıklayınca kapanır; model geri gelince kendiliğinden kaybolur.
+ */
+function NoiseFallbackButton() {
+  const notice = useVoice((s) => s.noiseNotice);
+  if (!notice) return null;
+  return (
+    <button
+      type="button"
+      aria-label={notice.text}
+      className="no-drag flex h-[22px] items-center gap-1 rounded px-1.5 text-warn transition-colors hover:bg-bg-hover"
+      data-tooltip={`${notice.text} (kapatmak için tıkla)`}
+      onClick={() => voice.dismissNoiseNotice()}
+    >
+      <AudioLines size={16} strokeWidth={2.5} className="ico-drop" />
+    </button>
   );
 }
 

@@ -4,10 +4,10 @@ import type { HotkeyConfig } from '../../../shared/bridge';
 import { DEFAULT_THEME, isThemeId, type ThemeId } from '../../../shared/themes';
 
 export type InputMode = 'vad' | 'ptt';
-/** 'dpdfnet': DPDFNet-2 48 kHz (daha kaliteli, ~3 kat işlemci); 'deepfilter': DeepFilterNet 3 */
-export type NoiseMode = 'dpdfnet' | 'deepfilter' | 'standard' | 'off';
+/** 'dpdfnet': DPDFNet-2 48 kHz (yapay zekâ); 'standard': tarayıcının yerleşik engellemesi */
+export type NoiseMode = 'dpdfnet' | 'standard' | 'off';
 /**
- * Yapay zekâ gürültü engelleyicilerinin (DeepFilterNet / DPDFNet) bastırma sınırı (dB): gürültü en fazla bu kadar kısılır, özgün sesin bir kısmı korunur
+ * Yapay zekâ gürültü engelleyicilerinin (DPDFNet) bastırma sınırı (dB): gürültü en fazla bu kadar kısılır, özgün sesin bir kısmı korunur
  * ve konuşma doğal kalır. 100 = sınırsız (sesi robotikleştirebilir).
  */
 export const NOISE_STRENGTHS_DB = [12, 24, 40, 100] as const;
@@ -112,7 +112,7 @@ const defaults: Settings = {
 
 /** Giriş ve çıkış ses seviyesinin üst sınırı (%200) */
 export const MAX_VOLUME = 2;
-const NOISE_MODES: readonly NoiseMode[] = ['dpdfnet', 'deepfilter', 'standard', 'off'];
+const NOISE_MODES: readonly NoiseMode[] = ['dpdfnet', 'standard', 'off'];
 const AUDIO_BITRATES_KBPS = [32, 64, 96, 128] as const;
 
 /** Giriş/çıkış ses seviyesini 0–2 (%0–200) aralığına çeker; geçersiz değer 1 olur. */
@@ -124,8 +124,8 @@ export function clampVolume(v: unknown): number {
 /** Kayıtlı ayarları geçerli değerlere çeker (eski sürümlerden kalan veya bozuk değerler). */
 function sanitize(saved: Partial<Settings>): Partial<Settings> {
   const s = { ...saved };
-  // RNNoise kaldırıldı; eski 'rnnoise' seçimi yerini alan DeepFilterNet'e taşınır.
-  if (s.noise !== undefined && !NOISE_MODES.includes(s.noise)) s.noise = 'deepfilter';
+  // RNNoise ve DeepFilterNet 3 kaldırıldı; eski 'rnnoise' / 'deepfilter' seçimi (ve bilinmeyen değer) DPDFNet'e taşınır.
+  if (s.noise !== undefined && !NOISE_MODES.includes(s.noise)) s.noise = 'dpdfnet';
   if (s.noiseStrengthDb !== undefined && !(NOISE_STRENGTHS_DB as readonly number[]).includes(s.noiseStrengthDb)) {
     s.noiseStrengthDb = defaults.noiseStrengthDb;
   }
@@ -172,8 +172,9 @@ export const useSettings = create<SettingsStore>()(
       migrate: (saved, version) => {
         const s = { ...(saved as Partial<Settings>) };
         if (version < 3) s.noiseStrengthDb = defaults.noiseStrengthDb;
-        if (version < 4 && s.noise === 'deepfilter') s.noise = 'standard';
-        if (version < 5 && (s.noise === undefined || s.noise === 'standard' || s.noise === 'deepfilter')) s.noise = 'dpdfnet';
+        const noise = s.noise as string | undefined;
+        if (version < 4 && noise === 'deepfilter') s.noise = 'standard';
+        if (version < 5 && (noise === undefined || noise === 'standard' || noise === 'deepfilter')) s.noise = 'dpdfnet';
         if (version < 6 && (s.theme === undefined || s.theme === 'dark')) s.theme = 'black';
         if (version < 7 && (s.screenPreset === undefined || s.screenPreset === '1080p30')) s.screenPreset = '1080p60';
         if (version < 8 && (s.screenPreset as string | undefined) === 'auto') s.screenPreset = '1080p60';

@@ -225,7 +225,15 @@ describe('ses kalitesi ölçümleri', () => {
     };
     const res = await send({
       ...report({ channelId: voice.id, platform: 'android' }),
-      mic: { ...report().mic!, modelFrameMs: 5.123, core: '7 (4320 MHz)', noiseFallback: 'yavaş: kare başına 6,3 ms' },
+      mic: {
+        ...report().mic!,
+        modelFrameMs: 5.123,
+        core: '7 (4320 MHz)',
+        noiseFallback: 'yavaş: kare başına 6,3 ms',
+        // Masaüstü: gerçekte çalışan engelleme ve düşüş ayrıntısı
+        effectiveNoise: 'deepfilter',
+        fallback: { from: 'dpdfnet', to: 'deepfilter', reason: 'underrun', transient: true, at: 1_790_000_000_000, retryAt: 1_790_000_300_000 },
+      },
       screen: { width: 1920, height: 1080, fps: 60, bitrate: 8e6, encoder: 'libvpx', codec: 'video/VP9', limitation: 'cpu', limitedRatio: 0.4, encodeMs: 9.5, hardware: false },
       watch,
       device: { appState: 'active', soc: 'QTI SM8850', thermal: 'moderate', thermalHeadroom: 0.82 },
@@ -241,12 +249,22 @@ describe('ses kalitesi ölçümleri', () => {
     expect((await send({ ...report(), lossInPct: 900, watch: { ...watch, decodeMs: -1, width: 99_999, decoder: long } })).statusCode).toBe(204);
     expect((await send({ ...report(), watch: { ...watch, view: { mode: 'yan', width: 1, height: 1 } } })).statusCode).toBe(400);
     expect((await send({ ...report(), watch: { ...watch, decodeMs: 'yavaş' } })).statusCode).toBe(400);
+    expect(
+      (await send({ ...report(), mic: { ...report().mic!, fallback: { from: 'dpdfnet', to: 'standard', reason: 'x', transient: 'evet', at: 1, retryAt: null } } }))
+        .statusCode,
+    ).toBe(400);
 
     const hist = (await s.req(s.owner.token, 'GET', `/api/admin/telemetry?user=${member.user.id}`)).json();
     const first = hist.entries[0] as TelemetryEntry;
     expect(first.watch).toMatchObject({ decoder: 'libvpx', hardware: false, fps: 58.4, decodeMs: 6.91, bitrate: 11_800_000, freezeSec: 0.4, jitterBufferMs: 48.3, view: { mode: 'inline' } });
     expect(first.device).toEqual({ appState: 'active', soc: 'QTI SM8850', thermal: 'moderate', thermalHeadroom: 0.82 });
-    expect(first.mic).toMatchObject({ modelFrameMs: 5.123, core: '7 (4320 MHz)', noiseFallback: 'yavaş: kare başına 6,3 ms' });
+    expect(first.mic).toMatchObject({
+      modelFrameMs: 5.123,
+      core: '7 (4320 MHz)',
+      noiseFallback: 'yavaş: kare başına 6,3 ms',
+      effectiveNoise: 'deepfilter',
+      fallback: { from: 'dpdfnet', to: 'deepfilter', reason: 'underrun', transient: true, retryAt: 1_790_000_300_000 },
+    });
     expect(first.screen).toMatchObject({ encodeMs: 9.5, hardware: false });
     expect(JSON.stringify(first)).not.toContain('gelecek');
     expect(hist.entries[1].watch).toBeNull();

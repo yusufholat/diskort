@@ -73,6 +73,7 @@ export function VoiceConnectionPanel() {
   const guildName = useGuild((s) => (channel ? s.guilds[channel.guildId]?.guild.name : undefined));
   const noise = useSettings((s) => s.noise);
   const noiseStrength = useSettings((s) => s.noiseStrengthDb);
+  const noiseFallback = useVoice((s) => s.noiseFallback);
   const openModal = useUi((s) => s.openModal);
   const setView = useUi((s) => s.setView);
   const [infoOpen, setInfoOpen] = useState(false);
@@ -93,7 +94,7 @@ export function VoiceConnectionPanel() {
   const shownQuality: LinkQuality = connected ? quality : 'unknown';
   const color = connected ? QUALITY_COLOR[quality] : 'text-warn';
   const tile = connected ? QUALITY_TILE[quality] : 'bg-warn/15';
-  const noiseLabel = `Gürültü engelleme: ${noiseSummary(noise, noiseStrength)}`;
+  const noiseLabel = `Gürültü engelleme: ${noiseSummary(noise, noiseStrength, noiseFallback)}`;
   const shareBlocked = !sharing && !canStream;
 
   return (

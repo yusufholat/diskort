@@ -3,9 +3,6 @@ import gateWorkletUrl from './gate-worklet.js?url';
 import bridgeWorkletUrl from './denoise/bridge-worklet.js?url';
 // Hesap worklet'i onnxruntime-web ile birlikte tek ES modülü olarak paketlenir (worklet'ler içe aktarma çözemez)
 import computeWorkletUrl from './denoise/compute.worklet.ts?worker&url';
-import deepFilterWasmUrl from './deepfilter/df.wasm?url';
-// Model arşivi .bin uzantılı: .gz uzantısını geliştirme sunucusu 'Content-Encoding: gzip' ile açıp bozuyor.
-import deepFilterModelUrl from './deepfilter/DeepFilterNet3_onnx.bin?url';
 import dpdfnetModelUrl from './dpdfnet/dpdfnet2_48khz_hr.onnx?url';
 import ortWasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
 import { ALGORITHMIC_DELAY_SAMPLES as DPDFNET_DELAY_SAMPLES } from './dpdfnet/dsp.js';
@@ -13,6 +10,17 @@ import { createRing, HOP } from './denoise/ring';
 import type { EngineInit, HostMessage, HostStats } from './denoise/engine';
 import type { WorkerInit } from './denoise/denoise.worker';
 import type { MicLevel } from '../../stores/voice';
+import {
+  classifySetupError,
+  denoiserHealth,
+  OverloadDetector,
+  STALL_GAP_MS,
+  type Denoiser,
+  type DenoiserFailure,
+  type FailureReason,
+} from './denoiserHealth';
+
+export type { Denoiser } from './denoiserHealth';
 
 export interface GateConfig {
   mode: 'vad' | 'ptt' | 'open';
@@ -21,33 +29,25 @@ export interface GateConfig {
   ptt: boolean;
 }
 
-/** Zincirdeki yapay zekâ gürültü engelleyicisi */
-export type Denoiser = 'deepfilter' | 'dpdfnet';
-
 interface DenoiserSpec {
   name: string;
   /** Modelin algoritmik gecikmesi (örnek) */
   delaySamples: number;
-  /** Tek çekirdeğin bu oranını art arda DENOISER_MAX_LOAD_REPORTS rapor aşarsa işlemci yetersiz sayılır */
+  /** Tek çekirdeğin bu oranını pencerede yeterince rapor aşarsa işlemci yetersiz sayılır (bkz. OverloadDetector) */
   maxLoad: number;
   /** Isınmada kare başına bundan uzun sürerse hiç başlatılmaz (işlemci yetersiz) */
   maxWarmupFrameMs: number;
 }
 
 const DENOISERS: Record<Denoiser, DenoiserSpec> = {
-  // Ryzen 5 7500F'te kare başına ~1,2 ms (tek çekirdeğin ~%12'si). Gecikme: pencere + 2 kare ileri bakış.
-  deepfilter: { name: 'DeepFilterNet 3', delaySamples: 3 * HOP, maxLoad: 0.5, maxWarmupFrameMs: 8 },
-  // ~3 kat ağır: kare başına ~3 ms (~%30). Gecikme: pencere + 4 kare model gecikmesi.
+  // Ryzen 5 7500F'te kare başına ~3 ms (tek çekirdeğin ~%30'u). Gecikme: pencere + 4 kare model gecikmesi.
   dpdfnet: { name: 'DPDFNet-2 48 kHz', delaySamples: DPDFNET_DELAY_SAMPLES, maxLoad: 0.6, maxWarmupFrameMs: 6 },
 };
 
-/** Son filtre kapalı (konuşmayı daha doğal bırakır). Bastırma sınırı ayarlardan gelir (gürültü engelleme gücü). */
-const DF_POST_FILTER_BETA = 0;
 /** Model kurulumu + ısınma (~0,3–1 sn); takılırsa bir alt seçeneğe dönülür. */
 const DENOISER_READY_TIMEOUT_MS = 15_000;
-const DENOISER_MAX_LOAD_REPORTS = 3;
-/** Art arda 3 raporda (~6 sn) ses boşluğu olursa da vazgeçilir (kareler zamanında bitirilemiyor). */
-const DENOISER_MAX_UNDERRUN_REPORTS = 3;
+/** Barındırıcının raporları 2 sn arayla gelir; bundan geç geldiyse arada ana iş parçacığı takılmıştır */
+const STATS_LATE_MS = 2000 + STALL_GAP_MS;
 /**
  * Köprüdeki ek pay (2 kare = 20 ms): hesap bağlamının kendi ses bloğu takvimi (10 ms'lik çağrılar) ve kare
  * süresi bu payın içinde kalır. Boşluk olursa köprü payı bir blok artırır (en fazla 4 kare).
@@ -63,11 +63,6 @@ interface DenoiseHost {
   send(msg: { type: 'atten'; db: number }): void;
   listen(onMessage: (m: HostMessage) => void, onCrash: (err: Error) => void): void;
   close(): void;
-}
-
-interface DeepFilterAssets {
-  module: WebAssembly.Module;
-  model: ArrayBuffer;
 }
 
 interface DpdfnetAssets {
@@ -105,9 +100,10 @@ export interface MicProcessingStats {
   totalOverQuantum: number;
 }
 
-let deepFilterAssets: Promise<DeepFilterAssets> | null = null;
 let dpdfnetAssets: Promise<DpdfnetAssets> | null = null;
-const broken = new Set<Denoiser>();
+
+/** Yalnızca geliştirme sürümü (CDP/DevTools ile düşüş denemesi): sonraki N model kurulumu "işlemci yetersiz" olur */
+export const micDebug = { failNextSetups: 0 };
 
 async function fetchBuffer(url: string): Promise<ArrayBuffer> {
   const res = await fetch(url);
@@ -118,17 +114,6 @@ async function fetchBuffer(url: string): Promise<ArrayBuffer> {
 /** Model işçide, ses iş parçacığıyla paylaşımlı bellek üzerinden konuşur (bkz. ana süreçteki anahtar). */
 function assertSharedMemory(): void {
   if (typeof SharedArrayBuffer === 'undefined') throw new Error('SharedArrayBuffer kullanılamıyor');
-}
-
-function loadDeepFilterAssets(): Promise<DeepFilterAssets> {
-  deepFilterAssets ??= (async () => {
-    assertSharedMemory();
-    const [wasm, model] = await Promise.all([fetchBuffer(deepFilterWasmUrl), fetchBuffer(deepFilterModelUrl)]);
-    const magic = new Uint8Array(model, 0, 2);
-    if (magic[0] !== 0x1f || magic[1] !== 0x8b) throw new Error('DeepFilterNet model dosyası bozuk (gzip değil)');
-    return { module: await WebAssembly.compile(wasm), model };
-  })();
-  return deepFilterAssets;
 }
 
 function loadDpdfnetAssets(): Promise<DpdfnetAssets> {
@@ -144,39 +129,47 @@ function loadDpdfnetAssets(): Promise<DpdfnetAssets> {
   return dpdfnetAssets;
 }
 
-function markBroken(which: Denoiser, err: unknown): void {
-  if (!broken.has(which)) console.warn(`${DENOISERS[which].name} kullanılamıyor, bir alt seçeneğe dönülüyor`, err);
-  broken.add(which);
-  if (which === 'deepfilter') deepFilterAssets = null;
-  else dpdfnetAssets = null;
+/**
+ * Düşüşü kaydeder: işlemci yetmediyse model bir süre dinlendirilir (sonra yeniden denenir), dosya/kurulum
+ * hatasında bu oturumda bir daha denenmez (önbellekteki dosyalar da bırakılır).
+ */
+function recordFailure(which: Denoiser, reason: FailureReason, message: string): DenoiserFailure {
+  const failure = denoiserHealth.record(which, reason, message);
+  console.warn(
+    `${DENOISERS[which].name} bırakıldı (${reason}: ${message}); ` +
+      (failure.retryAt ? `${Math.round((failure.retryAt - failure.at) / 60_000)} dk sonra yeniden denenecek` : 'bu oturumda denenmeyecek'),
+  );
+  if (!failure.transient) dpdfnetAssets = null;
+  return failure;
 }
 
-async function available(which: Denoiser, load: () => Promise<unknown>): Promise<boolean> {
-  if (broken.has(which)) return false;
+const ASSET_LOADERS: Record<Denoiser, () => Promise<unknown>> = {
+  dpdfnet: loadDpdfnetAssets,
+};
+
+/**
+ * Modelin dosyalarını (uygulamayla birlikte gelir, indirme yok) bir kez yükler. Bekleme süresindeyse ya da bu
+ * oturumda yüklenemediyse false döner.
+ */
+export async function denoiserAvailable(which: Denoiser): Promise<boolean> {
+  if (!denoiserHealth.available(which)) return false;
   try {
-    await load();
+    await ASSET_LOADERS[which]();
     return true;
   } catch (err) {
-    markBroken(which, err);
+    recordFailure(which, 'error', err instanceof Error ? err.message : String(err));
     return false;
   }
 }
 
-/**
- * DeepFilterNet dosyalarını (uygulamayla birlikte gelir, indirme yok) bir kez yükleyip derler.
- * Bu oturumda yüklenemediyse veya çalışırken hata verdiyse false döner.
- */
-export function deepFilterAvailable(): Promise<boolean> {
-  return available('deepfilter', loadDeepFilterAssets);
-}
-
-/** DPDFNet dosyalarını (uygulamayla birlikte gelir) bir kez yükler; bu oturumda başarısız olduysa false. */
-export function dpdfnetAvailable(): Promise<boolean> {
-  return available('dpdfnet', loadDpdfnetAssets);
+/** Sıradaki modellerden ilk kullanılabilen (hiçbiri yoksa null: standart engelleme) */
+export async function firstAvailableDenoiser(ladder: readonly Denoiser[]): Promise<Denoiser | null> {
+  for (const which of ladder) if (await denoiserAvailable(which)) return which;
+  return null;
 }
 
 /**
- * Mikrofon işleme zinciri: [köprü ⇄ model: DeepFilterNet 3 | DPDFNet] → ses kapısı (VAD / bas-konuş) → LiveKit.
+ * Mikrofon işleme zinciri: [köprü ⇄ model: DPDFNet] → ses kapısı (VAD / bas-konuş) → LiveKit.
  * Gürültü engelleyici mikrofonun ses iş parçacığında çalışmaz: oradaki köprü (bridge-worklet.js) yalnızca
  * paylaşımlı halka tamponlara örnek kopyalar. Model, ayrı ve sessiz ikinci bir AudioContext'in gerçek zamanlı
  * ses iş parçacığında (compute.worklet.ts) çalışır; o kurulamazsa bir Web Worker'da (denoise.worker.ts).
@@ -209,36 +202,71 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
   private gain: GainNode | null = null;
   private inputGain = 1;
   private building: Promise<void> | null = null;
+  private destroyed = false;
+  /** Çalışan modelin düşürme işlevi (geliştirme sürümündeki deneme kancası için) */
+  private failRunning: ((reason: FailureReason, message: string) => void) | null = null;
+  /** Seviye iletileri arasındaki en uzun boşluk (ms): ana iş parçacığı / sistem takılması ölçüsü */
+  private lastLevelAt = 0;
+  private maxLevelGapMs = 0;
+  private denoiser: Denoiser | null;
 
   constructor(
     private gateConfig: GateConfig,
-    private denoiser: Denoiser | null,
+    /** İstenen model (null: standart ya da kapalı); kurulamazsa bu işlemci modelsiz çalışır */
+    readonly requested: Denoiser | null,
     /** Bastırma sınırı (dB); 100 = sınırsız. Sınır, özgün sesin bir kısmını koruyarak doğal bırakır. */
     private attenLimDb: number,
     private readonly onLevel: (level: MicLevel) => void,
-    /** Gürültü engelleyici çalışırken hata verirse çağrılır (bir alt seçenekle yeniden başlatmak için) */
-    private readonly onDenoiserFailed?: () => void,
-  ) {}
+    /**
+     * İstenen model çalışmıyor: çalışırken düştü (işlemci yetmedi, çöktü) ya da zincir LiveKit tarafından
+     * yeniden kurulurken (aygıt değişti, yeniden bağlanma) modelsiz kaldı. Çağıran mikrofonu bir alt seçenekle
+     * (gerekirse tarayıcının gürültü engellemesi açık) yeniden kurar. İlk kurulumdaki hata `denoiserFailed`
+     * ile okunur, burada bildirilmez. `restarting`: LiveKit'in yeniden kurulumu henüz bitmedi (iz bitene kadar
+     * yayından kaldırılmamalı).
+     */
+    private readonly onDenoiserFailed?: (failure: DenoiserFailure | null, restarting: boolean) => void,
+  ) {
+    this.denoiser = requested;
+  }
 
   /** Gürültü engelleyici istenip de kurulamadıysa true (çağıran tarafça bir alt seçeneğe geçilir). */
   get denoiserFailed(): boolean {
-    return this.denoiser !== null && !this.denoiserNode;
+    return this.requested !== null && !this.denoiserNode;
+  }
+
+  /** Şu an zincirde çalışan model (yoksa null) */
+  get activeDenoiser(): Denoiser | null {
+    return this.denoiserNode ? this.denoiser : null;
   }
 
   async init(opts: AudioProcessorOptions): Promise<void> {
+    // Yok edilmişken gelen yeniden kurulum (LiveKit izi durdururken) yeni bir zincir bırakmasın
+    if (this.destroyed) return;
     this.building = this.build(opts.track);
     await this.building;
   }
 
+  /** LiveKit mikrofonu yeniden açtı (aygıt değişti, yeniden bağlanma, aygıt çıkarıldı): zincir baştan kurulur. */
   async restart(opts: AudioProcessorOptions): Promise<void> {
     await this.teardown();
-    // Bir kez başarısız olduysa yeniden denenmez; track bir alt seçenekle yeniden açılmıştır.
-    if (this.denoiser && broken.has(this.denoiser)) this.denoiser = null;
+    // Model düştüyse (ya da bekleme süresindeyse) yeniden denenmez; çağıran bir alt seçenekle kurar
+    this.denoiser = this.requested && denoiserHealth.available(this.requested) ? this.requested : null;
     await this.init(opts);
+    if (!this.destroyed && this.denoiserFailed) {
+      this.onDenoiserFailed?.(this.requested ? denoiserHealth.lastFailure(this.requested) : null, true);
+    }
   }
 
   async destroy(): Promise<void> {
+    this.destroyed = true;
     await this.teardown();
+  }
+
+  /** Yalnızca geliştirme: çalışan modeli düşürür (CDP/DevTools ile düşüş denemesi). */
+  debugFail(reason: FailureReason = 'underrun'): boolean {
+    if (!import.meta.env.DEV || !this.failRunning) return false;
+    this.failRunning(reason, 'deneme (geliştirme kancası)');
+    return true;
   }
 
   updateGate(patch: Partial<GateConfig>): void {
@@ -273,7 +301,7 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
   }
 
   private async build(track: MediaStreamTrack): Promise<void> {
-    // DeepFilterNet ve DPDFNet 48 kHz örnekleme hızı bekler.
+    // DPDFNet 48 kHz örnekleme hızı bekler.
     const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
     this.ctx = ctx;
     if (ctx.state === 'suspended') await ctx.resume().catch(() => undefined);
@@ -293,7 +321,8 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
         this.denoiserNode = null;
         this.host?.close();
         this.host = null;
-        markBroken(which, err);
+        const message = err instanceof Error ? err.message : String(err);
+        recordFailure(which, classifySetupError(message), message);
       }
     }
 
@@ -308,7 +337,14 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
       outputChannelCount: [1],
     });
     this.gate.port.postMessage(this.gateConfig);
-    this.gate.port.onmessage = (e: MessageEvent<MicLevel>) => this.onLevel(e.data);
+    this.lastLevelAt = 0;
+    this.gate.port.onmessage = (e: MessageEvent<MicLevel>) => {
+      // Seviye ~20 Hz gelir; araya uzun boşluk girdiyse ana iş parçacığı (ya da sistem) takılmıştır
+      const now = performance.now();
+      if (this.lastLevelAt) this.maxLevelGapMs = Math.max(this.maxLevelGapMs, now - this.lastLevelAt);
+      this.lastLevelAt = now;
+      this.onLevel(e.data);
+    };
     node.connect(this.gate);
 
     const dest = ctx.createMediaStreamDestination();
@@ -325,16 +361,6 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
 
   /** Model dosyaları (önbellekteki kopyalar korunur; yeniden kurulumda tekrar indirme olmaz) */
   private async engineInit(which: Denoiser): Promise<EngineInit> {
-    if (which === 'deepfilter') {
-      const a = await loadDeepFilterAssets();
-      return {
-        kind: 'deepfilter',
-        attenLimDb: this.attenLimDb,
-        wasmModule: a.module,
-        model: a.model.slice(0),
-        postFilterBeta: DF_POST_FILTER_BETA,
-      };
-    }
     const a = await loadDpdfnetAssets();
     return { kind: 'dpdfnet', attenLimDb: this.attenLimDb, ortWasm: a.wasm.slice(0), model: a.model.slice(0) };
   }
@@ -420,6 +446,10 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
   private async createDenoiser(ctx: AudioContext, which: Denoiser): Promise<AudioWorkletNode> {
     const spec = DENOISERS[which];
     assertSharedMemory();
+    if (import.meta.env.DEV && micDebug.failNextSetups > 0) {
+      micDebug.failNextSetups--;
+      throw new Error('işlemci yetersiz (deneme: geliştirme kancası)');
+    }
     await ctx.audioWorklet.addModule(bridgeWorkletUrl);
 
     let sab = createRing();
@@ -449,33 +479,39 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
     });
     this.denoiserNode = node;
 
-    // Kurulduktan sonraki hatalar: çağıran bir alt seçenekle (DPDFNet → DeepFilterNet → standart) yeniden başlatır.
+    // Kurulduktan sonraki hatalar: çağıran bir alt seçenekle (bkz. DENOISER_LADDER, en sonda standart) yeniden
+    // kurar. Yalnızca bu zincirin hâlâ çalışan modeli için bir kez bildirilir (sökülürken gelen iletiler sayılmaz).
     let failed = false;
-    const fail = (err: unknown): void => {
-      if (failed || this.denoiserNode !== node) return;
+    const fail = (reason: FailureReason, message: string): void => {
+      if (failed || this.destroyed || this.denoiserNode !== node) return;
       failed = true;
-      markBroken(which, err);
-      this.onDenoiserFailed?.();
+      this.onDenoiserFailed?.(recordFailure(which, reason, message), false);
     };
-    node.onprocessorerror = () => fail(new Error(`${spec.name} köprüsü çöktü`));
-    let overloaded = 0;
-    let starved = 0;
-    let lastUnderruns = 0;
+    this.failRunning = fail;
+    node.onprocessorerror = () => fail('error', `${spec.name} köprüsü çöktü`);
+    const detector = new OverloadDetector(spec.maxLoad);
+    let lastStatsAt = performance.now();
+    let prevStalled = false;
     const hostKind = host.kind;
     host.listen(
       (m) => {
         if (m.type === 'stats') {
           this.updateStats(spec, hostKind, m);
-          overloaded = m.load > spec.maxLoad ? overloaded + 1 : 0;
-          starved = m.underruns > lastUnderruns ? starved + 1 : 0;
-          lastUnderruns = m.underruns;
-          if (overloaded >= DENOISER_MAX_LOAD_REPORTS) fail(new Error(`işlemci yetersiz (yük ${Math.round(m.load * 100)}%)`));
-          else if (starved >= DENOISER_MAX_UNDERRUN_REPORTS) fail(new Error('kareler zamanında işlenemiyor'));
+          // Takılma: rapor geç geldi ya da seviye iletileri arasında uzun boşluk oldu. Takılmanın yol açtığı
+          // boşluklar bir sonraki rapora da taşabilir; bir önceki aralıktaki takılma da sayılır.
+          const now = performance.now();
+          const stalledNow = now - lastStatsAt > STATS_LATE_MS || this.maxLevelGapMs > STALL_GAP_MS;
+          lastStatsAt = now;
+          this.maxLevelGapMs = 0;
+          const reason = detector.push({ load: m.load, underruns: m.underruns, stalled: stalledNow || prevStalled });
+          prevStalled = stalledNow;
+          if (reason === 'overload') fail(reason, `yük %${Math.round(m.load * 100)}`);
+          else if (reason === 'underrun') fail(reason, `kareler zamanında işlenemiyor (${m.underruns} boşluk)`);
         } else if (m.type === 'error') {
-          fail(new Error(m.message));
+          fail('error', m.message);
         }
       },
-      (err) => fail(err),
+      (err) => fail('error', err.message),
     );
     return node;
   }
@@ -504,10 +540,14 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
   private async teardown(): Promise<void> {
     await this.building?.catch(() => undefined);
     this.building = null;
+    // Sökülen modelden sonradan gelen hata/ölçüm iletileri düşüş sayılmasın (bkz. fail)
+    const denoiserNode = this.denoiserNode;
+    this.denoiserNode = null;
+    this.failRunning = null;
     this.gate?.port.close();
     this.gate?.disconnect();
     this.sendGain?.disconnect();
-    this.denoiserNode?.disconnect();
+    denoiserNode?.disconnect();
     this.gain?.disconnect();
     this.host?.close();
     this.source?.disconnect();
@@ -516,7 +556,6 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
     await this.ctx?.close().catch(() => undefined);
     this.gate = null;
     this.sendGain = null;
-    this.denoiserNode = null;
     this.gain = null;
     this.host = null;
     this.source = null;
@@ -524,5 +563,6 @@ export class MicProcessor implements TrackProcessor<Track.Kind.Audio, AudioProce
     this.processedTrack = undefined;
     this.monitorTrack = undefined;
     this.stats = null;
+    this.maxLevelGapMs = 0;
   }
 }
