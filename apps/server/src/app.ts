@@ -165,7 +165,6 @@ export async function buildApp(
     { gifs: gifs.enabled },
     undefined,
     activityIcons,
-    cosmeticPacks,
   );
   const moderation = new VoiceModeration(store, voice, livekit, permissions, gateway);
   const push =
@@ -355,10 +354,10 @@ export async function buildApp(
 
   // Kozmetik paketlerini tanıdığını bildirmeyen eski istemcilere (0.9.1 ve öncesi) JSON yanıtlardaki
   // kullanıcıların set seçimlerinde yalnızca yerleşik kimlikler gider (bkz. cosmeticCompat.ts; gateway'de
-  // aynısını Gateway.out yapar). Yerleşik olmayan paket yayında değilken yanıtlara hiç bakılmaz.
+  // aynısını Gateway.out yapar). Karar yalnızca yanıtın metnine bakar (ucuz bir ön tarama), o anki paket
+  // listesine değil: yanıt hazırlandıktan sonra paket yayından kalksa da tanınmayan kimlik sızmaz.
   app.addHook('onSend', async (req, reply, payload) => {
-    if (typeof payload !== 'string' || !cosmeticPacks.hasCustomIds()) return payload;
-    if (knowsCosmeticPacks(req.headers[CLIENT_FEATURES_HEADER])) return payload;
+    if (typeof payload !== 'string' || knowsCosmeticPacks(req.headers[CLIENT_FEATURES_HEADER])) return payload;
     const type = reply.getHeader('content-type');
     return typeof type === 'string' && type.startsWith('application/json') ? withoutPackCosmetics(payload) : payload;
   });

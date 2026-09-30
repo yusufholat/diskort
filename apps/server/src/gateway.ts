@@ -199,8 +199,6 @@ export class Gateway {
     readonly statuses: StatusStore = new StatusStore(store),
     /** Sunucuda saklanan etkinlik ikonları (olmayan ikon bildirilirse etkinlik ikonsuz görünür) */
     private readonly activityIcons: { has(key: string): boolean } = { has: () => false },
-    /** Yayında yerleşik olmayan kozmetik paketi var mı (yoksa eski istemciler için süzmeye gerek kalmaz) */
-    private readonly cosmetics: { hasCustomIds(): boolean } = { hasCustomIds: () => false },
   ) {
     // Kişi kendi ses durumunu her zaman alır (kanalı görme yetkisini kaybedip çıkarılırken de)
     voice.on('update', (state) =>
@@ -523,16 +521,19 @@ export class Gateway {
     if (s.socket.readyState === s.socket.OPEN) this.out(s, JSON.stringify(msg));
   }
 
-  /** Son giden mesajın eski istemcilere uygun hali (aynı mesaj art arda birçok oturuma gider) */
+  /**
+   * Son giden mesajın eski istemcilere uygun hali: aynı mesaj art arda birçok oturuma gider, metin bir kez
+   * taranır (süzülecek bir şey yoksa "aynısı" sonucu da hatırlanır).
+   */
   private lastLegacy: { full: string; legacy: string } | null = null;
 
   /**
    * Tek giden mesaj (sayılarak). Kozmetik paketlerini tanımayan eski istemciye kullanıcıların set seçimlerinde
-   * yalnızca yerleşik kimlikler gider (bkz. cosmeticCompat.ts); yerleşik olmayan paket yayında değilse mesaj
-   * olduğu gibi gider.
+   * yalnızca yerleşik kimlikler gider (bkz. cosmeticCompat.ts). Karar yalnızca giden metne bakar, o anki paket
+   * listesine değil: kullanıcı serileştirildikten sonra paket yayından kalksa da tanınmayan kimlik sızmaz.
    */
   private out(s: Session, data: string): void {
-    if (!s.packs && this.cosmetics.hasCustomIds()) {
+    if (!s.packs) {
       if (this.lastLegacy?.full !== data) this.lastLegacy = { full: data, legacy: withoutPackCosmetics(data) };
       data = this.lastLegacy.legacy;
     }

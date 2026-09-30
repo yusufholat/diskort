@@ -158,6 +158,10 @@ interface CosmeticPackStore {
   unknownRefreshAt: number;
   /** Bu bildirim için zaten sorulmuş tanınmayan kimlikler (aynı kimlik için yeniden sorulmaz) */
   unknownAsked: readonly string[];
+  /** Bekleme süresi içinde görülmüş, süre dolunca sorulacak tanınmayan kimlikler */
+  unknownPending: readonly string[];
+  /** Yüklenemeyen dosya yüzünden en son tazeleme istenen an (ms) */
+  assetFailureRefreshAt: number;
 }
 
 export const useCosmeticPacks = create<CosmeticPackStore>()(() => ({
@@ -167,16 +171,40 @@ export const useCosmeticPacks = create<CosmeticPackStore>()(() => ({
   checkedAt: null,
   unknownRefreshAt: 0,
   unknownAsked: [],
+  unknownPending: [],
+  assetFailureRefreshAt: 0,
 }));
 
 const STORAGE_KEY = 'diskort-cosmetic-packs';
 /** Tanınmayan kimlik görülünce bildirim en çok bu sıklıkta yeniden istenir */
 export const UNKNOWN_COSMETIC_REFRESH_INTERVAL_MS = 60_000;
+/** Yüklenemeyen dosya bildirilince bildirim en çok bu sıklıkta yeniden istenir */
+export const COSMETIC_ASSET_FAILURE_REFRESH_INTERVAL_MS = 60_000;
 
 /** Bildirim gizli değildir ve büyüyebilir: varsa önbellek deposuna, yoksa genel depoya yazılır */
 const storage = (): KeyValueStorage => env().cacheStorage ?? env().storage;
 
 const currentServerUrl = (): string => normalizeServerUrl(env().serverUrl());
+
+/**
+ * Eldeki bildirim, yalnızca şu an bağlanılan sunucununkiyse. Sunucu adresi değiştiyse (yenisi henüz
+ * alınmadan) null: bir sunucunun paketleri başka sunucunun adresiyle birleştirilmez.
+ */
+function activeManifest(state: Pick<CosmeticPackStore, 'manifest' | 'serverUrl'> = useCosmeticPacks.getState()): CosmeticPackManifest | null {
+  if (!state.manifest) return null;
+  try {
+    return state.serverUrl === currentServerUrl() ? state.manifest : null;
+  } catch {
+    // istemci henüz yapılandırılmadı
+    return null;
+  }
+}
+
+/**
+ * Bileşenler için: şu an bağlanılan sunucunun bildirimi (yoksa null). Bildirim değişince bileşen yeniden
+ * çizilir; değerler `cosmeticPacks.*` ya da saf seçicilerle okunur.
+ */
+export const useCosmeticManifest = (): CosmeticPackManifest | null => useCosmeticPacks((s) => activeManifest(s));
 
 function applyStored(raw: string | null): void {
   if (!raw || useCosmeticPacks.getState().manifest) return;
@@ -218,16 +246,17 @@ function persist(): void {
   }
 }
 
-let inflight: Promise<void> | null = null;
+/** Süren istek ve hangi sunucuya gittiği (sunucu değişirse eskisi beklenmez, yanıtı da kullanılmaz) */
+let inflight: { base: string; promise: Promise<void> } | null = null;
 
 /**
- * Bildirimi sunucudan tazeler (değişmediyse 304: gövde inmez). Oturum başlarken kendiliğinden çağrılır
- * (gateway READY); ayarlardaki seçici açılırken de çağrılmalıdır. Aynı anda tek istek gider. Hata vermez:
- * sunucuya ulaşılamazsa eldeki (cihazda saklanan) bildirim kullanılmaya devam eder.
+ * Bildirimi sunucudan tazeler (değişmediyse 304: gövde inmez). Kendiliğinden çağrıldığı yerler: oturum
+ * başlarken (gateway READY), bağlıyken 10 dakikada bir, uygulama öne gelince ve tanınmayan bir set kimliği
+ * görülünce. Ayarlardaki seçici açılırken de çağrılmalıdır. Aynı sunucuya aynı anda tek istek gider. Hata
+ * vermez: sunucuya ulaşılamazsa eldeki (cihazda saklanan) bildirim kullanılmaya devam eder.
  * `maxAgeMs`: son başarılı sorgu bundan yeniyse sunucuya hiç sorulmaz.
  */
 export function refreshCosmeticPacks(opts: { maxAgeMs?: number } = {}): Promise<void> {
-  if (inflight) return inflight;
   let base: string;
   try {
     base = currentServerUrl();
@@ -235,20 +264,22 @@ export function refreshCosmeticPacks(opts: { maxAgeMs?: number } = {}): Promise<
     // istemci henüz yapılandırılmadı
     return Promise.resolve();
   }
+  if (inflight?.base === base) return inflight.promise;
   const { checkedAt, serverUrl } = useCosmeticPacks.getState();
   if (opts.maxAgeMs && serverUrl === base && checkedAt !== null && Date.now() - checkedAt < opts.maxAgeMs) {
     return Promise.resolve();
   }
-  inflight = load(base).finally(() => {
-    inflight = null;
+  const promise = load(base).finally(() => {
+    if (inflight?.promise === promise) inflight = null;
   });
-  return inflight;
+  inflight = { base, promise };
+  return promise;
 }
 
 async function load(base: string): Promise<void> {
   // Başka sunucunun bildirimi bu sunucuda geçersiz
   if (useCosmeticPacks.getState().serverUrl !== base) {
-    useCosmeticPacks.setState({ manifest: null, serverUrl: base, checkedAt: null, unknownAsked: [] });
+    useCosmeticPacks.setState({ manifest: null, serverUrl: base, checkedAt: null, unknownAsked: [], unknownPending: [] });
   }
   const current = useCosmeticPacks.getState().manifest;
   useCosmeticPacks.setState({ status: 'loading' });
@@ -280,16 +311,69 @@ async function load(base: string): Promise<void> {
   }
 }
 
+/** Bekleme süresi dolunca birikmiş tanınmayan kimlikler için tek tazeleme */
+let unknownTimer: ReturnType<typeof setTimeout> | null = null;
+
+function askUnknown(ids: readonly string[], now: number): void {
+  const { unknownAsked } = useCosmeticPacks.getState();
+  useCosmeticPacks.setState({ unknownRefreshAt: now, unknownAsked: [...unknownAsked, ...ids].slice(-256), unknownPending: [] });
+  void refreshCosmeticPacks();
+}
+
+function flushUnknown(): void {
+  unknownTimer = null;
+  const { manifest, unknownAsked, unknownPending } = useCosmeticPacks.getState();
+  // Bu arada bildirim tazelenmiş ve kimlik tanınır olmuş olabilir
+  const still = unknownPending.filter((id) => !isKnownCosmeticSet(manifest, id) && !unknownAsked.includes(id));
+  if (still.length > 0) askUnknown(still, Date.now());
+  else useCosmeticPacks.setState({ unknownPending: [] });
+}
+
 /**
  * Gateway'den gelen kullanıcılar bildirimde olmayan bir set kimliği taşıyorsa (yeni paket yayınlanmış
  * olabilir) bildirim yeniden istenir: en çok UNKNOWN_COSMETIC_REFRESH_INTERVAL_MS'de bir ve aynı bildirim
- * için kimlik başına bir kez (tazelemeden sonra da tanınmayan kimlik yeniden sorulmaz).
+ * için kimlik başına bir kez (tazelemeden sonra da tanınmayan kimlik yeniden sorulmaz). Bekleme süresi içinde
+ * görülen kimlik unutulmaz: süre dolunca hepsi için tek bir tazeleme yapılır.
  */
 export function noteCosmeticUsers(users: Iterable<CosmeticFields | null | undefined>, now = Date.now()): void {
-  const { manifest, unknownRefreshAt, unknownAsked } = useCosmeticPacks.getState();
+  const { manifest, unknownRefreshAt, unknownAsked, unknownPending } = useCosmeticPacks.getState();
   const fresh = unknownCosmeticSets(manifest, users).filter((id) => !unknownAsked.includes(id));
-  if (fresh.length === 0 || now - unknownRefreshAt < UNKNOWN_COSMETIC_REFRESH_INTERVAL_MS) return;
-  useCosmeticPacks.setState({ unknownRefreshAt: now, unknownAsked: [...unknownAsked, ...fresh].slice(-256) });
+  if (fresh.length === 0) return;
+  const wait = unknownRefreshAt + UNKNOWN_COSMETIC_REFRESH_INTERVAL_MS - now;
+  if (wait <= 0) {
+    if (unknownTimer !== null) clearTimeout(unknownTimer);
+    unknownTimer = null;
+    askUnknown([...new Set([...unknownPending, ...fresh])], now);
+    return;
+  }
+  const pending = [...new Set([...unknownPending, ...fresh])].slice(-256);
+  if (pending.length !== unknownPending.length) useCosmeticPacks.setState({ unknownPending: pending });
+  if (unknownTimer === null) {
+    unknownTimer = setTimeout(flushUnknown, wait);
+    // Node'da (testler) bekleyen zamanlayıcı süreci açık tutmasın
+    (unknownTimer as { unref?: () => void }).unref?.();
+  }
+}
+
+/** Tam adres eldeki bildirimin dosyalarından biri mi */
+function manifestHasUrl(manifest: CosmeticPackManifest, baseUrl: string, url: string): boolean {
+  if (!url.startsWith(baseUrl)) return false;
+  const path = url.slice(baseUrl.length);
+  return manifest.packs.some((p) => Object.values(p.assets).some((list) => list.some((a) => a.url === path)));
+}
+
+/**
+ * Oynatıcılar, bir paket dosyası yüklenemediğinde (404, ağ ya da çözme hatası) çağırır: bildirim eskimiş
+ * olabilir (paket yeniden yayınlanmış ya da kaldırılmış), yeniden istenir. En çok
+ * COSMETIC_ASSET_FAILURE_REFRESH_INTERVAL_MS'de bir istek gider; bildirim değişirse bileşenler yeni adreslerle
+ * yeniden çizilir. `url`: yüklenemeyen dosyanın tam adresi (cosmeticPackAsset / cosmeticPacks.asset'in verdiği);
+ * eldeki bildirimde artık yoksa bildirim zaten tazelenmiştir, istek gitmez.
+ */
+export function cosmeticAssetFailed(url?: string | null, now = Date.now()): void {
+  const { manifest, serverUrl, assetFailureRefreshAt } = useCosmeticPacks.getState();
+  if (url && manifest && serverUrl && !manifestHasUrl(manifest, serverUrl, url)) return;
+  if (now - assetFailureRefreshAt < COSMETIC_ASSET_FAILURE_REFRESH_INTERVAL_MS) return;
+  useCosmeticPacks.setState({ assetFailureRefreshAt: now });
   void refreshCosmeticPacks();
 }
 
@@ -297,25 +381,31 @@ export function noteCosmeticUsers(users: Iterable<CosmeticFields | null | undefi
 
 /**
  * Eldeki bildirim ve bu istemcinin platformu/sunucusuyla seçiciler (bileşen dışında ya da
- * `useCosmeticPacks((s) => s.manifest)` ile yeniden çizilen bileşenlerin içinde).
+ * `useCosmeticManifest()` ile yeniden çizilen bileşenlerin içinde). Bildirim başka bir sunucudan alınmışsa
+ * (sunucu adresi değişti, yenisi henüz gelmedi) hiçbir set tanınmaz: adresler hep bildirimin kendi sunucusuyla
+ * kurulur.
  */
 export const cosmeticPacks = {
   /** Seçicideki setler, sırayla */
-  selectable: (): CosmeticSetId[] => selectableCosmeticSets(useCosmeticPacks.getState().manifest),
-  known: (id: string | null | undefined): boolean => isKnownCosmeticSet(useCosmeticPacks.getState().manifest, id),
-  info: (id: string | null | undefined): CosmeticPack | null => cosmeticSetInfo(useCosmeticPacks.getState().manifest, id),
-  label: (id: string | null | undefined): string | null => cosmeticSetLabel(useCosmeticPacks.getState().manifest, id),
+  selectable: (): CosmeticSetId[] => selectableCosmeticSets(activeManifest()),
+  known: (id: string | null | undefined): boolean => isKnownCosmeticSet(activeManifest(), id),
+  info: (id: string | null | undefined): CosmeticPack | null => cosmeticSetInfo(activeManifest(), id),
+  label: (id: string | null | undefined): string | null => cosmeticSetLabel(activeManifest(), id),
   asset: (
     id: string | null | undefined,
     piece: CosmeticPiece,
     preferredKinds: readonly CosmeticAssetKind[],
-  ): ResolvedCosmeticAsset | null =>
-    cosmeticPackAsset(useCosmeticPacks.getState().manifest, currentServerUrl(), id, piece, env().platform, preferredKinds),
-  poster: (id: string | null | undefined, piece: CosmeticPiece): ResolvedCosmeticAsset | null =>
-    cosmeticPackPoster(useCosmeticPacks.getState().manifest, currentServerUrl(), id, piece, env().platform),
+  ): ResolvedCosmeticAsset | null => {
+    const manifest = activeManifest();
+    return manifest ? cosmeticPackAsset(manifest, currentServerUrl(), id, piece, env().platform, preferredKinds) : null;
+  },
+  poster: (id: string | null | undefined, piece: CosmeticPiece): ResolvedCosmeticAsset | null => {
+    const manifest = activeManifest();
+    return manifest ? cosmeticPackPoster(manifest, currentServerUrl(), id, piece, env().platform) : null;
+  },
   mode: (
     id: string | null | undefined,
     piece: CosmeticPiece,
     playableKinds: readonly CosmeticAssetKind[],
-  ): CosmeticRenderMode => cosmeticRenderMode(useCosmeticPacks.getState().manifest, id, piece, env().platform, playableKinds),
+  ): CosmeticRenderMode => cosmeticRenderMode(activeManifest(), id, piece, env().platform, playableKinds),
 };
