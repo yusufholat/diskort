@@ -104,7 +104,7 @@ export const activityKey = (a: Pick<Activity, 'type' | 'name'>): string => `${a.
  * Hangul dolgu harfleri, boş Braille. Kaynakta görünmesinler diye hepsi \u kaçışıyla yazılır.
  */
 const INVISIBLE_CHARS =
-  /[­͏؜ᅟᅠ᠎​-‏‪-‮⁠-⁩⠀ㅤ﻿ﾠ]/g;
+  /[\u00ad\u034f\u061c\u115f\u1160\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2069\u2800\u3164\ufeff\uffa0]/g;
 /** Adda görünen en az bir karakter (harf, rakam, noktalama ya da simge) olmalı */
 const VISIBLE_CHAR = /[\p{L}\p{N}\p{P}\p{S}]/u;
 
