@@ -167,6 +167,7 @@ interface Infall {
 }
 
 function drawKaradelik(ctx: Ctx, v: LayerView, t: number): void {
+  if (v.loop) return drawKaradelikLoop(ctx, v, t, v.loop);
   const { cx, cy, RS } = bhLayout(v);
   ctx.globalCompositeOperation = 'lighter';
   const c = Math.cos(-0.12);
@@ -257,6 +258,147 @@ function drawKaradelik(ctx: Ctx, v: LayerView, t: number): void {
       ctx.stroke();
     }
     sprite(ctx, heat > 0.5 ? SPR.warm() : SPR.cool(), h[0], h[1], 7 + 6 * o.w + 8 * heat, al);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+}
+
+/**
+ * Karadeliğin döngü biçimi (yalnızca dosyaya çizim aracı; bkz. client-core cosmeticShaders/loop.ts). Canlıdan
+ * farkları:
+ * - her yıldızın düşüşü ve her lekenin turu döngüye tam sayıda sığar (en yakın süre). Hepsi aynı sürede
+ *   döndüğünden başlangıçlar rastgele değil, döngüye eşit aralıklarla (biraz oynatılarak) dağıtılır: döngünün
+ *   her anında düşüşün her evresinden aynı sayıda yıldız vardır, "kalabalık an" ya da boş an olmaz;
+ * - hiçbir şey tek karede belirip kaybolmaz: deliğin arkasına geçen yıldız yumuşakça örtülür, afişin altına inen
+ *   yumuşakça söner, ısınan yıldızın rengi yumuşakça değişir (canlıda bunlar birer eşiktir);
+ * - iz, köşeli birkaç çizgi yerine incelen kesintisiz bir şerittir; gelgit çizgisi gölgenin içine uzanmaz;
+ * - kartta yıldızların doğduğu en uzak yer kartın genişliğine bağlıdır (standart tuvalin yüksekliğine değil).
+ */
+function drawKaradelikLoop(ctx: Ctx, v: LayerView, t: number, P: number): void {
+  const { cx, cy, RS } = bhLayout(v);
+  ctx.globalCompositeOperation = 'lighter';
+  const c = Math.cos(-0.12);
+  const s = Math.sin(-0.12);
+  if (v.kind === 'deco') {
+    const spots = cached(v, 'bhsl', () => {
+      const r = rng(5);
+      return Array.from({ length: 5 }, (_, i) => ({ a: ((i + 0.5 + (r() - 0.5) * 0.7) / 5) * TAU, rr: 1.15 + r() * 0.22, sz: 7 + r() * 7 }));
+    });
+    for (const o of spots) {
+      const rr = RS * o.rr;
+      const a = o.a - t * loopRate(1.4 * Math.pow(1.1 / o.rr, 1.5), P);
+      const X = Math.cos(a) * rr;
+      const Y = Math.sin(a) * rr * 0.3;
+      const x = cx + c * X + s * Y;
+      const y = cy - s * X + c * Y;
+      // yörüngenin arka yarısında avatarın kenarında yumuşakça kaybolur
+      const back = smooth(0.1, -0.2, Math.sin(a));
+      const vis = 1 - back * (1 - smooth(RS - 3, RS + 4, Math.hypot(x - cx, y - cy)));
+      const dop = Math.pow(Math.max(0.1, 1 - 0.6 * Math.cos(a)), 1.6);
+      sprite(ctx, SPR.warm(), x, y, o.sz * (0.8 + 0.3 * dop), 0.55 * dop * vis);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    return;
+  }
+  const n = v.kind === 'card' ? 30 : v.kind === 'plate' ? 9 : 16;
+  const rMax = v.kind === 'card' ? v.w * 1.08 : v.kind === 'plate' ? v.w * 0.4 : Math.max(v.w, v.h) * 0.65;
+  const list = cached<Infall[]>(v, 'bhil', () => {
+    const r = rng(17);
+    return Array.from({ length: n }, (_, i) => ({
+      D: 4.5 + r() * 5,
+      // döngünün kesri (canlıda saniye): eşit aralıklı, biraz oynatılmış
+      off: (i + 0.5 + (r() - 0.5) * 0.8) / n,
+      r0: RS * 2.4 + r() * (rMax - RS * 2.4),
+      th: r() * TAU,
+      sp: 0.8 + r() * 0.6,
+      w: 0.7 + r() * 1.1,
+    }));
+  });
+  const bh = v.kind === 'card' ? v.geo.bh : 1e9;
+  ctx.lineCap = 'round';
+  type At = [number, number, number, number];
+  /** Deliğin arkasında kalan nokta ne kadar görünür (0..1) */
+  const seen = (q: At): number => 1 - smooth(0.05, -0.25, Math.sin(q[3])) * (1 - smooth(RS, RS * 1.35, Math.hypot(q[0] - cx, q[1] - cy)));
+  for (const o of list) {
+    const D = 1 / loopRate(1 / o.D, P, 1);
+    const u = posmod(t / D + o.off, 1);
+    const at = (uu: number): At => {
+      uu = clamp(uu);
+      const r = RS * 1.02 + (o.r0 - RS * 1.02) * (1 - uu * uu);
+      const th = o.th + o.sp * (Math.sqrt(o.r0 / r) - 1) * 1.6;
+      const X = Math.cos(th) * r;
+      const Y = Math.sin(th) * r * 0.45;
+      return [cx + c * X + s * Y, cy - s * X + c * Y, r, th];
+    };
+    const h = at(u);
+    const r = h[2];
+    // kartın gövdesinde (yazıların üstünde) iyice sönük
+    const al = smooth(0, 0.1, u) * smooth(RS * 1.05, RS * 1.7, r) * mix(0.3, 1, smooth(bh + 12, bh - 14, h[1]));
+    if (al < 0.004) continue;
+    const heat = smooth(RS * 4, RS * 1.3, r);
+    const warm = smooth(0.3, 0.7, heat);
+    const col = `rgb(${Math.round(mix(205, 255, warm))},${Math.round(mix(225, 196, warm))},${Math.round(mix(255, 130, warm))})`;
+    const hv = seen(h);
+    // iz: yörünge boyunca geriye doğru incelen şerit. Art arda dörtgenler ortak kenarı paylaşır: toplamalı
+    // çizimde ek yerleri görünmez (yuvarlak uçlu ayrı çizgiler ek yerlerinde boncuk boncuk parlar)
+    const steps = 22;
+    const du = ((0.006 + 0.02 * heat) * 7) / steps;
+    const pts: At[] = [h];
+    for (let k = 1; k <= steps; k++) pts.push(at(u - k * du));
+    ctx.fillStyle = col;
+    let nx = 0;
+    let ny = 0;
+    let pl: Pt | null = null;
+    let pr: Pt | null = null;
+    let pv = hv;
+    for (let k = 0; k <= steps; k++) {
+      const a = pts[Math.max(0, k - 1)]!;
+      const b = pts[Math.min(steps, k + 1)]!;
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len > 1e-4) {
+        nx = -(b[1] - a[1]) / len;
+        ny = (b[0] - a[0]) / len;
+      }
+      const q = pts[k]!;
+      const half = 0.5 * o.w * (1 - k / (steps + 1)) * (1 + heat);
+      const l: Pt = [q[0] + nx * half, q[1] + ny * half];
+      const rgt: Pt = [q[0] - nx * half, q[1] - ny * half];
+      const qv = seen(q);
+      if (pl && pr) {
+        ctx.globalAlpha = Math.min(1, al * (1 - (k - 0.5) / (steps + 1)) * 0.7 * Math.min(pv, qv));
+        ctx.beginPath();
+        ctx.moveTo(pl[0], pl[1]);
+        ctx.lineTo(l[0], l[1]);
+        ctx.lineTo(rgt[0], rgt[1]);
+        ctx.lineTo(pr[0], pr[1]);
+        ctx.closePath();
+        ctx.fill();
+      }
+      pl = l;
+      pr = rgt;
+      pv = qv;
+    }
+    // gelgit uzaması: merkeze doğru (radyal) çekilir; iç ucu foton halkasında biter (gölgenin içine girmez),
+    // yıldız halkaya yaklaştıkça çizgi söner
+    const st = Math.min(RS * 1.3, (RS * RS * 2.2) / r) * heat;
+    const pd = Math.hypot(h[0] - cx, h[1] - cy);
+    const stA = smooth(0.2, 1.5, st) * smooth(RS * 1.03, RS * 1.25, pd);
+    if (stA > 0) {
+      const dx = (h[0] - cx) / pd;
+      const dy = (h[1] - cy) / pd;
+      const inner = Math.min(st, pd - RS * 1.03);
+      ctx.globalAlpha = al * 0.8 * hv * stA;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = o.w * 0.9;
+      ctx.beginPath();
+      ctx.moveTo(h[0] - dx * inner, h[1] - dy * inner);
+      ctx.lineTo(h[0] + dx * st * 0.6, h[1] + dy * st * 0.6);
+      ctx.stroke();
+    }
+    const size = 7 + 6 * o.w + 8 * heat;
+    sprite(ctx, SPR.cool(), h[0], h[1], size, al * hv * (1 - warm));
+    sprite(ctx, SPR.warm(), h[0], h[1], size, al * hv * warm);
   }
   ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = 1;
@@ -675,6 +817,7 @@ function shootingStar(ctx: Ctx, t: number, W: number, yMax: number, seed: number
 }
 
 function drawAurora(ctx: Ctx, v: LayerView, t: number): void {
+  if (v.loop) return drawAuroraLoop(ctx, v, t, v.loop);
   if (v.kind === 'deco') {
     const list = cached(v, 'ast', () => {
       const r = rng(3);
@@ -695,6 +838,75 @@ function drawAurora(ctx: Ctx, v: LayerView, t: number): void {
   }
   if (v.kind === 'card') shootingStar(ctx, t, v.w, v.geo.bh, 1.3);
   else if (v.kind === 'thumb') shootingStar(ctx, t, v.w, v.h * 0.6, 3.1);
+  ctx.globalAlpha = 1;
+}
+
+/**
+ * Döngü biçiminin kayan yıldızları: canlıda 6.5 sn'de bir, her seferinde rastgele bir yerde. Döngüde her tur
+ * aynı olmalı: döngü başına iki kayan yıldız, yerleri ve anları sabit (at: döngünün kesri; x, y: başlangıç,
+ * genişliğin ve yMax'ın kesri; ang: yön, π'nin katı). Süre canlıdaki gibi .91 sn; belirip kaybolma yumuşak.
+ */
+const LOOP_SHOTS = [
+  { at: 0.07, x: 0.86, y: 0.06, ang: 0.83 },
+  { at: 0.5, x: 0.55, y: 0.27, ang: 0.87 },
+];
+
+function shootingStarLoop(ctx: Ctx, t: number, W: number, yMax: number, P: number): void {
+  for (const shot of LOOP_SHOTS) {
+    const k = posmod(t - shot.at * P, P) / 0.91;
+    if (k >= 1) continue;
+    const x0 = W * shot.x;
+    const y0 = yMax * shot.y;
+    const ang = Math.PI * shot.ang;
+    const Ld = Math.min(W, yMax * 2) * 0.7;
+    const hx = x0 + Math.cos(ang) * Ld * k;
+    const hy = y0 + Math.sin(ang) * Ld * k;
+    const tl = 46 * (1 - k * 0.3);
+    const a = Math.sin(k * Math.PI);
+    const g = ctx.createLinearGradient(hx, hy, hx - Math.cos(ang) * tl, hy - Math.sin(ang) * tl);
+    g.addColorStop(0, 'rgba(230,255,245,1)');
+    g.addColorStop(1, 'rgba(120,255,200,0)');
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = g;
+    ctx.lineWidth = 1.3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(hx, hy);
+    ctx.lineTo(hx - Math.cos(ang) * tl, hy - Math.sin(ang) * tl);
+    ctx.stroke();
+    ctx.globalCompositeOperation = 'lighter';
+    sprite(ctx, SPR.cool(), hx, hy, 10, a);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
+/**
+ * Kuzey Işıkları'nın döngü biçimi (yalnızca dosyaya çizim aracı; bkz. client-core cosmeticShaders/loop.ts):
+ * pırıltıların hızı döngüye tam sayıda sığar; halkadaki pırıltılar canlıdaki çok yavaş dönüş (6 sn'de bir turu
+ * tamamlayamaz) yerine oldukları yerde hafifçe salınır; kayan yıldızlar shootingStarLoop.
+ */
+function drawAuroraLoop(ctx: Ctx, v: LayerView, t: number, P: number): void {
+  if (v.kind === 'deco') {
+    const list = cached(v, 'ast', () => {
+      const r = rng(3);
+      return Array.from({ length: 7 }, () => ({ a: r() * TAU, rr: 1.15 + r() * 0.3, ph: r() * TAU, sp: 1 + r() * 1.5, L: 3 + r() * 3 }));
+    });
+    const k = v.R / 46;
+    ctx.globalCompositeOperation = 'lighter';
+    for (const o of list) {
+      const tw = Math.pow(Math.max(0, Math.sin(t * loopRate(o.sp, P) + o.ph)), 6);
+      const a = o.a + 0.12 * Math.sin((t * TAU) / P + o.ph * 1.7);
+      const x = v.w / 2 + Math.cos(a) * v.R * o.rr;
+      const y = v.h / 2 + Math.sin(a) * v.R * o.rr;
+      sparkle(ctx, x, y, o.L * k, tw, '#eafff6', 0);
+      sprite(ctx, SPR.cool(), x, y, o.L * 3 * k, tw * 0.5);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    return;
+  }
+  if (v.kind === 'card') shootingStarLoop(ctx, t, v.w, v.geo.bh, P);
+  else if (v.kind === 'thumb') shootingStarLoop(ctx, t, v.w, v.h * 0.6, P);
   ctx.globalAlpha = 1;
 }
 

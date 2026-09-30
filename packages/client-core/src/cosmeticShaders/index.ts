@@ -4,8 +4,8 @@
 import type { CosmeticSet } from '@diskort/shared';
 import { SHADER_ATESBOCEGI } from './atesbocegi';
 import { buzLoopShader, SHADER_BUZ } from './buz';
-import { SHADER_KARADELIK } from './karadelik';
-import { SHADER_KUZEY } from './kuzey';
+import { karadelikLoopShader, SHADER_KARADELIK } from './karadelik';
+import { kuzeyLoopShader, SHADER_KUZEY } from './kuzey';
 import { SHADER_NEON } from './neon';
 import { SHADER_SAKURA } from './sakura';
 
@@ -13,6 +13,7 @@ export {
   COSMETIC_SHADER_COMMON,
   COSMETIC_SHADER_MAIN,
   COSMETIC_VERTEX_SHADER,
+  cosmeticShaderCommon,
   cosmeticShaderMain,
   SHADER_MODE,
   type CosmeticDither,
@@ -20,6 +21,8 @@ export {
 } from './common';
 export { COSMETIC_LOOP_SECONDS, glslFloat, loopRate } from './loop';
 export { BUZ_LOOP, buzLoopG } from './buz';
+export { KARADELIK_LOOP } from './karadelik';
+export { KUZEY_LOOP } from './kuzey';
 
 /** Her setin `effect(p)` gölgelendiricisi */
 export const COSMETIC_SHADERS: Record<CosmeticSet, string> = {
@@ -37,4 +40,6 @@ export const COSMETIC_SHADERS: Record<CosmeticSet, string> = {
  */
 export const COSMETIC_LOOP_SHADERS: Partial<Record<CosmeticSet, (period: number) => string>> = {
   buz: buzLoopShader,
+  karadelik: karadelikLoopShader,
+  kuzey: kuzeyLoopShader,
 };

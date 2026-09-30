@@ -3,6 +3,8 @@
 // (dFdx/fwidth), eklenti yok; döngü sınırları sabit. Her setin gölgelendiricisi `vec4 effect(vec2 p)`
 // tanımlar (p: görünümün sol üstünden css pikseli; dönen renk önceden alfayla çarpılmış sayılır).
 
+import { glslFloat } from './loop';
+
 /** Görünümün türü (u_mode): küçük resim, profil kartı, isim plakası, avatar dekorasyonu */
 export const SHADER_MODE = { thumb: 0, card: 1, plate: 2, deco: 3 } as const;
 export type ShaderViewKind = keyof typeof SHADER_MODE;
@@ -60,6 +62,23 @@ vec3 plateGrade(vec3 c,vec2 p){
   return c*plateFade(p);
 }
 `;
+
+/** Canlıda yıldız parıltısı: her yıldızın hızı rastgele (saniyede .8–3.4 radyan), döngüye sığmaz */
+const STAR_TWINKLE_LIVE = 'sin(t*(.8+2.6*h21(id+9.1))+r*50.)';
+
+/**
+ * Ortak kısmın döngü biçimi (bkz. loop.ts; yalnızca dosyaya çizim aracı kullanır): starLayer'daki parıltının
+ * hızı, her yıldız için döngüye tam sayıda sığan en yakın hıza yuvarlanır (en az bir tur); yıldızların yeri,
+ * parlaklığı ve rengi canlıyla aynıdır. Gerisi COSMETIC_SHADER_COMMON ile harfi harfine aynı: canlı metin
+ * değişmez, döngü biçimi ondan türetilir.
+ */
+export function cosmeticShaderCommon(period: number): string {
+  if (!(period > 0)) throw new Error(`döngü süresi pozitif olmalı: ${period}`);
+  if (!COSMETIC_SHADER_COMMON.includes(STAR_TWINKLE_LIVE)) throw new Error('starLayer parıltı terimi bulunamadı (common.ts değişmiş)');
+  const tau = Math.PI * 2;
+  const turns = `max(1.,floor((.8+2.6*h21(id+9.1))*${glslFloat(period / tau)}+.5))`;
+  return COSMETIC_SHADER_COMMON.replace(STAR_TWINKLE_LIVE, `sin(t*${turns}*${glslFloat(tau / period)}+r*50.)`);
+}
 
 /**
  * Bantlaşmayı kıran gürültü (±yarım renk adımı):
