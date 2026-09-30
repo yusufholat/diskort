@@ -55,7 +55,7 @@ export function ProfileBanner({
 
 /**
  * Profil kartının üst kısmı: afiş, avatar (halkası kartın renginde), yanında isteğe bağlı balon, ad ve
- * kullanıcı adı. Kartın zemini (themedCardStyle) ve efekti (ProfileEffectLayer) dıştaki kaba verilir.
+ * kullanıcı adı. Avatarın dekorasyonu kart açık olduğu sürece oynar. Kartın zemini (themedCardStyle) ve efekti (ProfileEffectLayer) dıştaki kaba verilir.
  */
 export function ProfileCardTop({
   user,
@@ -103,6 +103,7 @@ export function ProfileCardTop({
               ringClassName="bg-bg-float"
               ringColor={ring}
               decoration={user.avatarDecoration}
+              animateDecoration
             />
           </div>
           {aside}

@@ -13,6 +13,7 @@ import { closeOrLeaveDm, dmMenuItems } from '../../lib/dm';
 import { useMainView } from '../../lib/mainView';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
+import { PlayOnHover } from '../cosmetics/Cosmetics';
 import { formatAgo, formatFull } from '../text/format';
 import { PresenceSubline } from '../status/ActivityCard';
 import { DmAvatar } from './DmAvatar';
@@ -76,7 +77,8 @@ const DmRow = memo(function DmRow({ dm, selected }: { dm: DmChannel; selected: b
   const highlight = unread && !selected;
 
   return (
-    <div className="group/item relative mb-0.5">
+    // Avatarın dekorasyonu yalnızca satırın üstüne gelinirken (ya da klavyeyle odaklanınca) oynar
+    <PlayOnHover className="group/item relative mb-0.5">
       {highlight && (
         <span className="anim-indicator-in absolute top-1/2 -left-2 h-2 w-1 origin-left -translate-y-1/2 rounded-r bg-text-head" />
       )}
@@ -129,6 +131,6 @@ const DmRow = memo(function DmRow({ dm, selected }: { dm: DmChannel; selected: b
       >
         <X size={16} className="ico-rotate" />
       </button>
-    </div>
+    </PlayOnHover>
   );
 });

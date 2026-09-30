@@ -67,6 +67,14 @@ export function pickSource(
   return poster ? { url: poster, animated: false } : null;
 }
 
+/**
+ * Bir parça oynasın mı: açıkça verilen karar (ör. açık profil kartı: true), yoksa kapsayan kabın durumu (üstüne
+ * gelinen satır), o da yoksa durur (poster).
+ */
+export function resolvePlaying(explicit: boolean | undefined, inherited: boolean | null): boolean {
+  return explicit ?? inherited ?? false;
+}
+
 /** Parçanın dosyalarının adresleri (tam adres; yoksa null) */
 export interface PieceFiles {
   anim: string | null;
@@ -122,7 +130,7 @@ export function sourceFailed(state: PieceLoadState, files: PieceFiles, epoch: st
 
 // ---------- Ölçüler ----------
 
-/** Avatarın bu boydan küçüğünde (mesajlar, listeler) hareketli dekorasyon yerine sabit, ucuz bir halka */
+/** Avatarın bu boyda ya da daha büyükse (profil) CSS halkası kalın çizilir; küçük avatarlarda daha ince */
 export const ANIMATED_DECORATION_MIN_SIZE = 64;
 /** Avatarın halkasıyla birlikte dış yarıçapı, avatarın yarıçapının katı (80 piksellik avatar + 6 piksel halka = 46) */
 const DECORATION_RING_SCALE = 1.15;

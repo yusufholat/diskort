@@ -22,6 +22,7 @@ import { channelById, membersOf, useCan, useChannelMemberColor, useGuild, useSes
 import { useSettings } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
+import { PlayOnHover } from '../cosmetics/Cosmetics';
 import { Avatar } from '../ui/Avatar';
 import { SwapIcon } from '../ui/SwapIcon';
 import { LiveBadge, openVoiceProfile, voiceMemberContext, VoiceStateIcons, WatchLiveBadge } from '../sidebar/VoiceMemberRow';
@@ -446,7 +447,9 @@ function ParticipantTile({ state, compact }: { state: VoiceState; compact?: bool
   const openContextMenu = useUi((s) => s.openContextMenu);
 
   return (
-    <div
+    // Avatarın dekorasyonu yalnızca kutucuğun üstüne gelinirken (ya da klavyeyle odaklanınca) oynar; konuşma
+    // artık oynatmaz
+    <PlayOnHover
       role="button"
       tabIndex={0}
       aria-label={`${user?.displayName ?? 'Üye'} profili`}
@@ -471,14 +474,7 @@ function ParticipantTile({ state, compact }: { state: VoiceState; compact?: bool
         }
       }}
     >
-      {/* Hareketli dekorasyon sahnede hafif çizilir: yalnızca konuşurken oynar */}
-      <Avatar
-        user={user}
-        size={compact ? 44 : 80}
-        speaking={speaking}
-        decoration={user?.avatarDecoration}
-        liteDecoration
-      />
+      <Avatar user={user} size={compact ? 44 : 80} speaking={speaking} decoration={user?.avatarDecoration} />
       <div
         data-stage-chrome
         className={cn(
@@ -492,7 +488,7 @@ function ParticipantTile({ state, compact }: { state: VoiceState; compact?: bool
         </span>
         {state.streaming && <WatchLiveBadge userId={state.userId} channelId={state.channelId} />}
       </div>
-    </div>
+    </PlayOnHover>
   );
 }
 
