@@ -7,7 +7,7 @@ import { toast } from '../../stores/ui';
 import { useUpdate } from '../../stores/update';
 import { useVoice } from '../../stores/voice';
 import { voice } from '../voice/voiceClient';
-import { reportActivity } from './activityReporter';
+import { reportActivities } from './activityReporter';
 
 /** Electron ana süreciyle entegrasyon: global kısayollar, tepsi menüsü, tercihler, güncellemeler. */
 export function useDesktopIntegration(): void {
@@ -20,13 +20,13 @@ export function useDesktopIntegration(): void {
     return idle.onChange((value) => gateway.setIdle(value));
   }, []);
 
-  // Etkinlik: ana süreç oynanan oyunu algılar (Windows), sunucuya iletilir; ayar kapalıyken oyun gelmez ve
+  // Etkinlik: ana süreç açık oyunları algılar (Windows), sunucuya iletilir; ayar kapalıyken liste boş gelir ve
   // etkinlik silinir. Giriş yapılınca yeniden bildirilir (ikon yalnızca oturum açıkken yüklenebilir).
   const loggedIn = useSession((s) => s.token !== null);
   useEffect(() => {
     const activity = bridge?.activity;
     if (!activity) return;
-    const report = (state: ActivityState): void => reportActivity(state.game, activity.icon);
+    const report = (state: ActivityState): void => reportActivities(state.games, activity.icon);
     void activity.getState().then(report, () => undefined);
     return activity.onState(report);
   }, [loggedIn]);

@@ -1,12 +1,12 @@
 // Oyun ikonları: exe'nin kendi ikonu küçük bir PNG olarak çıkarılır, anahtarı PNG'nin SHA-256'sıdır (sunucuya
 // bu anahtarla bir kez yüklenir). Çıkarılan ikonlar kullanıcı verileri klasöründe saklanır; exe değişmedikçe
 // (yol + değiştirilme zamanı) yeniden çıkarılmaz.
-import { createHash } from 'node:crypto';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { app } from 'electron';
-import { ACTIVITY_ICON_KEY_PATTERN, ACTIVITY_ICON_MAX_BYTES, ACTIVITY_ICON_MAX_SIZE_PX } from '@diskort/shared';
+import { ACTIVITY_ICON_KEY_PATTERN, ACTIVITY_ICON_MAX_SIZE_PX } from '@diskort/shared';
 import { pathKey } from './libraries';
+import { iconKeyOf, sanitizeIconPng } from './png';
 
 interface IndexEntry {
   mtimeMs: number;
@@ -14,17 +14,6 @@ interface IndexEntry {
 }
 
 const MAX_INDEX_ENTRIES = 300;
-const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-
-/** Geçerli, kare ve sınırlar içinde bir PNG mi (boyut IHDR'den okunur) */
-export function isValidIconPng(png: Buffer): boolean {
-  if (png.length < 24 || png.length > ACTIVITY_ICON_MAX_BYTES || !png.subarray(0, 8).equals(PNG_SIGNATURE)) return false;
-  const width = png.readUInt32BE(16);
-  const height = png.readUInt32BE(20);
-  return width > 0 && width === height && width <= ACTIVITY_ICON_MAX_SIZE_PX;
-}
-
-export const iconKeyOf = (png: Buffer): string => createHash('sha256').update(png).digest('hex');
 
 export class IconStore {
   private index: Map<string, IndexEntry> | null = null;
@@ -58,7 +47,7 @@ export class IconStore {
     if (!ACTIVITY_ICON_KEY_PATTERN.test(key)) return null;
     try {
       const png = await readFile(join(this.dir, `${key}.png`));
-      return isValidIconPng(png) && iconKeyOf(png) === key ? png : null;
+      return iconKeyOf(png) === key && sanitizeIconPng(png) === png ? png : null;
     } catch {
       return null;
     }
@@ -89,7 +78,9 @@ export class IconStore {
     if (cached && cached.mtimeMs === mtimeMs && (await this.bytes(cached.key))) return cached.key;
 
     const extracted = await this.extract(path);
-    const png = extracted === undefined || (extracted && !isValidIconPng(extracted)) ? await this.fallback(path) : extracted;
+    // Sunucunun kabul etmeyeceği parçalar ayıklanır; anahtar ayıklanmış baytlardan hesaplanır
+    const usable = extracted ? sanitizeIconPng(extracted) : null;
+    const png = usable ?? (extracted === null ? null : await this.fallback(path));
     if (!png) {
       this.failed.add(id);
       return null;
@@ -114,8 +105,7 @@ export class IconStore {
         const side = Math.min(width, height, ACTIVITY_ICON_MAX_SIZE_PX);
         image = image.resize({ width: side, height: side, quality: 'best' });
       }
-      const png = image.toPNG();
-      return isValidIconPng(png) ? png : null;
+      return sanitizeIconPng(image.toPNG());
     } catch {
       return null;
     }

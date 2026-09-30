@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ACTIVITY_ELAPSED_MAX_MS, type ActivityReport } from '@diskort/shared';
-import { configureClient, ensureActivityIcon, gateway, setActivity, useSession, type KeyValueStorage } from '../src';
+import { ACTIVITY_ELAPSED_MAX_MS, ACTIVITY_MAX_COUNT, type ActivityReport } from '@diskort/shared';
+import { configureClient, ensureActivityIcon, gateway, setActivities, useSession, type KeyValueStorage } from '../src';
 
 const memory = new Map<string, string>();
 const storage: KeyValueStorage = {
@@ -50,8 +50,9 @@ class FakeSocket {
     this.receive({ t: 'HELLO', d: { heartbeatInterval: 600_000 } });
     this.receive({ t: 'READY', d: ready });
   }
-  get activities(): (ActivityReport | null)[] {
-    return this.sent.filter((m) => m.t === 'ACTIVITY_SET').map((m) => (m.d as { activity: ActivityReport | null }).activity);
+  /** Gönderilen ACTIVITY_SET listeleri */
+  get activities(): ActivityReport[][] {
+    return this.sent.filter((m) => m.t === 'ACTIVITY_SET').map((m) => (m.d as { activities: ActivityReport[] }).activities);
   }
 }
 
@@ -79,69 +80,86 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  setActivity(null);
+  setActivities([]);
   gateway.disconnect();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
 describe('etkinlik bildirimi', () => {
-  it('bağlıyken hemen gönderilir; aynı etkinlik yeniden gönderilmez, bitince null gider', () => {
+  it('bağlıyken hemen gönderilir; aynı liste yeniden gönderilmez, bitince boş liste gider', () => {
     gateway.connect();
     const ws = FakeSocket.opened[0]!;
     ws.identify();
     expect(ws.activities).toEqual([]);
 
-    setActivity(game(60_000));
-    expect(ws.activities).toEqual([game(60_000)]);
+    setActivities([game(60_000)]);
+    expect(ws.activities).toEqual([[game(60_000)]]);
     // 10 sn sonra aynı oyun (başlangıcı aynı) yeniden bildirilirse gönderilmez
     vi.advanceTimersByTime(10_000);
-    setActivity(game(70_000));
-    setActivity(game(70_900));
+    setActivities([game(70_000)]);
+    setActivities([game(70_900)]);
     expect(ws.activities).toHaveLength(1);
 
     // İkon yüklenince aynı oyun ikonuyla yeniden bildirilir
-    setActivity(game(70_000, { icon: 'a'.repeat(64) }));
-    expect(ws.activities[1]).toEqual(game(70_000, { icon: 'a'.repeat(64) }));
+    setActivities([game(70_000, { icon: 'a'.repeat(64) })]);
+    expect(ws.activities[1]).toEqual([game(70_000, { icon: 'a'.repeat(64) })]);
 
-    setActivity(null);
-    setActivity(null);
-    expect(ws.activities).toEqual([game(60_000), game(70_000, { icon: 'a'.repeat(64) }), null]);
+    setActivities([]);
+    setActivities([]);
+    expect(ws.activities).toEqual([[game(60_000)], [game(70_000, { icon: 'a'.repeat(64) })], []]);
   });
 
-  it('başka oyun ya da başka başlangıç yeniden gönderilir', () => {
+  it('başka oyun, başka başlangıç ya da ikinci oyun yeniden gönderilir', () => {
     gateway.connect();
     const ws = FakeSocket.opened[0]!;
     ws.identify();
-    setActivity(game(60_000));
-    setActivity(game(60_000, { name: 'ELDEN RING' }));
-    setActivity(game(5_000, { name: 'ELDEN RING' }));
-    expect(ws.activities.map((a) => [a?.name, a?.elapsedMs])).toEqual([
-      ['Portal 2', 60_000],
-      ['ELDEN RING', 60_000],
-      ['ELDEN RING', 5_000],
+    setActivities([game(60_000)]);
+    setActivities([game(60_000, { name: 'ELDEN RING' })]);
+    setActivities([game(5_000, { name: 'ELDEN RING' })]);
+    setActivities([game(5_000, { name: 'ELDEN RING' }), game(60_000)]);
+    setActivities([game(5_000, { name: 'ELDEN RING' }), game(60_000)]);
+    setActivities([game(60_000)]);
+    expect(ws.activities.map((list) => list.map((a) => [a.name, a.elapsedMs]))).toEqual([
+      [['Portal 2', 60_000]],
+      [['ELDEN RING', 60_000]],
+      [['ELDEN RING', 5_000]],
+      [
+        ['ELDEN RING', 5_000],
+        ['Portal 2', 60_000],
+      ],
+      [['Portal 2', 60_000]],
     ]);
   });
 
+  it('liste en son başlayandan eskiye sıralanır ve en fazla dört etkinlik tutulur', () => {
+    gateway.connect();
+    const ws = FakeSocket.opened[0]!;
+    ws.identify();
+    setActivities([50_000, 10_000, 40_000, 20_000, 30_000, 60_000].map((elapsed) => game(elapsed, { name: `Oyun ${elapsed}` })));
+    expect(ws.activities[0]!.map((a) => a.elapsedMs)).toEqual([10_000, 20_000, 30_000, 40_000]);
+    expect(ws.activities[0]).toHaveLength(ACTIVITY_MAX_COUNT);
+  });
+
   it('kimlik doğrulanmadan gönderilmez; READY gelince geçen süre o ana göre bildirilir', () => {
-    setActivity(game(60_000));
+    setActivities([game(60_000)]);
     gateway.connect();
     const ws = FakeSocket.opened[0]!;
     ws.readyState = FakeSocket.OPEN;
     ws.receive({ t: 'HELLO', d: { heartbeatInterval: 600_000 } });
-    setActivity(game(60_000, { icon: 'b'.repeat(64) }));
+    setActivities([game(60_000, { icon: 'b'.repeat(64) })]);
     expect(ws.activities).toEqual([]);
 
     vi.advanceTimersByTime(30_000);
     ws.receive({ t: 'READY', d: ready });
-    expect(ws.activities).toEqual([game(90_000, { icon: 'b'.repeat(64) })]);
+    expect(ws.activities).toEqual([[game(90_000, { icon: 'b'.repeat(64) })]]);
   });
 
-  it('yeniden bağlanınca yeniden bildirilir; süre yerel başlangıçtan hesaplanır', () => {
+  it('yeniden bağlanınca tam liste yeniden bildirilir; süreler yerel başlangıçtan hesaplanır', () => {
     gateway.connect();
     const first = FakeSocket.opened[0]!;
     first.identify();
-    setActivity(game(60_000));
+    setActivities([game(5_000, { name: 'ELDEN RING' }), game(60_000)]);
 
     vi.advanceTimersByTime(120_000);
     first.close(4000);
@@ -149,15 +167,15 @@ describe('etkinlik bildirimi', () => {
     const second = FakeSocket.opened[1]!;
     expect(second.activities).toEqual([]);
     second.identify();
-    expect(second.activities).toEqual([game(180_500)]);
+    expect(second.activities).toEqual([[game(125_500, { name: 'ELDEN RING' }), game(180_500)]]);
   });
 
   it('etkinlik yokken yeniden bağlanınca bir şey gönderilmez', () => {
     gateway.connect();
     const first = FakeSocket.opened[0]!;
     first.identify();
-    setActivity(game(1000));
-    setActivity(null);
+    setActivities([game(1000)]);
+    setActivities([]);
     first.close(4000);
     vi.advanceTimersByTime(500);
     FakeSocket.opened[1]!.identify();
@@ -168,20 +186,20 @@ describe('etkinlik bildirimi', () => {
     gateway.connect();
     const ws = FakeSocket.opened[0]!;
     ws.identify();
-    setActivity(game(-5000));
-    expect(ws.activities[0]!.elapsedMs).toBe(0);
-    setActivity(game(ACTIVITY_ELAPSED_MAX_MS * 3, { name: 'Eski' }));
-    expect(ws.activities[1]!.elapsedMs).toBe(ACTIVITY_ELAPSED_MAX_MS);
+    setActivities([game(-5000)]);
+    expect(ws.activities[0]![0]!.elapsedMs).toBe(0);
+    setActivities([game(ACTIVITY_ELAPSED_MAX_MS * 3, { name: 'Eski' })]);
+    expect(ws.activities[1]![0]!.elapsedMs).toBe(ACTIVITY_ELAPSED_MAX_MS);
   });
 
   it('çıkış yapılıp yeniden girilince süren etkinlik yeniden bildirilir', () => {
     gateway.connect();
     FakeSocket.opened[0]!.identify();
-    setActivity(game(1000));
+    setActivities([game(1000)]);
     gateway.disconnect();
     gateway.connect();
     FakeSocket.opened[1]!.identify();
-    expect(FakeSocket.opened[1]!.activities).toEqual([game(1000)]);
+    expect(FakeSocket.opened[1]!.activities).toEqual([[game(1000)]]);
   });
 });
 

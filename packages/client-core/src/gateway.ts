@@ -1,5 +1,6 @@
 import {
   ACTIVITY_ELAPSED_MAX_MS,
+  ACTIVITY_MAX_COUNT,
   CLIENT_FEATURE_DM,
   CLIENT_FEATURE_PRESENCE,
   GATEWAY_CLOSE_UPDATE_REQUIRED,
@@ -16,7 +17,7 @@ const RECONNECT_DELAYS_MS = [500, 1000, 2000, 5000, 10000];
 /** Öne gelince açık görünen bağlantının yoklaması: bu sürede HEARTBEAT_ACK gelmezse bağlantı ölü sayılır */
 const RESUME_PROBE_MS = 5000;
 
-/** Aynı etkinliğin başlangıcı bu kadar oynarsa (saat düzeltmesi, yuvarlama) yeniden bildirilmez */
+/** Aynı etkinliğin başlangıcı en çok bu kadar oynadıysa (yuvarlama, gecikme) yeniden bildirilmez */
 const ACTIVITY_START_TOLERANCE_MS = 2000;
 
 type Listener = (msg: GatewayServerMessage) => void;
@@ -37,8 +38,8 @@ class GatewayClient {
   private listeners = new Set<Listener>();
   /** Bu cihaz boşta mı (masaüstünde girdi yok / ekran kilitli, telefonda uygulama arka planda) */
   private idle = false;
-  /** Bu cihazın etkinliği (oynanan oyun); yoksa null */
-  private activity: LocalActivity | null = null;
+  /** Bu cihazın etkinlikleri (açık oyunlar), en son başlayan ilk sırada */
+  private activities: LocalActivity[] = [];
   /** Bu cihazın izlediği yayınlar (yayıncı kimlikleri, sıralı) */
   private watching: string[] = [];
   /** Bu bağlantıda READY geldi (kimlik doğrulandı) */
@@ -102,29 +103,33 @@ class GatewayClient {
   }
 
   /**
-   * Bu cihazın etkinliğini (oynanan oyun) bildirir; null: bitti. Yalnızca değişince gönderilir. Geçen süre
-   * her gönderimde baştan hesaplanır: yeniden bağlanınca aynı başlangıç anı bildirilir. Oturum kapansa da
-   * hatırlanır (cihazın durumudur); yeniden girişte READY ile gönderilir.
+   * Bu cihazın etkinliklerinin tam listesini bildirir (açık oyunlar; boş liste: hiçbiri). En son başlayan
+   * ilk sıraya alınır, en fazla ACTIVITY_MAX_COUNT tanesi tutulur. Yalnızca değişince gönderilir (sunucu sık
+   * gönderimi sınırlar). Geçen süre her gönderimde baştan hesaplanır: yeniden bağlanınca aynı başlangıç
+   * anı bildirilir. Oturum kapansa da hatırlanır (cihazın durumudur); yeniden girişte READY ile gönderilir.
    */
-  setActivity(report: ActivityReport | null): void {
-    const next: LocalActivity | null = report
-      ? { type: report.type, name: report.name, icon: report.icon, startedAt: Date.now() - Math.max(0, report.elapsedMs) }
-      : null;
-    const prev = this.activity;
-    if (!prev && !next) return;
-    if (
-      prev &&
-      next &&
-      prev.type === next.type &&
-      prev.name === next.name &&
-      prev.icon === next.icon &&
-      Math.abs(prev.startedAt - next.startedAt) <= ACTIVITY_START_TOLERANCE_MS
-    ) {
-      return;
-    }
-    this.activity = next;
+  setActivities(reports: readonly ActivityReport[]): void {
+    const now = Date.now();
+    const next = reports
+      .map((r): LocalActivity => ({ type: r.type, name: r.name, icon: r.icon, startedAt: now - Math.max(0, r.elapsedMs) }))
+      .sort((a, b) => b.startedAt - a.startedAt)
+      .slice(0, ACTIVITY_MAX_COUNT);
+    const prev = this.activities;
+    const same =
+      prev.length === next.length &&
+      next.every((a, i) => {
+        const b = prev[i]!;
+        return (
+          a.type === b.type &&
+          a.name === b.name &&
+          a.icon === b.icon &&
+          Math.abs(a.startedAt - b.startedAt) <= ACTIVITY_START_TOLERANCE_MS
+        );
+      });
+    if (same) return;
+    this.activities = next;
     // Kimlik doğrulanmadan gönderilen mesaj bağlantıyı kapatır (4003); READY gelince zaten gönderilir
-    if (this.identified) this.sendActivity();
+    if (this.identified) this.sendActivities();
   }
 
   /**
@@ -144,15 +149,17 @@ class GatewayClient {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
   }
 
-  private sendActivity(): void {
-    const a = this.activity;
-    const activity: ActivityReport | null = a && {
-      type: a.type,
-      name: a.name,
-      icon: a.icon,
-      elapsedMs: Math.min(ACTIVITY_ELAPSED_MAX_MS, Math.max(0, Date.now() - a.startedAt)),
-    };
-    this.send({ t: 'ACTIVITY_SET', d: { activity } });
+  private sendActivities(): void {
+    const now = Date.now();
+    const activities = this.activities.map(
+      (a): ActivityReport => ({
+        type: a.type,
+        name: a.name,
+        icon: a.icon,
+        elapsedMs: Math.min(ACTIVITY_ELAPSED_MAX_MS, Math.max(0, now - a.startedAt)),
+      }),
+    );
+    this.send({ t: 'ACTIVITY_SET', d: { activities } });
   }
 
   /** READY dahil tüm olayları dinle. */
@@ -216,7 +223,7 @@ class GatewayClient {
         if (this.idle) this.send({ t: 'IDLE_SET', d: { idle: true } });
         if (this.watching.length > 0) this.send({ t: 'STREAM_WATCH_SET', d: { userIds: this.watching } });
         // Yeni oturumun etkinliği yoktur; varsa bildir
-        if (this.activity) this.sendActivity();
+        if (this.activities.length > 0) this.sendActivities();
         break;
       case 'HEARTBEAT_ACK':
         this.awaitingAck = false;

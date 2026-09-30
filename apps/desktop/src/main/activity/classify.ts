@@ -1,7 +1,7 @@
 // Taranan süreçlerden hangisinin oyun olduğuna karar verir (saf işlevler; dosya ya da süreç okumaz).
-// Sıra: gizlenen hiç bildirilmez → elle eklenen her zaman oyundur → mağaza kaydı (Steam, Epic, Battle.net) →
+// Açık olan bütün oyunlar bildirilir. Sıra: gizlenen hiç bildirilmez → elle eklenen her zaman oyundur → mağaza kaydı (Steam, Epic, Battle.net) →
 // bilinen oyun klasörü kalıpları. Başlatıcılar, yardımcılar ve Diskort'un kendisi oyun sayılmaz.
-import { ACTIVITY_NAME_MAX_LENGTH } from '@diskort/shared';
+import { ACTIVITY_MAX_COUNT, ACTIVITY_NAME_MAX_LENGTH } from '@diskort/shared';
 import { pathKey, type GameLibraries, type LibraryGame } from './libraries';
 
 /** Görünür penceresi olan bir süreç (tarayıcıdan gelir) */
@@ -204,16 +204,24 @@ export function classifyProcess(proc: ScannedProcess, ctx: ClassifyContext): Det
   return folder ? found(resolveName(proc, null, folder), 'folder') : null;
 }
 
-/** Birden çok oyun açıksa en son başlatılan bildirilir */
-export function pickCurrentGame(games: readonly DetectedGame[]): DetectedGame | null {
-  let best: DetectedGame | null = null;
-  for (const game of games) {
-    if (!best || game.startedAt > best.startedAt || (game.startedAt === best.startedAt && game.pid > best.pid)) best = game;
-  }
-  return best;
+/**
+ * Bildirilecek oyunlar: en son başlatılan ilk sırada ("asıl" etkinlik odur), en fazla ACTIVITY_MAX_COUNT.
+ * Aynı oyunun iki exe'si (ör. başlatıcısı ve kendisi) tek oyun sayılır: en son başlayanı kalır.
+ */
+export function currentGames(games: readonly DetectedGame[]): DetectedGame[] {
+  const names = new Set<string>();
+  return [...games]
+    .sort((a, b) => b.startedAt - a.startedAt || b.pid - a.pid)
+    .filter((game) => {
+      const name = game.name.toLowerCase();
+      if (names.has(name)) return false;
+      names.add(name);
+      return true;
+    })
+    .slice(0, ACTIVITY_MAX_COUNT);
 }
 
-/** Taramadaki oyunlar (aynı exe birkaç süreçse en eskisi: oyun o zaman başladı) */
+/** Taramadaki bütün oyunlar (aynı exe birkaç süreçse en eskisi: oyun o zaman başladı) */
 export function detectGames(procs: readonly ScannedProcess[], ctx: ClassifyContext): DetectedGame[] {
   const byPath = new Map<string, DetectedGame>();
   for (const proc of procs) {

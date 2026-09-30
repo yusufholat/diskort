@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyProcess,
+  currentGames,
   detectGames,
   isExcludedExe,
-  pickCurrentGame,
   programName,
   resolveName,
   trimName,
@@ -28,6 +28,7 @@ import {
   sanitizePrefs,
   setGameHidden,
 } from '../src/main/activity/prefs.js';
+import { iconKeyOf, pngChunks, sanitizeIconPng } from '../src/main/activity/png.js';
 import { iconRequestLine, parseScannerLine } from '../src/main/activity/protocol.js';
 
 const LIBRARY_FOLDERS = `
@@ -277,7 +278,7 @@ describe('ad seçimi', () => {
 });
 
 describe('birden çok oyun', () => {
-  it('en son başlatılan seçilir', () => {
+  it('açık olan bütün oyunlar bildirilir: en son başlatılan ilk sırada', () => {
     const games = detectGames(
       [
         proc('D:\\SteamLibrary\\steamapps\\common\\Portal 2\\portal2.exe', { startedAt: 5000 }),
@@ -287,9 +288,17 @@ describe('birden çok oyun', () => {
       ],
       ctx(),
     );
-    expect(games.map((g) => g.name).sort()).toEqual(['ELDEN RING', 'Fall Guys', 'Portal 2']);
-    expect(pickCurrentGame(games)).toMatchObject({ name: 'Fall Guys', startedAt: 7000 });
-    expect(pickCurrentGame([])).toBeNull();
+    expect(currentGames(games).map((g) => [g.name, g.startedAt])).toEqual([
+      ['Fall Guys', 7000],
+      ['ELDEN RING', 6000],
+      ['Portal 2', 5000],
+    ]);
+    expect(currentGames([])).toEqual([]);
+  });
+
+  it('en fazla dört oyun bildirilir (en son başlatılanlar)', () => {
+    const procs = Array.from({ length: 6 }, (_, i) => proc(`F:\\Kitaplik\\steamapps\\common\\Oyun ${i}\\oyun.exe`, { startedAt: 1000 + i }));
+    expect(currentGames(detectGames(procs, ctx())).map((g) => g.name)).toEqual(['Oyun 5', 'Oyun 4', 'Oyun 3', 'Oyun 2']);
   });
 
   it('aynı exe birkaç süreçse oyun en eskisinin başladığı anda başlamıştır', () => {
@@ -299,13 +308,25 @@ describe('birden çok oyun', () => {
     expect(games[0]).toMatchObject({ pid: 1, startedAt: 3000 });
   });
 
-  it('gizlenen oyun seçimden düşer: sıradaki bildirilir', () => {
+  it('aynı oyunun iki exe dosyası (başlatıcısı ve kendisi) tek oyun sayılır', () => {
+    const games = detectGames(
+      [
+        proc('D:\\SteamLibrary\\steamapps\\common\\ELDEN RING\\Game\\start_protected_game.exe', { startedAt: 1000 }),
+        proc('D:\\SteamLibrary\\steamapps\\common\\ELDEN RING\\Game\\eldenring.exe', { startedAt: 2000 }),
+      ],
+      ctx(),
+    );
+    expect(games).toHaveLength(2);
+    expect(currentGames(games)).toMatchObject([{ name: 'ELDEN RING', startedAt: 2000 }]);
+  });
+
+  it('gizlenen oyun listeden düşer', () => {
     const procs = [
       proc('D:\\SteamLibrary\\steamapps\\common\\Portal 2\\portal2.exe', { startedAt: 5000 }),
       proc('C:\\Program Files\\Epic Games\\FallGuys\\FallGuys_client_game.exe', { startedAt: 7000 }),
     ];
     const hidden = ['C:\\Program Files\\Epic Games\\FallGuys\\FallGuys_client_game.exe'];
-    expect(pickCurrentGame(detectGames(procs, ctx({ hidden })))?.name).toBe('Portal 2');
+    expect(currentGames(detectGames(procs, ctx({ hidden }))).map((g) => g.name)).toEqual(['Portal 2']);
   });
 });
 
@@ -436,5 +457,72 @@ describe('tarayıcı satırları', () => {
     expect(line.endsWith('\n')).toBe(true);
     expect(line.slice(0, -1)).not.toContain('\n');
     expect(JSON.parse(line)).toEqual({ t: 'icon', id: 7, path: 'C:\\Oyun "x"\n; Remove-Item\\a.exe' });
+  });
+});
+
+describe('ikon dosyası (PNG)', () => {
+  const SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const chunk = (type: string, data: Buffer = Buffer.alloc(0)): Buffer => {
+    const head = Buffer.alloc(8);
+    head.writeUInt32BE(data.length, 0);
+    head.write(type, 4, 'latin1');
+    return Buffer.concat([head, data, Buffer.alloc(4)]); // CRC burada denetlenmez
+  };
+  const ihdr = (width: number, height = width): Buffer => {
+    const data = Buffer.alloc(13);
+    data.writeUInt32BE(width, 0);
+    data.writeUInt32BE(height, 4);
+    data[8] = 8;
+    data[9] = 6;
+    return chunk('IHDR', data);
+  };
+  const png = (...chunks: Buffer[]): Buffer => Buffer.concat([SIGNATURE, ...chunks]);
+  const types = (buffer: Buffer | null): string[] | undefined => (buffer ? pngChunks(buffer)?.map((c) => c.type) : undefined);
+
+  it('yalnızca izin verilen parçalardan oluşan ikon olduğu gibi kalır', () => {
+    // Windows yardımcısının (GDI+) yazdığı sıra
+    const icon = png(
+      ihdr(128),
+      chunk('sRGB', Buffer.from([0])),
+      chunk('gAMA', Buffer.alloc(4)),
+      chunk('pHYs', Buffer.alloc(9)),
+      chunk('IDAT', Buffer.alloc(40)),
+      chunk('IEND'),
+    );
+    expect(sanitizeIconPng(icon)).toBe(icon);
+    expect(iconKeyOf(icon)).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('metin, animasyon ve özel parçalar atılır; anahtar ayıklanmış baytlardan hesaplanır', () => {
+    const clean = png(ihdr(48), chunk('IDAT', Buffer.alloc(20, 7)), chunk('IEND'));
+    const dirty = png(
+      ihdr(48),
+      chunk('tEXt', Buffer.from('Software=x')),
+      chunk('acTL', Buffer.alloc(8)),
+      chunk('iCCP', Buffer.alloc(30)),
+      chunk('IDAT', Buffer.alloc(20, 7)),
+      chunk('prVt', Buffer.alloc(5)),
+      chunk('IEND'),
+      Buffer.from('sondaki fazlalık'),
+    );
+    const result = sanitizeIconPng(dirty);
+    expect(types(result)).toEqual(['IHDR', 'IDAT', 'IEND']);
+    expect(result!.equals(clean)).toBe(true);
+    expect(iconKeyOf(result!)).toBe(iconKeyOf(clean));
+  });
+
+  it('kare olmayan, sınır dışı boyutlu, fazla büyük ya da bozuk dosya kabul edilmez', () => {
+    const body = [chunk('IDAT', Buffer.alloc(10)), chunk('IEND')];
+    expect(sanitizeIconPng(png(ihdr(64, 48), ...body))).toBeNull();
+    expect(sanitizeIconPng(png(ihdr(8), ...body))).toBeNull();
+    expect(sanitizeIconPng(png(ihdr(256), ...body))).toBeNull();
+    expect(sanitizeIconPng(png(ihdr(16), ...body))).not.toBeNull();
+    expect(sanitizeIconPng(png(ihdr(128), chunk('IDAT', Buffer.alloc(70_000)), chunk('IEND')))).toBeNull();
+    expect(sanitizeIconPng(png(ihdr(64), chunk('IEND')))).toBeNull();
+    expect(sanitizeIconPng(png(ihdr(64), chunk('IDAT', Buffer.alloc(10))))).toBeNull();
+    expect(sanitizeIconPng(png(chunk('IDAT'), ihdr(64), chunk('IEND')))).toBeNull();
+    expect(sanitizeIconPng(png(ihdr(64), ...body).subarray(0, 40))).toBeNull();
+    expect(sanitizeIconPng(Buffer.from('GIF89a'))).toBeNull();
+    expect(sanitizeIconPng(Buffer.alloc(0))).toBeNull();
   });
 });

@@ -92,7 +92,7 @@ export {
   type TelemetrySample,
 } from './voiceTelemetry';
 export { gateway } from './gateway';
-export { ensureActivityIcon, setActivity } from './activity';
+export { ensureActivityIcon, setActivities } from './activity';
 export {
   activityIconUrl,
   displayStatusOf,

@@ -1,5 +1,5 @@
-// Etkinlik: oynanan oyunun algılanması (yalnızca Windows). Tarayıcının bulduğu süreçler sınıflandırılır,
-// en son başlatılan oyun arayüze bildirilir; arayüz de sunucuya iletir. Ayarlar (açık/kapalı, elle eklenen
+// Etkinlik: oynanan oyunların algılanması (yalnızca Windows). Tarayıcının bulduğu süreçler sınıflandırılır,
+// açık oyunlar (en son başlatılan ilk sırada) arayüze bildirilir; arayüz de sunucuya iletir. Ayarlar (açık/kapalı, elle eklenen
 // ve gizlenen oyunlar, daha önce algılananlar) bu bilgisayara özgüdür: kullanıcı verilerinde activity.json.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { access } from 'node:fs/promises';
@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { app, ipcMain } from 'electron';
 import type { ActivityGame, ActivityProgram, ActivitySettings, ActivityState } from '../../shared/bridge';
 import { createLogger } from '../log';
-import { detectGames, exeBaseName, pickCurrentGame, programName, type DetectedGame, type ScannedProcess } from './classify';
+import { currentGames, detectGames, exeBaseName, programName, type DetectedGame, type ScannedProcess } from './classify';
 import { IconStore } from './icons';
 import { EMPTY_LIBRARIES, loadGameLibraries, pathKey, type GameLibraries, type LibraryGame } from './libraries';
 import {
@@ -26,6 +26,8 @@ import { ActivityScanner } from './scanner';
 const LIBRARY_REFRESH_MS = 10 * 60_000;
 /** "Oyun ekle" açılınca taze tarama bu kadar beklenir */
 const PROGRAM_SCAN_WAIT_MS = 2500;
+/** Yeni açılan oyunun ikonu en çok bu kadar beklenir (arayüze tek seferde, ikonuyla bildirilsin diye) */
+const ICON_WAIT_MS = 1500;
 /** Blizzard oyunlarının kurulum klasöründe bulunan dosya (Battle.net oyunları ortak bir klasöre kurulmaz) */
 const BLIZZARD_MARKER = '.build.info';
 
@@ -36,8 +38,8 @@ export class ActivityMonitor {
   private prefs: ActivityPrefs = defaultPrefs();
   private started = false;
   private procs: ScannedProcess[] = [];
-  private game: ActivityGame | null = null;
-  private gamePid = 0;
+  /** Açık oyunlar (en son başlatılan ilk sırada) ve süreçleri */
+  private games: (ActivityGame & { pid: number })[] = [];
   private steamPath: string | null = null;
   private libraries: GameLibraries = EMPTY_LIBRARIES;
   private librariesAt = 0;
@@ -66,7 +68,7 @@ export class ActivityMonitor {
   }
 
   get state(): ActivityState {
-    return { enabled: this.prefs.enabled, game: this.game };
+    return { enabled: this.prefs.enabled, games: this.games.map(({ pid: _pid, ...game }) => game) };
   }
 
   start(): void {
@@ -148,7 +150,8 @@ export class ActivityMonitor {
     else {
       this.scanner.stop();
       this.procs = [];
-      this.setGame(null, 0);
+      this.games = [];
+      this.emit(this.state);
     }
   }
 
@@ -186,11 +189,13 @@ export class ActivityMonitor {
     for (const id of [...this.firstSeen.keys()]) if (!live.has(id)) this.firstSeen.delete(id);
 
     await this.refreshLibraries(now);
-    const found = pickCurrentGame(detectGames(this.procs, this.context()));
-    if (found && found.source !== 'manual') {
-      this.update(rememberSeenGame(this.prefs, { path: found.path, name: found.name }, now));
+    const found = currentGames(detectGames(this.procs, this.context()));
+    let prefs = this.prefs;
+    for (const game of found) {
+      if (game.source !== 'manual') prefs = rememberSeenGame(prefs, { path: game.path, name: game.name }, now);
     }
-    this.setGame(found, found?.pid ?? 0);
+    this.update(prefs);
+    await this.setGames(found);
     for (const waiter of [...this.scanWaiters]) waiter();
   }
 
@@ -216,26 +221,30 @@ export class ActivityMonitor {
     this.libraries = { games };
   }
 
-  private setGame(found: DetectedGame | null, pid: number): void {
-    const previous = this.game;
-    if (!found) {
-      this.gamePid = 0;
-      if (!previous) return;
-      this.game = null;
-      this.emit(this.state);
-      return;
-    }
-    // Aynı oyun sürüyor: ikon ve başlangıç korunur
-    if (previous && this.gamePid === pid && pathKey(previous.path) === pathKey(found.path) && previous.name === found.name) return;
-    const game: ActivityGame = { path: found.path, name: found.name, startedAt: found.startedAt, icon: null };
-    this.game = game;
-    this.gamePid = pid;
+  /**
+   * Açık oyunların listesini günceller; yalnızca gerçekten değiştiyse arayüze bildirir (sunucu sık
+   * bildirimi sınırlar). Süren oyunun ikonu ve başlangıcı korunur; yeni oyunun ikonu kısa süre beklenir,
+   * yetişmezse bir sonraki taramada eklenir.
+   */
+  private async setGames(found: readonly DetectedGame[]): Promise<void> {
+    const previous = this.games;
+    const next = await Promise.all(
+      found.map(async (game) => {
+        const same = previous.find((g) => g.pid === game.pid && pathKey(g.path) === pathKey(game.path));
+        const icon = same?.icon ?? (await withTimeout(this.icons.keyFor(game.path), ICON_WAIT_MS));
+        return { pid: game.pid, path: game.path, name: game.name, startedAt: same?.startedAt ?? game.startedAt, icon };
+      }),
+    );
+    if (!this.prefs.enabled) return; // beklerken kapatıldı
+    const unchanged =
+      next.length === previous.length &&
+      next.every((g, i) => {
+        const p = previous[i]!;
+        return g.pid === p.pid && g.path === p.path && g.name === p.name && g.icon === p.icon && g.startedAt === p.startedAt;
+      });
+    if (unchanged) return;
+    this.games = next;
     this.emit(this.state);
-    void this.icons.keyFor(found.path).then((icon) => {
-      if (!icon || this.game !== game) return;
-      this.game = { ...game, icon };
-      this.emit(this.state);
-    });
   }
 
   private update(prefs: ActivityPrefs): void {
@@ -260,6 +269,22 @@ export class ActivityMonitor {
       return defaultPrefs();
     }
   }
+}
+
+function withTimeout<T>(task: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    void task.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      },
+    );
+  });
 }
 
 /** Exe'nin kendi klasöründe ya da en çok iki üstünde Blizzard kurulum dosyası varsa o klasör (pathKey) */

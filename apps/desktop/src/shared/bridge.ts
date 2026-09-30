@@ -89,7 +89,7 @@ export interface SystemInfo {
   electron: string;
 }
 
-/** Algılanan, şu an oynanan oyun */
+/** Algılanan, şu an açık olan oyun */
 export interface ActivityGame {
   /** Oyunun exe'si */
   path: string;
@@ -103,8 +103,8 @@ export interface ActivityGame {
 export interface ActivityState {
   /** "Oynadığım oyunu göster" açık mı */
   enabled: boolean;
-  /** Kapalıyken ve oyun yokken null */
-  game: ActivityGame | null;
+  /** Açık oyunlar, en son başlatılan ilk sırada (en fazla ACTIVITY_MAX_COUNT); kapalıyken boş */
+  games: ActivityGame[];
 }
 
 /** Ayarlardaki bilinen oyun: elle eklenmiş ya da daha önce algılanmış */

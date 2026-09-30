@@ -5,11 +5,12 @@ import { gateway } from './gateway';
 import { useSession } from './session';
 
 /**
- * Bu cihazın etkinliğini (oynanan oyun) bildirir; null: bitti. Yeniden bağlanınca kendiliğinden yeniden
- * bildirilir (geçen süre o an baştan hesaplanır). Görünmezken sunucu başkalarına göstermez.
+ * Bu cihazın etkinliklerinin tam listesini bildirir (açık oyunlar; boş liste: hiçbiri). Yeniden bağlanınca
+ * kendiliğinden yeniden bildirilir (geçen süreler o an baştan hesaplanır). Görünmezken sunucu başkalarına
+ * göstermez.
  */
-export function setActivity(report: ActivityReport | null): void {
-  gateway.setActivity(report);
+export function setActivities(reports: readonly ActivityReport[]): void {
+  gateway.setActivities(reports);
 }
 
 /** Bu oturumda sunucuda olduğu bilinen ('ready') ya da yüklenemeyen ('failed') ikonlar; süren yüklemeler */

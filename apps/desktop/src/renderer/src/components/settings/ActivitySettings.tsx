@@ -19,7 +19,7 @@ export function ActivitySettings() {
   const activity = bridge?.activity;
   const supported = activity?.supported === true;
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [game, setGame] = useState<ActivityGame | null>(null);
+  const [playing, setPlaying] = useState<ActivityGame[]>([]);
   const [adding, setAdding] = useState(false);
   const picker = usePresence(adding || null);
 
@@ -29,11 +29,11 @@ export function ActivitySettings() {
     const refresh = (): void => {
       void activity.getSettings().then((next) => alive && setSettings(next), () => undefined);
     };
-    void activity.getState().then((state) => alive && setGame(state.game), () => undefined);
+    void activity.getState().then((state) => alive && setPlaying(state.games), () => undefined);
     refresh();
     // Yeni bir oyun algılanınca liste de değişmiş olabilir
     const off = activity.onState((state) => {
-      setGame(state.game);
+      setPlaying(state.games);
       refresh();
     });
     return () => {
@@ -71,14 +71,14 @@ export function ActivitySettings() {
       {supported && (
         <>
           <div className="mt-3 flex items-center gap-3 rounded-lg bg-bg-rail px-4 py-3">
-            <Gamepad2 size={20} className={cn('shrink-0', game ? 'text-ok' : 'text-text-faint')} aria-hidden />
+            <Gamepad2 size={20} className={cn('shrink-0', enabled && playing.length > 0 ? 'text-ok' : 'text-text-faint')} aria-hidden />
             <div className="min-w-0 text-sm">
               {!enabled ? (
                 <span className="text-text-muted">Oyun algılama kapalı.</span>
-              ) : game ? (
+              ) : playing.length > 0 ? (
                 <>
                   <span className="text-text-muted">Şu an: </span>
-                  <span className="font-semibold text-text-head">{game.name}</span>
+                  <span className="font-semibold text-text-head">{playing.map((g) => g.name).join(', ')}</span>
                 </>
               ) : (
                 <span className="text-text-muted">Şu an bir oyun algılanmadı.</span>
@@ -97,7 +97,7 @@ export function ActivitySettings() {
               <GameRow
                 key={g.path}
                 game={g}
-                playing={game?.path.toLowerCase() === g.path.toLowerCase()}
+                playing={playing.some((p) => p.path.toLowerCase() === g.path.toLowerCase())}
                 onHide={(hidden) => void change(activity?.setHidden(g.path, hidden))}
                 onRemove={() => void change(activity?.removeGame(g.path))}
               />
