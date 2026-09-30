@@ -16,8 +16,14 @@ const RECONNECT_DELAYS_MS = [500, 1000, 2000, 5000, 10000];
 /** Öne gelince açık görünen bağlantının yoklaması: bu sürede HEARTBEAT_ACK gelmezse bağlantı ölü sayılır */
 const RESUME_PROBE_MS = 5000;
 
-/** Art arda yeniden bağlanmalarda kozmetik paketi bildirimi en çok bu sıklıkta sorulur */
+/** Art arda yeniden bağlanmalarda (ve öne gelişlerde) kozmetik paketi bildirimi en çok bu sıklıkta sorulur */
 const COSMETIC_SESSION_REFRESH_MS = 60_000;
+/**
+ * Bağlıyken kozmetik paketi bildirimi bu aralıkla tazelenir: yeni kimlik getirmeyen değişiklikler (bir
+ * platformda oynatmanın kapatılması, paketin yeniden yayınlanması ya da kaldırılması) açık istemcilere de
+ * ulaşsın. Değişmediyse yanıt 304'tür (gövde inmez).
+ */
+const COSMETIC_PERIODIC_REFRESH_MS = 10 * 60_000;
 
 /** Aynı etkinliğin başlangıcı en çok bu kadar oynadıysa (yuvarlama, gecikme) yeniden bildirilmez */
 const ACTIVITY_START_TOLERANCE_MS = 2000;
@@ -34,6 +40,12 @@ class GatewayClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   /** resume() yoklamasının zaman aşımı (HEARTBEAT_ACK gelince temizlenir) */
   private probeTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Kozmetik paketi bildiriminin düzenli tazelenmesi. İlk READY'de kurulur, oturum boyunca TEK zamanlayıcıdır:
+   * yeniden bağlanmalarda durmaz ve çoğalmaz (clearTimers'a bağlı değildir), yalnızca disconnect() ve
+   * oturumun bittiği kapanışlarda durur.
+   */
+  private cosmeticTimer: ReturnType<typeof setInterval> | null = null;
   private attempts = 0;
   private awaitingAck = false;
   private active = false;
@@ -65,9 +77,29 @@ class GatewayClient {
     this.watching = [];
     this.identified = false;
     this.clearTimers();
+    this.stopCosmeticRefresh();
     this.ws?.close(1000, 'logout');
     this.ws = null;
     useGuild.getState().reset();
+  }
+
+  /** READY'de: düzenli tazeleme zaten kuruluysa dokunulmaz (yeniden bağlanmada ikincisi kurulmaz) */
+  private startCosmeticRefresh(): void {
+    if (this.cosmeticTimer !== null) return;
+    this.cosmeticTimer = setInterval(() => {
+      // Yalnızca bağlıyken. Telefonda uygulama arka plandayken (boşta) sorulmaz: öne gelince resume() ve
+      // setIdle(false) tazeler.
+      if (!this.identified || this.ws?.readyState !== WebSocket.OPEN) return;
+      if (this.idle && env().platform !== 'desktop') return;
+      void refreshCosmeticPacks();
+    }, COSMETIC_PERIODIC_REFRESH_MS);
+    // Node'da (testler) bekleyen zamanlayıcı süreci açık tutmasın
+    (this.cosmeticTimer as { unref?: () => void }).unref?.();
+  }
+
+  private stopCosmeticRefresh(): void {
+    if (this.cosmeticTimer !== null) clearInterval(this.cosmeticTimer);
+    this.cosmeticTimer = null;
   }
 
   /**
@@ -77,6 +109,8 @@ class GatewayClient {
    */
   resume(): void {
     if (!this.active) return;
+    // Uygulama öne geldi: arka planda zamanlayıcılar durur, kozmetik paketi bildirimi eskimiş olabilir
+    void refreshCosmeticPacks({ maxAgeMs: COSMETIC_SESSION_REFRESH_MS });
     const ws = this.ws;
     if (!ws) {
       this.attempts = 0;
@@ -102,6 +136,8 @@ class GatewayClient {
     if (this.idle === idle) return;
     this.idle = idle;
     this.send({ t: 'IDLE_SET', d: { idle } });
+    // Kullanıcı geri döndü (masaüstünde girdi, telefonda uygulama önde): kozmetik paketi bildirimi tazelenir
+    if (!idle && this.active) void refreshCosmeticPacks({ maxAgeMs: COSMETIC_SESSION_REFRESH_MS });
   }
 
   /**
@@ -198,11 +234,15 @@ class GatewayClient {
       this.ws = null;
       this.clearTimers();
       if (ev.code === 4004) {
+        this.stopCosmeticRefresh();
         useSession.getState().logout();
         return;
       }
       // Sürüm eski: güncelleme ekranı açılır, yeniden bağlanmanın anlamı yok
-      if (ev.code === GATEWAY_CLOSE_UPDATE_REQUIRED) return;
+      if (ev.code === GATEWAY_CLOSE_UPDATE_REQUIRED) {
+        this.stopCosmeticRefresh();
+        return;
+      }
       if (this.active) this.scheduleReconnect();
     };
   }
@@ -223,6 +263,7 @@ class GatewayClient {
         useSession.getState().setUser(msg.d.user);
         // Oturum başladı (ya da yeniden bağlandı): yayınlanmış kozmetik paketleri tazelenir
         void refreshCosmeticPacks({ maxAgeMs: COSMETIC_SESSION_REFRESH_MS });
+        this.startCosmeticRefresh();
         // Yeni oturum etkin sayılır; boştaysak hemen bildir
         if (this.idle) this.send({ t: 'IDLE_SET', d: { idle: true } });
         if (this.watching.length > 0) this.send({ t: 'STREAM_WATCH_SET', d: { userIds: this.watching } });

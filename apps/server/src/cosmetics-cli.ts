@@ -5,11 +5,14 @@
 //   docker compose exec -T api node dist/cosmetics-cli.js remove <kimlik>
 //   docker compose exec -T api node dist/cosmetics-cli.js platforms <kimlik> <desktop,android,ios | none>
 //   docker compose exec -T api node dist/cosmetics-cli.js order <kimlik,kimlik,…>
+//   docker compose exec -T api node dist/cosmetics-cli.js prune [--all]
+//   docker compose exec -T api node dist/cosmetics-cli.js --force-unlock [komut …]
 //
 // Depoyu doğrudan yazar (<DATA_DIR>/cosmetic-packs; ya da --dir <klasör>). Yükleme için HTTP ucu bilerek
 // yoktur: yayınlama sunucunun içinden yapılır, dışarıya yeni bir kimlik doğrulamalı yüzey açılmaz. Çalışan
 // sunucu değişikliği birkaç saniye içinde kendisi fark eder (yeniden başlatmak gerekmez); istemciler
-// bildirimi oturum açarken ve ayarlardaki seçici açılırken tazeler. Biçim: docs/kozmetik-paketleri.md.
+// bildirimi oturum açarken, bağlıyken 10 dakikada bir ve ayarlardaki seçici açılırken tazeler.
+// Biçim: docs/kozmetik-paketleri.md.
 
 import path from 'node:path';
 import { COSMETIC_PACK_MAX_BUNDLE_BYTES, COSMETIC_PIECES, COSMETIC_PLATFORMS, isCosmeticSet } from '@diskort/shared';
@@ -20,11 +23,15 @@ const USAGE = `Kullanım: node dist/cosmetics-cli.js <komut> [seçenekler]
 Komutlar:
   publish                           Paketi yayınlar (yayın paketi JSON'u standart girdiden); aynı kimlik varsa yerine geçer
   list [--json]                     Yayınlanmış paketler, gösterim sırasıyla
-  remove <kimlik>                   Paketi yayından kaldırır ve dosyalarını siler
+  remove <kimlik>                   Paketi yayından kaldırır ve bütün dosyalarını hemen siler
   platforms <kimlik> <liste>        Paketin oynatıldığı platformlar: ${COSMETIC_PLATFORMS.join(',')} (virgüllü) ya da none
   order <kimlik,kimlik,…>           Gösterim sırası: verilenler bu sırayla başa gelir, diğerleri arkada kalır
+  prune [--all]                     Yeniden yayında yerini bırakmış, 24 saati geçmiş önceki sürümleri siler (--all: hepsini)
 
-Seçenek:  --dir <klasör>  (varsayılan: $DATA_DIR/cosmetic-packs)`;
+Seçenekler:
+  --dir <klasör>    Depo klasörü (varsayılan: $DATA_DIR/cosmetic-packs)
+  --force-unlock    Yarıda kesilmiş bir işlemden takılı kalan kilidi kaldırır (tek başına ya da bir komutla birlikte).
+                    Yalnızca başka bir yayınlama işleminin sürmediğinden eminsen kullan.`;
 
 /** Standart girdiden okunacak en fazla bayt: base64 içerik + JSON'un kendisi */
 const MAX_STDIN_BYTES = Math.ceil((COSMETIC_PACK_MAX_BUNDLE_BYTES * 4) / 3) + 1024 * 1024;
@@ -34,7 +41,7 @@ function parseArgs(argv: string[]): { positional: string[]; flags: Map<string, s
   const flags = new Map<string, string | true>();
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
-    if (arg === '--json' || arg === '--help' || arg === '-h') {
+    if (arg === '--json' || arg === '--help' || arg === '-h' || arg === '--all' || arg === '--force-unlock') {
       flags.set(arg.replace(/^-+/, ''), true);
     } else if (arg.startsWith('--')) {
       const [name, inline] = arg.slice(2).split('=', 2) as [string, string | undefined];
@@ -82,13 +89,18 @@ function describe(pack: StoredPack): string {
 async function main(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
   const [command, target, value] = args.positional;
-  if (!command || args.flags.has('help') || args.flags.has('h') || command === 'help') {
+  const unlock = args.flags.has('force-unlock');
+  if ((!command && !unlock) || args.flags.has('help') || args.flags.has('h') || command === 'help') {
     console.log(USAGE);
     return;
   }
   const dirFlag = args.flags.get('dir');
   const dir = typeof dirFlag === 'string' ? dirFlag : path.join(path.resolve(process.env.DATA_DIR ?? 'data'), 'cosmetic-packs');
   const store = new CosmeticPackStore(dir, { recheckMs: 0 });
+  if (unlock) {
+    console.log(store.forceUnlock() ? 'Kilit kaldırıldı.' : 'Kilit yoktu.');
+    if (!command) return;
+  }
   store.load();
 
   switch (command) {
@@ -116,7 +128,7 @@ async function main(argv: string[]): Promise<void> {
     case 'remove': {
       if (!target) throw new CosmeticPackError('Paket kimliği ver (ör. remove buz).');
       await store.remove(target);
-      console.log(`"${target}" yayından kaldırıldı. Bu seti seçmiş kullanıcılarda artık görünmez (seçimleri saklı kalır).`);
+      console.log(`"${target}" yayından kaldırıldı, dosyaları silindi. Bu seti seçmiş kullanıcılarda artık görünmez (seçimleri saklı kalır).`);
       return;
     }
     case 'platforms': {
@@ -130,6 +142,11 @@ async function main(argv: string[]): Promise<void> {
       const ids = (target ?? '').split(',').map((id) => id.trim()).filter(Boolean);
       const order = await store.setOrder(ids);
       console.log(`Sıra: ${order.join(', ')}`);
+      return;
+    }
+    case 'prune': {
+      const removed = await store.prune(args.flags.has('all'));
+      console.log(removed === 0 ? 'Silinecek önceki sürüm yok.' : `${removed} önceki sürüm silindi.`);
       return;
     }
     default:

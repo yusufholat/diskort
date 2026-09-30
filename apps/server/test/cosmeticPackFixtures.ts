@@ -34,28 +34,66 @@ export function webp(width: number, height: number, animated = false, padding = 
   return Buffer.concat([Buffer.from('RIFF'), u32le(body.length), body]);
 }
 
-/** AVIF: `sequence` hareketli (görüntü dizisi: "avis" markası ve moov kutusu) */
-export function avif(width: number, height: number, sequence = true): Buffer {
+/** Yalın WebP (VP8X başlığı olmadan): kayıplı "VP8 " ya da kayıpsız "VP8L"; saydam olmayan sabit poster böyle kodlanır */
+export function webpSimple(width: number, height: number, lossless = false): Buffer {
+  let chunk: Buffer;
+  if (lossless) {
+    // İmza (0x2f) + 14 bit genişlik-1, 14 bit yükseklik-1
+    const data = Buffer.alloc(6);
+    data[0] = 0x2f;
+    data.writeUInt32LE(((width - 1) | ((height - 1) << 14)) >>> 0, 1);
+    chunk = Buffer.concat([Buffer.from('VP8L'), u32le(data.length), data]);
+  } else {
+    // Kare etiketi (3) + başlangıç kodu (9d 01 2a) + genişlik ve yükseklik (14'er bit)
+    const data = Buffer.alloc(10);
+    Buffer.from([0x9d, 0x01, 0x2a]).copy(data, 3);
+    data.writeUInt16LE(width, 6);
+    data.writeUInt16LE(height, 8);
+    chunk = Buffer.concat([Buffer.from('VP8 '), u32le(data.length), data]);
+  }
+  const body = Buffer.concat([Buffer.from('WEBP'), chunk]);
+  return Buffer.concat([Buffer.from('RIFF'), u32le(body.length), body]);
+}
+
+/** İz başlığı (tkhd, sürüm 0): boyutlar 16.16 sabit noktalı */
+function tkhd(width: number, height: number): Buffer {
+  const data = Buffer.alloc(84);
+  // Birim matris (döndürme yok)
+  data.writeInt32BE(0x00010000, 40);
+  data.writeInt32BE(0x00010000, 56);
+  data.writeUInt32BE(width * 65536, 76);
+  data.writeUInt32BE(height * 65536, 80);
+  return box('tkhd', data);
+}
+
+/**
+ * AVIF: `sequence` hareketli (görüntü dizisi: "avis" markası ve izleriyle moov kutusu). `ispe`: üst düzey
+ * "meta" kutusunda boyut özelliği (false: "meta" hiç yazılmaz); `tracks`: izlerin boyutları (renk ve alfa).
+ */
+export function avif(
+  width: number,
+  height: number,
+  sequence = true,
+  opts: { ispe?: boolean; tracks?: [number, number][] } = {},
+): Buffer {
   const ftyp = box('ftyp', Buffer.from(sequence ? 'avis' : 'avif'), u32(0), Buffer.from('avifmif1miaf'));
-  const meta = box('meta', u32(0), box('iprp', box('ipco', box('ispe', u32(0), u32(width), u32(height)))));
-  const moov = sequence ? [box('moov', box('mvhd', Buffer.alloc(100)))] : [];
-  return Buffer.concat([ftyp, meta, ...moov, box('mdat', Buffer.from('kareler'))]);
+  const meta = opts.ispe === false ? [] : [box('meta', u32(0), box('iprp', box('ipco', box('ispe', u32(0), u32(width), u32(height)))))];
+  const hdlr = box('hdlr', u32(0), u32(0), Buffer.from('pict'), Buffer.alloc(12));
+  const tracks = (opts.tracks ?? [[width, height], [width, height]]).map(([w, h]) => box('trak', tkhd(w, h), box('mdia', hdlr)));
+  const moov = sequence ? [box('moov', box('mvhd', Buffer.alloc(100)), ...tracks)] : [];
+  return Buffer.concat([ftyp, ...meta, ...moov, box('mdat', Buffer.from('kareler'))]);
 }
 
 /** MP4: tek görüntü izi (`width`×`height`), örnek girişi `codec` (H.264: avcC) */
 export function mp4(width: number, height: number, codec = 'avcC'): Buffer {
-  const tkhd = Buffer.alloc(84);
-  // Birim matris (döndürme yok)
-  tkhd.writeInt32BE(0x00010000, 40);
-  tkhd.writeInt32BE(0x00010000, 56);
-  tkhd.writeUInt32BE(width * 65536, 76);
-  tkhd.writeUInt32BE(height * 65536, 80);
   const hdlr = Buffer.concat([u32(0), u32(0), Buffer.from('vide'), Buffer.alloc(12)]);
   const entry = box(codec === 'avcC' ? 'avc1' : 'hvc1', Buffer.alloc(78), box(codec, Buffer.from([1, 0x64, 0, 0x1f])));
   const stbl = box('stbl', box('stsd', u32(0), u32(1), entry));
-  const trak = box('trak', box('tkhd', tkhd), box('mdia', box('hdlr', hdlr), box('minf', stbl)));
+  const trak = box('trak', tkhd(width, height), box('mdia', box('hdlr', hdlr), box('minf', stbl)));
   const moov = box('moov', box('mvhd', Buffer.alloc(100)), trak);
-  return Buffer.concat([box('ftyp', Buffer.from('isom'), u32(0x200), Buffer.from('isomiso2avc1mp41')), moov, box('mdat', Buffer.alloc(64))]);
+  // x264/ffmpeg çıktısındaki sıra: ftyp, moov, free, mdat
+  const ftyp = box('ftyp', Buffer.from('isom'), u32(0x200), Buffer.from('isomiso2avc1mp41'));
+  return Buffer.concat([ftyp, moov, box('free'), box('mdat', Buffer.alloc(64))]);
 }
 
 export interface BundleFile {

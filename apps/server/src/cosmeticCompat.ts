@@ -8,8 +8,9 @@
 // (tek kural, ileride şaşırtmasın).
 //
 // İstemci paketleri tanıdığını gateway'de IDENTIFY'ın `features` listesiyle, HTTP isteklerinde
-// CLIENT_FEATURES_HEADER başlığıyla bildirir; bildirmeyen istemci eski sayılır. Yerleşik olmayan paket
-// yayında değilken hiçbir şey süzülmez (bkz. CosmeticPackStore.hasCustomIds).
+// CLIENT_FEATURES_HEADER başlığıyla bildirir; bildirmeyen istemci eski sayılır. Eski istemciye giden her
+// metin taranır (ucuz bir ön denetim); karar o anki paket listesine bağlı değildir: kullanıcı
+// serileştirildikten sonra paket yayından kalksa da tanınmayan kimlik eski istemciye ulaşmaz.
 
 import {
   animatedDecorationSet,
