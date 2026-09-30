@@ -43,6 +43,16 @@ export {
 } from './streamPreview';
 export { streamViewers, useStreamViewers } from './streamViewers';
 export {
+  activityLabel,
+  activityTitle,
+  customStatusText,
+  formatElapsed,
+  presenceSubline,
+  voiceLabel,
+  type PresenceSubline,
+  type SublineText,
+} from './activityView';
+export {
   isStreamMuted,
   setStreamVolume,
   shownStreamVolume,

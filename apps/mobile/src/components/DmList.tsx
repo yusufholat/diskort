@@ -9,6 +9,7 @@ import {
   dmPartner,
   dmTitle,
   isUnread,
+  useActivity,
   useCustomStatus,
   useDmList,
   useDmUnreadCount,
@@ -16,6 +17,7 @@ import {
   useMessages,
   useSession,
 } from '@diskort/client-core';
+import { PresenceSubline } from './ActivityCard';
 import { CountBadge, UnreadMarker } from './Badge';
 import { BottomSheet, SheetGroup, SheetHeader, SheetItem } from './BottomSheet';
 import { confirmDialog } from './Dialog';
@@ -156,19 +158,13 @@ const DmRow = memo(function DmRow({
   const selfId = useSession((s) => s.user?.id);
   const title = useGuild((s) => dmTitle(dm, s.users, selfId));
   const partnerName = useGuild((s) => (dm.group ? undefined : dmPartner(dm, s.users, selfId)?.username));
-  // Bire bir konuşmada karşı tarafın özel durumu (ortak sunucunuz varsa görünür)
+  // Bire bir konuşmada karşı tarafın özel durumu ve oynadığı oyun (ortak sunucunuz varsa görünür)
   const partnerId = useGuild((s) => (dm.group ? undefined : dmPartner(dm, s.users, selfId)?.id));
   const custom = useCustomStatus(partnerId);
+  const activity = useActivity(partnerId);
   const unread = useGuild((s) => isUnread(s, dm.id));
   const count = useDmUnreadCount(dm.id);
   const typing = useSomeoneTyping(dm.id, selfId);
-  const sub = dm.group
-    ? `${dm.participantIds.length} üye`
-    : custom
-      ? `${custom.emoji ? `${custom.emoji} ` : ''}${custom.text ?? ''}`
-      : partnerName
-        ? `@${partnerName}`
-        : undefined;
   return (
     <View style={styles.rowWrap}>
       {unread && <UnreadMarker left={0} />}
@@ -193,11 +189,19 @@ const DmRow = memo(function DmRow({
               <TypingDots color={colors.brandText} size={4} />
               <Text style={[styles.sub, { color: colors.brandText }]}>yazıyor…</Text>
             </View>
-          ) : sub ? (
+          ) : dm.group ? (
             <Text style={styles.sub} numberOfLines={1}>
-              {sub}
+              {dm.participantIds.length} üye
             </Text>
-          ) : null}
+          ) : (
+            // Oynuyorsa oyun simgesi; özel durum, yoksa oynadığı oyun, o da yoksa kullanıcı adı (ses bilgisi yok)
+            <PresenceSubline
+              custom={custom}
+              activity={activity}
+              fallback={partnerName ? `@${partnerName}` : undefined}
+              textStyle={styles.sub}
+            />
+          )}
         </View>
         <View style={styles.meta}>
           <Text style={[styles.time, count > 0 && { color: colors.head }]}>{formatAgo(dm.lastActivityAt)}</Text>

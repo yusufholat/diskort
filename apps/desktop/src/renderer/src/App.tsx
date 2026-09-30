@@ -4,6 +4,7 @@ import { ContextMenu } from './components/ContextMenu';
 import { EmojiPicker } from './components/EmojiPicker';
 import { MainLayout } from './components/MainLayout';
 import { ProfilePopover } from './components/members/ProfilePopover';
+import { ActivityHoverCard } from './components/sidebar/ActivityHoverCard';
 import { StreamPreviewCard } from './components/sidebar/StreamPreviewCard';
 import { SelfProfilePopout } from './components/status/SelfProfilePopout';
 import { TitleBar } from './components/TitleBar';
@@ -62,6 +63,7 @@ export function App() {
       <EmojiPicker />
       <ProfilePopover />
       <StreamPreviewCard />
+      <ActivityHoverCard />
       <SelfProfilePopout />
       <ConfirmDialogHost />
       <Toasts />

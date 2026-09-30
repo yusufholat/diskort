@@ -27,6 +27,7 @@ import {
   themedCardStyle,
 } from '../profile/ProfileLook';
 import { StatusIcon } from '../ui/StatusIcon';
+import { ActivityCards } from './ActivityCard';
 
 const MARGIN = 8;
 
@@ -130,6 +131,8 @@ export function SelfProfilePopout() {
         }
       />
       <div className="px-4 pb-3">
+        {/* Oynadığın oyunlar sunucunun sana da yolladığı durumdan okunur: görünmezken yok */}
+        <ActivityCards userId={user.id} className="mt-3" />
         <div className="mt-3 rounded-lg bg-bg-side p-1.5">
           <Row
             icon={<Pencil size={16} className="ico-scribble" />}

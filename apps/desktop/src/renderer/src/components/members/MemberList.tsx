@@ -4,13 +4,13 @@ import type { User } from '@diskort/shared';
 import {
   activeGuildContext,
   memberGroups,
-  useCustomStatus,
   useGuild,
   useMemberColor,
   useSession,
   useStatus,
+  voiceLabel,
 } from '@diskort/client-core';
-import { CustomStatusLine } from '../status/CustomStatusLine';
+import { PresenceSubline } from '../status/ActivityCard';
 import { startDm } from '../../lib/dm';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
@@ -46,9 +46,12 @@ export function MemberList() {
 const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User; offline: boolean; owner: boolean }) {
   const color = useMemberColor(user.id);
   const selfId = useSession((s) => s.user?.id);
-  const inVoice = useGuild((s) => Boolean(s.voiceStates[user.id]));
+  // Sesteyse ses simgesinin ipucu (kanalın adıyla); seste değilse null
+  const voice = useGuild((s) => {
+    const channelId = s.voiceStates[user.id]?.channelId;
+    return channelId ? voiceLabel(s.channels.find((c) => c.id === channelId)?.name) : null;
+  });
   const status = useStatus(user.id);
-  const custom = useCustomStatus(user.id);
   const openContextMenu = useUi((s) => s.openContextMenu);
   const isSelf = user.id === selfId;
   // İsim plakası satırın arkasında oynar (yalnızca ekrandaki satırlar çizilir, bkz. cosmetics/engine.ts)
@@ -113,13 +116,12 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
           </span>
           {owner && <Crown size={13} aria-label="Sunucunun sahibi" className="shrink-0 text-warn" />}
         </div>
-        {custom ? (
-          <CustomStatusLine status={custom} className={cn('text-xs', plate ? 'nameplate-sub' : 'text-text-muted')} />
-        ) : (
-          inVoice && (
-            <div className={cn('truncate text-xs', plate ? 'nameplate-sub' : 'text-text-muted')}>Sesli sohbette</div>
-          )
-        )}
+        {/* Durum simgeleri (oyun, ses) ve yazı: özel durum, yoksa oynadığı oyun, o da yoksa sesli sohbet */}
+        <PresenceSubline
+          userId={user.id}
+          voice={voice}
+          className={cn('text-xs', plate ? 'nameplate-sub' : 'text-text-muted')}
+        />
       </div>
       {!isSelf && (
         <button

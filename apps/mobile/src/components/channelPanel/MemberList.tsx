@@ -1,10 +1,11 @@
 import { memo, useCallback, useMemo, useState, type ReactElement } from 'react';
 import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { User } from '@diskort/shared';
 import {
   channelMemberGroups,
   memberGroups,
+  useActivity,
   useCustomStatus,
   useGuild,
   useMemberColor,
@@ -12,6 +13,7 @@ import {
   useStatus,
   type ProfileContext,
 } from '@diskort/client-core';
+import { PresenceSubline } from '../ActivityCard';
 import { Avatar } from '../Avatar';
 import { useHasSkia, NAMEPLATE_TEXT_SHADOW, NameplateBackground, nameplateNameColor } from '../cosmetics/Cosmetics';
 import { MemberSheet } from '../MemberSheet';
@@ -170,6 +172,8 @@ const MemberRow = memo(function MemberRow({
   const self = useSession((s) => s.user?.id === user.id);
   const status = useStatus(user.id);
   const custom = useCustomStatus(user.id);
+  // Oynadığı oyun hesap düzeyidir: konuşmada da görünür (satırda yalnızca asıl oyun)
+  const activity = useActivity(user.id);
   // İsim plakası: satırın arkasında hareketli zemin; üstündeki yazılar açık renkli ve gölgeli (Skia yoksa
   // plaka çizilmez, satır eskisi gibi kalır)
   const plate = useHasSkia() ? (user.nameplate ?? null) : null;
@@ -214,19 +218,15 @@ const MemberRow = memo(function MemberRow({
               </View>
             )}
           </View>
-          {/* Masaüstündeki gibi önce özel durum, yoksa sesli sohbet; ikisi de yoksa yalnız isim */}
-          {custom ? (
-            <Text style={[styles.sub, plate && styles.plateSub]} numberOfLines={1}>
-              {`${custom.emoji ? `${custom.emoji} ` : ''}${custom.text ?? ''}`}
-            </Text>
-          ) : (
-            inVoice && (
-              <View style={styles.subRow}>
-                <Ionicons name="volume-medium" size={13} color={colors.ok} />
-                <Text style={[styles.sub, { color: colors.ok }]}>Sesli sohbette</Text>
-              </View>
-            )
-          )}
+          {/* Masaüstündeki gibi durum simgeleri (oyun, ses) ve yazı: özel durum, yoksa oynadığı oyun, o da yoksa
+              sesli sohbet; hiçbiri yoksa yalnız isim */}
+          <PresenceSubline
+            custom={custom}
+            activity={activity}
+            inVoice={inVoice}
+            textStyle={[styles.sub, plate && styles.plateSub]}
+            color={plate ? PLATE_SUB_COLOR : colors.muted}
+          />
         </View>
       </Pressable>
     </View>
@@ -234,6 +234,7 @@ const MemberRow = memo(function MemberRow({
 });
 
 const CARD_RADIUS = radius.lg - 4;
+const PLATE_SUB_COLOR = 'rgba(255,255,255,0.78)';
 
 const styles = createStyles(() => ({
   content: { paddingHorizontal: space.lg, paddingBottom: space.xxl, flexGrow: 1 },
@@ -260,9 +261,8 @@ const styles = createStyles(() => ({
   offline: { opacity: 0.45 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   name: { color: colors.text, fontSize: font.row, fontWeight: '600', flexShrink: 1 },
-  subRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
   sub: { color: colors.muted, fontSize: font.caption + 0.5, marginTop: 1 },
-  plateSub: { color: 'rgba(255,255,255,0.78)', ...NAMEPLATE_TEXT_SHADOW },
+  plateSub: { color: PLATE_SUB_COLOR, ...NAMEPLATE_TEXT_SHADOW },
   youTag: { backgroundColor: colors.brandSoft, borderRadius: radius.sm, paddingHorizontal: 5, paddingVertical: 1 },
   youText: { color: colors.brandText, fontSize: 9.5, fontWeight: '800' },
 }));
