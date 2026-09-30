@@ -111,6 +111,16 @@ export function rememberSeenGame(prefs: ActivityPrefs, game: { path: string; nam
   return { ...prefs, seen: seen.slice(0, MAX_SEEN) };
 }
 
+/**
+ * Arayüzden gelen yol bilinen bir oyunun ya da şu an çalışan bir programın yolu mu. Gizleme gibi işlemler
+ * yalnızca bunlara uygulanır: rastgele (ör. ağ) yollar ayarlara girmez, dosya sistemine de sorulmaz.
+ */
+export function isKnownPath(prefs: ActivityPrefs, runningPaths: readonly string[], path: string): boolean {
+  if (!validPath(path)) return false;
+  const key = pathKey(path);
+  return knownGames(prefs).some((g) => pathKey(g.path) === key) || runningPaths.some((p) => pathKey(p) === key);
+}
+
 export interface KnownGame {
   path: string;
   name: string;

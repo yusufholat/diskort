@@ -13,46 +13,77 @@ export function setActivities(reports: readonly ActivityReport[]): void {
   gateway.setActivities(reports);
 }
 
-/** Bu oturumda sunucuda olduğu bilinen ('ready') ya da yüklenemeyen ('failed') ikonlar; süren yüklemeler */
-const icons = new Map<string, 'ready' | 'failed' | Promise<boolean>>();
+/** Geçici hatadan (ağ, sunucu hatası, sınır, oturum) sonra ikon bu süre yeniden denenmez */
+const ICON_RETRY_AFTER_MS = 5 * 60_000;
+
+type IconState =
+  /** Sunucuda olduğu biliniyor */
+  | { state: 'ready' }
+  /** Yüklenemedi; `until`'e dek denenmez (Infinity: sunucu kesin reddetti, bu oturumda hiç denenmez) */
+  | { state: 'failed'; until: number }
+  | { state: 'pending'; task: Promise<boolean> };
+
+/** İkonların durumu; yalnızca `iconScope`'taki sunucu ve oturum için geçerlidir */
+const icons = new Map<string, IconState>();
+let iconScope = '';
+
+type UploadResult = 'ready' | 'rejected' | 'retry';
 
 /**
  * Etkinlik ikonunun sunucuda olmasını sağlar: yoksa `read`'in verdiği PNG'yi yükler. true: ikon sunucuda
  * (etkinlik bu anahtarla bildirilebilir). Sunucu bilmediği anahtarı ikonsuz saydığından önce bu beklenir.
- * Başarısız olan (eski sunucu, ağ hatası, reddedilen dosya) bu oturumda yeniden denenmez; oturum açık
- * değilken hiçbir şey denenmez ve hatırlanmaz.
+ * Sunucunun kesin reddettiği ikon (eski sunucu, geçersiz dosya) bu oturumda yeniden denenmez; geçici
+ * hatalar birkaç dakika sonra yeniden denenebilir. Sunucu adresi ya da oturum değişince bilinenler unutulur;
+ * oturum açık değilken hiçbir şey denenmez ve hatırlanmaz.
  */
 export function ensureActivityIcon(key: string, read: () => Promise<Uint8Array | null>): Promise<boolean> {
   if (!ACTIVITY_ICON_KEY_PATTERN.test(key)) return Promise.resolve(false);
-  const known = icons.get(key);
-  if (known === 'ready') return Promise.resolve(true);
-  if (known === 'failed') return Promise.resolve(false);
-  if (known) return known;
   const token = useSession.getState().token;
   if (!token) return Promise.resolve(false);
+  const base = normalizeServerUrl(env().serverUrl());
+  const scope = `${base} ${token}`;
+  if (scope !== iconScope) {
+    icons.clear();
+    iconScope = scope;
+  }
+  const known = icons.get(key);
+  if (known?.state === 'ready') return Promise.resolve(true);
+  if (known?.state === 'pending') return known.task;
+  if (known && Date.now() < known.until) return Promise.resolve(false);
 
-  const task = upload(key, token, read)
-    .catch(() => false)
-    .then((ok) => {
-      icons.set(key, ok ? 'ready' : 'failed');
-      return ok;
+  const task = upload(base + activityIconPath(key), token, read)
+    .catch((): UploadResult => 'retry')
+    .then((result) => {
+      // Bu arada sunucu ya da oturum değiştiyse sonuç yeni duruma yazılmaz
+      if (scope === iconScope) {
+        icons.set(
+          key,
+          result === 'ready'
+            ? { state: 'ready' }
+            : { state: 'failed', until: result === 'rejected' ? Infinity : Date.now() + ICON_RETRY_AFTER_MS },
+        );
+      }
+      return result === 'ready';
     });
-  icons.set(key, task);
+  icons.set(key, { state: 'pending', task });
   return task;
 }
 
-async function upload(key: string, token: string, read: () => Promise<Uint8Array | null>): Promise<boolean> {
-  const url = normalizeServerUrl(env().serverUrl()) + activityIconPath(key);
+async function upload(url: string, token: string, read: () => Promise<Uint8Array | null>): Promise<UploadResult> {
   const headers = { Authorization: `Bearer ${token}` };
   // Çoğu ikon zaten yüklüdür (aynı oyunu oynayan herkes aynı anahtarı üretir)
   const head = await fetch(url, { method: 'HEAD', headers });
-  if (head.ok) return true;
+  if (head.ok) return 'ready';
+  // Yalnızca "yok" (404) ya da "HEAD desteklenmiyor" yanıtında yüklenir; 401, 429, 5xx geçicidir
+  if (head.status !== 404 && head.status !== 405 && head.status !== 501) return 'retry';
   const png = await read();
-  if (!png) return false;
+  if (!png) return 'retry';
   const put = await fetch(url, {
     method: 'PUT',
     headers: { ...headers, 'Content-Type': 'image/png' },
     body: png as Uint8Array<ArrayBuffer>,
   });
-  return put.ok;
+  if (put.ok) return 'ready';
+  const definitive = put.status >= 400 && put.status < 500 && put.status !== 401 && put.status !== 408 && put.status !== 429;
+  return definitive ? 'rejected' : 'retry';
 }

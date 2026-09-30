@@ -20,6 +20,16 @@ const BOOTSTRAP =
 const RESTART_DELAYS_MS = [5_000, 30_000, 120_000, 600_000];
 /** Bu kadar yaşayan süreç sağlıklı sayılır: sonraki ölümde bekleme baştan başlar */
 const HEALTHY_AFTER_MS = 5 * 60_000;
+/**
+ * Art arda bu kadar başarısız başlatmadan sonra vazgeçilir (uygulama yeniden açılana ya da ayar kapatılıp
+ * açılana dek): ör. PowerShell'in engellendiği ya da kısıtlı dil kipinde çalıştığı sistemlerde önyükleyici
+ * hiç çalışamaz; sonsuza dek süreç başlatmanın anlamı yok.
+ */
+const MAX_FAILURES = 5;
+/** Yardımcı çalışırken bu süre tarama gelmezse takılmış sayılır (taramalar ~15 sn arayla gelir) */
+const WATCHDOG_MS = 60_000;
+/** Elle istenen taramalar en sık bu arayla gönderilir */
+const SCAN_REQUEST_GAP_MS = 1000;
 const ICON_TIMEOUT_MS = 10_000;
 /** Satır sonu gelmeden bundan fazla veri biriktiyse yardımcı bozulmuştur (en büyük satır: ikon, ~90 KB) */
 const MAX_LINE_BYTES = 1024 * 1024;
@@ -36,6 +46,8 @@ export class ActivityScanner {
   private running = false;
   private ready = false;
   private restartTimer: NodeJS.Timeout | null = null;
+  private watchdog: NodeJS.Timeout | null = null;
+  private lastScanRequestAt = 0;
   private failures = 0;
   private startedAt = 0;
   private nextIconId = 1;
@@ -56,6 +68,7 @@ export class ActivityScanner {
     this.running = false;
     if (this.restartTimer) clearTimeout(this.restartTimer);
     this.restartTimer = null;
+    this.clearWatchdog();
     const child = this.child;
     this.child = null;
     this.ready = false;
@@ -69,8 +82,11 @@ export class ActivityScanner {
     child.kill();
   }
 
-  /** Sıradaki taramayı beklemeden hemen taratır */
+  /** Sıradaki taramayı beklemeden hemen taratır (en sık saniyede bir) */
   requestScan(): void {
+    const now = Date.now();
+    if (now - this.lastScanRequestAt < SCAN_REQUEST_GAP_MS) return;
+    this.lastScanRequestAt = now;
     this.write('scan\n');
   }
 
@@ -128,6 +144,7 @@ export class ActivityScanner {
     this.child = child;
     this.ready = false;
     this.startedAt = Date.now();
+    this.armWatchdog(child);
 
     let buffer = '';
     child.stdout.setEncoding('utf8');
@@ -153,6 +170,22 @@ export class ActivityScanner {
     child.stdin.write(Buffer.from(scanScript, 'utf8').toString('base64') + '\n');
   }
 
+  /** Tarama gelmeyi keserse (yardımcı takıldı) süreç öldürülür ve yeniden başlatma yoluna girilir */
+  private armWatchdog(child: ChildProcessWithoutNullStreams): void {
+    this.clearWatchdog();
+    this.watchdog = setTimeout(() => {
+      this.watchdog = null;
+      if (this.child !== child) return;
+      child.kill();
+      this.onExit(child, `${WATCHDOG_MS / 1000} saniyedir tarama gelmedi`);
+    }, WATCHDOG_MS);
+  }
+
+  private clearWatchdog(): void {
+    if (this.watchdog) clearTimeout(this.watchdog);
+    this.watchdog = null;
+  }
+
   private handleLine(line: string): void {
     const msg = parseScannerLine(line);
     if (!msg) return;
@@ -163,8 +196,10 @@ export class ActivityScanner {
       const queued = this.queued;
       this.queued = [];
       for (const queuedLine of queued) this.child?.stdin.write(queuedLine);
-    } else if (msg.t === 'scan') this.events.onScan(msg.procs);
-    else if (msg.t === 'icon') this.settleIcon(msg.id, msg.png ? Buffer.from(msg.png, 'base64') : msg.ok ? null : undefined);
+    } else if (msg.t === 'scan') {
+      if (this.child) this.armWatchdog(this.child);
+      this.events.onScan(msg.procs);
+    } else if (msg.t === 'icon') this.settleIcon(msg.id, msg.png ? Buffer.from(msg.png, 'base64') : msg.ok ? null : undefined);
     else this.events.onLog(`Tarama hatası: ${msg.message}`);
   }
 
@@ -172,6 +207,7 @@ export class ActivityScanner {
     if (this.child !== child) return;
     this.child = null;
     this.ready = false;
+    this.clearWatchdog();
     this.failPending();
     if (!this.running) return;
     this.events.onLog(`Tarayıcı kapandı (${reason}).`);
@@ -181,6 +217,11 @@ export class ActivityScanner {
   }
 
   private scheduleRestart(): void {
+    if (this.failures >= MAX_FAILURES) {
+      this.events.onLog('Tarayıcı art arda başlatılamadı; oyun algılama bu oturumda durduruldu.');
+      this.running = false;
+      return;
+    }
     const delay = RESTART_DELAYS_MS[Math.min(this.failures, RESTART_DELAYS_MS.length - 1)]!;
     this.failures++;
     this.restartTimer = setTimeout(() => {

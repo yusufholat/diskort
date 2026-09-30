@@ -261,6 +261,74 @@ describe('etkinlik ikonu', () => {
     expect(more.map((c) => c.method)).toEqual(['HEAD']);
   });
 
+  it('geçici hata (ağ, 5xx, 429, 401) birkaç dakika sonra yeniden denenir', async () => {
+    for (const failure of [new Error('ağ yok'), 503, 429, 401]) {
+      const key = newKey();
+      let calls = stubFetch((method) => (method === 'HEAD' ? 404 : failure));
+      expect(await ensureActivityIcon(key, async () => png)).toBe(false);
+      expect(calls.map((c) => c.method)).toEqual(['HEAD', 'PUT']);
+      vi.advanceTimersByTime(4 * 60_000);
+      expect(await ensureActivityIcon(key, async () => png)).toBe(false);
+      expect(calls).toHaveLength(2);
+
+      vi.advanceTimersByTime(60_001);
+      calls = stubFetch((method) => (method === 'HEAD' ? 404 : 201));
+      expect(await ensureActivityIcon(key, async () => png)).toBe(true);
+      expect(calls.map((c) => c.method)).toEqual(['HEAD', 'PUT']);
+    }
+  });
+
+  it('sunucunun kesin reddi (4xx) süre geçse de yeniden denenmez', async () => {
+    for (const status of [400, 404, 413, 415]) {
+      const key = newKey();
+      const calls = stubFetch((method) => (method === 'HEAD' ? 404 : status));
+      expect(await ensureActivityIcon(key, async () => png)).toBe(false);
+      vi.advanceTimersByTime(60 * 60_000);
+      expect(await ensureActivityIcon(key, async () => png)).toBe(false);
+      expect(calls.map((c) => c.method)).toEqual(['HEAD', 'PUT']);
+    }
+  });
+
+  it('HEAD 401 ya da 5xx dönerse körlemesine yüklenmez; sonra yeniden sorulur', async () => {
+    for (const status of [401, 500, 429]) {
+      const key = newKey();
+      const read = vi.fn(async () => png);
+      const calls = stubFetch(() => status);
+      expect(await ensureActivityIcon(key, read)).toBe(false);
+      expect(calls.map((c) => c.method)).toEqual(['HEAD']);
+      expect(read).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(5 * 60_000 + 1);
+      expect(await ensureActivityIcon(key, read)).toBe(false);
+      expect(calls.map((c) => c.method)).toEqual(['HEAD', 'HEAD']);
+    }
+  });
+
+  it('oturum ya da sunucu adresi değişince bilinenler unutulur', async () => {
+    const key = newKey();
+    let calls = stubFetch(() => 404);
+    expect(await ensureActivityIcon(key, async () => png)).toBe(false);
+    expect(calls).toHaveLength(2);
+
+    // Başka hesapla giriş: kesin ret de unutulur
+    useSession.getState().setSession('baska-jeton', me);
+    calls = stubFetch((method) => (method === 'HEAD' ? 404 : 201));
+    expect(await ensureActivityIcon(key, async () => png)).toBe(true);
+    expect(calls[1]!.headers.Authorization).toBe('Bearer baska-jeton');
+
+    // Başka sunucu: orada olup olmadığı yeniden sorulur
+    await configureClient({
+      platform: 'desktop',
+      version: '9.9.9',
+      storage,
+      serverUrl: () => 'http://baska.test',
+      notifyError: () => undefined,
+    });
+    useSession.getState().setSession('baska-jeton', me);
+    calls = stubFetch(() => 200);
+    expect(await ensureActivityIcon(key, async () => png)).toBe(true);
+    expect(calls.map((c) => c.url)).toEqual([`http://baska.test/api/activity-icons/${key}`]);
+  });
+
   it('aynı anda iki istek tek yükleme yapar', async () => {
     const key = newKey();
     const calls = stubFetch((method) => (method === 'HEAD' ? 404 : 200));

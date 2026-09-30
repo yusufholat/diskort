@@ -13,6 +13,7 @@ import { EMPTY_LIBRARIES, loadGameLibraries, pathKey, type GameLibraries, type L
 import {
   addManualGame,
   defaultPrefs,
+  isKnownPath,
   knownGames,
   rememberSeenGame,
   removeManualGame,
@@ -24,6 +25,10 @@ import { ActivityScanner } from './scanner';
 
 /** Kurulu oyun kayıtları bu sıklıkta yeniden okunur (yeni kurulan oyun) */
 const LIBRARY_REFRESH_MS = 10 * 60_000;
+/** Ayar açılınca tarayıcı bu kadar sonra başlatılır: art arda aç/kapa her seferinde süreç başlatmasın */
+const START_DELAY_MS = 1000;
+/** Bundan yeni bir tarama varsa "Oyun ekle" yenisini istemez */
+const FRESH_SCAN_MS = 1000;
 /** "Oyun ekle" açılınca taze tarama bu kadar beklenir */
 const PROGRAM_SCAN_WAIT_MS = 2500;
 /** Yeni açılan oyunun ikonu en çok bu kadar beklenir (arayüze tek seferde, ikonuyla bildirilsin diye) */
@@ -50,6 +55,8 @@ export class ActivityMonitor {
   /** Taramalar sırayla işlenir */
   private queue: Promise<void> = Promise.resolve();
   private scanWaiters: (() => void)[] = [];
+  private lastScanAt = 0;
+  private startTimer: NodeJS.Timeout | null = null;
   private readonly scanner: ActivityScanner;
   private readonly icons: IconStore;
 
@@ -60,7 +67,7 @@ export class ActivityMonitor {
         this.librariesAt = 0;
       },
       onScan: (procs) => {
-        this.queue = this.queue.then(() => this.handleScan(procs)).catch((err) => log.warn(err));
+        this.queue = this.queue.then(() => this.handleScan(procs, true)).catch((err) => log.warn(err));
       },
       onLog: (message) => log.info(message),
     });
@@ -79,6 +86,7 @@ export class ActivityMonitor {
 
   stop(): void {
     this.started = false;
+    this.cancelStart();
     this.scanner.stop();
   }
 
@@ -108,7 +116,9 @@ export class ActivityMonitor {
     this.rescan();
   }
 
+  /** Yalnızca bilinen oyunlar ve şu an çalışan programlar gizlenebilir */
   setHidden(path: string, hidden: boolean): void {
+    if (!isKnownPath(this.prefs, this.procs.map((p) => p.path), path)) return;
     this.update(setGameHidden(this.prefs, path, hidden));
     this.rescan();
   }
@@ -146,13 +156,24 @@ export class ActivityMonitor {
 
   private updateRunning(): void {
     if (!this.started || !this.supported) return;
-    if (this.prefs.enabled) this.scanner.start();
-    else {
+    this.cancelStart();
+    if (this.prefs.enabled) {
+      this.startTimer = setTimeout(() => {
+        this.startTimer = null;
+        if (this.started && this.prefs.enabled) this.scanner.start();
+      }, START_DELAY_MS);
+    } else {
+      // Kapatma beklemez: oyun hemen bildirilmez olur
       this.scanner.stop();
       this.procs = [];
       this.games = [];
       this.emit(this.state);
     }
+  }
+
+  private cancelStart(): void {
+    if (this.startTimer) clearTimeout(this.startTimer);
+    this.startTimer = null;
   }
 
   /** Ayar değişti: aynı süreçler yeni ayarlarla yeniden değerlendirilir */
@@ -162,6 +183,7 @@ export class ActivityMonitor {
   }
 
   private freshScan(): Promise<void> {
+    if (Date.now() - this.lastScanAt < FRESH_SCAN_MS) return Promise.resolve();
     return new Promise((resolve) => {
       const done = (): void => {
         clearTimeout(timer);
@@ -174,7 +196,7 @@ export class ActivityMonitor {
     });
   }
 
-  private async handleScan(procs: ScannedProcess[]): Promise<void> {
+  private async handleScan(procs: ScannedProcess[], fresh = false): Promise<void> {
     if (!this.prefs.enabled) return;
     const now = Date.now();
     // Başlangıcı okunamayan süreç ilk görüldüğü anda başlamış sayılır
@@ -196,6 +218,7 @@ export class ActivityMonitor {
     }
     this.update(prefs);
     await this.setGames(found);
+    if (fresh) this.lastScanAt = Date.now();
     for (const waiter of [...this.scanWaiters]) waiter();
   }
 

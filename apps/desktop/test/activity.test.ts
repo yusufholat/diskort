@@ -17,11 +17,13 @@ import {
   parseVdf,
   pathKey,
   steamLibraryPaths,
+  withoutShadowingTools,
   type GameLibraries,
 } from '../src/main/activity/libraries.js';
 import {
   addManualGame,
   defaultPrefs,
+  isKnownPath,
   knownGames,
   rememberSeenGame,
   removeManualGame,
@@ -113,8 +115,12 @@ describe('Epic manifesti', () => {
     expect(parseEpicManifest(item)).toEqual({ name: 'Fall Guys', dir: 'C:\\Program Files\\Epic Games\\FallGuys' });
   });
 
-  it('oyun olmayan (motor), eksik ya da bozuk manifest atlanır', () => {
-    expect(parseEpicManifest(JSON.stringify({ DisplayName: 'Unreal Engine', InstallLocation: 'C:\\UE_5.4', AppCategories: ['engines'] }))).toBeNull();
+  it('oyun olmayan kayıt (motor, eklenti) araç olarak işaretlenir; eksik ya da bozuk manifest atlanır', () => {
+    expect(parseEpicManifest(JSON.stringify({ DisplayName: 'Unreal Engine', InstallLocation: 'C:\\UE_5.4', AppCategories: ['engines'] }))).toEqual({
+      name: 'Unreal Engine',
+      dir: 'C:\\UE_5.4',
+      tool: true,
+    });
     expect(parseEpicManifest(JSON.stringify({ DisplayName: 'Adsız' }))).toBeNull();
     expect(parseEpicManifest(' '.repeat(2000))).toBeNull();
     expect(parseEpicManifest('[1]')).toBeNull();
@@ -243,6 +249,43 @@ describe('oyun sınıflandırma', () => {
     const launcher = 'C:\\Oyunlar\\X\\launcher_overlay.exe';
     expect(nameOf(launcher)).toBeNull();
     expect(nameOf(launcher, {}, ctx({ manual: [{ path: launcher, name: 'X' }] }))).toBe('X');
+  });
+
+  it('Unreal Engine oyun değildir: manifesti olsa da olmasa da', () => {
+    const editor = 'C:\\Program Files\\Epic Games\\UE_5.4\\Engine\\Binaries\\Win64\\UnrealEditor.exe';
+    const other = 'C:\\Program Files\\Epic Games\\UE_5.4\\Engine\\Binaries\\Win64\\Baska.exe';
+    // Manifest yok: "Epic Games" klasör kalıbı UE_* klasörlerini oyun saymaz
+    expect(nameOf(editor, { productName: 'Unreal Engine' })).toBeNull();
+    expect(nameOf(other, { productName: 'Baska' })).toBeNull();
+    // Manifest var (oyun kategorisinde değil): araç kaydı klasör kalıbından önce gelir
+    const engine = parseEpicManifest(
+      JSON.stringify({ DisplayName: 'Unreal Engine', InstallLocation: 'D:\\Epic Games\\Motor', AppCategories: ['engines'] }),
+    )!;
+    const withEngine = ctx({
+      libraries: { games: [...libraries.games, { dir: pathKey(engine.dir), name: engine.name, source: 'epic', tool: engine.tool }] },
+    });
+    expect(nameOf('D:\\Epic Games\\Motor\\Engine\\Binaries\\Win64\\UnrealEditor.exe', {}, withEngine)).toBeNull();
+    expect(nameOf('D:\\Epic Games\\Motor\\Engine\\Binaries\\Win64\\Baska.exe', { productName: 'Baska' }, withEngine)).toBeNull();
+    // Kayıt yokken aynı klasör kalıpla oyun sayılırdı (kaydın işe yaradığının denetimi)
+    expect(nameOf('D:\\Epic Games\\Motor\\Engine\\Binaries\\Win64\\Baska.exe', { productName: 'Baska' })).toBe('Baska');
+    // Adından da tanınır (başka yere kurulmuş motor, elle eklenmedikçe)
+    expect(isExcludedExe('E:\\UE\\UnrealEditor-Cmd.exe')).toBe(true);
+    expect(isExcludedExe('E:\\UE\\UE4Editor.exe')).toBe(true);
+  });
+
+  it('ek paket (DLC) manifesti ana oyunla aynı klasörü gösterse de oyunu gizlemez', () => {
+    const dir = pathKey('C:\\Program Files\\Epic Games\\FallGuys');
+    const addon = { dir, name: 'Fall Guys - Ek Paket', source: 'epic' as const, tool: true };
+    const game = { dir, name: 'Fall Guys', source: 'epic' as const };
+    const exe = 'C:\\Program Files\\Epic Games\\FallGuys\\FallGuys_client_game.exe';
+    // Sıra ne olursa olsun oyun kaydı kazanır
+    expect(nameOf(exe, {}, ctx({ libraries: { games: [addon, game] } }))).toBe('Fall Guys');
+    expect(nameOf(exe, {}, ctx({ libraries: { games: [game, addon] } }))).toBe('Fall Guys');
+    // Kayıtlar okunurken de oyunla aynı klasördeki araç kaydı atılır; başka klasördeki kalır
+    const engine = { dir: pathKey('C:\\Program Files\\Epic Games\\UE_5.4'), name: 'Unreal Engine', source: 'epic' as const, tool: true };
+    expect(withoutShadowingTools([addon, game, engine])).toEqual([game, engine]);
+    // Yalnızca araç kaydı varsa içindekiler oyun değildir
+    expect(nameOf(exe, {}, ctx({ libraries: { games: [addon] } }))).toBeNull();
   });
 
   it('gizlenen hiçbir koşulda bildirilmez', () => {
@@ -387,6 +430,24 @@ describe('etkinlik ayarları', () => {
     for (let i = 0; i < 130; i++) many = rememberSeenGame(many, { path: `C:\\${i}.exe`, name: `Oyun ${i}` }, i);
     expect(many.seen).toHaveLength(100);
     expect(many.seen[0]!.name).toBe('Oyun 129');
+  });
+
+  it('yalnızca bilinen oyunların ve çalışan programların yolu kabul edilir (gizleme için)', () => {
+    const prefs = {
+      enabled: true,
+      manual: [{ path: 'C:\\m.exe', name: 'Minecraft' }],
+      hidden: ['C:\\gizli.exe'],
+      seen: [{ path: 'C:\\p.exe', name: 'Portal 2', lastSeenAt: 1 }],
+    };
+    const running = ['D:\\Programlar\\calisan.exe'];
+    expect(isKnownPath(prefs, running, 'c:/M.EXE')).toBe(true);
+    expect(isKnownPath(prefs, running, 'C:\\p.exe')).toBe(true);
+    expect(isKnownPath(prefs, running, 'C:\\gizli.exe')).toBe(true);
+    expect(isKnownPath(prefs, running, 'd:\\programlar\\CALISAN.exe')).toBe(true);
+    expect(isKnownPath(prefs, running, 'C:\\baska.exe')).toBe(false);
+    expect(isKnownPath(prefs, running, '\\\\sunucu\\paylasim\\x.exe')).toBe(false);
+    expect(isKnownPath(prefs, running, '')).toBe(false);
+    expect(isKnownPath(prefs, [], 'D:\\Programlar\\calisan.exe')).toBe(false);
   });
 
   it('bilinen oyunlar: elle eklenenler ve algılananlar ada göre; gizliler işaretli', () => {

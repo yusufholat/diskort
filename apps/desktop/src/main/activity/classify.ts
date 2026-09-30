@@ -45,17 +45,18 @@ export interface ClassifyContext {
  * Mağazaların varsayılan oyun klasörleri: yol bu klasör dizisini içeriyorsa hemen sonraki klasör oyunun
  * kendi klasörüdür. `exclude`: o konumdaki başlatıcı/araç klasörleri.
  */
-const FOLDER_RULES: readonly { segments: readonly string[]; exclude?: readonly string[] }[] = [
-  { segments: ['steamapps', 'common'], exclude: ['steamworks shared', 'steamvr', 'wallpaper_engine'] },
-  { segments: ['epic games'], exclude: ['launcher', 'epic online services', 'directxredist'] },
-  { segments: ['riot games'], exclude: ['riot client'] },
+const FOLDER_RULES: readonly { segments: readonly string[]; exclude?: RegExp }[] = [
+  { segments: ['steamapps', 'common'], exclude: /^(steamworks shared|steamvr|wallpaper_engine)$/ },
+  // UE_5.4 gibi klasörler Unreal Engine'in kendisidir (oyun değil)
+  { segments: ['epic games'], exclude: /^(launcher|epic online services|directxredist|ue_.*)$/ },
+  { segments: ['riot games'], exclude: /^riot client$/ },
   { segments: ['ubisoft game launcher', 'games'] },
   { segments: ['ea games'] },
   { segments: ['origin games'] },
   { segments: ['gog galaxy', 'games'] },
   { segments: ['gog games'] },
-  { segments: ['xboxgames'], exclude: ['gamesave'] },
-  { segments: ['rockstar games'], exclude: ['launcher', 'social club'] },
+  { segments: ['xboxgames'], exclude: /^gamesave$/ },
+  { segments: ['rockstar games'], exclude: /^(launcher|social club)$/ },
 ];
 
 /** Oyun klasörlerinin içinden de çalışabilen, oyun olmayan exe'ler (uzantısız, küçük harf) */
@@ -105,7 +106,7 @@ const EXCLUDED_NAMES = new Set([
 ]);
 
 const EXCLUDED_PATTERN =
-  /crash ?(handler|report|pad)|errorreport|bugreport|anti ?cheat|^unins\d*$|redist|^dotnet|^ndp\d|webhelper|cefprocess|cefsubprocess|overlay|^qtwebengineprocess$/;
+  /crash ?(handler|report|pad)|errorreport|bugreport|anti ?cheat|^unins\d*$|redist|^dotnet|^ndp\d|webhelper|cefprocess|cefsubprocess|overlay|^qtwebengineprocess$|^(unreal|ue4)editor/;
 
 /** Sürüm bilgisinde oyun adı yerine motorun adını bırakan exe'ler */
 const ENGINE_NAMES = new Set(['bootstrappackagedgame', 'unreal engine', 'unrealengine', 'ue4game', 'ue4', 'ue5', 'unity player', 'unityplayer']);
@@ -161,7 +162,9 @@ export function resolveName(proc: ScannedProcess, storeName: string | null = nul
 function libraryGameOf(key: string, libraries: GameLibraries): LibraryGame | null {
   let best: LibraryGame | null = null;
   for (const game of libraries.games) {
-    if (key.startsWith(game.dir + '\\') && (!best || game.dir.length > best.dir.length)) best = game;
+    if (!key.startsWith(game.dir + '\\')) continue;
+    // En derin klasör kazanır; aynı klasörde oyun kaydı araç kaydına (ör. ek paket) üstün gelir
+    if (!best || game.dir.length > best.dir.length || (game.dir.length === best.dir.length && best.tool && !game.tool)) best = game;
   }
   return best;
 }
@@ -174,7 +177,7 @@ function folderGameOf(path: string): string | null {
     for (let i = 0; i + rule.segments.length < dirs.length; i++) {
       if (!rule.segments.every((segment, j) => dirs[i + j] === segment)) continue;
       const game = i + rule.segments.length;
-      if (rule.exclude?.includes(dirs[game]!)) return null;
+      if (rule.exclude?.test(dirs[game]!)) return null;
       return original[game]!;
     }
   }

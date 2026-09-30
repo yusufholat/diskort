@@ -132,8 +132,11 @@ export const isSteamTool = (app: SteamApp): boolean => STEAM_TOOL_APP_IDS.has(ap
 
 // ---------- Epic Games ----------
 
-/** Epic manifesti (.item, JSON): oyunun adı ve kurulu olduğu klasör; oyun değilse ya da bozuksa null */
-export function parseEpicManifest(itemText: string): { name: string; dir: string } | null {
+/**
+ * Epic manifesti (.item, JSON): adı ve kurulu olduğu klasör; bozuksa null. Oyun olmayan kayıt (Unreal Engine,
+ * eklenti…) `tool` olarak döner: klasörü bilinsin ki "Epic Games" klasör kalıbı onu oyun saymasın.
+ */
+export function parseEpicManifest(itemText: string): { name: string; dir: string; tool?: true } | null {
   let data: unknown;
   try {
     data = JSON.parse(itemText);
@@ -147,7 +150,7 @@ export function parseEpicManifest(itemText: string): { name: string; dir: string
   if (!name || !dir) return null;
   // Unreal Engine, eklentiler vb. 'games' kategorisinde değildir; kategori yoksa oyun sayılır
   const categories = item.AppCategories;
-  if (Array.isArray(categories) && categories.length > 0 && !categories.includes('games')) return null;
+  if (Array.isArray(categories) && categories.length > 0 && !categories.includes('games')) return { name, dir, tool: true };
   return { name, dir };
 }
 
@@ -207,7 +210,7 @@ async function epicGames(programData: string): Promise<LibraryGame[]> {
     if (!file.toLowerCase().endsWith('.item')) continue;
     const text = await readText(join(dir, file));
     const game = text ? parseEpicManifest(text) : null;
-    if (game) games.push({ dir: pathKey(game.dir), name: game.name, source: 'epic' });
+    if (game) games.push({ dir: pathKey(game.dir), name: game.name, source: 'epic', ...(game.tool ? { tool: true } : {}) });
   }
   return games;
 }
@@ -218,5 +221,14 @@ export async function loadGameLibraries(steamPath: string | null, programData: s
     steamPath ? steamGames(steamPath).catch(() => []) : [],
     programData ? epicGames(programData).catch(() => []) : [],
   ]);
-  return { games: [...steam, ...epic] };
+  return { games: withoutShadowingTools([...steam, ...epic]) };
+}
+
+/**
+ * Bir oyunla aynı klasörü gösteren araç kayıtları atılır: Epic'te ek paket (DLC) manifestleri ana oyunun
+ * klasörünü taşır ve oyunu gizlememelidir.
+ */
+export function withoutShadowingTools(games: readonly LibraryGame[]): LibraryGame[] {
+  const gameDirs = new Set(games.filter((g) => !g.tool).map((g) => g.dir));
+  return games.filter((g) => !g.tool || !gameDirs.has(g.dir));
 }

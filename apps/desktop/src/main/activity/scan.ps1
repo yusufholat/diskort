@@ -151,12 +151,14 @@ public static class DiskortScan {
 
   static readonly int[] ICON_SIZES = { 16, 20, 24, 32, 40, 48, 64, 72, 96, 128 };
 
-  // Dosyanın kabuk ikonu, kare PNG olarak (kenar <= maxSize, boyut <= maxBytes); alınamazsa null.
-  // En büyük (256) görüntü listesinden alınır. Dosyada büyük ikon yoksa kabuk küçük ikonu 256'lık tuvalin
+  // Dosyanın kabuk ikonu, kare PNG olarak (kenar <= maxSize, boyut <= maxBytes). null yalnızca exe'nin kendi
+  // ikonu yoksa döner; ikon varken çıkarılamazsa (kabuk ya da çizim hatası) istisna atılır ki ana süreç başka
+  // yoldan denesin. En büyük (256) görüntü listesinden alınır. Dosyada büyük ikon yoksa kabuk küçük ikonu 256'lık tuvalin
   // sol üst köşesine çizer: o durumda yalnızca o köşe kırpılır (büyütülmez).
   public static byte[] Icon(string path, int maxSize, int maxBytes) {
     var info = new SHFILEINFO();
-    if (SHGetFileInfo(path, 0, ref info, (uint)Marshal.SizeOf(info), 0x4000) == IntPtr.Zero) return null; // SHGFI_SYSICONINDEX
+    if (SHGetFileInfo(path, 0, ref info, (uint)Marshal.SizeOf(info), 0x4000) == IntPtr.Zero)             // SHGFI_SYSICONINDEX
+      throw new InvalidOperationException("SHGetFileInfo");
     // Kendi ikonu olmayan exe: Windows'un genel uygulama ikonu yüklenmez (SHGFI_USEFILEATTRIBUTES ile sorulur)
     var generic = new SHFILEINFO();
     if (SHGetFileInfo(".exe", 0x80, ref generic, (uint)Marshal.SizeOf(generic), 0x4010) != IntPtr.Zero && generic.iIcon == info.iIcon) return null;
@@ -189,7 +191,7 @@ public static class DiskortScan {
       } catch {
       } finally { DestroyIcon(hicon); }
     }
-    return null;
+    throw new InvalidOperationException("icon");
   }
 }
 '@
@@ -219,7 +221,9 @@ function Get-Rows {
     }
     return
   }
-  # Add-Type kullanılamıyor (ör. kısıtlı dil kipi): daha yavaş ve yükseltilmiş süreçlerde yolu veremeyen yol
+  # Add-Type başarısız oldu (ör. C# derleyicisi engellendi): daha yavaş ve yükseltilmiş süreçlerde yolu
+  # veremeyen yol. (Kısıtlı dil kipinde önyükleyici de çalışamaz; o durumda ana süreç birkaç denemeden sonra
+  # vazgeçer.)
   foreach ($p in Get-Process) {
     try {
       if ($p.MainWindowHandle -eq 0) { continue }
@@ -280,7 +284,8 @@ function Handle($line) {
   $cmd = $null
   try { $cmd = ConvertFrom-Json -InputObject $line } catch { return }
   if ($cmd.t -eq 'icon') {
-    # ok: soruldu ve yanıt kesin (png null ise exe'nin kendi ikonu yok); ok değilse ana süreç başka yol dener
+    # ok: yanıt kesin (png null ise exe'nin kendi ikonu yok). ok değil: çıkarılamadı (Win32 yardımcıları yok
+    # ya da hata); ana süreç başka yoldan dener
     $png = $null
     $ok = $false
     if ($native) {
