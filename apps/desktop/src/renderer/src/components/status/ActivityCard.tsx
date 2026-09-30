@@ -1,12 +1,13 @@
-import { useState, type ReactNode } from 'react';
-import { Gamepad2, type LucideIcon } from 'lucide-react';
-import type { Activity, ActivityType } from '@diskort/shared';
+import { useMemo, useState, type ReactNode } from 'react';
+import { Gamepad2, Shapes, Volume2, type LucideIcon } from 'lucide-react';
+import { isKnownActivity, type Activity } from '@diskort/shared';
 import {
   activityIconUrl,
   activityLabel,
   activityTitle,
   formatElapsed,
-  sublineActivity,
+  presenceSubline,
+  useActivities,
   useActivity,
   useCustomStatus,
 } from '@diskort/client-core';
@@ -14,42 +15,60 @@ import { cn } from '../../lib/utils';
 import { useNow } from '../sidebar/ElapsedTime';
 import { CustomStatusLine } from './CustomStatusLine';
 
-// Etkinlik (oynanan oyun) gösterimi: adın altındaki tek satır ve profil kartındaki "Oynuyor" kartı.
-// Türe özgü olan yalnızca simgedir; başlık ACTIVITY_TYPE_LABELS'tan gelir (ileride müzik de aynı karta sığar).
+// Etkinlik (oynanan oyun) gösterimi: adın altındaki satır (durum simgeleri ve yazı) ve profil kartındaki
+// "Oynuyor" kartı. Türe özgü olan yalnızca simgedir; başlık ACTIVITY_TYPE_LABELS'tan gelir (ileride müzik de
+// aynı karta sığar).
 
-const GLYPHS: Record<ActivityType, LucideIcon> = {
+const GLYPHS: Partial<Record<string, LucideIcon>> = {
   game: Gamepad2,
 };
 
-/** Etkinliğin tek satırlık gösterimi: küçük simge ve ad (sığmazsa kırpılır; tamamı ipucunda) */
-export function ActivityLine({ activity, className }: { activity: Activity; className?: string }) {
-  const Glyph = GLYPHS[activity.type];
-  return (
-    <div className={cn('flex min-w-0 items-center gap-1', className)} title={activityLabel(activity)}>
-      <Glyph size={13} className="shrink-0" aria-hidden />
-      <span className="truncate">{activity.name}</span>
-    </div>
-  );
-}
+/** Türün simgesi; simgesi tanımlanmamış tür genel bir simgeyle çizilir */
+const glyphOf = (activity: Pick<Activity, 'type'>): LucideIcon => GLYPHS[activity.type] ?? Shapes;
 
 /**
- * Adın altındaki satır (üye listesi, DM'ler): özel durum, yoksa etkinlik, o da yoksa `fallback`
- * (ör. "Sesli sohbette"). `userId` null ise yalnızca `fallback`.
+ * Adın altındaki satır (üye listesi, DM'ler): önce küçük durum simgeleri (oynuyorsa oyun, `voice` verildiyse
+ * ses), sonra tek bir yazı: özel durum, yoksa oyunun adı, o da yoksa "Sesli sohbette". Hiçbiri yoksa
+ * `fallback` (ör. kullanıcı adı). Simgelerin yalnızca ipucu vardır (oyunun adı, ses kanalı): tıklama satıra
+ * geçer. Satırda sayaç yoktur. `userId` null ise yalnızca `fallback`.
  */
 export function PresenceSubline({
   userId,
+  voice,
   className,
   fallback = null,
 }: {
   userId: string | null | undefined;
+  /** Kişi sesteyse ses simgesinin ipucu ("Sesli sohbette: Kanal"); seste değilse ya da DM'de verilmez */
+  voice?: string | null;
   className?: string;
   fallback?: ReactNode;
 }) {
   const custom = useCustomStatus(userId);
-  const activity = sublineActivity(custom, useActivity(userId));
-  if (custom) return <CustomStatusLine status={custom} className={className} />;
-  if (activity) return <ActivityLine activity={activity} className={className} />;
-  return fallback;
+  // Satırda yalnızca asıl (en son başlanan) oyun
+  const activity = useActivity(userId);
+  const { showGame, showVoice, text } = presenceSubline({ custom, activity, inVoice: Boolean(voice) });
+  if (text === null) return fallback;
+  const Glyph = activity ? glyphOf(activity) : null;
+  return (
+    <div className={cn('flex min-w-0 items-center gap-1', className)}>
+      {showGame && activity && Glyph && (
+        <span className="flex shrink-0" data-tooltip={activityLabel(activity)}>
+          <Glyph size={13} aria-hidden />
+        </span>
+      )}
+      {showVoice && (
+        <span className="flex shrink-0" data-tooltip={voice ?? undefined}>
+          <Volume2 size={13} aria-hidden />
+        </span>
+      )}
+      {text === 'custom' && custom ? (
+        <CustomStatusLine status={custom} className="min-w-0" />
+      ) : (
+        <span className="truncate">{text === 'activity' ? activity?.name : 'Sesli sohbette'}</span>
+      )}
+    </div>
+  );
 }
 
 /** Etkinliğin ikonu; ikon yoksa ya da yüklenemezse türün simgesiyle düz bir karo */
@@ -57,7 +76,7 @@ function ActivityIcon({ activity, size }: { activity: Activity; size: number }) 
   const src = activityIconUrl(activity);
   // Yüklenemeyen ikonun yerine simge (adres değişince yeniden denenir)
   const [failed, setFailed] = useState<string | null>(null);
-  const Glyph = GLYPHS[activity.type];
+  const Glyph = glyphOf(activity);
   const rounded = size >= 48 ? 'rounded-lg' : 'rounded-md';
   return src && failed !== src ? (
     <img
@@ -87,17 +106,23 @@ function ActivityIcon({ activity, size }: { activity: Activity; size: number }) 
 export function ActivityCard({
   activity,
   compact = false,
+  more = 0,
   className,
 }: {
   activity: Activity;
   compact?: boolean;
+  /** Gösterilmeyen öbür etkinliklerin sayısı (başlığın yanında "+2") */
+  more?: number;
   className?: string;
 }) {
   const now = useNow();
-  const Glyph = GLYPHS[activity.type];
+  const Glyph = glyphOf(activity);
   return (
     <div className={className} aria-label={activityLabel(activity)}>
-      <div className="mb-1.5 text-xs font-bold text-text-muted uppercase">{activityTitle(activity)}</div>
+      <div className="mb-1.5 flex items-center justify-between gap-2 text-xs font-bold text-text-muted">
+        <span className="uppercase">{activityTitle(activity)}</span>
+        {more > 0 && <span aria-label={`${more} etkinlik daha`}>+{more}</span>}
+      </div>
       <div className={cn('flex items-center', compact ? 'gap-2.5' : 'gap-3')}>
         <ActivityIcon activity={activity} size={compact ? 40 : 60} />
         <div className="min-w-0 flex-1 leading-tight">
@@ -110,6 +135,34 @@ export function ActivityCard({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Kişinin gösterilebilen etkinlikleri, en son başlayan ilk sırada */
+export function useKnownActivities(userId: string | null | undefined): Activity[] {
+  const all = useActivities(userId);
+  return useMemo(() => all.filter(isKnownActivity), [all]);
+}
+
+/**
+ * Profil kartındaki etkinlikler: her biri ayrı bir "Oynuyor" kartı, alt alta (asıl olan en üstte). Pencere
+ * kısaysa kartlar kendi içinde kayar (profil kartı pencereden taşmasın). Etkinlik yoksa hiçbir şey çizmez.
+ */
+export function ActivityCards({ userId, className }: { userId: string | null | undefined; className?: string }) {
+  const activities = useKnownActivities(userId);
+  if (activities.length === 0) return null;
+  return (
+    <div className={cn('flex max-h-[max(120px,calc(100vh-440px))] flex-col gap-2 overflow-y-auto', className)}>
+      {activities.map((activity, i) => (
+        <ActivityCard
+          key={`${activity.type}:${activity.name}:${activity.startedAt}`}
+          activity={activity}
+          // Asıl etkinlik büyük ikonla, öbürleri küçük
+          compact={i > 0}
+          className="shrink-0 rounded-lg bg-bg-side p-3"
+        />
+      ))}
     </div>
   );
 }

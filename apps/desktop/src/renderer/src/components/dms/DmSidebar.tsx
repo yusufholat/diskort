@@ -66,7 +66,7 @@ export function DmSidebar() {
 const DmRow = memo(function DmRow({ dm, selected }: { dm: DmChannel; selected: boolean }) {
   const selfId = useSession((s) => s.user?.id);
   const title = useGuild((s) => dmTitle(dm, s.users, selfId));
-  // Bire bir konuşmada karşı tarafın özel durumu, yoksa oynadığı oyun
+  // Bire bir konuşmada karşı tarafın durumu: oynuyorsa oyun simgesi; özel durumu, yoksa oynadığı oyun
   const partnerId = dm.group ? null : (dm.participantIds.find((id) => id !== selfId) ?? null);
   const reachable = useGuild((s) => (partnerId ? Boolean(s.reachable[partnerId]) : false));
   const unread = useGuild((s) => isUnread(s, dm.id));

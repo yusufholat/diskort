@@ -98,7 +98,7 @@ const Participant = memo(function Participant({
           {owner && <Crown size={13} aria-label="Grubun sahibi" className="shrink-0 text-warn" />}
         </div>
         {reachable || isSelf ? (
-          // Hesap düzeyi bilgi (sunucu bilgisi değil): özel durum, yoksa oynadığı oyun
+          // Hesap düzeyi bilgi (sunucu bilgisi değil; ses simgesi yok): oyun simgesi; özel durum, yoksa oynadığı oyun
           <PresenceSubline userId={userId} className={cn('text-xs', plate ? 'nameplate-sub' : 'text-text-muted')} />
         ) : (
           <div className="truncate text-xs text-text-muted">Ortak sunucunuz yok</div>

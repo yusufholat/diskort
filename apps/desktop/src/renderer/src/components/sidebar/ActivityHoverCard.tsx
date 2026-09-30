@@ -1,17 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
-import { useActivity, useGuild } from '@diskort/client-core';
+import { isKnownActivity, type VoiceState } from '@diskort/shared';
+import { useGuild } from '@diskort/client-core';
 import { usePresence } from '../../lib/motion';
 import { useSidebarDrag } from '../../lib/sidebarDrag';
 import { cn } from '../../lib/utils';
-import { ActivityCard } from '../status/ActivityCard';
+import { ActivityCard, useKnownActivities } from '../status/ActivityCard';
 
 /**
  * Ses kanalındaki üyenin üstünde biraz bekleyince sağında açılan küçük "Oynuyor" kartı ("Şimdi Yayın
  * Yapıyor" kartıyla aynı yer ve zamanlama; üye yayındaysa o kart açılır, bu açılmaz). Yalnızca bilgi
  * verir: tıklanacak bir şeyi yoktur, imleç satırdan çıkınca kapanır. Kaydırma, sürükleme ya da tıklama
- * da kapatır.
+ * da kapatır. Yalnızca asıl (en son başlanan) oyunu gösterir; başkaları da varsa başlığın yanında "+N".
  */
 
 const OPEN_DELAY_MS = 300;
@@ -28,7 +29,13 @@ interface Anchor {
 
 interface CardTarget {
   userId: string;
+  channelId: string;
   anchor: Anchor;
+}
+
+/** Üye hâlâ o kanalda ve yayında değil (yayına geçince satır yayın kartını açar) */
+function inChannel(state: VoiceState | undefined, channelId: string): boolean {
+  return Boolean(state && state.channelId === channelId && !state.streaming);
 }
 
 const useActivityHover = create<{ target: CardTarget | null }>(() => ({ target: null }));
@@ -55,7 +62,7 @@ function scheduleClose(): void {
  * Etkinliği olan üyenin satırına verilecek olaylar. Yalnızca fareyle; sürükleme sürerken açılmaz, satıra
  * basınca (tıklama → profil, sürükleme başlangıcı) hemen kapanır.
  */
-export function activityCardHandlers(userId: string) {
+export function activityCardHandlers({ userId, channelId }: Pick<VoiceState, 'userId' | 'channelId'>) {
   return {
     onPointerEnter: (e: React.PointerEvent<HTMLElement>) => {
       if (e.pointerType !== 'mouse' || useSidebarDrag.getState().item) return;
@@ -63,9 +70,13 @@ export function activityCardHandlers(userId: string) {
       clearTimers();
       const open = (): void => {
         if (!el.isConnected || useSidebarDrag.getState().item) return;
+        // Beklerken değişmiş olabilir: üye hâlâ bu kanalda, yayında değil ve bir şey oynuyor olmalı
+        const s = useGuild.getState();
+        if (!inChannel(s.voiceStates[userId], channelId)) return;
+        if (!s.presences[userId]?.activities?.some(isKnownActivity)) return;
         const r = el.getBoundingClientRect();
         useActivityHover.setState({
-          target: { userId, anchor: { left: r.left, top: r.top, right: r.right, bottom: r.bottom } },
+          target: { userId, channelId, anchor: { left: r.left, top: r.top, right: r.right, bottom: r.bottom } },
         });
       };
       // Başka bir üyenin kartı zaten açıksa beklemeden geçer
@@ -81,12 +92,9 @@ export function activityCardHandlers(userId: string) {
 export function ActivityHoverCard() {
   const target = useActivityHover((s) => s.target);
   const { value: shown, closing } = usePresence(target, 100);
-  const activity = useActivity(shown?.userId);
-  // Hâlâ seste ve yayında değil (yayına geçince satır yayın kartını açar)
-  const eligible = useGuild((s) => {
-    const v = shown ? s.voiceStates[shown.userId] : undefined;
-    return Boolean(v && !v.streaming);
-  });
+  const activities = useKnownActivities(shown?.userId);
+  const activity = activities[0];
+  const eligible = useGuild((s) => (shown ? inChannel(s.voiceStates[shown.userId], shown.channelId) : false));
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -118,7 +126,7 @@ export function ActivityHoverCard() {
     };
   }, [target]);
 
-  // Oyun bu arada kapandıysa, üye sesten çıktıysa ya da yayına geçtiyse kart da kapanır
+  // Oyun bu arada kapandıysa, üye kanaldan çıktıysa (ya da taşındıysa) ya da yayına geçtiyse kart da kapanır
   useEffect(() => {
     if (target && (!activity || !eligible)) closeActivityCard();
   }, [target, activity, eligible]);
@@ -136,7 +144,7 @@ export function ActivityHoverCard() {
       )}
       style={pos ? { left: pos.x, top: pos.y, transformOrigin: '0 16px' } : { visibility: 'hidden', left: 0, top: 0 }}
     >
-      <ActivityCard activity={activity} compact />
+      <ActivityCard activity={activity} compact more={activities.length - 1} />
     </div>,
     document.body,
   );

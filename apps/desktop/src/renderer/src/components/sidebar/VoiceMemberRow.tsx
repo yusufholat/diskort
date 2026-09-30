@@ -166,7 +166,7 @@ export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMy
         if (inMyChannel && state.streaming && !isSelf) voice.watchStream(state.userId);
       }}
       // Yayın yapıyorsa üstünde bekleyince "Şimdi Yayın Yapıyor" kartı; yapmıyor ama oyun oynuyorsa "Oynuyor" kartı
-      {...(state.streaming ? streamCardHandlers(state) : playing ? activityCardHandlers(state.userId) : {})}
+      {...(state.streaming ? streamCardHandlers(state) : playing ? activityCardHandlers(state) : {})}
     >
       <Avatar user={user} size={24} speaking={speaking} />
       <span

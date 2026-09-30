@@ -18,11 +18,36 @@ export const activityTitle = (activity: Pick<Activity, 'type'>): string => ACTIV
 export const activityLabel = (activity: Pick<Activity, 'type' | 'name'>): string =>
   `${activityTitle(activity)}: ${activity.name}`;
 
+/** Adın altındaki satırın yazısı: özel durum, oyunun adı, "Sesli sohbette" ya da hiçbiri (yerin kendi yazısı) */
+export type SublineText = 'custom' | 'activity' | 'voice' | null;
+
+export interface PresenceSubline {
+  /** Oyun simgesi: oynuyor (yazı özel durumsa oyunun adı simgenin ipucundadır) */
+  showGame: boolean;
+  /** Ses simgesi: bir ses kanalında */
+  showVoice: boolean;
+  text: SublineText;
+}
+
 /**
- * Adın altındaki satırda gösterilecek etkinlik: özel durum önceliklidir (o varken etkinlik satırda
- * gösterilmez; profil kartında ikisi de görünür).
+ * Adın altındaki satır (üye listesi, DM'ler): önce küçük durum simgeleri (oyun, ses), sonra tek bir yazı.
+ * Yazıda özel durum önceliklidir; yoksa oyunun adı, o da yoksa "Sesli sohbette". Ses bilgisi sunucuya
+ * aittir: DM'lerde `inVoice` verilmez.
  */
-export const sublineActivity = (
-  custom: CustomStatus | null | undefined,
-  activity: Activity | null | undefined,
-): Activity | null => (custom ? null : (activity ?? null));
+export function presenceSubline(state: {
+  custom: CustomStatus | null | undefined;
+  activity: Activity | null | undefined;
+  inVoice?: boolean;
+}): PresenceSubline {
+  const showGame = Boolean(state.activity);
+  const showVoice = Boolean(state.inVoice);
+  return { showGame, showVoice, text: state.custom ? 'custom' : showGame ? 'activity' : showVoice ? 'voice' : null };
+}
+
+/** Özel durumun tek satırlık yazısı: emoji ve metin */
+export const customStatusText = (custom: CustomStatus): string =>
+  [custom.emoji, custom.text].filter(Boolean).join(' ');
+
+/** Ses simgesinin ipucu: "Sesli sohbette: Kanal" (kanalın adı bilinmiyorsa yalnızca "Sesli sohbette") */
+export const voiceLabel = (channelName?: string | null): string =>
+  channelName ? `Sesli sohbette: ${channelName}` : 'Sesli sohbette';

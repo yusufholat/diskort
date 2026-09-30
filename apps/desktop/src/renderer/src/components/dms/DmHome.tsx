@@ -57,7 +57,7 @@ export function DmHome() {
                 <PresenceAvatar userId={u.id} user={u} size={32} ringClassName="bg-bg-side" />
                 <span className="min-w-0 flex-1 leading-tight">
                   <span className="block truncate font-medium text-text-normal">{u.displayName}</span>
-                  {/* Özel durum, yoksa oynadığı oyun, o da yoksa kullanıcı adı */}
+                  {/* Oynuyorsa oyun simgesi; özel durum, yoksa oynadığı oyun, o da yoksa kullanıcı adı */}
                   <PresenceSubline
                     userId={u.id}
                     className="text-xs text-text-muted"
