@@ -2,11 +2,13 @@
 
 import type { Feedback } from './feedback';
 import type { PermissionOverwrite, Role } from './permissions';
+import type { ActivityReport } from './activity';
 import type { Presence, SelfStatus } from './presence';
 
 export * from './permissions';
 export * from './feedback';
 export * from './presence';
+export * from './activity';
 export * from './search';
 export * from './telemetry';
 
@@ -902,7 +904,12 @@ export type GatewayClientMessage =
    * İzlenen yayınların tam listesi (yayıncıların kimlikleri). Liste her değiştiğinde ve yeniden bağlanınca
    * (seste iken) gönderilir; eski sunucular tanımaz ve yok sayar.
    */
-  | { t: 'STREAM_WATCH_SET'; d: { userIds: string[] } };
+  | { t: 'STREAM_WATCH_SET'; d: { userIds: string[] } }
+  /**
+   * Bu oturumun etkinliği (oynanan oyun); null: bitti. Değişince ve yeniden bağlanınca gönderilir;
+   * eski sunucular tanımaz ve yok sayar.
+   */
+  | { t: 'ACTIVITY_SET'; d: { activity: ActivityReport | null } };
 
 // ---------- Sabitler ----------
 

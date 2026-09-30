@@ -93,10 +93,12 @@ export {
 } from './voiceTelemetry';
 export { gateway } from './gateway';
 export {
+  activityIconUrl,
   displayStatusOf,
   formatRemaining,
   setCustomStatus,
   setUserStatus,
+  useActivity,
   useCustomStatus,
   useSelfStatus,
   useStatus,

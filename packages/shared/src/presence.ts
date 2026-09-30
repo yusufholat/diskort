@@ -1,5 +1,7 @@
 // Kullanıcı durumu (çevrim içi / boşta / rahatsız etmeyin / görünmez) ve özel durum.
 
+import type { Activity } from './activity';
+
 /** Kullanıcının kendi seçtiği durum (hesap başına; tüm cihazlarında aynı) */
 export type UserStatus = 'online' | 'idle' | 'dnd' | 'invisible';
 
@@ -20,6 +22,8 @@ export interface Presence {
   status: PresenceStatus;
   /** Yalnızca çevrimdışı görünmeyen kullanıcılarda */
   customStatus: CustomStatus | null;
+  /** O an yaptığı şey (oynadığı oyun); eski sunucuda alan yok */
+  activity?: Activity | null;
 }
 
 /** Kullanıcının kendi durum ayarları (yalnızca kendi istemcilerine gider) */

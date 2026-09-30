@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import {
   DEFAULT_ATTACHMENT_MAX_BYTES,
+  sameActivity,
   type Channel,
   type DmChannel,
   type GatewayServerMessage,
@@ -333,8 +334,15 @@ function applyPresence(
   const status = d.status ?? (d.online ? 'online' : 'offline');
   const visible = status !== 'offline';
   const prev = s.presences[d.userId];
-  const next: Presence | undefined = visible ? { status, customStatus: d.customStatus ?? null } : undefined;
-  const presenceSame = prev && next ? prev.status === next.status && sameCustom(prev.customStatus, next.customStatus) : prev === next;
+  const next: Presence | undefined = visible
+    ? { status, customStatus: d.customStatus ?? null, activity: d.activity ?? null }
+    : undefined;
+  const presenceSame =
+    prev && next
+      ? prev.status === next.status &&
+        sameCustom(prev.customStatus, next.customStatus) &&
+        sameActivity(prev.activity, next.activity)
+      : prev === next;
   const onlineSame = Boolean(s.online[d.userId]) === visible;
   if (presenceSame && onlineSame) return {};
   const result: Partial<GuildStore> = {};

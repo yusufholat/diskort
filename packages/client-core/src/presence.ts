@@ -1,12 +1,15 @@
 import {
+  ACTIVITY_TYPE_LABELS,
+  activityIconPath,
   clearAfterMs,
   ownDisplayStatus,
+  type Activity,
   type CustomStatus,
   type SelfStatus,
   type UpdateStatusRequest,
   type UserStatus,
 } from '@diskort/shared';
-import { request } from './api';
+import { normalizeServerUrl, request } from './api';
 import { env } from './env';
 import { useGuild, type GuildStore } from './guild';
 import { useSession } from './session';
@@ -40,6 +43,18 @@ export function useCustomStatus(userId: string | null | undefined): CustomStatus
     return s.presences[userId]?.customStatus ?? null;
   });
 }
+
+/** Kişinin etkinliği (oynadığı oyun); tanınmayan türler gösterilmez */
+export function useActivity(userId: string | null | undefined): Activity | null {
+  return useGuild((s) => {
+    const activity = userId ? s.presences[userId]?.activity : null;
+    return activity && activity.type in ACTIVITY_TYPE_LABELS ? activity : null;
+  });
+}
+
+/** Etkinlik ikonunun adresi; ikon yoksa null */
+export const activityIconUrl = (activity: Pick<Activity, 'icon'> | null | undefined): string | null =>
+  activity?.icon ? normalizeServerUrl(env().serverUrl()) + activityIconPath(activity.icon) : null;
 
 /** Kendi durum ayarların (eski sunucuda null) */
 export function useSelfStatus(): SelfStatus | null {
