@@ -1,4 +1,4 @@
-// Sunucu ve masaüstü istemcisi arasında paylaşılan tipler ve sabitler.
+// Sunucu ve istemciler (masaüstü, mobil) arasında paylaşılan tipler ve sabitler.
 
 import type { Feedback } from './feedback';
 import type { PermissionOverwrite, Role } from './permissions';
@@ -55,8 +55,8 @@ export interface User {
    */
   nameplate?: Nameplate | null;
   /**
-   * Hesap yöneticisi: ana sunucunun (ilk kurulan sunucu) sahibi ya da orada Yönetici yetkili bir rolü var.
-   * Hesaplarla ilgili işleri yapar (şifre sıfırlama kodu, hesap silme, hesap daveti, geri bildirimler).
+   * Hesap yöneticisi: hesabın kendi bayrağı (users.is_admin); hiçbir sunucunun sahipliğine ya da rolüne bağlı
+   * değildir. Hesaplarla ilgili işleri yapar (şifre sıfırlama kodu, hesap silme, hesap daveti, geri bildirimler).
    * Sunuculardaki yetkiler rollerden gelir (bkz. GuildMember).
    */
   isAdmin: boolean;
@@ -506,7 +506,10 @@ export function parseInviteDeepLink(url: string): string | null {
 // ---------- REST ----------
 
 export interface RegisterRequest {
-  /** Hesap daveti ya da sunucu daveti (sunucu davetiyle kayıt olan o sunucuya da katılır) */
+  /**
+   * Hesap daveti: yeni hesap yalnızca bununla açılır. Sunucu davetiyle yeni hesap açılamaz; hesabı olan biri
+   * kendi kullanıcı adı ve şifresiyle gönderirse giriş yapılır ve o sunucuya katılır.
+   */
   inviteCode: string;
   username: string;
   password: string;
@@ -773,8 +776,8 @@ export interface ReadyPayload {
   /** Kullanıcının kendi durum ayarları (eski sunucularda gelmez) */
   status?: SelfStatus;
   /**
-   * Ana sunucu (ilk kurulan): hesap yöneticileri onun yöneticileridir, geri bildirimleri onu yönetenler
-   * görür. Kullanıcı üyesi olmasa da bildirilir.
+   * Ana sunucu (ilk kurulan): silinemez; ilk hesap ve yönetici davetiyle açılan hesaplar ona katılır. Hesap
+   * yöneticiliği ona bağlı değildir (bkz. User.isAdmin). Kullanıcı üyesi olmasa da bildirilir.
    */
   primaryGuildId: string | null;
   /** Metin kanallarındaki en son mesaj kimliği (kanal → mesaj) */
@@ -863,9 +866,9 @@ export type GatewayServerMessage =
   | { t: 'UPDATE_REQUIRED'; d: { version: string } }
   /** Yeni sürüm yayınlandı: istemci arka planda indirmeye başlar */
   | { t: 'UPDATE_AVAILABLE'; d: { version: string } }
-  /** Yeni geri bildirim (yalnızca Sunucuyu Yönet yetkililerine) */
+  /** Yeni geri bildirim (yalnızca hesap yöneticilerine) */
   | { t: 'FEEDBACK_CREATE'; d: Feedback }
-  /** Geri bildirimin durumu ya da notu değişti (yetkililere ve gönderene) */
+  /** Geri bildirimin durumu ya da notu değişti (hesap yöneticilerine ve gönderene) */
   | { t: 'FEEDBACK_UPDATE'; d: Feedback }
   | { t: 'FEEDBACK_DELETE'; d: { id: number } };
 

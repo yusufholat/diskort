@@ -1,7 +1,7 @@
 // Arayüz sesleri (katıl, ayrıl, sustur, sağırlaştır, yayın, biri girdi/çıktı, bahsedilme, bağlantı): tek
 // tanımdan (packages/client-core/src/sfx.ts) üretilmiş WAV dosyaları (scripts/generate-sounds.mjs); masaüstü
 // aynı sesleri çalar. expo-audio ile çalınır, haptics.ts'e takılır; çağıran yerler feedback('mute') /
-// soundCue('userJoin') kullanır. Ayarlar → Ses: aç/kapat, seviye ("Ses efektleri") ve dinleme listesi.
+// soundCue('userJoin') kullanır. Ayarlar → Bildirimler ve Sesler: aç/kapat ve dinleme listesi.
 //
 // Görüşme sesiyle birlikte çalmalı: expo-audio'nun "mixWithOthers" kipinde ses odağı (audio focus)
 // istenmez, LiveKit'in görüşmesi kısılmaz ya da duraklatılmaz. Dikkat: setAudioModeAsync Android'de ses
@@ -109,7 +109,7 @@ function play(event: SoundEvent): void {
   if (name && allowed(name)) start(name);
 }
 
-/** Ayarlardaki dinleme düğmesi: açık/kapalı ayarlarına bakılmaz, seviye uygulanır */
+/** Ayarlardaki dinleme düğmesi: açık/kapalı ayarlarına bakılmaz */
 export function previewSound(name: MobileSoundName): void {
   start(name);
 }

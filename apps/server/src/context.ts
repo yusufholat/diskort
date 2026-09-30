@@ -51,7 +51,7 @@ export interface AppContext {
   moderation: VoiceModeration;
   /** Yayın önizlemeleri (yalnızca bellekte) */
   streamPreviews: StreamPreviewStore;
-  /** Son istemci ve sunucu hataları (yalnızca bellekte; yönetim paneli) */
+  /** Son istemci ve sunucu hataları (yönetim paneli; SYSTEM_STATS açıkken <DATA_DIR>/*-errors.jsonl dosyalarında da, 14 gün) */
   errors: ErrorLog;
   /** Yönetim paneli: gün başına sayaçlar (bildirimler, indirmeler, güncelleme denetimleri…) */
   counters: DailyCounters;
@@ -62,7 +62,7 @@ export interface AppContext {
   /** Yönetim paneli: istemcilerin ses kalitesi özetleri ve kalite sorunları */
   telemetry: VoiceTelemetryStore;
   /**
-   * Ana sunucu (ilk kurulan; hesap yöneticileri onun yöneticileridir). Adı, simgesi ya da sahibi değişince
+   * Ana sunucu (ilk kurulan; silinemez, ilk hesap ve yönetici davetleri ona katılır). Adı, simgesi ya da sahibi değişince
    * yerinde güncellenir. Diğer sunucular veritabanındadır.
    */
   guild: Guild;

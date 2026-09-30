@@ -68,7 +68,7 @@ export class PermissionService {
     return this.store.isAdmin(userId);
   }
 
-  /** Ana sunucu (hesap yöneticilerinin sunucusu) */
+  /** Ana sunucu (ilk kurulan; silinemez) */
   get primaryGuildId(): string | null {
     return this.data.primaryGuildId;
   }

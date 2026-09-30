@@ -182,7 +182,7 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     }
     // İlk kayıtla ana sunucunun sahibi belli olur
     if (!ctx.guild.ownerId) Object.assign(ctx.guild, store.getGuild(ctx.guild.id));
-    // Sunucu davetiyle geldiyse o sunucunun üyeleri yeni üyeyi görür
+    // Ana sunucuya katıldıysa (ilk hesap ya da yönetici daveti) oranın üyeleri yeni üyeyi görür
     if (result.guildId) gateway.announceJoin(result.guildId, result.user.id);
     audit(req, 'register', result.user);
     const response: AuthResponse = { token: await auth.issueToken(result.user.id), user: result.user };

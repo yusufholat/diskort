@@ -155,7 +155,7 @@ export interface AdminDashboard {
     users: DashboardUserActivity[];
   };
   errors: {
-    /** Hata kayıtları yalnızca bellekte: sunucu bu andan beri açık */
+    /** Sunucunun açıldığı an (kısa grafikler bu andan beri; hata kayıtları dosyadan geri yüklenir, daha eski olabilir) */
     since: number;
     client: { total: number; last24h: number; capped: boolean; recent: ClientErrorEntry[] };
     server: { total: number; last24h: number; capped: boolean; recent: ServerErrorEntry[] };

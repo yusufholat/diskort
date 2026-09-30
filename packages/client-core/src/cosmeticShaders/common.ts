@@ -1,5 +1,5 @@
 // Hareketli kozmetik setlerinin gölgelendiricileri: ortak kısım. Masaüstü WebGL 1 (GLSL ES 1.00) ile
-// çizer; telefon (3. aşama) aynı formülleri Skia'nın SkSL'ine çevirecek. Bu yüzden: doku, türev
+// çizer; telefon aynı kaynakları Skia'nın SkSL'ine çevirir (apps/mobile cosmetics/sksl.ts). Bu yüzden: doku, türev
 // (dFdx/fwidth), eklenti yok; döngü sınırları sabit. Her setin gölgelendiricisi `vec4 effect(vec2 p)`
 // tanımlar (p: görünümün sol üstünden css pikseli; dönen renk önceden alfayla çarpılmış sayılır).
 

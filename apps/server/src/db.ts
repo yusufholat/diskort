@@ -1040,8 +1040,9 @@ export class Store {
   }
 
   /**
-   * Davet kodunu kullanarak hesap oluşturur; kodu aynı işlemde tüketir. Sunucu davetiyse hesap o sunucuya
-   * katılır. İlk kullanıcı (ya da başlangıç davetiyle gelen) ana sunucunun sahibi olur ve yönetici rolünü alır.
+   * Davet kodunu kullanarak hesap oluşturur; kodu aynı işlemde tüketir. Yeni hesap yalnızca hesap davetiyle
+   * açılır (sunucu daveti reddedilir). İlk kullanıcı (ya da yönetici davetiyle gelen) hesap yöneticisi olur, ana
+   * sunucuya katılır ve oradaki yönetici rolünü alır; ana sunucu sahipsizse sahibi olur.
    */
   registerWithInvite(input: {
     code: string;

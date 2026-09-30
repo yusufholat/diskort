@@ -1,7 +1,7 @@
 // Arayüz sesleri. Sesler client-core'da tek yerde tanımlı (packages/client-core/src/sfx.ts); burada
 // bellekte üretilip Web Audio ile çalınır. Telefon aynı tanımdan üretilmiş WAV dosyalarını çalar.
 //
-// Çıkış aygıtı: sesler seçili çıkış aygıtından (Ayarlar → Ses → Çıkış) çalınır. Aygıt değişimi
+// Çıkış aygıtı: sesler seçili çıkış aygıtından (Ayarlar → Ses ve Görüntü → Çıkış Aygıtı) çalınır. Aygıt değişimi
 // (setSinkId) bitmeden çalınan ses eskiden kayboluyordu (ilk ses genelde "katıldın" sesiydi); artık
 // aygıt hazır olana dek beklenir.
 import {

@@ -135,7 +135,7 @@ export function OverviewSection({ guild }: { guild: Guild }) {
       )}
       {owner && isPrimary && (
         <Text style={[styles.muted, { marginTop: space.lg }]}>
-          Bu, hesap yöneticilerinin ana sunucusu olduğu için silinemez.
+          Bu, ilk kurulan ana sunucu olduğu için silinemez.
         </Text>
       )}
 

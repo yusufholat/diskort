@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Ubuntu 22.04/24.04 VPS için tek seferlik hazırlık: Docker kurulumu + güvenlik duvarı.
+# Ubuntu 22.04/24.04 VPS için tek seferlik hazırlık: Docker kurulumu, güvenlik duvarı, UDP tamponları,
+# günlük yedek zamanlayıcısı ve rastgele anahtarlı .env.
 # Kullanım: sudo bash infra/setup-vps.sh
 set -euo pipefail
 
@@ -39,6 +40,6 @@ if [ ! -f .env ]; then
   cp .env.example .env
   sed -i "s/^JWT_SECRET=.*/JWT_SECRET=$(openssl rand -hex 32)/" .env
   sed -i "s/^LIVEKIT_API_SECRET=.*/LIVEKIT_API_SECRET=$(openssl rand -hex 32)/" .env
-  echo ".env oluşturuldu. DISKORT_DOMAIN ve LIVEKIT_DOMAIN değerlerini düzenle, sonra:"
+  echo ".env oluşturuldu. DISKORT_DOMAIN, LIVEKIT_DOMAIN ve TURN_DOMAIN değerlerini düzenle, sonra:"
   echo "  docker compose up -d --build"
 fi

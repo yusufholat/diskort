@@ -1,4 +1,4 @@
-# Her push ve pull request'te tip kontrolü ve sunucu testleri
+# main'e her push'ta ve her pull request'te tip kontrolü ve tüm paketlerin testleri
 name: Kontrol
 
 on:

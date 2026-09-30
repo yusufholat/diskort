@@ -13,7 +13,7 @@ const ACCEPT = 'image/png,image/jpeg,image/webp,image/gif';
 /** Tarayıcıda açılıp kırpılacak resmin en büyük boyutu (sunucuya kırpılmış küçük kopya gider) */
 const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
 
-/** Hesabım → Profil Fotoğrafı: seçilen resim kırpılıp yüklenir; kaldırılınca baş harfler görünür. */
+/** Profil → Profil Fotoğrafı: seçilen resim kırpılıp yüklenir; kaldırılınca baş harfler görünür. */
 export function ProfilePhoto({ user }: { user: User }) {
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);

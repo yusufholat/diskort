@@ -5,7 +5,7 @@ import { HostNetworkLog, hostNetSample, readHostNet, type HostNetCounters, type 
 import { counterRate, PromSnapshot } from './promText.js';
 
 // Yönetim paneli: altyapı ölçümleri.
-// - LiveKit: Prometheus ölçümleri (livekit.yaml'da prometheus_port açıkken; kapalıysa panel "metrikler kapalı"
+// - LiveKit: Prometheus ölçümleri (livekit.yaml'da `prometheus.port` açıkken; kapalıysa panel "metrikler kapalı"
 //   der). Toplam bayt/paket, NACK/PLI, kayıp, oda/katılımcı/iz sayıları ve LiveKit sürecinin CPU/belleği.
 // - Kapsayıcılar: API kendi cgroup'undan (kapsayıcının kendi görünümü; bağlama gerekmez), Caddy yönetim
 //   ucunun ölçümlerinden (127.0.0.1:2019/metrics), LiveKit kendi ölçümlerinden. Docker soketi kullanılmaz.

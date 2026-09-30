@@ -658,7 +658,7 @@ function render(d) {
   $('adm-err-count').textContent = num(errCount);
   $('adm-foot').textContent =
     `Son güncelleme ${clock(now, true)} · özet 5 saniyede bir, açık sekmenin ayrıntıları kendi aralığıyla yenilenir. ` +
-    `Hata kayıtları ve kısa grafikler sunucu belleğinde tutulur (${dateTime(d.errors.since)} tarihinden beri).`;
+    `Kısa grafikler sunucu belleğinde tutulur (${dateTime(d.errors.since)} tarihinden beri); hata kayıtları yeniden başlatmada korunur (son 200, 14 gün).`;
 }
 
 function overview(d, now) {
