@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { MessageSquareHeart, MessagesSquare, Plus } from 'lucide-react';
+import { MessageSquareHeart, MessagesSquare, Plus, ScreenShare, Volume2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import type { DmChannel, Guild } from '@diskort/shared';
 import {
@@ -9,9 +9,11 @@ import {
   useGuild,
   useGuildList,
   useGuildUnread,
+  useGuildVoiceActivity,
   useMessages,
   useSession,
   useUnreadDms,
+  type GuildVoiceActivity,
 } from '@diskort/client-core';
 import { isDmSection, openDmSection, openGuildSection, useMainView } from '../lib/mainView';
 import { cn } from '../lib/utils';
@@ -104,15 +106,23 @@ function RailAction({
   );
 }
 
-/** Sunucu: simgesi, seçiliyse uzun işaret, okunmamış mesajı varsa kısa işaret, bahsetme sayısı */
+/** Sunucu: simgesi, seçiliyse uzun işaret, okunmamış mesajı varsa kısa işaret, bahsetme sayısı, seste/yayında biri varsa sağ üst rozet */
 function GuildItem({ guild, inDms }: { guild: Guild; inDms: boolean }) {
   const selected = useGuild((s) => !inDms && s.activeGuildId === guild.id);
   const unread = useGuildUnread(guild.id);
   // Sunucunun kanallarındaki okunmamış bahsetmeler
   const channelIds = useGuild(useShallow((s) => s.guilds[guild.id]?.channels.map((c) => c.id) ?? []));
   const mentions = useMessages((s) => channelIds.reduce((n, id) => n + (s.mentionCounts[id] ?? 0), 0));
+  const voiceActivity = useGuildVoiceActivity(guild.id);
   return (
-    <RailItem selected={selected} unread={unread} label={guild.name} badge={mentions} onClick={() => openGuildSection(guild.id)}>
+    <RailItem
+      selected={selected}
+      unread={unread}
+      label={guild.name}
+      badge={mentions}
+      activity={voiceActivity}
+      onClick={() => openGuildSection(guild.id)}
+    >
       <GuildIcon
         guild={guild}
         size={48}
@@ -145,12 +155,16 @@ function UnreadDm({ dm }: { dm: DmChannel }) {
   );
 }
 
-/** Çubuktaki öğe: seçiliyse soldaki uzun işaret, okunmamışsa kısa işaret, sağ altta kırmızı sayı */
+/**
+ * Çubuktaki öğe: seçiliyse soldaki uzun işaret, okunmamışsa kısa işaret, sağ altta kırmızı sayı, sağ üstte
+ * sunucuda yayın (kırmızı) ya da seste biri (koyu, hoparlör) olduğunu gösteren rozet
+ */
 function RailItem({
   selected,
   unread,
   label,
   badge = 0,
+  activity = null,
   onClick,
   children,
 }: {
@@ -158,9 +172,12 @@ function RailItem({
   unread: boolean;
   label: string;
   badge?: number;
+  activity?: GuildVoiceActivity;
   onClick: () => void;
   children: ReactNode;
 }) {
+  const activityText = activity === 'stream' ? 'yayın var' : activity === 'voice' ? 'seste biri var' : null;
+  const ariaLabel = [label, badge > 0 ? `${badge} okunmamış mesaj` : null, activityText].filter(Boolean).join(', ');
   return (
     <div className="group/rail relative flex shrink-0 items-center">
       <span
@@ -171,13 +188,25 @@ function RailItem({
       />
       <button
         className="press relative rounded-2xl"
-        data-tooltip={label}
+        data-tooltip={activityText ? `${label} (${activityText})` : label}
         data-tooltip-side="right"
-        aria-label={badge > 0 ? `${label}, ${badge} okunmamış mesaj` : label}
+        aria-label={ariaLabel}
         aria-current={selected ? 'page' : undefined}
         onClick={onClick}
       >
         {children}
+        {activity && (
+          <span
+            key={activity}
+            aria-hidden
+            className={cn(
+              'anim-pill-in absolute -top-1 -right-1 flex h-[22px] w-[22px] items-center justify-center rounded-full border-[3px] border-bg-rail',
+              activity === 'stream' ? 'bg-danger text-white' : 'bg-bg-raised-hover text-text-head',
+            )}
+          >
+            {activity === 'stream' ? <ScreenShare size={11} strokeWidth={2.5} /> : <Volume2 size={11} strokeWidth={2.5} />}
+          </span>
+        )}
         {badge > 0 && (
           <span
             key={badge}
