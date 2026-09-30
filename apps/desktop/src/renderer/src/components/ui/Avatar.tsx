@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { animatedDecorationSet, STATUS_LABELS, type User } from '@diskort/shared';
-import { avatarUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
+import { avatarInk, avatarUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
 import { cn, initials } from '../../lib/utils';
 import { AnimatedDecoration } from '../cosmetics/Cosmetics';
 import { StatusIcon } from './StatusIcon';
@@ -58,10 +58,14 @@ export function Avatar({
     <div className={cn('relative shrink-0', className)} style={{ width: size, height: size }}>
       <div
         className={cn(
-          'avatar-ring flex h-full w-full items-center justify-center rounded-full font-semibold text-white',
+          'avatar-ring flex h-full w-full items-center justify-center rounded-full font-semibold',
           speaking && 'speaking-ring',
         )}
-        style={{ background: user?.avatarColor ?? '#747f8d', fontSize: Math.max(10, size * 0.38) }}
+        style={{
+          background: user?.avatarColor ?? '#747f8d',
+          color: avatarInk(user?.avatarColor),
+          fontSize: Math.max(10, size * 0.38),
+        }}
       >
         {src && failed !== src ? (
           <img

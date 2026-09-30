@@ -372,7 +372,7 @@ export {
   SOUND_NAMES,
   type SoundName,
 } from './sfx';
-export { PROFILE_THEME_PRESETS, profileGradient } from './profileLook';
+export { avatarInk, PROFILE_THEME_PRESETS, profileGradient } from './profileLook';
 export { COSMETIC_SET_INFO, type CosmeticSetInfo } from './cosmeticSets';
 export {
   COSMETIC_SHADER_COMMON,

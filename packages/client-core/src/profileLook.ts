@@ -15,6 +15,22 @@ export const PROFILE_THEME_PRESETS: readonly (ProfileTheme & { name: string })[]
   { name: 'Gece yarısı', primary: '#0f172a', accent: '#475569' },
 ];
 
+/**
+ * Baş harfli avatarda yazının rengi: zemin açıksa koyu, değilse beyaz. Zemin artık tema rengi olabildiği
+ * (serbest seçilen bir renk) için sabit beyaz yazı açık zeminde okunmazdı.
+ */
+export function avatarInk(background: string | undefined): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(background ?? '');
+  if (!m) return '#ffffff';
+  const n = parseInt(m[1] ?? '', 16);
+  const lin = (c: number): number => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  const luminance = 0.2126 * lin(n >> 16) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+  return luminance > 0.5 ? '#1e1f22' : '#ffffff';
+}
+
 /** Tema degradesi (CSS ve React Native'in backgroundImage'ı aynı sözdizimini kullanır) */
 export const profileGradient = (theme: ProfileTheme): string =>
   `linear-gradient(180deg, ${theme.primary} 0%, ${theme.accent} 100%)`;

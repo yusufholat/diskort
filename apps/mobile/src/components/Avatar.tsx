@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Image, Text, View } from 'react-native';
 import { animatedDecorationSet, type User } from '@diskort/shared';
-import { avatarUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
+import { avatarInk, avatarUrl, useStatus, type DisplayStatus } from '@diskort/client-core';
 import { colors, createStyles } from '../theme';
 import { AnimatedDecoration } from './cosmetics/Cosmetics';
 import { StatusDot } from './StatusDot';
@@ -77,7 +77,7 @@ export function Avatar({
             accessibilityIgnoresInvertColors
           />
         ) : (
-          <Text style={[styles.text, { fontSize: Math.max(10, size * 0.38) }]}>{initials(user?.displayName ?? '?')}</Text>
+          <Text style={[styles.text, { fontSize: Math.max(10, size * 0.38), color: avatarInk(user?.avatarColor) }]}>{initials(user?.displayName ?? '?')}</Text>
         )}
       </View>
       {animated && (
