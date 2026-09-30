@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>kozmetik oynatma doğrulaması</title>
+<!--
+  Çizim aracının oynatma doğrulaması (render.mjs → electron-main.cjs, GİZLİ pencerede). Kodlanan her dosyayı
+  Chromium'un kendi çözücüsüyle açar:
+  - decode: belirli kareleri çözer, pikselleri geri okur, kaynak karelerle karşılaştırır (kalite, alfa, saçak,
+    yığılmış videoda iki yarı arasında sızıntı, ilk ve son kare);
+  - show: hepsini sayfada oynatır (ana süreç iki ayrı anda görüntü alıp değiştiğine bakar);
+  - timing: <video loop> döngü başında takılıyor mu (requestVideoFrameCallback zamanları).
+-->
+<style>
+  body { margin: 0; background: #3a3f46; }
+  #grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; }
+  #grid > * { display: block; }
+</style>
+<script src="stacked.js"></script>
+</head>
+<body>
+<div id="grid"></div>
+<script>
+(() => {
+  const fs = require('node:fs');
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const frame = () => new Promise((r) => requestAnimationFrame(r));
+  const round = (x, d = 3) => Number(x.toFixed(d));
+  const blobUrl = (item) => URL.createObjectURL(new Blob([fs.readFileSync(item.path)], { type: item.mime }));
+
+  function readSource(item, index) {
+    const size = item.width * item.height * 4;
+    const buf = new Uint8Array(size);
+    const fd = fs.openSync(item.source, 'r');
+    fs.readSync(fd, buf, 0, size, index * size);
+    fs.closeSync(fd);
+    return buf;
+  }
+  /** Düz RGBA → alfayla çarpılmış (ondalıklı) */
+  function premultiply(straight) {
+    const out = new Float32Array(straight.length);
+    for (let i = 0; i < straight.length; i += 4) {
+      const a = straight[i + 3];
+      out[i] = (straight[i] * a) / 255;
+      out[i + 1] = (straight[i + 1] * a) / 255;
+      out[i + 2] = (straight[i + 2] * a) / 255;
+      out[i + 3] = a;
+    }
+    return out;
+  }
+  function meanDiff(a, b) {
+    let s = 0;
+    for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
+    return s / a.length;
+  }
+
+  /** Çözülen kareleri (alfayla çarpılmış) kaynakla karşılaştıran toplayıcı */
+  function makeStats(item) {
+    const w = item.width;
+    const S = { se: 0, n: 0, alphaErr: 0, px: 0, clearSum: 0, clearMax: 0, clearN: 0, fringe: 0, fringeN: 0, edgeC: 0, edgeCN: 0, edgeA: 0, edgeAN: 0, colorErr: 0 };
+    return {
+      add(decoded, index) {
+        const src = premultiply(readSource(item, index));
+        for (let i = 0, p = 0; i < src.length; i += 4, p++) {
+          const x = p % w;
+          let cErr = 0;
+          for (let c = 0; c < 3; c++) {
+            const d = decoded[i + c] - src[i + c];
+            S.se += d * d;
+            cErr += Math.abs(d);
+          }
+          const da = decoded[i + 3] - src[i + 3];
+          S.se += da * da;
+          S.n += 4;
+          S.alphaErr += Math.abs(da);
+          S.colorErr += cErr / 3;
+          S.px++;
+          const sa = src[i + 3];
+          if (sa === 0) {
+            // saydam olması gereken yer
+            S.clearSum += decoded[i + 3];
+            if (decoded[i + 3] > S.clearMax) S.clearMax = decoded[i + 3];
+            S.clearN++;
+          } else if (sa < 64) {
+            // yarı saydam kenar: koyu saçak eksi, parlak hale artı çıkar
+            S.fringe += (decoded[i] + decoded[i + 1] + decoded[i + 2] - src[i] - src[i + 1] - src[i + 2]) / 3;
+            S.fringeN++;
+          }
+          // yığılmış videoda yarıların birbirine bakan kenarları: rengin son, alfanın ilk 4 sütunu
+          if (x >= w - 4) {
+            S.edgeC += cErr / 3;
+            S.edgeCN++;
+          }
+          if (x < 4) {
+            S.edgeA += Math.abs(da);
+            S.edgeAN++;
+          }
+        }
+      },
+      result() {
+        const mse = S.se / Math.max(1, S.n);
+        return {
+          psnr: round(10 * Math.log10((255 * 255) / Math.max(mse, 1e-9)), 2),
+          alphaMae: round(S.alphaErr / Math.max(1, S.px)),
+          clearAlphaMean: round(S.clearSum / Math.max(1, S.clearN)),
+          clearAlphaMax: round(S.clearMax, 1),
+          fringe: round(S.fringe / Math.max(1, S.fringeN)),
+          // kenar sütunları her biçimde ölçülür: yığılmış videonun sızıntısı, yığılmamış biçimlerin aynı sütunlardaki
+          // hatasıyla karşılaştırılarak anlaşılır (kartta buz zaten kenarlarda yoğun, hata orada doğal olarak yüksek)
+          edge: { color: round(S.edgeC / Math.max(1, S.edgeCN)), alpha: round(S.edgeA / Math.max(1, S.edgeAN)), allColor: round(S.colorErr / Math.max(1, S.px)), allAlpha: round(S.alphaErr / Math.max(1, S.px)) },
+        };
+      },
+    };
+  }
+
+  function dump(item, decoded) {
+    const out = new Uint8Array(decoded.length);
+    for (let i = 0; i < decoded.length; i += 4) {
+      const a = decoded[i + 3];
+      const k = a > 0 ? 255 / a : 0;
+      out[i] = Math.min(255, Math.round(decoded[i] * k));
+      out[i + 1] = Math.min(255, Math.round(decoded[i + 1] * k));
+      out[i + 2] = Math.min(255, Math.round(decoded[i + 2] * k));
+      out[i + 3] = Math.round(a);
+    }
+    fs.writeFileSync(item.dump, out);
+  }
+
+  async function loadVideo(item) {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.src = blobUrl(item);
+    await new Promise((resolve, reject) => {
+      video.addEventListener('loadeddata', resolve, { once: true });
+      video.addEventListener('error', () => reject(new Error('video açılamadı: ' + (video.error ? video.error.message || 'kod ' + video.error.code : 'bilinmiyor'))), { once: true });
+    });
+    const ew = item.stacked ? item.stacked.width : item.width;
+    const eh = item.stacked ? item.stacked.height : item.height;
+    if (video.videoWidth !== ew || video.videoHeight !== eh) throw new Error(`video boyutu ${video.videoWidth}×${video.videoHeight}, beklenen ${ew}×${eh}`);
+    return video;
+  }
+
+  async function decodeItem(item) {
+    const stats = makeStats(item);
+    const w = item.width;
+    const h = item.height;
+    const want = new Set(item.checkFrames);
+    const lastIndex = item.sourceFrames - 1;
+    let first = null;
+    let last = null;
+    let a = null;
+    let b = null;
+    let frames = 0;
+    let durationMs = 0;
+    const take = (decoded, index) => {
+      stats.add(decoded, index);
+      if (index === 0) first = decoded;
+      if (index === lastIndex) last = decoded;
+      if (index === item.checkFrames[1]) a = decoded;
+      if (index === item.checkFrames[3]) b = decoded;
+      if (index === item.dumpFrame) dump(item, decoded);
+    };
+    const c2 = new OffscreenCanvas(w, h);
+    const ctx = c2.getContext('2d', { willReadFrequently: true });
+    const read2d = (source) => {
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawImage(source, 0, 0);
+      return premultiply(ctx.getImageData(0, 0, w, h).data);
+    };
+    if (item.tag === 'img') {
+      // Hareketli resim: tarayıcının resim çözücüsü (WebCodecs ImageDecoder), kareler zaman damgasıyla eşlenir
+      const dec = new ImageDecoder({ data: fs.readFileSync(item.path), type: item.mime });
+      await dec.tracks.ready;
+      await dec.completed;
+      frames = dec.tracks.selectedTrack.frameCount;
+      for (let i = 0; i < frames; i++) {
+        const { image } = await dec.decode({ frameIndex: i });
+        // kodlayıcı aynı kareleri birleştirmiş olabilir: son kare kaynağın son karesine denk gelir
+        const index = i === frames - 1 ? lastIndex : Math.round((image.timestamp / 1e6) * item.fps);
+        durationMs = (image.timestamp + (image.duration ?? 0)) / 1000;
+        if (want.has(index)) take(read2d(image), index);
+        image.close();
+      }
+      dec.close();
+    } else {
+      const video = await loadVideo(item);
+      durationMs = video.duration * 1000;
+      frames = Math.round(video.duration * item.fps);
+      let player = null;
+      let glCanvas = null;
+      if (item.stacked) {
+        glCanvas = document.createElement('canvas');
+        player = window.StackedAlpha.create(glCanvas, item.stacked);
+      }
+      for (const index of [...want].sort((x, y) => x - y)) {
+        video.currentTime = (index + 0.5) / item.fps;
+        await new Promise((resolve) => video.addEventListener('seeked', resolve, { once: true }));
+        await frame();
+        await frame();
+        let decoded;
+        if (player) {
+          // birleştiricinin çıktısı zaten alfayla çarpılmış; GL satırları alttan başlar
+          player.draw(video);
+          const gl = player.gl;
+          const px = new Uint8Array(w * h * 4);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          decoded = new Float32Array(w * h * 4);
+          for (let y = 0; y < h; y++) decoded.set(px.subarray((h - 1 - y) * w * 4, (h - y) * w * 4), y * w * 4);
+        } else decoded = read2d(video);
+        take(decoded, index);
+      }
+      URL.revokeObjectURL(video.src);
+      video.removeAttribute('src');
+      video.load();
+    }
+    if (!first || !last || !a || !b) throw new Error('beklenen kareler çözülemedi');
+    return { ...stats.result(), frames, durationMs: Math.round(durationMs), seam: round(meanDiff(first, last)), framesDiffer: round(meanDiff(a, b)) };
+  }
+
+  async function decode(items) {
+    const out = [];
+    for (const item of items) {
+      try {
+        out.push({ file: item.file, ...(await decodeItem(item)) });
+      } catch (err) {
+        out.push({ file: item.file, error: String(err && err.message ? err.message : err) });
+      }
+    }
+    return out;
+  }
+
+  /** show() ile oynatılan videolar (zamanlama ölçümünden önce durdurulur) */
+  const playing = [];
+
+  /** Hepsini sayfada oynatır; dönen dikdörtgenlerden ana süreç görüntü alır */
+  async function show(items) {
+    const grid = document.getElementById('grid');
+    const cells = [];
+    for (const item of items) {
+      const cw = 150;
+      const ch = Math.round((cw * item.height) / item.width);
+      let el;
+      if (item.tag === 'img') {
+        el = new Image();
+        el.src = blobUrl(item);
+      } else if (item.stacked) {
+        const video = document.createElement('video');
+        Object.assign(video, { muted: true, loop: true, playsInline: true, src: blobUrl(item) });
+        el = document.createElement('canvas');
+        window.StackedAlpha.attach(video, el, item.stacked);
+        video.play().catch(() => {});
+        playing.push(video);
+      } else {
+        el = document.createElement('video');
+        Object.assign(el, { muted: true, loop: true, playsInline: true, src: blobUrl(item) });
+        el.play().catch(() => {});
+        playing.push(el);
+      }
+      el.style.width = cw + 'px';
+      el.style.height = ch + 'px';
+      grid.append(el);
+      cells.push({ file: item.file, el });
+    }
+    await sleep(300);
+    return cells.map((c) => {
+      const r = c.el.getBoundingClientRect();
+      return { file: c.file, x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
+    });
+  }
+
+  /** <video loop>: kareler ekrana hangi anda geliyor; döngü başındaki boşluk olağan kare aralığından uzun mu */
+  async function timing(items, loopSeconds) {
+    // öncekiler dursun: ölçüm tek video oynarken yapılır
+    for (const v of playing) {
+      v.pause();
+      v.removeAttribute('src');
+      v.load();
+    }
+    document.getElementById('grid').textContent = '';
+    await sleep(500);
+    const out = [];
+    for (const item of items) {
+      const video = document.createElement('video');
+      Object.assign(video, { muted: true, loop: true, playsInline: true, src: blobUrl(item) });
+      video.style.width = '300px';
+      document.getElementById('grid').append(video);
+      const log = [];
+      const onFrame = (_now, meta) => {
+        log.push([meta.expectedDisplayTime, meta.mediaTime, meta.presentedFrames]);
+        video.requestVideoFrameCallback(onFrame);
+      };
+      video.requestVideoFrameCallback(onFrame);
+      await video.play();
+      await sleep(loopSeconds * 3300);
+      video.pause();
+      video.remove();
+      const gaps = [];
+      const wraps = [];
+      // ilk yarım saniye sayılmaz (çözücünün açılışı)
+      const skip = log.findIndex((e) => e[0] - log[0][0] > 500);
+      for (let i = Math.max(1, skip); i < log.length; i++) {
+        const dt = log[i][0] - log[i - 1][0];
+        if (log[i][1] < log[i - 1][1]) wraps.push({ at: i, dt });
+        else gaps.push(dt);
+      }
+      const sorted = [...gaps].sort((x, y) => x - y);
+      // iki döngü başı arasında ekrana gelen kare sayısı (tam döngüler)
+      const framesPerLoop = [];
+      for (let i = 1; i < wraps.length; i++) framesPerLoop.push(wraps[i].at - wraps[i - 1].at);
+      out.push({
+        file: item.file,
+        timing: {
+          callbacks: log.length,
+          wrapGapsMs: wraps.map((x) => round(x.dt, 1)),
+          typicalMs: round(sorted[Math.floor(sorted.length / 2)] ?? 0, 1),
+          maxOtherMs: round(sorted[sorted.length - 1] ?? 0, 1),
+          longGaps: gaps.filter((g) => g > 50).length,
+          framesPerLoop,
+        },
+      });
+    }
+    return out;
+  }
+
+  window.cosmeticVerify = { decode, show, timing };
+})();
+</script>
+</body>
+</html>

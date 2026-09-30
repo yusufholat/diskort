@@ -21,9 +21,17 @@ type CosmeticSet = keyof typeof COSMETIC_SHADERS;
 export interface RenderJob {
   set: CosmeticSet;
   kind: 'deco' | 'plate' | 'card' | 'thumb';
-  /** Görünümün boyutu (css px) */
+  /** Çizilen tuvalin boyutu (css px) */
   w: number;
   h: number;
+  /**
+   * Efektin yerleşim yüksekliği (css px), tuvalden uzunsa: gölgelendirici ve 2B katman bu yükseklikte bir
+   * görünüm çiziyormuş gibi çalışır, tuval onun ÜST kısmını gösterir (standart kart tuvali: alt kenarın
+   * kırağısı tuvalin dışında kalır). Verilmezse tuvalin yüksekliği.
+   */
+  layoutH?: number;
+  /** Alttaki yumuşak bitiş: `from`'dan `to`'ya (css px, yukarıdan) saydama iner */
+  fade?: { from: number; to: number };
   /** css pikseli başına tuval pikseli (uygulamada en fazla 2) */
   dpr: number;
   /** Gölgelendiricinin çözünürlük katı (kartta 0.75, bkz. Cosmetics.tsx CardEffectCanvas) */
@@ -99,7 +107,7 @@ async function run(job: RenderJob): Promise<RenderResult> {
   const v: LayerView = {
     kind: job.kind,
     w: job.w,
-    h: job.h,
+    h: job.layoutH ?? job.h,
     dpr: job.dpr,
     cache: new Map(),
     geo: job.geo ?? { bh: 106, ax: 62, ay: 112, ar: 46 },
@@ -108,9 +116,11 @@ async function run(job: RenderJob): Promise<RenderResult> {
   };
   const k = v.dpr * job.glScale;
   const pw = Math.max(1, Math.round(v.w * k));
-  const ph = Math.max(1, Math.round(v.h * k));
+  const ph = Math.max(1, Math.round(job.h * k));
   glc.width = pw;
   glc.height = ph;
+  // Tuval, yerleşimin üst kısmı: gölgelendiricinin gördüğü GL başlangıcı (sol alt) tuvalin altında kalır
+  const offY = ph - v.h * k;
 
   const p = compile(gl, job);
   const u = (n: string): WebGLUniformLocation | null => gl.getUniformLocation(p, n);
@@ -125,9 +135,18 @@ async function run(job: RenderJob): Promise<RenderResult> {
 
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(v.w * v.dpr);
-  canvas.height = Math.round(v.h * v.dpr);
+  canvas.height = Math.round(job.h * v.dpr);
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('2B bağlam alınamadı');
+  // Alttaki bitiş: yumuşak basamak eğrisiyle (keskin başlangıç ve son yok) saydama inen maske
+  let fade: CanvasGradient | null = null;
+  if (job.fade) {
+    fade = ctx.createLinearGradient(0, job.fade.from, 0, job.fade.to);
+    for (let i = 0; i <= 16; i++) {
+      const x = i / 16;
+      fade.addColorStop(x, `rgba(0,0,0,${(1 - x * x * (3 - 2 * x)).toFixed(4)})`);
+    }
+  }
 
   const fd = fs.openSync(job.out, 'w');
   try {
@@ -137,7 +156,7 @@ async function run(job: RenderJob): Promise<RenderResult> {
       gl.viewport(0, 0, pw, ph);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.uniform2f(uni.off, 0, 0);
+      gl.uniform2f(uni.off, 0, offY);
       gl.uniform2f(uni.res, v.w, v.h);
       gl.uniform1f(uni.k, k);
       gl.uniform1f(uni.time, t);
@@ -157,6 +176,13 @@ async function run(job: RenderJob): Promise<RenderResult> {
       if (v.kind === 'plate') {
         ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
         drawPlateScrim(ctx, v, job.set);
+      }
+      if (fade) {
+        ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'destination-in';
+        ctx.fillStyle = fade;
+        ctx.fillRect(0, 0, job.w, job.h);
       }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = 1;

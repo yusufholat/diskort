@@ -1,33 +1,43 @@
 // Hareketli kozmetik setlerini ÖNCEDEN çizer: bir setin üç parçasını (avatar dekorasyonu, isim plakası, profil
-// kartı efekti) dikişsiz döngü olarak kare kare çizip alfalı hareketli WebP'ye kodlar. Yalnızca geliştirme
-// aracıdır (deney: canlı çizim yerine sunucudan indirilen hazır döngüler); uygulamaya girmez.
+// kartı efekti) dikişsiz döngü olarak kare kare çizip alfalı hareketli WebP'ye, istenen parçaları ayrıca videoya
+// (ffmpeg ile) kodlar. Yalnızca geliştirme aracıdır (deney: canlı çizim yerine sunucudan indirilen hazır
+// döngüler); uygulamaya girmez.
 //
 //   node scripts/cosmetic-render/render.mjs [seçenekler]
 //     --set buz                 set (döngü biçimi hazır olmalı: client-core COSMETIC_LOOP_SHADERS)
 //     --loop 6                  döngü süresi, saniye (verilmezse COSMETIC_LOOP_SECONDS)
-//     --fps 60,30               kare hızları (en yükseği çizilir, diğerleri ondan seçilir)
+//     --fps 30                  kare hızları, ör. 60,30 (en yükseği çizilir, diğerleri ondan seçilir). Standart: 30
 //     --quality 85,60/75,45/50  WebP kalite ayarları: renk kalitesi, isteğe bağlı "/alfa kalitesi" (verilmezse
 //                               100: alfa kayıpsız), ya da "lossless"
-//     --pieces deco,plate,card  parçalar
+//     --pieces deco,plate,card  parçalar (card: standart kart tuvali; cardfit: masaüstü kartına oturan eski ölçü)
+//     --video <biçim:crf,...>   video biçimleri (bkz. video.mjs: vp9a, sh264, svp9, sav1, avif); "none": yalnızca WebP
+//     --video-pieces card,deco  videoya da kodlanacak parçalar
+//     --ffmpeg <yol>            ffmpeg (verilmezse PATH'te aranır; bağımlılık olarak eklenmez)
 //     --dither static           bantlaşma gürültüsü: static (karelerde aynı), frame (canlıdaki gibi), off
 //     --effort 4                WebP kodlama çabası (0-6; 6, kayıpsız alfayla dakikalar sürer, kazancı az)
 //     --dpr 2                   css pikseli başına tuval pikseli (uygulamada en fazla 2)
 //     --out <klasör>            çıktı klasörü (verilmezse scripts/cosmetic-render/out; git'e girmez)
 //     --keep-raw                ham kareleri (.tmp) silme
+//     --no-verify               oynatma doğrulamasını atla
 //
 // Nasıl çalışır: page.ts (masaüstünün gerçek layers.ts'i ve client-core'un gerçek gölgelendiricileri) Vite ile
 // tek dosyaya paketlenir, GİZLİ bir Electron penceresinde açık zaman değerleriyle çizilir, ham kareler burada
-// sharp (libwebp) ile kodlanır. Yeni bağımlılık eklemez: Electron ve Vite masaüstü uygulamasının, sharp
-// sunucunun bağımlılığıdır (önce `pnpm install`). ffmpeg ya da derleyici gerekmez.
+// sharp (libwebp) ve ffmpeg ile kodlanır. Sonra her dosya yine gizli pencerede gerçekten oynatılır
+// (verify.html): kareler geri okunup kaynakla karşılaştırılır. Yeni bağımlılık eklemez: Electron ve Vite
+// masaüstü uygulamasının, sharp sunucunun bağımlılığıdır (önce `pnpm install`); ffmpeg PATH'ten.
 //
-// Çıktı: <out>/index.html (önizleme sayfası, çift tıklayıp aç), <out>/manifest.js, <out>/<set>/*.webp,
-// <out>/<set>/stills/*.png (gözle kontrol kareleri).
+// Çıktı: <out>/index.html (önizleme sayfası, çift tıklayıp aç), <out>/manifest.js, <out>/media.js (yığılmış
+// alfalı videoların gömülü kopyası: dosyadan açılan sayfada WebGL başka dosyanın piksellerini okuyamaz),
+// <out>/<set>/*.webp|webm|mp4|avif, <out>/<set>/stills/*.png (gözle kontrol kareleri).
 //
 // Notlar (buz setiyle ölçüldü):
 // - Gürültü: canlıdaki gibi her karede değişen gürültü dosyayı ~%11-14 büyütür (kareler arası fark yalnızca
 //   gürültüden gelir); sabit gürültü, gürültüsüzle aynı boyutu verir ve bantlaşmayı yine kırar. Varsayılan: static.
 // - Hareketli WebP kareler arası tahmin yapmaz (video değildir): boyutun çoğu alfa kanalıdır (kayıpsız saklanır).
 //   Alfa kalitesi 100'ün altına inince alfa daha az düzeye yuvarlanır (75: 56 düzey, 50: 12 düzey).
+// - Video (standart kart tuvali 600×900, 30 kare/sn, 6 sn): WebP q60/alfa 75 ile aynı kalitede (PSNR ~47 dB)
+//   WebP 6.0 MB; VP9+alfa 1.0 MB; AVIF 0.43 MB; yığılmış alfa H.264 0.46 MB, VP9 0.59 MB, AV1 0.28 MB.
+//   Hepsi Electron'da (Chromium) çözülüp oynadı; yığılmış videonun iki yarısı arasında ölçülebilir sızıntı yok.
 // - page.ts'in tip kontrolü: apps/desktop/node_modules/.bin/tsc -p scripts/cosmetic-render/tsconfig.json
 
 import { spawn } from 'node:child_process';
@@ -35,6 +45,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { encodeVideo, findFfmpeg, parseVideoSpec, VIDEO_FORMATS, writeStacked } from './video.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
@@ -49,7 +60,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (!a.startsWith('--')) throw new Error(`bilinmeyen parametre: ${a}`);
     const key = a.slice(2);
-    if (key === 'keep-raw') out[key] = true;
+    if (key === 'keep-raw' || key === 'no-verify') out[key] = true;
     else out[key] = argv[++i];
   }
   return out;
@@ -62,7 +73,7 @@ const { COSMETIC_SET_INFO } = await import(pathToFileURL(path.join(root, 'packag
 
 const SET = args.set ?? 'buz';
 const LOOP = Number(args.loop ?? COSMETIC_LOOP_SECONDS);
-const FPS = (args.fps ?? '60,30').split(',').map(Number).sort((a, b) => b - a);
+const FPS = (args.fps ?? '30').split(',').map(Number).sort((a, b) => b - a);
 /** Kalite ayarı: renk kalitesi ve alfa kalitesi (100: alfa kayıpsız), ya da tümüyle kayıpsız */
 const QUALITIES = (args.quality ?? '85,60/75,45/50').split(',').map((token) => {
   if (token === 'lossless') return { label: 'lossless', lossless: true };
@@ -73,6 +84,12 @@ const QUALITIES = (args.quality ?? '85,60/75,45/50').split(',').map((token) => {
   return { label: alphaQuality === 100 ? `q${quality}` : `q${quality}a${alphaQuality}`, quality, alphaQuality };
 });
 const PIECES = (args.pieces ?? 'deco,plate,card').split(',');
+/**
+ * Video biçimleri ve kalite noktaları. Her biçimde ilki WebP q60/alfa 75 ile gözle eş sayılan, ikincisi belirgin
+ * küçük ama hâlâ kabul edilebilir olan (buz kartında ölçülerek seçildi; bkz. rapor).
+ */
+const VIDEO = parseVideoSpec(args.video ?? 'vp9a:30,vp9a:42,sh264:21,sh264:28,svp9:27,svp9:40,sav1:36,sav1:48,avif:37,avif:46');
+const VIDEO_PIECES = (args['video-pieces'] ?? 'card,deco').split(',').filter((p) => PIECES.includes(p));
 const DITHER = args.dither ?? 'static';
 const EFFORT = Number(args.effort ?? 4);
 const DPR = Number(args.dpr ?? 2);
@@ -96,10 +113,27 @@ const PIECE_SPECS = {
   deco: { label: 'Avatar dekorasyonu', kind: 'deco', w: 132, h: 132, glScale: 1, R: 46 },
   // NameplateCanvas: üye listesi w-60 (240) − kenarlık 1 − px-2 (16) = 223 px; satır 42 px, üstte ve altta 1 px boşluk
   plate: { label: 'İsim plakası', kind: 'plate', w: 223, h: 40, glScale: 1 },
-  // CardEffectCanvas: kart w-[300px] − kenarlık 2 = 298 px, gölgelendirici 0.75 çözünürlükte. Afiş h-[106px];
-  // avatar kabı px-4 (16), −mt-10, 6 px halka + 80 px avatar → merkez (62, 112), dış yarıçap 46 (engine.ts'teki
-  // varsayılanla aynı). Yükseklik içeriğe göre değişir: roller ve "Mesaj gönder" düğmesi olan tipik kart ~340 px.
-  card: { label: 'Profil kartı efekti', kind: 'card', w: 298, h: 340, glScale: 0.75, geo: { bh: 106, ax: 62, ay: 112, ar: 46 } },
+  // STANDART KART TUVALİ (öneri): 300×450 css (2:3), kartın genişliğine ölçeklenir ve ÜSTE yaslanır. Kısa kart
+  // alttan kırpar; uzun kartta efekt son %20'de (360→450) yumuşakça saydama iner, kart altında devam eder.
+  // - Afiş: genişliğin 6/17'si (masaüstünde 106/298, telefonda afiş resmi 17:6) → 106.
+  // - Avatar deliği YOK (yarıçap eksi: avatarHole her yerde 1). Avatarın yeri platforma göre değişir (masaüstü
+  //   solda (62,112), telefon solda (56, afiş altı), ayarlarda ortada): efekt avatarın yerini bilmemeli, uygulama
+  //   avatarı efektin üstüne çizmeli (ya da kendi avatar yerine maske uygulamalı).
+  // - Yerleşim yüksekliği 540: efekt 540 px'lik bir kart çiziyormuş gibi çalışır, tuval üstteki 450'yi gösterir;
+  //   alt kenarın kırağısı ve alt köşe dendritleri tuvalin dışında kalır (kırpılan / solan yerde bant olmasın).
+  card: {
+    label: 'Profil kartı efekti (standart tuval)',
+    kind: 'card',
+    w: 300,
+    h: 450,
+    layoutH: 540,
+    fade: { from: 360, to: 450 },
+    glScale: 0.75,
+    geo: { bh: 106, ax: 0, ay: 0, ar: -100 },
+  },
+  // Eski ölçü: masaüstü kartına birebir oturan (CardEffectCanvas: kart w-[300px] − kenarlık 2 = 298 px; afiş
+  // h-[106px]; avatar merkezi (62, 112), dış yarıçap 46; roller ve düğmesi olan tipik kart ~340 px), avatar delikli
+  cardfit: { label: 'Profil kartı efekti (masaüstü kartına oturan)', kind: 'card', w: 298, h: 340, glScale: 0.75, geo: { bh: 106, ax: 62, ay: 112, ar: 46 } },
 };
 for (const p of PIECES) if (!PIECE_SPECS[p]) throw new Error(`bilinmeyen parça: ${p}`);
 
@@ -132,19 +166,57 @@ async function bundlePage() {
   return page;
 }
 
+// Electron süreci bu betikten uzun yaşamamalı (yetim kalıp ekranda bir şey göstermesin): betik nasıl biterse
+// bitsin (olağan çıkış, hata, Ctrl+C, çıktı borusunun kapanması) çocuk öldürülür. Betik zorla öldürülürse
+// (hiçbir işleyici çalışmaz) çocuk bunu kendisi fark eder: aradaki kanal kapanır, ayrıca başlatanın süreç
+// numarasını yoklar (electron-main.cjs).
+const children = new Set();
+function killChildren() {
+  for (const child of children) {
+    try {
+      child.kill();
+    } catch {
+      // zaten kapanmış
+    }
+  }
+}
+process.on('exit', killChildren);
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK']) {
+  process.on(signal, () => {
+    killChildren();
+    process.exit(130);
+  });
+}
+// Çıktımızı okuyan gitti (ör. boru kapandı): sessizce devam etmek yerine dur
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on('error', () => {
+    killChildren();
+    process.exit(1);
+  });
+}
+
 function runElectron(spec) {
   const jobsFile = path.join(TMP, 'jobs.json');
   const resultFile = path.join(TMP, 'result.json');
-  fs.writeFileSync(jobsFile, JSON.stringify(spec));
+  fs.writeFileSync(jobsFile, JSON.stringify({ ...spec, parentPid: process.pid }));
   fs.rmSync(resultFile, { force: true });
   const electron = requireDesktop('electron');
   const env = { ...process.env };
   // Bu betik başka bir Electron uygulamasının içinden çalıştırılmış olabilir: Electron düğüm gibi davranmasın
   delete env.ELECTRON_RUN_AS_NODE;
   return new Promise((resolve, reject) => {
-    const child = spawn(electron, [path.join(here, 'electron-main.cjs'), jobsFile, resultFile], { stdio: 'inherit', env });
-    child.on('error', reject);
+    // Çıktı doğrudan bizim çıktımıza bağlanmaz: borudan okunup aktarılır (bizim çıktımız kapanırsa çocuk değil
+    // biz etkileniriz). Dördüncü kanal (ipc) yalnızca "başlatan hâlâ burada" bilgisini taşır.
+    const child = spawn(electron, [path.join(here, 'electron-main.cjs'), jobsFile, resultFile], { stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env, windowsHide: true });
+    children.add(child);
+    child.stdout.on('data', (d) => process.stdout.write(d));
+    child.stderr.on('data', (d) => process.stderr.write(d));
+    child.on('error', (err) => {
+      children.delete(child);
+      reject(err);
+    });
     child.on('exit', (code) => {
+      children.delete(child);
       const result = fs.existsSync(resultFile) ? JSON.parse(fs.readFileSync(resultFile, 'utf8')) : null;
       if (code !== 0 || !result || result.error) reject(new Error(`çizim başarısız (çıkış ${code}): ${result?.error ?? 'sonuç yok'}`));
       else resolve(result.results);
@@ -256,12 +328,32 @@ async function contactSheet(sharp, frames, width, height, background, file) {
   await sheet.png().toFile(file);
 }
 
+/** Bir karenin (düz RGBA) dikdörtgen parçası */
+function cropFrame(frame, width, rect) {
+  const out = Buffer.alloc(rect.w * rect.h * 4);
+  for (let y = 0; y < rect.h; y++) {
+    const from = ((rect.y + y) * width + rect.x) * 4;
+    frame.copy(out, y * rect.w * 4, from, from + rect.w * 4);
+  }
+  return out;
+}
+
 // ---------- Akış ----------
 
 const fmtBytes = (n) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(2)} MB` : `${(n / 1024).toFixed(1)} KB`);
+const rel = (file) => path.relative(OUT, file).replaceAll('\\', '/');
+
+/** Kalite karşılaştırmasında kırpılan bölge (tuval pikseli): buzun ve dendritlerin yoğun olduğu yer */
+function qualityCrop(id, width, height) {
+  if (id === 'deco') return { x: 0, y: 0, w: width, h: height };
+  const w = Math.min(width, Math.round(width * 0.55));
+  const h = Math.min(height, Math.round(width * 0.55));
+  return { x: width - w, y: 0, w, h };
+}
 
 async function main() {
   const sharp = requireServer('sharp');
+  const ffmpeg = VIDEO.length > 0 && VIDEO_PIECES.length > 0 ? findFfmpeg(args.ffmpeg) : null;
   fs.mkdirSync(TMP, { recursive: true });
   const setDir = path.join(OUT, SET);
   const stillDir = path.join(setDir, 'stills');
@@ -269,6 +361,7 @@ async function main() {
   fs.mkdirSync(stillDir, { recursive: true });
 
   console.log(`Set: ${SET}, döngü ${LOOP} sn, ${FPS.join('/')} kare/sn, kalite ${QUALITIES.map((q) => q.label).join(', ')}, gürültü: ${DITHER}`);
+  if (ffmpeg) console.log(`Video: ${VIDEO.map((v) => v.label).join(', ')} (${VIDEO_PIECES.join(', ')}); ${ffmpeg.version}`);
   console.log('Sayfa paketleniyor...');
   const page = await bundlePage();
 
@@ -276,7 +369,7 @@ async function main() {
   const jobs = [];
   for (const id of PIECES) {
     const spec = PIECE_SPECS[id];
-    const base = { set: SET, kind: spec.kind, w: spec.w, h: spec.h, dpr: DPR, glScale: spec.glScale, R: spec.R, geo: spec.geo };
+    const base = { set: SET, kind: spec.kind, w: spec.w, h: spec.h, layoutH: spec.layoutH, fade: spec.fade, dpr: DPR, glScale: spec.glScale, R: spec.R, geo: spec.geo };
     // döngünün kareleri
     jobs.push({ ...base, loop: LOOP, dither: DITHER, times: Array.from({ length: count }, (_, i) => i / MASTER_FPS), out: path.join(TMP, `${id}.rgba`) });
     // döngüsellik denetimi: aynı anlar, bir döngü sonra
@@ -285,19 +378,25 @@ async function main() {
     jobs.push({ ...base, loop: null, dither: 'frame', times: LIVE_AT, out: path.join(TMP, `${id}-live.rgba`) });
   }
   console.log('Çiziliyor (gizli pencere)...');
-  const results = await runElectron({ workDir: TMP, page, jobs });
+  const results = await runElectron({ mode: 'render', workDir: TMP, page, jobs });
 
   const manifest = {
     generatedAt: new Date().toISOString(),
     set: SET,
     setInfo: { accent: COSMETIC_SET_INFO[SET].accent, from: COSMETIC_SET_INFO[SET].from, to: COSMETIC_SET_INFO[SET].to },
     loopSeconds: LOOP,
+    fps: FPS,
     dither: DITHER,
     effort: EFFORT,
     dpr: DPR,
     renderer: results[0].renderer,
+    ffmpeg: ffmpeg?.version ?? null,
     pieces: [],
   };
+  /** Oynatma doğrulamasına girecek dosyalar */
+  const verifyItems = [];
+  /** Yığılmış alfalı videolar: önizleme sayfasına gömülür */
+  const embedded = {};
 
   for (let pi = 0; pi < PIECES.length; pi++) {
     const id = PIECES[pi];
@@ -320,6 +419,8 @@ async function main() {
       px: { w: width, h: height },
       R: spec.R ?? null,
       geo: spec.geo ?? null,
+      layoutH: spec.layoutH ?? null,
+      fade: spec.fade ?? null,
       sourceSeam: seam,
       periodCheck: periodCheck.map((p) => ({ at: p.at, mean: Number(p.mean.toFixed(4)), max: Number(p.max.toFixed(2)) })),
       coverage: stillIdx.map((i) => ({ t: Number((i / MASTER_FPS).toFixed(3)), ...coverage(frames[i]) })),
@@ -335,33 +436,116 @@ async function main() {
       for (const [bgName, bg] of [['dark', { r: 11, g: 11, b: 11, alpha: 1 }], ['light', { r: 190, g: 196, b: 204, alpha: 1 }]]) {
         const file = path.join(stillDir, `${SET}-${id}-${name}-${bgName}.png`);
         await contactSheet(sharp, list, width, height, bg, file);
-        piece.stills.push(path.relative(OUT, file).replaceAll('\\', '/'));
+        piece.stills.push(rel(file));
       }
     }
     // tek bir kare, olduğu gibi (alfalı PNG)
     await sharp(Buffer.from(stills[3]), { raw: { width, height, channels: 4 } }).png().toFile(path.join(stillDir, `${SET}-${id}-frame.png`));
 
+    // Videolar en düşük kare hızında (standart) kodlanır; aynı hızdaki WebP'ler karşılaştırmanın referansıdır
+    const videoFps = FPS[FPS.length - 1];
+    const withVideo = ffmpeg && VIDEO_PIECES.includes(id);
     for (const fps of FPS) {
       const step = MASTER_FPS / fps;
       const sub = frames.filter((_, i) => i % step === 0);
+      const source = step === 1 ? path.join(TMP, `${id}.rgba`) : path.join(TMP, `${id}-${fps}.rgba`);
+      if (step !== 1 && withVideo && fps === videoFps) fs.writeFileSync(source, Buffer.concat(sub));
+      const common = { fps, width, height, sourceFrames: sub.length, source };
       for (const q of QUALITIES) {
         const name = `${SET}-${id}-${fps}fps-${q.label}.webp`;
         const r = await encodeWebp(sharp, sub, width, height, fps, q, path.join(setDir, name));
-        piece.files.push({ file: `${SET}/${name}`, fps, quality: q.label, ...r });
+        const entry = { file: `${SET}/${name}`, format: 'webp', formatLabel: 'Hareketli WebP', tag: 'img', mime: 'image/webp', stacked: null, fps, quality: q.label, ...r };
+        piece.files.push(entry);
+        if (withVideo && fps === videoFps) verifyItems.push({ ...common, piece: id, file: entry.file, path: path.join(setDir, name), mime: entry.mime, tag: 'img', stacked: null });
         const s = r.seam;
         console.log(
           `  ${name}: ${fmtBytes(r.bytes)}, ${r.frames} kare, ${r.durationMs} ms, kodlama ${(r.encodeMs / 1000).toFixed(1)} sn` +
             `; dikiş son→ilk ${s.seamMean}, komşu ortanca ${s.neighbourMedian} / en büyük ${s.neighbourMax}`,
         );
       }
+      if (!withVideo || fps !== videoFps) continue;
+      const stackedFile = path.join(TMP, `${id}-stacked.rgb`);
+      const layout = VIDEO.some((v) => VIDEO_FORMATS[v.format].stacked) ? writeStacked(sub, width, height, stackedFile) : null;
+      for (const v of VIDEO) {
+        const F = VIDEO_FORMATS[v.format];
+        const name = `${SET}-${id}-${fps}fps-${v.label}.${F.ext}`;
+        const out = path.join(setDir, name);
+        const r = await encodeVideo(ffmpeg.exe, v, { rgba: source, stacked: stackedFile, width, height, fps, layout, out });
+        const entry = {
+          file: `${SET}/${name}`, format: v.format, formatLabel: F.label, tag: F.tag, mime: F.mime, stacked: F.stacked ? layout : null,
+          fps, quality: `crf ${v.crf}`, bytes: r.bytes, frames: sub.length, durationMs: Math.round((sub.length * 1000) / fps), encodeMs: r.encodeMs, ffmpeg: r.ffmpeg,
+        };
+        piece.files.push(entry);
+        verifyItems.push({ ...common, piece: id, file: entry.file, path: out, mime: F.mime, tag: F.tag, stacked: entry.stacked });
+        if (F.stacked) embedded[entry.file] = `data:${F.mime};base64,${fs.readFileSync(out).toString('base64')}`;
+        console.log(`  ${name}: ${fmtBytes(r.bytes)}, kodlama ${(r.encodeMs / 1000).toFixed(1)} sn`);
+      }
     }
     manifest.pieces.push(piece);
   }
 
+  // ---------- Oynatma doğrulaması (gizli pencere): her dosya gerçekten çözülüp oynuyor mu, alfa doğru mu ----------
+  if (verifyItems.length > 0 && !args['no-verify']) {
+    console.log('\nOynatma doğrulanıyor (gizli pencere)...');
+    const dumpDir = path.join(TMP, 'verify');
+    fs.mkdirSync(dumpDir, { recursive: true });
+    const check = [0.25, 0.45, 0.62, 0.85];
+    for (const item of verifyItems) {
+      item.checkFrames = [0, ...check.map((s) => Math.round(s * item.sourceFrames)), item.sourceFrames - 1];
+      item.dumpFrame = Math.round(0.62 * item.sourceFrames);
+      item.dump = path.join(dumpDir, `${path.basename(item.path)}.rgba`);
+    }
+    // döngü zamanlaması: her video biçiminin ilk kalite noktası, kart için (yoksa ilk video parçası)
+    const timingPiece = VIDEO_PIECES.includes('card') ? 'card' : VIDEO_PIECES[0];
+    const seen = new Set();
+    for (const item of verifyItems) {
+      const format = path.basename(item.path).split('-').slice(3, 4)[0];
+      item.timing = item.tag === 'video' && item.piece === timingPiece && !seen.has(format);
+      if (item.timing) seen.add(format);
+    }
+    const verified = await runElectron({ mode: 'verify', workDir: TMP, page: path.join(here, 'verify.html'), items: verifyItems, loopSeconds: LOOP });
+    const byFile = new Map(verified.map((r) => [r.file, r]));
+    for (const piece of manifest.pieces) {
+      for (const f of piece.files) {
+        const r = byFile.get(f.file);
+        if (!r) continue;
+        f.verify = r;
+        if (r.error) {
+          console.log(`  ${f.file}: OYNATILAMADI: ${r.error}`);
+          continue;
+        }
+        console.log(
+          `  ${f.file.split('/').pop()}: PSNR ${r.psnr} dB, alfa hata ort ${r.alphaMae}; saydam yerde alfa ort ${r.clearAlphaMean} / en büyük ${r.clearAlphaMax}; ` +
+            `saçak (düşük alfada parlaklık farkı) ${r.fringe}; dikiş son→ilk ${r.seam}; ekranda oynuyor: ${r.onScreenDiff > 0.05 ? 'evet' : 'HAYIR'} (${r.onScreenDiff})` +
+            `; kenar sütunları: renk ${r.edge.color} / alfa ${r.edge.alpha} (tüm kare ${r.edge.allColor} / ${r.edge.allAlpha})` +
+            (r.timing
+              ? `; döngü başı boşluğu ${r.timing.wrapGapsMs.join(', ')} ms (olağan ${r.timing.typicalMs} ms, en uzun ${r.timing.maxOtherMs} ms, 50 ms üstü ${r.timing.longGaps}), döngü başına kare ${r.timing.framesPerLoop.join(', ')}`
+              : ''),
+        );
+      }
+      // Kalite karşılaştırması: aynı karenin kırpılmış parçası, kaynak ve her dosya yan yana
+      const items = verifyItems.filter((i) => i.piece === piece.id && fs.existsSync(i.dump));
+      if (items.length === 0) continue;
+      const { w: width, h: height } = piece.px;
+      const crop = qualityCrop(piece.id, width, height);
+      const sourceFrame = splitFrames(fs.readFileSync(items[0].source), width, height, items[0].sourceFrames)[items[0].dumpFrame];
+      const tiles = [sourceFrame, ...items.map((i) => fs.readFileSync(i.dump))].map((f) => cropFrame(f, width, crop));
+      piece.quality = { order: ['kaynak', ...items.map((i) => path.basename(i.path))], crop, sheets: [] };
+      for (const [bgName, bg] of [['dark', { r: 11, g: 11, b: 11, alpha: 1 }], ['light', { r: 190, g: 196, b: 204, alpha: 1 }]]) {
+        const file = path.join(stillDir, `${SET}-${piece.id}-quality-${bgName}.png`);
+        await contactSheet(sharp, tiles, crop.w, crop.h, bg, file);
+        piece.quality.sheets.push(rel(file));
+      }
+    }
+  }
+
   fs.writeFileSync(path.join(OUT, 'manifest.js'), `window.COSMETIC_RENDER = ${JSON.stringify(manifest, null, 2)};\n`);
+  fs.writeFileSync(path.join(OUT, 'media.js'), `window.COSMETIC_MEDIA = ${JSON.stringify(embedded)};\n`);
   fs.copyFileSync(path.join(here, 'preview.html'), path.join(OUT, 'index.html'));
+  fs.copyFileSync(path.join(here, 'stacked.js'), path.join(OUT, 'stacked.js'));
   if (!args['keep-raw']) fs.rmSync(TMP, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   console.log(`\nÖnizleme: ${path.join(OUT, 'index.html')}`);
 }
 
 await main();
+
