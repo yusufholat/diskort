@@ -310,6 +310,33 @@ describe('kodlayıcı çıktısının biçimleri', () => {
     expect(order).toEqual(['ftyp', 'moov', 'free', 'mdat']);
     expect(await inspectPackFile(video, data)).toBeNull();
   });
+
+  it('MP4: ses izi olan video alınmaz (iOS\'ta ses oturumuna katılıp sesli görüşmeyi bozabilir)', async () => {
+    const video = { piece: 'card', kind: 'stacked-h264', name: 'card.mp4', width: 600, height: 900, stackedWidth: 1216, alphaX: 616 } as const;
+    // Yalnızca görüntü izi (-an ile kodlanmış): kabul
+    expect(await inspectPackFile(video, mp4(1216, 900))).toBeNull();
+    // Görüntü + ses: ses izi görüntüden önce de sonra da olsa reddedilir
+    expect(await inspectPackFile(video, mp4(1216, 900, 'avcC', 'after'))).toMatch(/ses izi olmamalı/);
+    expect(await inspectPackFile(video, mp4(1216, 900, 'avcC', 'before'))).toMatch(/ses izi olmamalı/);
+    // Yayın paketinin tamamında da, dosyanın adıyla bildirilir; depoya hiçbir şey yazılmaz
+    const withAudio = withFile('card.mp4', (f) => ({ ...f, data: mp4(1216, 900, 'avcC', 'after').toString('base64') }));
+    await rejects(bundle('buz', {}, withAudio), /files\[1\] \(card\.mp4\): videoda ses izi olmamalı \(ffmpeg: -an\)/);
+    await expect(cli().publish(bundle('buz', {}, withAudio))).rejects.toThrow(/ses izi olmamalı/);
+    expect(tree()).toEqual([]);
+    await expect(parseBundle(bundle('buz'))).resolves.toBeTruthy();
+  });
+
+  it('saklanan kayıtta ses izi aranmaz: kural yalnızca yayın anındadır', async () => {
+    const pack = await cli().publish(bundle('buz'));
+    // Eski bir sürümle yayınlanmış gibi: yayındaki videonun yerine sesli bir dosya
+    fs.writeFileSync(path.join(dir, 'buz', pack.version, 'card.mp4'), mp4(1216, 900, 'avcC', 'after'));
+    const store = cli();
+    expect(() => store.load()).not.toThrow();
+    expect(store.list().map((p) => p.id)).toEqual(['buz']);
+    const opened = await store.openFile('buz', pack.version, 'card.mp4');
+    expect(opened?.contentType).toBe('video/mp4');
+    await opened?.handle.close();
+  });
 });
 
 describe('paket deposu (komut satırı)', () => {
