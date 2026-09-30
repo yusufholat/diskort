@@ -4,6 +4,14 @@ import type { Feedback } from './feedback';
 import type { PermissionOverwrite, Role } from './permissions';
 import type { ActivityReport } from './activity';
 import type { Presence, SelfStatus } from './presence';
+import {
+  COSMETIC_SET_LABELS,
+  COSMETIC_SETS,
+  isCosmeticSet,
+  isCosmeticSetId,
+  type CosmeticSet,
+  type CosmeticSetId,
+} from './cosmetics';
 
 export * from './permissions';
 export * from './feedback';
@@ -11,6 +19,7 @@ export * from './presence';
 export * from './activity';
 export * from './search';
 export * from './telemetry';
+export * from './cosmetics';
 
 // ---------- Modeller ----------
 
@@ -42,22 +51,25 @@ export interface User {
    */
   profileEffect?: null;
   /**
-   * Profil kartında oynayan hareketli set efekti (bkz. COSMETIC_SETS); efekt yoksa null. Eski
-   * sunucularda hiç gelmez. İstemciler efekti userProfileEffect() ile okur.
+   * Profil kartında oynayan hareketli set efekti: setin kimliği (yerleşik setlerden biri ya da yayınlanmış
+   * bir paket, bkz. CosmeticSetId); efekt yoksa null. Eski sunucularda hiç gelmez. Sunucu yalnızca o an
+   * bilinen (yerleşik ya da yayında olan) kimliği gönderir; paketleri tanımayan eski istemcilere yalnızca
+   * yerleşik kimlikler gider (bkz. CLIENT_FEATURE_COSMETIC_PACKS). Aynısı avatarDecoration ve nameplate
+   * için de geçerlidir. İstemciler userEffectId() ile okur.
    */
-  animatedEffect?: CosmeticSet | null;
+  animatedEffect?: CosmeticSetId | null;
   /**
-   * Avatar dekorasyonunun kimliği: istemcide kodla çizilen hareketli dekorasyon (`anim:<set>`, bkz.
-   * ANIMATED_DECORATIONS). Yoksa null; istemci tanımadığı kimliği göstermez.
+   * Avatar dekorasyonunun kimliği: hareketli dekorasyon (`anim:<set kimliği>`, bkz. animatedDecorationId).
+   * Yoksa null; istemci tanımadığı kimliği göstermez.
    */
   avatarDecoration?: string | null;
   /** Kaldırılan profil çerçevesinin alanı: sunucu her zaman null gönderir (0.8.x istemciler okur). */
   profileFrame?: null;
   /**
-   * İsim plakası: üye listesinde satırın arkasında oynayan hareketli zemin (bkz. NAMEPLATES). Yoksa null;
-   * eski sunucularda hiç gelmez, eski istemciler bu alanı bilmez.
+   * İsim plakası: üye listesinde satırın arkasında oynayan hareketli zemin; setin kimliği (yerleşik ya da
+   * paket). Yoksa null; eski sunucularda hiç gelmez. İstemciler userNameplateId() ile okur.
    */
-  nameplate?: Nameplate | null;
+  nameplate?: CosmeticSetId | null;
   /**
    * Hesap yöneticisi: hesabın kendi bayrağı (users.is_admin); hiçbir sunucunun sahipliğine ya da rolüne bağlı
    * değildir. Hesaplarla ilgili işleri yapar (şifre sıfırlama kodu, hesap silme, hesap daveti, geri bildirimler).
@@ -546,17 +558,18 @@ export interface UpdateMeRequest {
   /** null: temayı kaldırır */
   profileTheme?: ProfileTheme | null;
   /**
-   * Set efekti (PROFILE_EFFECTS'ten biri); null: efekti kaldırır. Yanıtta animatedEffect'te döner.
-   * Eski istemcilerin gönderdiği kaldırılmış efektler (snow, sparkles, petals) sessizce yok sayılır.
+   * Set efekti: setin kimliği (yerleşik ya da yayında olan bir paket); null: efekti kaldırır. Yanıtta
+   * animatedEffect'te döner. Eski istemcilerin gönderdiği kaldırılmış efektler (snow, sparkles, petals)
+   * sessizce yok sayılır.
    */
-  profileEffect?: ProfileEffect | null;
+  profileEffect?: CosmeticSetId | null;
   /**
-   * Hareketli dekorasyon (`anim:<set>`); null: kaldırır. Eski istemcilerin gönderdiği kaldırılmış katalog
-   * kimlikleri sessizce yok sayılır.
+   * Hareketli dekorasyon (`anim:<set kimliği>`); null: kaldırır. Eski istemcilerin gönderdiği kaldırılmış
+   * katalog kimlikleri sessizce yok sayılır.
    */
   avatarDecoration?: string | null;
-  /** İsim plakası (NAMEPLATES'ten biri); null: kaldırır */
-  nameplate?: Nameplate | null;
+  /** İsim plakası: setin kimliği (yerleşik ya da yayında olan bir paket); null: kaldırır */
+  nameplate?: CosmeticSetId | null;
 }
 
 /** Profil kartının iki rengi ("#rrggbb"): üstte primary, altta accent */
@@ -565,52 +578,57 @@ export interface ProfileTheme {
   accent: string;
 }
 
-/**
- * Hareketli kozmetik setleri. Her set üç parçadır: profil efekti (kartın tamamını saran), avatar
- * dekorasyonu ve isim plakası; parçalar ayrı ayrı seçilir (setler karıştırılabilir). Hepsi istemcide kodla
- * çizilir (masaüstünde WebGL + Canvas 2D), dosya indirilmez; herkese açıktır.
- */
-export const COSMETIC_SETS = ['karadelik', 'sakura', 'kuzey', 'atesbocegi', 'buz', 'neon'] as const;
-export type CosmeticSet = (typeof COSMETIC_SETS)[number];
-export const COSMETIC_SET_LABELS: Record<CosmeticSet, string> = {
-  karadelik: 'Karadelik',
-  sakura: 'Sakura',
-  kuzey: 'Kuzey Işıkları',
-  atesbocegi: 'Ateşböceği Ormanı',
-  buz: 'Kristal Buz',
-  neon: 'Neon Yağmur',
-};
-export const isCosmeticSet = (v: unknown): v is CosmeticSet =>
-  typeof v === 'string' && (COSMETIC_SETS as readonly string[]).includes(v);
+// Hareketli kozmetik setleri: yerleşik setler, set kimliği ve sunucudan dağıtılan paketlerin sözleşmesi
+// cosmetics.ts'te. Aşağıdakiler kullanıcının seçimlerini okuyan yardımcılar. "Yerleşik" olanlar (PROFILE_EFFECTS,
+// NAMEPLATES, userProfileEffect, userNameplate, animatedDecorationSet) istemcinin kodla çizdiği altı sete
+// daraltır; paketlerle birlikte tam liste client-core'daki paket deposundan okunur (selectableCosmeticSets).
 
-/**
- * Profil efektleri: hareketli setlerin efektleri (kimliği setin kimliği). Kodla çizilir (dosya yok);
- * istemci tanımadığı efekti göstermez.
- */
+/** Yerleşik setlerin profil efektleri (kimliği setin kimliği): istemcide kodla çizilir */
 export const PROFILE_EFFECTS = COSMETIC_SETS;
 export type ProfileEffect = CosmeticSet;
 export const PROFILE_EFFECT_LABELS: Record<ProfileEffect, string> = COSMETIC_SET_LABELS;
 
-/** Kullanıcının kartındaki efekt; yoksa (ya da tanınmıyorsa) null */
+/** Kullanıcının kartındaki efektin set kimliği (yerleşik ya da paket); yoksa ya da biçimi bozuksa null */
+export const userEffectId = (user: Pick<User, 'animatedEffect'>): CosmeticSetId | null =>
+  isCosmeticSetId(user.animatedEffect) ? user.animatedEffect : null;
+
+/** Kullanıcının isim plakasının set kimliği (yerleşik ya da paket); yoksa ya da biçimi bozuksa null */
+export const userNameplateId = (user: Pick<User, 'nameplate'>): CosmeticSetId | null =>
+  isCosmeticSetId(user.nameplate) ? user.nameplate : null;
+
+/** Kullanıcının kartındaki efekt YERLEŞİK setlerden biriyse o; değilse (paket, yok, tanınmıyor) null */
 export const userProfileEffect = (user: Pick<User, 'animatedEffect'>): ProfileEffect | null =>
   isCosmeticSet(user.animatedEffect) ? user.animatedEffect : null;
 
+/** Kullanıcının isim plakası YERLEŞİK setlerden biriyse o; değilse (paket, yok, tanınmıyor) null */
+export const userNameplate = (user: Pick<User, 'nameplate'>): Nameplate | null =>
+  isCosmeticSet(user.nameplate) ? user.nameplate : null;
+
 /**
- * Hareketli avatar dekorasyonları: `anim:<set>`. 0.8.x istemciler bu kimliği eski kataloglarında
+ * Hareketli avatar dekorasyonları: `anim:<set kimliği>`. 0.8.x istemciler bu kimliği eski kataloglarında
  * bulamaz ve dekorasyon çizmez (0.8.4 masaüstü hareketli olanı zaten çizer).
  */
 export const ANIMATED_DECORATION_PREFIX = 'anim:';
-export type AnimatedDecoration = `anim:${CosmeticSet}`;
-export const animatedDecoration = (set: CosmeticSet): AnimatedDecoration => `anim:${set}`;
+export type AnimatedDecoration = `anim:${CosmeticSetId}`;
+export const animatedDecoration = (set: CosmeticSetId): AnimatedDecoration => `anim:${set}`;
+/** Yerleşik setlerin dekorasyonları */
 export const ANIMATED_DECORATIONS: readonly AnimatedDecoration[] = COSMETIC_SETS.map(animatedDecoration);
-/** Hareketli dekorasyonun seti; kimlik hareketli dekorasyon değilse (eski katalog kimliği, boş) null */
-export function animatedDecorationSet(id: string | null | undefined): CosmeticSet | null {
+/**
+ * Hareketli dekorasyonun set kimliği (yerleşik ya da paket); kimlik hareketli dekorasyon değilse (eski
+ * katalog kimliği, boş, biçimi bozuk) null
+ */
+export function animatedDecorationId(id: string | null | undefined): CosmeticSetId | null {
   if (!id || !id.startsWith(ANIMATED_DECORATION_PREFIX)) return null;
   const set = id.slice(ANIMATED_DECORATION_PREFIX.length);
+  return isCosmeticSetId(set) ? set : null;
+}
+/** Hareketli dekorasyon YERLEŞİK setlerden birininse o set; değilse (paket, eski katalog kimliği, boş) null */
+export function animatedDecorationSet(id: string | null | undefined): CosmeticSet | null {
+  const set = animatedDecorationId(id);
   return isCosmeticSet(set) ? set : null;
 }
 
-/** İsim plakaları: her setin bir plakası var (kimliği setin kimliği) */
+/** Yerleşik setlerin isim plakaları (kimliği setin kimliği) */
 export const NAMEPLATES = COSMETIC_SETS;
 export type Nameplate = CosmeticSet;
 export const NAMEPLATE_LABELS: Record<Nameplate, string> = COSMETIC_SET_LABELS;
@@ -900,6 +918,16 @@ export const CLIENT_FEATURE_DM = 'dm';
  * telefonlara bildirim gönderilmez: kişi mesajı zaten masaüstünde canlı görüyor.
  */
 export const CLIENT_FEATURE_PRESENCE = 'presence';
+/**
+ * İstemci sunucudan dağıtılan kozmetik paketlerini tanıyor: kullanıcıların set seçimlerinde (animatedEffect,
+ * avatarDecoration, nameplate) yerleşik olmayan kimlikler de gelir ve istemci tanımadığı kimliği sorunsuz
+ * yok sayar. Bildirmeyen istemciye (0.9.1 ve öncesi) bu alanlarda yalnızca yerleşik kimlikler gider, gerisi
+ * null olur: o sürümlerin masaüstü istemcisi tanımadığı isim plakası kimliğinde çizim döngüsünü düşürür.
+ * Gateway'de IDENTIFY'ın `features` listesinde, HTTP isteklerinde CLIENT_FEATURES_HEADER başlığında bildirilir.
+ */
+export const CLIENT_FEATURE_COSMETIC_PACKS = 'cosmetic_packs';
+/** İstemcinin tanıdığı özelliklerin (CLIENT_FEATURE_*) virgülle ayrılmış listesini taşıyan HTTP başlığı */
+export const CLIENT_FEATURES_HEADER = 'x-diskort-features';
 
 export type GatewayClientMessage =
   | { t: 'IDENTIFY'; d: IdentifyPayload }

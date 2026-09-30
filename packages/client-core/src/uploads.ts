@@ -1,5 +1,5 @@
-import { AVATAR_MAX_BYTES, type AnimatedDecoration, type ApiErrorBody, type Attachment, type Nameplate, type ProfileEffect, type ProfileTheme, type User } from '@diskort/shared';
-import { api, ApiError, normalizeServerUrl } from './api';
+import { AVATAR_MAX_BYTES, type AnimatedDecoration, type ApiErrorBody, type Attachment, type CosmeticSetId, type ProfileTheme, type User } from '@diskort/shared';
+import { api, ApiError, clientFeatureHeaders, normalizeServerUrl } from './api';
 import { env, type LocalFile, type UploadRequest, type UploadResponse } from './env';
 import { useGuild } from './guild';
 import { useSession } from './session';
@@ -63,6 +63,8 @@ export async function sendFile<T>(
   const res = await (env().upload ?? xhrUpload)({
     url: base + path,
     headers: {
+      // Profil fotoğrafı ve afiş yüklemeleri kullanıcıyı döndürür
+      ...clientFeatureHeaders(),
       Authorization: `Bearer ${token ?? ''}`,
       'Content-Type': MIME.test(file.type) ? file.type : 'application/octet-stream',
     },
@@ -134,13 +136,14 @@ export async function removeBanner(): Promise<User> {
 
 /**
  * Profil süsleri: tema, set efekti, hareketli avatar dekorasyonu ve isim plakası (null: kaldır); verilmeyen
- * alan değişmez.
+ * alan değişmez. Set kimlikleri yerleşik setlerden ya da yayında olan paketlerden olabilir (bkz.
+ * selectableCosmeticSets).
  */
 export async function updateProfileLook(patch: {
   profileTheme?: ProfileTheme | null;
-  profileEffect?: ProfileEffect | null;
+  profileEffect?: CosmeticSetId | null;
   avatarDecoration?: AnimatedDecoration | null;
-  nameplate?: Nameplate | null;
+  nameplate?: CosmeticSetId | null;
 }): Promise<User> {
   const user = await api.updateMe(patch);
   applyOwnUser(user);

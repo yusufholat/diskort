@@ -38,6 +38,12 @@ import type {
   VoiceJoinResponse,
   VoiceModerationRequest,
 } from '@diskort/shared';
+import {
+  CLIENT_FEATURE_COSMETIC_PACKS,
+  CLIENT_FEATURE_DM,
+  CLIENT_FEATURE_PRESENCE,
+  CLIENT_FEATURES_HEADER,
+} from '@diskort/shared';
 import { env } from './env';
 import { useSession } from './session';
 
@@ -56,10 +62,19 @@ export function normalizeServerUrl(url: string): string {
   return /^https?:\/\//.test(trimmed) ? trimmed : `http://${trimmed}`;
 }
 
+/** İstemcinin tanıdığı ek özellikler: gateway'de IDENTIFY ile, HTTP isteklerinde CLIENT_FEATURES_HEADER ile bildirilir */
+export const CLIENT_FEATURES: readonly string[] = [CLIENT_FEATURE_DM, CLIENT_FEATURE_PRESENCE, CLIENT_FEATURE_COSMETIC_PACKS];
+
+/**
+ * Kullanıcı döndüren her isteğe eklenen başlık: sunucu, paketleri tanıdığını bildirmeyen istemciye set
+ * seçimlerinde yalnızca yerleşik kimlikleri gönderir (bkz. CLIENT_FEATURE_COSMETIC_PACKS).
+ */
+export const clientFeatureHeaders = (): Record<string, string> => ({ [CLIENT_FEATURES_HEADER]: CLIENT_FEATURES.join(',') });
+
 /** Oturum jetonuyla JSON isteği; hata durumunda ApiError atar. */
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = useSession.getState().token;
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = clientFeatureHeaders();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
 

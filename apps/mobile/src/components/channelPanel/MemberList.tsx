@@ -1,7 +1,7 @@
 import { memo, useCallback, useMemo, useState, type ReactElement } from 'react';
 import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import type { User } from '@diskort/shared';
+import { userNameplate, type User } from '@diskort/shared';
 import {
   channelMemberGroups,
   memberGroups,
@@ -176,7 +176,7 @@ const MemberRow = memo(function MemberRow({
   const activity = useActivity(user.id);
   // İsim plakası: satırın arkasında hareketli zemin; üstündeki yazılar açık renkli ve gölgeli (Skia yoksa
   // plaka çizilmez, satır eskisi gibi kalır)
-  const plate = useHasSkia() ? (user.nameplate ?? null) : null;
+  const plate = useHasSkia() ? userNameplate(user) : null;
   return (
     <View style={[styles.cardRow, first && styles.cardFirst, last && styles.cardLast]}>
       <Pressable

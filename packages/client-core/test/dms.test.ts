@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   ALL_PERMISSIONS,
+  CLIENT_FEATURE_COSMETIC_PACKS,
   CLIENT_FEATURE_DM,
   CLIENT_FEATURE_PRESENCE,
   DM_PERMISSIONS,
@@ -123,7 +124,11 @@ describe('direkt mesajlar', () => {
       (gateway as unknown as { clearTimers: () => void }).clearTimers();
     }
     const identify = sent.find((m) => m.t === 'IDENTIFY');
-    expect(identify?.t === 'IDENTIFY' && identify.d.features).toEqual([CLIENT_FEATURE_DM, CLIENT_FEATURE_PRESENCE]);
+    expect(identify?.t === 'IDENTIFY' && identify.d.features).toEqual([
+      CLIENT_FEATURE_DM,
+      CLIENT_FEATURE_PRESENCE,
+      CLIENT_FEATURE_COSMETIC_PACKS,
+    ]);
   });
 
   it("READY'deki konuşmalar kanal listesinden ayrı tutulur; okunmamış bilgisi ortak", () => {

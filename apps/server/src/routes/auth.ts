@@ -1,13 +1,12 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
-  animatedDecorationSet,
+  animatedDecorationId,
   AVATAR_COLORS,
   HEX_COLOR,
-  NAMEPLATES,
-  PROFILE_EFFECTS,
   DISPLAY_NAME_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
+  RESERVED_COSMETIC_SET_IDS,
   RESERVED_USERNAMES,
   USERNAME_PATTERN,
   type AnimatedDecoration,
@@ -70,38 +69,51 @@ const themeColor = z
   .transform((v) => v.toLowerCase())
   .pipe(z.string().regex(HEX_COLOR, 'Geçersiz renk.'));
 
-/** Kaldırılan parçacıklı profil efektleri (0.8.x istemcilerin seçicisinde hâlâ var) */
-const RETIRED_PROFILE_EFFECTS = ['snow', 'sparkles', 'petals'] as const;
+/**
+ * Kaldırılan parçacıklı profil efektleri (0.8.x istemcilerin seçicisinde hâlâ var). Bu adlarla paket
+ * yayınlanamaz (RESERVED_COSMETIC_SET_IDS).
+ */
+const RETIRED_PROFILE_EFFECTS = RESERVED_COSMETIC_SET_IDS;
 /** Kaldırılan kozmetik kataloğunun kimlik biçimi (dekorasyon ve çerçeve; iki nokta yok, anim: ile çakışmaz) */
 const RETIRED_COSMETIC_ID = /^[a-z0-9-]{1,32}$/;
 
-const updateMeSchema = z.object({
-  displayName: displayName.optional(),
-  avatarColor: z.enum(AVATAR_COLORS, { message: 'Geçersiz renk.' }).optional(),
-  profileTheme: z.object({ primary: themeColor, accent: themeColor }).nullable().optional(),
-  // Kaldırılan eski kozmetikler (parçacıklı efektler, katalog dekorasyonları, profil çerçeveleri): 0.8.x
-  // istemciler hâlâ gönderebilir. İstek reddedilmez (aynı istekteki diğer alanlar kaydedilir), eski değer
-  // hiç yazılmaz: alan gönderilmemiş sayılır, kullanıcının bugünkü seçimi olduğu gibi kalır.
-  profileEffect: z
-    .union([z.enum(PROFILE_EFFECTS), z.enum(RETIRED_PROFILE_EFFECTS).transform(() => undefined)], {
-      message: 'Geçersiz efekt.',
-    })
-    .nullable()
-    .optional(),
-  avatarDecoration: z
-    .string()
-    .refine((v) => RETIRED_COSMETIC_ID.test(v) || animatedDecorationSet(v) !== null, 'Geçersiz dekorasyon.')
-    .transform((v) => (animatedDecorationSet(v) ? (v as AnimatedDecoration) : undefined))
-    .nullable()
-    .optional(),
-  profileFrame: z
-    .string()
-    .regex(RETIRED_COSMETIC_ID, 'Geçersiz çerçeve.')
-    .nullable()
-    .optional()
-    .transform(() => undefined),
-  nameplate: z.enum(NAMEPLATES, { message: 'Geçersiz isim plakası.' }).nullable().optional(),
-});
+/**
+ * Profil güncelleme şeması. Set seçimleri (efekt, `anim:<kimlik>` dekorasyonu, isim plakası) o an bilinen
+ * kimliklerle sınırlıdır: yerleşik setler ∪ yayında olan paketler. `known` her istekte sorulur: paket
+ * yayınlanınca ya da kaldırılınca sunucu yeniden başlatılmadan geçerli olur.
+ */
+const updateMeSchema = (known: (id: string | null) => boolean) =>
+  z.object({
+    displayName: displayName.optional(),
+    avatarColor: z.enum(AVATAR_COLORS, { message: 'Geçersiz renk.' }).optional(),
+    profileTheme: z.object({ primary: themeColor, accent: themeColor }).nullable().optional(),
+    // Kaldırılan eski kozmetikler (parçacıklı efektler, katalog dekorasyonları, profil çerçeveleri): 0.8.x
+    // istemciler hâlâ gönderebilir. İstek reddedilmez (aynı istekteki diğer alanlar kaydedilir), eski değer
+    // hiç yazılmaz: alan gönderilmemiş sayılır, kullanıcının bugünkü seçimi olduğu gibi kalır.
+    profileEffect: z
+      .string({ message: 'Geçersiz efekt.' })
+      .refine((v) => known(v) || RETIRED_PROFILE_EFFECTS.includes(v), 'Geçersiz efekt.')
+      .transform((v) => (known(v) ? v : undefined))
+      .nullable()
+      .optional(),
+    avatarDecoration: z
+      .string()
+      .refine((v) => RETIRED_COSMETIC_ID.test(v) || known(animatedDecorationId(v)), 'Geçersiz dekorasyon.')
+      .transform((v) => (known(animatedDecorationId(v)) ? (v as AnimatedDecoration) : undefined))
+      .nullable()
+      .optional(),
+    profileFrame: z
+      .string()
+      .regex(RETIRED_COSMETIC_ID, 'Geçersiz çerçeve.')
+      .nullable()
+      .optional()
+      .transform(() => undefined),
+    nameplate: z
+      .string({ message: 'Geçersiz isim plakası.' })
+      .refine((v) => known(v), 'Geçersiz isim plakası.')
+      .nullable()
+      .optional(),
+  });
 
 /** Basit bellek içi deneme sınırlayıcı (kaba kuvvet girişimlerine karşı). */
 function createLimiter(maxAttempts: number, windowMs: number) {
@@ -299,8 +311,9 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     return reply.code(204).send();
   });
 
+  const meSchema = updateMeSchema((id) => ctx.cosmeticPacks.knows(id));
   app.patch('/api/me', { preHandler: auth.requireUser }, async (req, reply) => {
-    const body = parseBody(updateMeSchema, req.body, reply);
+    const body = parseBody(meSchema, req.body, reply);
     if (!body) return reply;
     const user = store.updateUser(req.user.id, body)!;
     gateway.sendUserUpdate(user);

@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react';
 import { Crown } from 'lucide-react';
-import type { User } from '@diskort/shared';
+import { userNameplate, type User } from '@diskort/shared';
 import {
   activeGuildContext,
   memberGroups,
@@ -54,7 +54,7 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
   const openContextMenu = useUi((s) => s.openContextMenu);
   const isSelf = user.id === selfId;
   // İsim plakası satırın arkasında oynar (yalnızca ekrandaki satırlar çizilir, bkz. cosmetics/engine.ts)
-  const plate = user.nameplate ?? null;
+  const plate = userNameplate(user);
 
   // Tıklayınca profil kartı listenin soluna açılır
   const showProfile = (el: HTMLElement): void => {

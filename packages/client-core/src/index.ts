@@ -3,7 +3,7 @@
 
 export { configureClient } from './configure';
 export type { ClientEnvironment, KeyValueStorage, LocalFile, UploadRequest, UploadResponse } from './env';
-export { api, ApiError, errorMessage, normalizeServerUrl } from './api';
+export { api, ApiError, CLIENT_FEATURES, clientFeatureHeaders, errorMessage, normalizeServerUrl } from './api';
 export {
   forgetReactionUsers,
   loadReactionUsers,
@@ -376,6 +376,25 @@ export { avatarInk, PROFILE_THEME_PRESETS, profileGradient } from './profileLook
 export { COSMETIC_SET_INFO, type CosmeticSetInfo } from './cosmeticSets';
 // Hareketli setlerin canlı gölgelendiricileri. Döngü biçimleri (dosyaya çizim) ayrı girişte:
 // @diskort/client-core/cosmeticLoops; buradan dışa aktarılmaz (telefon paketine girmesin)
+export {
+  cosmeticAssetFailed,
+  cosmeticPackAsset,
+  cosmeticPackOf,
+  cosmeticPackPoster,
+  cosmeticPacks,
+  cosmeticRenderMode,
+  cosmeticSetInfo,
+  cosmeticSetLabel,
+  isKnownCosmeticSet,
+  noteCosmeticUsers,
+  refreshCosmeticPacks,
+  selectableCosmeticSets,
+  unknownCosmeticSets,
+  useCosmeticManifest,
+  useCosmeticPacks,
+  type CosmeticRenderMode,
+  type ResolvedCosmeticAsset,
+} from './cosmeticPacks';
 export {
   COSMETIC_SHADER_COMMON,
   COSMETIC_SHADER_MAIN,

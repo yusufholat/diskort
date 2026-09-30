@@ -26,6 +26,7 @@ import {
 import type { GatewayTraffic } from './apiStats.js';
 import type { AuthService } from './auth.js';
 import type { ClientVersionPolicy } from './clientVersion.js';
+import { knowsCosmeticPacks, withoutPackCosmetics } from './cosmeticCompat.js';
 import type { Store } from './db.js';
 import type { PermissionService } from './permissions.js';
 import { StatusStore, combineActivities, mergeActivities, parseActivityReports } from './presence.js';
@@ -130,6 +131,8 @@ interface Session {
   lastTyping: Map<string, number>;
   /** İstemci direkt mesajları tanıyor (IDENTIFY'da bildirdi); tanımayana DM verisi ve olayı gitmez */
   dm: boolean;
+  /** İstemci kozmetik paketlerini tanıyor (IDENTIFY'da bildirdi); tanımayana yalnızca yerleşik set kimlikleri gider */
+  packs: boolean;
   /** İstemcinin bildirdiği platform (bildirmeyen eski masaüstü sürümleri 'desktop') */
   platform: ClientPlatform;
   /** İstemcinin bildirdiği uygulama sürümü (yönetim paneli için) */
@@ -518,8 +521,22 @@ export class Gateway {
     if (s.socket.readyState === s.socket.OPEN) this.out(s, JSON.stringify(msg));
   }
 
-  /** Tek giden mesaj (sayılarak) */
+  /**
+   * Son giden mesajın eski istemcilere uygun hali: aynı mesaj art arda birçok oturuma gider, metin bir kez
+   * taranır (süzülecek bir şey yoksa "aynısı" sonucu da hatırlanır).
+   */
+  private lastLegacy: { full: string; legacy: string } | null = null;
+
+  /**
+   * Tek giden mesaj (sayılarak). Kozmetik paketlerini tanımayan eski istemciye kullanıcıların set seçimlerinde
+   * yalnızca yerleşik kimlikler gider (bkz. cosmeticCompat.ts). Karar yalnızca giden metne bakar, o anki paket
+   * listesine değil: kullanıcı serileştirildikten sonra paket yayından kalksa da tanınmayan kimlik sızmaz.
+   */
   private out(s: Session, data: string): void {
+    if (!s.packs) {
+      if (this.lastLegacy?.full !== data) this.lastLegacy = { full: data, legacy: withoutPackCosmetics(data) };
+      data = this.lastLegacy.legacy;
+    }
     this.traffic.messagesOut++;
     this.traffic.bytesOut += data.length;
     s.socket.send(data);
@@ -569,6 +586,7 @@ export class Gateway {
       reportsWatching: false,
       lastTyping: new Map(),
       dm: false,
+      packs: false,
       platform: 'desktop',
       version: null,
       connectedAt: Date.now(),
@@ -746,6 +764,7 @@ export class Gateway {
     const features = Array.isArray(d.features) ? d.features : [];
     s.dm = features.includes(CLIENT_FEATURE_DM);
     s.reportsIdle = features.includes(CLIENT_FEATURE_PRESENCE);
+    s.packs = knowsCosmeticPacks(features);
     const platform = d.platform;
     s.platform = platform === 'android' || platform === 'ios' ? platform : 'desktop';
     s.version = typeof d.version === 'string' && d.version ? d.version.slice(0, 32) : null;

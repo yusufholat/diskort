@@ -10,10 +10,12 @@ import {
   NAMEPLATES,
   PROFILE_EFFECT_LABELS,
   PROFILE_EFFECTS,
+  userNameplate,
   userProfileEffect,
   type AnimatedDecoration,
   type CosmeticSet,
   type Nameplate,
+  type ProfileEffect,
   type ProfileTheme,
   type User,
 } from '@diskort/shared';
@@ -231,7 +233,12 @@ export function ProfileLookSettings({ user }: { user: User }) {
   );
 }
 
-type LookPatch = Omit<Parameters<typeof updateProfileLook>[0], 'profileTheme'>;
+// Bu seçiciler yalnızca yerleşik setleri sunar (updateProfileLook paket kimliklerini de kabul eder)
+type LookPatch = {
+  profileEffect?: ProfileEffect | null;
+  avatarDecoration?: AnimatedDecoration | null;
+  nameplate?: Nameplate | null;
+};
 
 /** Setin üç parçası birden */
 const setPatch = (set: CosmeticSet): LookPatch => ({
@@ -249,7 +256,7 @@ function useLook(user: User) {
   const effect = 'profileEffect' in draft ? (draft.profileEffect ?? null) : userProfileEffect(user);
   const saved = animatedDecorationSet(user.avatarDecoration);
   const decoration = 'avatarDecoration' in draft ? (draft.avatarDecoration ?? null) : saved && animatedDecoration(saved);
-  const nameplate = 'nameplate' in draft ? (draft.nameplate ?? null) : (user.nameplate ?? null);
+  const nameplate = 'nameplate' in draft ? (draft.nameplate ?? null) : userNameplate(user);
   const current: Required<LookPatch> = { profileEffect: effect, avatarDecoration: decoration, nameplate };
 
   const pick = async (patch: LookPatch): Promise<void> => {
@@ -355,7 +362,7 @@ function NameplatePicker({
 
 /** Üye listesindeki satırın küçük kopyası (isim plakasıyla) */
 function MemberRowPreview({ user, label }: { user: User; label?: string }) {
-  const plate = user.nameplate ?? null;
+  const plate = userNameplate(user);
   return (
     <div className="relative isolate flex h-[42px] items-center gap-3 overflow-hidden rounded px-2 text-left">
       {plate && <NameplateCanvas set={plate} />}

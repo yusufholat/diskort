@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Crown } from 'lucide-react';
-import type { DmChannel } from '@diskort/shared';
+import { userNameplate, type DmChannel } from '@diskort/shared';
 import { useGuild, useSession, type ProfileContext } from '@diskort/client-core';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
@@ -46,7 +46,7 @@ const Participant = memo(function Participant({
   const showProfile = (el: HTMLElement): void =>
     openProfile({ userId, context, anchor: el.getBoundingClientRect(), side: 'left' });
   // İsim plakası (ortak sunucusu olmayanın dekorasyonu gibi o da gösterilmez)
-  const plate = reachable || isSelf ? (user.nameplate ?? null) : null;
+  const plate = reachable || isSelf ? userNameplate(user) : null;
 
   return (
     <div
