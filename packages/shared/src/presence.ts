@@ -68,7 +68,7 @@ export const STATUS_LABELS: Record<UserStatus | 'offline', string> = {
 
 /** Seçim menüsündeki açıklamalar */
 export const STATUS_DESCRIPTIONS: Partial<Record<UserStatus, string>> = {
-  dnd: 'Masaüstü bildirimleri almayacaksın',
+  dnd: 'Bildirim almayacaksın',
   invisible: 'Çevrimdışı görüneceksin',
 };
 

@@ -11,7 +11,7 @@ Ad Hoc'un sınırı: uygulama yalnızca **UDID'si önceden kaydedilmiş cihazlar
 | Parça | Durum |
 | --- | --- |
 | iOS projesi (`expo prebuild`) ve derleme | Hazır. Actions → **iOS** → Run workflow, iOS Simülatörü için imzasız derler. |
-| İmzalı IPA | Apple hesabı ve GitHub gizli değişkenleri bekleniyor (aşağıda). Gizli değişkenler yokken iş atlanır. |
+| İmzalı IPA | Yayında: Apple hesabı ve GitHub gizli değişkenleri tanımlı, sürümlerde Ad Hoc IPA bulunur. (Gizli değişkenler yokken iş atlanır.) |
 | Sesli sohbet arka planda | `audio` arka plan kipi + LiveKit'in yönettiği ses oturumu (AVAudioSession). Ön plan servisi ve bildirim düğmeleri yok (Android'e özgü). |
 | Kablosuz (OTA) güncelleme | Hazır: `/updates/expo/ios`. Sürüm iş akışı IPA ile birlikte iOS paketini de yükler. |
 | Uygulama güncellemesi (yeni IPA) | Uygulama, sunucu yeni IPA bildirince "Yükle" penceresini açar (`itms-services`). |
@@ -300,7 +300,7 @@ bağlantısıyla sunulursa bu da kapanır.
   kanala çağrı bildirimi gelmez (normal bildirimler gelir).
 - **Titreşim**: React Native'in `Vibration`'ı iOS'ta kısa desen desteklemediği için düğme titreşimleri iOS'ta
   kapalı. `expo-haptics` eklenirse açılabilir (yeni yerel bağımlılık, yeni IPA).
-- **Cihazda denenmedi**: derleme simülatörde kanıtlandı; mikrofon, arka plan sesi, Bluetooth, bildirim ve
-  `itms-services` kurulumu gerçek iPhone'da ilk IPA ile denenmeli.
+- **Cihazda sistemli olarak doğrulanmadı**: IPA kayıtlı iPhone'lar için yayınlanıyor; mikrofon, arka plan sesi,
+  Bluetooth ve bildirimlerin gerçek cihazdaki davranışı ayrıca tek tek denenmeli.
 - `itms-services` bildirimindeki IPA adresi GitHub'a gider ve oradan yönlendirilir; iOS bunu izler. Sorun
   çıkarsa sunucu IPA'yı kendisi sunacak şekilde değiştirilebilir.

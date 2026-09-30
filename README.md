@@ -7,7 +7,7 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
 
 ## Özellikler
 
-- **Ses:** Opus 64 kbps (32–128 ayarlanabilir), DTX + RED (paket kaybına dayanıklı), ~30 ms jitter buffer
+- **Ses:** Opus 64 kbps (32–128 ayarlanabilir), DTX + RED (paket kaybına dayanıklı)
 - **Gürültü engelleme:** yapay zekâ: DPDFNet-2 48 kHz (varsayılan) ya da daha hafif DeepFilterNet 3
   (uygulamanın içinde, sunucusuz; model ayrı gerçek zamanlı iş parçacığında) / standart / kapalı;
   Android'de de DPDFNet (varsayılan; ONNX Runtime ile telefonda, WebRTC'nin ses işleme hattının sonunda) / standart / kapalı;
@@ -425,8 +425,8 @@ Açık olması gereken portlar: `80/tcp`, `443/tcp`, `7881/tcp`, `3478/udp`, `50
   Son 14 gün saklanır; `latest.db.gz` her zaman en yenisini gösterir.
 - **Sunucu dışında:** `scripts/pull-db-backups.ps1`, Windows Görev Zamanlayıcı'daki "Diskort veritabanı yedeği"
   göreviyle her gün 12:00'de en son veritabanı yedeğini `OneDrive\Yedekler\Diskort` klasörüne indirir (60 gün
-  saklanır, sonuçlar `yedek-gunlugu.txt` dosyasına yazılır) ve dosya ekleriyle profil fotoğraflarının kopyasını
-  (`ekler`, `profil-fotograflari`) aynalar.
+  saklanır, sonuçlar `yedek-gunlugu.txt` dosyasına yazılır) ve dosya eklerinin, profil fotoğraflarının ve geri bildirim
+  ekran görüntülerinin kopyasını (`ekler`, `profil-fotograflari`, `geri-bildirim`) aynalar.
 - **Dosya ekleri:** veritabanı yedeği yalnızca kayıtları (dosyaların adı, boyutu, hangi mesajda olduğu) kapsar;
   dosyaların kendisi `diskort-data` biriminde `/data/attachments/` altında durur. Aynı zamanlayıcı her gece
   `infra/backup-attachments.sh`'ı da çalıştırır: ekler, `/data/avatars/` (profil fotoğrafları, afişler, sunucu
@@ -515,12 +515,14 @@ taşınır (adlarında eski sürüm numarası kalır); böylece yalnızca arayü
   Generate new private key, `chmod 600`) ve `.env`'de `FCM_SERVICE_ACCOUNT_FILE=/run/secrets/fcm.json`.
   Uygulama tarafı `google-services.json` GitHub gizli değişkeni `GOOGLE_SERVICES_JSON`'dan (base64) derlemede yazılır.
 
-### iOS (hazırlık)
+### iOS
 
-iPhone uygulaması App Store'suz, Ad Hoc imzayla kendi sitemizden kurulacak (kayıtlı cihazlar). Derleme ve kod
-hazır; Apple Developer hesabı ve imza anahtarları bekleniyor. Adımlar, iOS'a özgü farklar ve eksikler:
-[docs/ios.md](docs/ios.md). Actions → **iOS** iş akışı simülatör için imzasız derler; imza gizli değişkenleri
-varsa Ad Hoc IPA da üretir ve sürüm iş akışı bunu (iOS OTA paketiyle) sürüme yükler.
+iPhone uygulaması App Store'suz, Ad Hoc imzayla kendi sitemizden kurulur (yalnızca kayıtlı cihazlara). İmzalı IPA
+sürümlerde yayınlanır; yeni bir iPhone `/udid` sayfasından kaydolur, yönetim panelinde onaylanınca IPA o cihazı da
+içerecek şekilde kendiliğinden yeniden derlenir. Arayüz güncellemeleri Android'deki gibi kablosuz (OTA) gelir.
+Adımlar, iOS'a özgü farklar ve eksikler: [docs/ios.md](docs/ios.md). Actions → **iOS** iş akışı simülatör için
+imzasız derler; imza gizli değişkenleri varsa Ad Hoc IPA da üretir ve sürüm iş akışı bunu (iOS OTA paketiyle)
+sürüme yükler.
 - **GIF araması (GIPHY):** sunucu `.env`'de `GIPHY_API_KEY` (developers.giphy.com → Create an App → **API**)
   tanımlıysa mesaj kutusunda GIF düğmesi çıkar; yoksa gizlenir. İstemciler GIPHY'ye değil sunucuya sorar
   (`/api/gifs/search`, `/api/gifs/trending`; anahtar sunucuda kalır, sonuçlar 5 dk önbellekte, kişi başı dakikada

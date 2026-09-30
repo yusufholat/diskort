@@ -4,8 +4,7 @@
 # Bu dosyalar hiç değişmez (adları rastgele kimlik ya da içerik özeti), bu yüzden kopya "sabit bağlantı" (hard link) ile alınır:
 # diskte ek yer kaplamaz. Mesaj silinip dosya uygulamadan kalkınca kopyadaki bağlantı tek başına kalır
 # ve KEEP_DAYS gün sonra silinir; yanlışlıkla silinenler bu süre içinde geri getirilebilir.
-# Bilgisayardaki yedek (scripts/pull-db-backups.ps1) ekleri ve profil fotoğraflarını aynalar (geri bildirim
-# görüntülerini değil).
+# Bilgisayardaki yedek (scripts/pull-db-backups.ps1) üçünü de aynalar.
 # Günlük olarak systemd zamanlayıcısı çalıştırır (infra/systemd/diskort-backup.service).
 set -euo pipefail
 

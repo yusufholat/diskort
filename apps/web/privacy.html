@@ -27,7 +27,7 @@
         <p>
           Diskort, davetle katılınan kapalı bir topluluk için sesli sohbet, ekran paylaşımı ve mesajlaşma hizmetidir.
           Hizmeti topluluğun yöneticisi kendi sunucusunda işletir. Reklam, izleme ya da analiz aracı kullanılmaz;
-          verilerin satılmaz ve kimseyle paylaşılmaz.
+          verilerin satılmaz; aşağıda sayılan hizmetlerin dışında kimseyle paylaşılmaz.
         </p>
 
         <h2>Tutulan veriler</h2>
@@ -47,10 +47,16 @@
             sayılmayan programlar gönderilmez. Bu bilgi saklanmaz (oyunu kapatınca ya da çıkınca kaybolur; yalnızca
             ikon dosyası sunucuda kalır), görünmezken gösterilmez ve ayarı kapatınca hiç gönderilmez.</li>
           <li><strong>Teknik kayıtlar:</strong> bağlantı sorunlarını çözmek için sunucu günlüklerinde IP adresi ve
-            istek zamanı kısa süre tutulur. Girişlerin (zaman, IP adresi, istemci türü) 30 gün, hesabının en son ne
-            zaman ve hangi uygulama sürümüyle bağlandığı, sesli sohbetteyken bağlantı kalitesi ölçümleri (ping, paket
-            kaybı, bit hızı, ses ayarları; ses içeriği ya da IP adresi yok) 14 gün ve uygulamanın kendiliğinden
-            bildirdiği hata kayıtları 14 gün tutulur.</li>
+            istek zamanı kısa süre tutulur. Giriş denemelerin (zaman, kullanıcı adı, IP adresi, istemci türü, başarısızsa
+            nedeni) 30 gün tutulur. Hesabının en son ne zaman ve hangi uygulama sürümüyle bağlandığı (yalnızca son
+            değer) hesabın durduğu sürece tutulur. Sesli sohbetteyken bağlantı kalitesi ölçümleri (ping, paket kaybı,
+            bit hızı, ses ayarları, kullanılan kodlayıcı ve telefonun işlemci modeli; ses içeriği ya da IP adresi
+            yok) 14 gün, kötü geçen dönemlerin özetleri 30 gün tutulur. Uygulamanın kendiliğinden bildirdiği hata
+            kayıtları (uygulama sürümü, hatanın metni ve oluştuğu yer, giriş yaptıysan kullanıcı adın) 14 gün
+            tutulur.</li>
+          <li><strong>Bildirim ve cihaz kaydı:</strong> telefonuna bildirim gönderebilmek için cihazının bildirim
+            anahtarı tutulur (çıkış yapınca silinir). iPhone'a kurulum için cihazını kaydettiysen cihaz kimliği
+            (UDID), modeli, iOS sürümü, cihazın adı ve yazdığın isim tutulur.</li>
           <li><strong>Geri bildirim:</strong> uygulamadan gönderdiğin geri bildirimin metni, eklediğin ekran
             görüntüleri ve (kutuyu kaldırmadıysan) teknik bilgiler.</li>
           <li><strong>Uygulamanın kendi günlükleri:</strong> güncelleme günlüğü yalnızca senin bilgisayarında durur,
@@ -70,10 +76,12 @@
           <li><strong>Mobil bildirimler:</strong> bahsetme ve direkt mesaj bildirimleri telefonuna
             Google'ın (Android) veya Apple'ın (iOS) bildirim servisi üzerinden iletilir. Bildirimde gönderenin adı,
             kanalın ya da konuşmanın adı ve mesajın başı bulunur.</li>
-          <li><strong>GIF araması (GIPHY):</strong> arama sunucumuz üzerinden yapılır; seçtiğin ya da gördüğün
-            GIF'ler GIPHY'nin sunucularından yüklenir ve GIPHY IP adresini görür.</li>
+          <li><strong>GIF araması (GIPHY):</strong> arama sunucumuz üzerinden yapılır (aradığın sözcük GIPHY'ye
+            sunucumuzdan gider); seçtiğin ya da gördüğün GIF'ler GIPHY'nin sunucularından yüklenir ve GIPHY IP
+            adresini görür.</li>
           <li><strong>Bağlantı önizlemeleri:</strong> mesajlardaki bağlantıları sunucumuz açar ve önizleme
-            resimlerini kendisi sunar (siteler senin IP adresini görmez). Bir YouTube ya da video önizlemesini
+            resimlerini kendisi sunar (siteler senin IP adresini görmez; X/Twitter bağlantıları için FxTwitter
+            hizmeti kullanılır). Bir YouTube ya da video önizlemesini
             oynatırsan o siteye (YouTube'da <code>youtube-nocookie.com</code>) doğrudan bağlanırsın.</li>
         </ul>
 

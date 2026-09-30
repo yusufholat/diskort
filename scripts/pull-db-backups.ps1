@@ -1,5 +1,6 @@
 ﻿# Sunucudaki Diskort yedeklerini bu bilgisayara (varsayılan: OneDrive klasörü) indirir: en son veritabanı
-# yedeğini, dosya eklerinin (mesajlardaki resim/dosyalar) ve profil fotoğraflarının aynasını. Böylece sunucu tamamen kaybolsa bile
+# yedeğini, dosya eklerinin (mesajlardaki resim/dosyalar), profil fotoğraflarının ve geri bildirim ekran
+# görüntülerinin aynasını. Böylece sunucu tamamen kaybolsa bile
 # yedek bulutta kalır. Windows Görev Zamanlayıcı her gün çalıştırır.
 # Elle çalıştırmak için: powershell -ExecutionPolicy Bypass -File scripts\pull-db-backups.ps1
 param(
@@ -83,11 +84,13 @@ try {
     Where-Object LastWriteTime -lt (Get-Date).AddDays(-$KeepDays) |
     Remove-Item -Force
 
-  # 2) Dosya ekleri ve profil fotoğrafları: sunucudaki günlük kopyanın aynası (infra/backup-attachments.sh)
+  # 2) Dosya ekleri, profil fotoğrafları ve geri bildirim görüntüleri: sunucudaki günlük kopyanın aynası
+  #    (infra/backup-attachments.sh)
   $attachments = if ($AttachmentsDestination) { $AttachmentsDestination } else { Join-Path $Destination 'ekler' }
   $attachmentStatus = @(
     (Sync-Mirror "$remoteRoot/attachments" $attachments '^[0-9a-f]{32}$' 'ekler'),
-    (Sync-Mirror "$remoteRoot/avatars" (Join-Path $Destination 'profil-fotograflari') '^[0-9a-f]{32}\.webp$' 'profil fotoğrafları')
+    (Sync-Mirror "$remoteRoot/avatars" (Join-Path $Destination 'profil-fotograflari') '^[0-9a-f]{32}\.webp$' 'profil fotoğrafları'),
+    (Sync-Mirror "$remoteRoot/feedback" (Join-Path $Destination 'geri-bildirim') '^[0-9a-f]{32}\.webp$' 'geri bildirim görüntüleri')
   ) -join '; '
 
   "$(Get-Date -Format 'yyyy-MM-dd HH:mm') TAMAM  $name $status; $attachmentStatus" | Add-Content -Encoding UTF8 $log

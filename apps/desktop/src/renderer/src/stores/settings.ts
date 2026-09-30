@@ -61,7 +61,7 @@ export interface Settings {
   notificationSound: boolean;
   /** Bas-konuş tuşuna basınca ve bırakınca kısa ses */
   pttSounds: boolean;
-  /** Arayüz teması (bkz. shared/themes.ts; varsayılan Siyah) */
+  /** Arayüz teması (bkz. apps/desktop/src/shared/themes.ts; varsayılan Siyah) */
   theme: ThemeId;
   /** Kanal/konuşma listesinin genişliği (px); sohbetle arasındaki çizgi sürüklenerek değişir */
   sidebarWidth: number;
