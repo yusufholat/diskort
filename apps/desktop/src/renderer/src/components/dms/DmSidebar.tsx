@@ -5,7 +5,6 @@ import {
   dmTitle,
   isUnread,
   useDmList,
-  useCustomStatus,
   useDmUnreadCount,
   useGuild,
   useSession,
@@ -15,7 +14,7 @@ import { useMainView } from '../../lib/mainView';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
 import { formatAgo, formatFull } from '../text/format';
-import { CustomStatusLine } from '../status/CustomStatusLine';
+import { PresenceSubline } from '../status/ActivityCard';
 import { DmAvatar } from './DmAvatar';
 
 /** Direkt mesajlar bölümünün sol çubuğu: konuşmalar, son etkinliğe göre. */
@@ -67,10 +66,9 @@ export function DmSidebar() {
 const DmRow = memo(function DmRow({ dm, selected }: { dm: DmChannel; selected: boolean }) {
   const selfId = useSession((s) => s.user?.id);
   const title = useGuild((s) => dmTitle(dm, s.users, selfId));
-  // Bire bir konuşmada karşı tarafın özel durumu
+  // Bire bir konuşmada karşı tarafın durumu: oynuyorsa oyun simgesi; özel durumu, yoksa oynadığı oyun
   const partnerId = dm.group ? null : (dm.participantIds.find((id) => id !== selfId) ?? null);
   const reachable = useGuild((s) => (partnerId ? Boolean(s.reachable[partnerId]) : false));
-  const custom = useCustomStatus(reachable ? partnerId : null);
   const unread = useGuild((s) => isUnread(s, dm.id));
   const count = useDmUnreadCount(dm.id);
   const setView = useUi((s) => s.setView);
@@ -103,7 +101,7 @@ const DmRow = memo(function DmRow({ dm, selected }: { dm: DmChannel; selected: b
           {dm.group ? (
             <span className="block truncate text-xs text-text-muted">{dm.participantIds.length} üye</span>
           ) : (
-            custom && <CustomStatusLine status={custom} className="block text-xs text-text-muted" />
+            <PresenceSubline userId={reachable ? partnerId : null} className="text-xs text-text-muted" />
           )}
         </span>
         {count > 0 && !selected ? (

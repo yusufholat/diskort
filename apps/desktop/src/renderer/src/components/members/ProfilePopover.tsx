@@ -25,6 +25,7 @@ import {
   StatusBubble,
   themedCardStyle,
 } from '../profile/ProfileLook';
+import { ActivityCards } from '../status/ActivityCard';
 
 const MARGIN = 8;
 const GAP = 8;
@@ -174,6 +175,8 @@ export function ProfilePopover() {
         badge={owner && <Crown size={16} aria-label="Sunucunun sahibi" className="shrink-0 text-warn" />}
       />
       <div className="px-4 pb-4">
+        {/* Oynadığı oyunlar hesap düzeyidir: DM bağlamında da görünür */}
+        <ActivityCards userId={user.id} className="mt-3" />
         {roles.length > 0 && (
           <div className="mt-3">
             <div className="mb-1.5 text-xs font-bold text-text-muted uppercase">Roller</div>

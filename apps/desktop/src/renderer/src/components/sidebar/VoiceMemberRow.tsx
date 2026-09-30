@@ -7,6 +7,7 @@ import {
   activeGuildContext,
   can,
   contextOfChannel,
+  useActivity,
   useGuild,
   useChannelMemberColor,
   useSession,
@@ -20,6 +21,7 @@ import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
 import { Avatar } from '../ui/Avatar';
 import { openProfile, type ProfileAnchor } from '../members/ProfilePopover';
+import { activityCardHandlers } from './ActivityHoverCard';
 import { streamCardHandlers } from './StreamPreviewCard';
 
 export function LiveBadge({ className }: { className?: string }) {
@@ -115,6 +117,7 @@ export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMy
   const selfId = useSession((s) => s.user?.id);
   const openContextMenu = useUi((s) => s.openContextMenu);
   const isSelf = state.userId === selfId;
+  const playing = useActivity(state.userId) !== null;
   // Sürüklenebilir: kendin (kanal değiştirme) ya da taşıma yetkin olan, senden aşağıdaki üye
   const draggable = useGuild(
     (s) => isSelf || can(s, selfId, Permission.MOVE_MEMBERS, state.channelId),
@@ -162,8 +165,8 @@ export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMy
       onDoubleClick={() => {
         if (inMyChannel && state.streaming && !isSelf) voice.watchStream(state.userId);
       }}
-      // Yayın yapıyorsa üstünde bekleyince "Şimdi Yayın Yapıyor" kartı
-      {...(state.streaming ? streamCardHandlers(state) : {})}
+      // Yayın yapıyorsa üstünde bekleyince "Şimdi Yayın Yapıyor" kartı; yapmıyor ama oyun oynuyorsa "Oynuyor" kartı
+      {...(state.streaming ? streamCardHandlers(state) : playing ? activityCardHandlers(state) : {})}
     >
       <Avatar user={user} size={24} speaking={speaking} />
       <span

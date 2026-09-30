@@ -3,6 +3,7 @@ import { MessageCircle, MessagesSquare } from 'lucide-react';
 import { useGuild, useSession } from '@diskort/client-core';
 import { startDm } from '../../lib/dm';
 import { useUi } from '../../stores/ui';
+import { PresenceSubline } from '../status/ActivityCard';
 import { PresenceAvatar } from '../ui/Avatar';
 import { Button } from '../ui/controls';
 
@@ -56,7 +57,12 @@ export function DmHome() {
                 <PresenceAvatar userId={u.id} user={u} size={32} ringClassName="bg-bg-side" />
                 <span className="min-w-0 flex-1 leading-tight">
                   <span className="block truncate font-medium text-text-normal">{u.displayName}</span>
-                  <span className="block truncate text-xs text-text-muted">@{u.username}</span>
+                  {/* Oynuyorsa oyun simgesi; özel durum, yoksa oynadığı oyun, o da yoksa kullanıcı adı */}
+                  <PresenceSubline
+                    userId={u.id}
+                    className="text-xs text-text-muted"
+                    fallback={<span className="block truncate text-xs text-text-muted">@{u.username}</span>}
+                  />
                 </span>
                 <MessageCircle size={18} className="ico-pop shrink-0 text-text-muted group-hover:text-text-head" />
               </button>
