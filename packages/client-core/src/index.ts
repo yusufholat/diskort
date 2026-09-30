@@ -388,3 +388,15 @@ export {
   type CosmeticDither,
   type ShaderViewKind,
 } from './cosmeticShaders';
+// Sakura ve ateşböceği döngü biçimlerinin hareket eğrileri (masaüstü 2B katmanı ve çizim aracı kullanır)
+export {
+  ATESBOCEGI_LOOP,
+  atesbocegiLoopBlink,
+  atesbocegiLoopBlinks,
+  loopPhase,
+  loopTrackPhase,
+  loopWindow,
+  SAKURA_LOOP,
+  sakuraLoopBloom,
+  sakuraLoopShed,
+} from './cosmeticShaders';
