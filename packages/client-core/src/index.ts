@@ -375,6 +375,7 @@ export {
 export { avatarInk, PROFILE_THEME_PRESETS, profileGradient } from './profileLook';
 export { COSMETIC_SET_INFO, type CosmeticSetInfo } from './cosmeticSets';
 export {
+  cosmeticAssetFailed,
   cosmeticPackAsset,
   cosmeticPackOf,
   cosmeticPackPoster,
@@ -387,6 +388,7 @@ export {
   refreshCosmeticPacks,
   selectableCosmeticSets,
   unknownCosmeticSets,
+  useCosmeticManifest,
   useCosmeticPacks,
   type CosmeticRenderMode,
   type ResolvedCosmeticAsset,

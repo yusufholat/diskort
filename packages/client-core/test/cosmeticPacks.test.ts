@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CosmeticPack, CosmeticPackManifest, User } from '@diskort/shared';
 import {
   configureClient,
+  cosmeticAssetFailed,
   cosmeticPackAsset,
   cosmeticPackOf,
   cosmeticPackPoster,
@@ -191,7 +192,16 @@ describe('depo', () => {
   let serverUrl = BASE;
   let platform: 'desktop' | 'android' | 'ios' = 'desktop';
   const reset = (): void =>
-    useCosmeticPacks.setState({ manifest: null, serverUrl: null, status: 'idle', checkedAt: null, unknownRefreshAt: 0, unknownAsked: [] });
+    useCosmeticPacks.setState({
+      manifest: null,
+      serverUrl: null,
+      status: 'idle',
+      checkedAt: null,
+      unknownRefreshAt: 0,
+      unknownAsked: [],
+      unknownPending: [],
+      assetFailureRefreshAt: 0,
+    });
 
   type Call = { url: string; headers: Record<string, string> };
   /** Bildirimi sunan sahte sunucu: If-None-Match tutuyorsa 304 */
@@ -416,29 +426,155 @@ describe('depo', () => {
     const calls = serve(() => m);
     await refreshCosmeticPacks();
     expect(calls).toHaveLength(1);
-    const t0 = 10_000_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000_000);
 
     // Tanınan kimlikler istek doğurmaz
-    noteCosmeticUsers([user({ animatedEffect: 'buz', avatarDecoration: 'anim:buz', nameplate: null })], t0);
+    noteCosmeticUsers([user({ animatedEffect: 'buz', avatarDecoration: 'anim:buz', nameplate: null })]);
     expect(calls).toHaveLength(1);
 
     // Yeni paket yayınlanmış: tanınmayan kimlik tazelemeyi tetikler
     m = manifestOf([pack('buz'), pack('yeni-set')], '2222222222222222');
-    noteCosmeticUsers([user({ nameplate: 'yeni-set' })], t0);
+    noteCosmeticUsers([user({ nameplate: 'yeni-set' })]);
     expect(calls).toHaveLength(2);
-    await vi.waitFor(() => expect(cosmeticPacks.known('yeni-set')).toBe(true));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(cosmeticPacks.known('yeni-set')).toBe(true);
 
-    // Kısa süre içinde başka bir tanınmayan kimlik: beklenir
-    noteCosmeticUsers([user({ avatarDecoration: 'anim:baska' })], t0 + 59_000);
+    // Bekleme süresi içinde görülen tanınmayan kimlikler unutulmaz: süre dolunca hepsi için TEK istek gider
+    await vi.advanceTimersByTimeAsync(20_000);
+    noteCosmeticUsers([user({ avatarDecoration: 'anim:baska' })]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    noteCosmeticUsers([user({ nameplate: 'ucuncu' }), user({ avatarDecoration: 'anim:baska' })]);
     expect(calls).toHaveLength(2);
-    noteCosmeticUsers([user({ avatarDecoration: 'anim:baska' })], t0 + 60_000);
+    expect(useCosmeticPacks.getState().unknownPending).toEqual(['baska', 'ucuncu']);
+    // Bu arada ikisinden biri yayınlanıyor
+    m = manifestOf([pack('buz'), pack('yeni-set'), pack('ucuncu')], '3333333333333333');
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
     expect(calls).toHaveLength(3);
-    await vi.waitFor(() => expect(useCosmeticPacks.getState().status).toBe('ready'));
-    // Tazelemeden sonra da tanınmıyorsa aynı kimlik için yeniden sorulmaz (bildirim değişene dek)
-    noteCosmeticUsers([user({ avatarDecoration: 'anim:baska' }), user({ animatedEffect: 'karadelik' })], t0 + 200_000);
-    expect(calls).toHaveLength(4); // yalnızca yeni görülen "karadelik" için
-    await vi.waitFor(() => expect(useCosmeticPacks.getState().status).toBe('ready'));
-    noteCosmeticUsers([user({ avatarDecoration: 'anim:baska' }), user({ animatedEffect: 'karadelik' })], t0 + 400_000);
+    expect(cosmeticPacks.known('ucuncu')).toBe(true);
+    expect(useCosmeticPacks.getState().unknownPending).toEqual([]);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(calls).toHaveLength(3);
+
+    // Bekleme süresi geçtikten sonra görülen yeni kimlik hemen sorulur; tazelemeden sonra da tanınmıyorsa aynı
+    // kimlik için yeniden sorulmaz (bildirim değişene dek)
+    noteCosmeticUsers([user({ animatedEffect: 'karadelik' })]);
     expect(calls).toHaveLength(4);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    noteCosmeticUsers([user({ animatedEffect: 'karadelik' })]);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(calls).toHaveLength(4);
+    // "baska" yeni bildirimle yeniden sorulabilir hale geldi (bildirim değişti), "karadelik" sorulmuş durumda
+    noteCosmeticUsers([user({ avatarDecoration: 'anim:baska' }), user({ animatedEffect: 'karadelik' })]);
+    expect(calls).toHaveLength(5);
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Bekleyen kimlik süre dolmadan tanınır olduysa (başka bir tazeleme getirdi) boşuna istek gitmez
+    noteCosmeticUsers([user({ nameplate: 'dorduncu' })]);
+    expect(calls).toHaveLength(5);
+    m = manifestOf([pack('buz'), pack('dorduncu')], '4444444444444444');
+    await refreshCosmeticPacks();
+    expect(calls).toHaveLength(6);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(calls).toHaveLength(6);
+  });
+
+  it('yüklenemeyen dosya bildirilince bildirim tazelenir: dakikada en çok bir kez; eskimiş adres için hiç', async () => {
+    let m = manifestOf([pack('buz')], '1111111111111111');
+    const calls = serve(() => m);
+    await refreshCosmeticPacks();
+    vi.useFakeTimers();
+    vi.setSystemTime(50_000_000);
+    const url = cosmeticPacks.asset('buz', 'card', ['avif'])!.url;
+
+    // Sunucuda paket yeniden yayınlandı (adresler değişti): oynatıcı eski adreste 404 alıyor
+    const republished = pack('buz');
+    republished.version = 'ffffffffffffffff';
+    republished.assets.card[0]!.url = '/api/cosmetics/packs/buz/ffffffffffffffff/card.avif';
+    m = manifestOf([republished], '2222222222222222');
+    cosmeticAssetFailed(url);
+    expect(calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(0);
+    // Bildirim değişti: seçiciler yeni adresi verir
+    expect(cosmeticPacks.asset('buz', 'card', ['avif'])!.url).toBe(`${BASE}/api/cosmetics/packs/buz/ffffffffffffffff/card.avif`);
+
+    // Eski adresi hâlâ bildiren bileşenler (yeniden çizilmeden önce): bildirim zaten güncel, istek gitmez
+    cosmeticAssetFailed(url);
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    cosmeticAssetFailed(url);
+    expect(calls).toHaveLength(2);
+
+    // Güncel adres yüklenemiyor (ağ, bozuk dosya): dakikada en çok bir istek
+    const current = cosmeticPacks.asset('buz', 'card', ['avif'])!.url;
+    cosmeticAssetFailed(current);
+    expect(calls).toHaveLength(3);
+    for (let i = 0; i < 20; i++) cosmeticAssetFailed(current);
+    cosmeticAssetFailed();
+    await vi.advanceTimersByTimeAsync(59_000);
+    cosmeticAssetFailed(current);
+    expect(calls).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(1_000);
+    cosmeticAssetFailed(current);
+    expect(calls).toHaveLength(4);
+    // Adres verilmeden de çağrılabilir
+    await vi.advanceTimersByTimeAsync(60_000);
+    cosmeticAssetFailed();
+    expect(calls).toHaveLength(5);
+    expect(calls.every((c) => c.url === `${BASE}/api/cosmetics/packs`)).toBe(true);
+  });
+
+  it('bir sunucunun bildirimi başka sunucunun adresiyle birleştirilmez', async () => {
+    serve(() => manifestOf([pack('buz')], '1111111111111111'));
+    await refreshCosmeticPacks();
+    expect(cosmeticPacks.selectable()).toEqual(['buz']);
+
+    // Sunucu adresi değişti, yeni bildirim henüz alınmadı: eldeki bildirim geçersiz sayılır
+    serverUrl = 'http://baska.test';
+    expect(useCosmeticPacks.getState().manifest).not.toBeNull();
+    expect(cosmeticPacks.selectable()).toEqual([]);
+    expect(cosmeticPacks.known('buz')).toBe(false);
+    expect(cosmeticPacks.info('buz')).toBeNull();
+    expect(cosmeticPacks.label('buz')).toBeNull();
+    expect(cosmeticPacks.asset('buz', 'card', ['avif'])).toBeNull();
+    expect(cosmeticPacks.poster('buz', 'card')).toBeNull();
+    expect(cosmeticPacks.mode('buz', 'card', ['avif'])).toBe('none');
+    // Eski sunucuya dönülürse bildirim yeniden geçerlidir
+    serverUrl = BASE;
+    expect(cosmeticPacks.asset('buz', 'card', ['avif'])?.url).toBe(`${BASE}/api/cosmetics/packs/buz/${VERSION}/card.avif`);
+  });
+
+  it('süren istek başka sunucuya aitse beklenmez; geç gelen yanıtı yeni sunucunun bildirimini ezmez', async () => {
+    const pending: Record<string, (r: Response) => void> = {};
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', (url: string) => {
+      calls.push(url);
+      return new Promise<Response>((resolve) => (pending[url] = resolve));
+    });
+    const respond = (base: string, packs: CosmeticPack[], version: string): void =>
+      pending[`${base}/api/cosmetics/packs`]!(new Response(JSON.stringify(manifestOf(packs, version)), { status: 200 }));
+
+    const first = refreshCosmeticPacks();
+    // Aynı sunucuya ikinci istek gitmez
+    expect(refreshCosmeticPacks()).toBe(first);
+    serverUrl = 'http://baska.test';
+    const second = refreshCosmeticPacks();
+    expect(second).not.toBe(first);
+    expect(calls).toEqual([`${BASE}/api/cosmetics/packs`, 'http://baska.test/api/cosmetics/packs']);
+
+    respond('http://baska.test', [pack('neon')], '2222222222222222');
+    await second;
+    expect(cosmeticPacks.selectable()).toEqual(['neon']);
+    // Eski sunucunun yanıtı sonradan geliyor: yok sayılır
+    respond(BASE, [pack('buz')], '1111111111111111');
+    await first;
+    expect(useCosmeticPacks.getState()).toMatchObject({ serverUrl: 'http://baska.test', status: 'ready' });
+    expect(cosmeticPacks.selectable()).toEqual(['neon']);
+    expect(JSON.parse(memory.get('diskort-cosmetic-packs')!).serverUrl).toBe('http://baska.test');
+    // Biten istekten sonra yenisi başlatılabilir
+    const third = refreshCosmeticPacks();
+    expect(third).not.toBe(second);
+    expect(calls).toHaveLength(3);
   });
 });

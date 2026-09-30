@@ -41,7 +41,7 @@ Tek bir UTF-8 JSON dosyası; dosyaların içeriği base64 olarak içindedir.
 
 | Alan | Kural |
 |---|---|
-| `id` | `^[a-z][a-z0-9-]{1,23}$`. Yerleşik altı setin kimliği (karadelik, sakura, kuzey, atesbocegi, buz, neon) ya da yeni bir kimlik. `snow`, `sparkles`, `petals` ayrılmıştır. |
+| `id` | `^[a-z][a-z0-9-]{1,23}$`. Yerleşik altı setin kimliği (karadelik, sakura, kuzey, atesbocegi, buz, neon) ya da yeni bir kimlik. `snow`, `sparkles`, `petals` ve her nesnede bulunan adlar (`constructor` gibi) ayrılmıştır. |
 | `label` | Setin adı, 1–40 karakter |
 | `accent`, `from`, `to` | `#rrggbb` |
 | `fallback` | Üç renk: ilk ikisi `#rrggbb`, üçüncüsü `#rrggbb` ya da `rgba(r,g,b,a)` / `rgb(r,g,b)` |
@@ -68,15 +68,20 @@ Renkler istemcide CSS'e ve çizime olduğu gibi girdiğinden biçimleri katıdı
 - Parça başına her türden en fazla bir dosya. **Üç parçanın da** en az bir resmi (poster, avif ya da webp)
   olmalı; yalnızca video yetmez.
 - Boyutlar: görünen kare 8–2048 piksel, `stackedWidth` en fazla 4096.
+- **Bir parçanın bütün dosyaları aynı görünen boyutu (`width` × `height`) bildirmelidir** (poster, avif, webp
+  ve videonun görünen karesi): oynatıcı kutuyu hareketli dosyanın boyutundan kurar, posteri aynı kutuda
+  gösterir. Parçalar birbirinden farklı boyutta olabilir (ör. kart 600×900, dekorasyon 264×264, plaka 446×80).
 
 **Sınırlar:** dosya başına 8 MB, paket başına 40 MB (çözülmüş), en fazla 64 paket.
 
 **İçerik denetimi.** Dosyalar olduğu gibi sunulduğundan türü içeriğinden doğrulanır (dosya imzası; uzantıya
 güvenilmez) ve yapısı sağlam olmalıdır: WebP'nin uzunluğu başlığıyla, AVIF/MP4 kutuları dosyanın tamamıyla
 uyuşmalı (sonunda artık veri taşınamaz). AVIF görüntü dizisi olmalı (`moov` kutusu), MP4'te H.264 görüntü izi
-bulunmalı. Bildirilen ölçüler dosyanınkiyle tutmalı: resimlerde `width`×`height`, videoda genişlik
-`stackedWidth` ve yükseklik `height` (kodlayıcının 16'nın katına tamamladığı en çok 15 piksel fazlası kabul
-edilir).
+bulunmalı. Poster yalın WebP de olabilir (`VP8 ` / `VP8L`, `VP8X` başlığı olmadan). Bildirilen ölçüler
+dosyanınkiyle tutmalı: resimlerde `width`×`height`, videoda genişlik `stackedWidth` ve yükseklik `height`
+(kodlayıcının 16'nın katına tamamladığı en çok 15 piksel fazlası kabul edilir). AVIF'in boyutu üst düzey `meta`
+kutusundaki `ispe` özelliğinden, o yoksa iz başlıklarından (`tkhd`) okunur; hiçbiri yoksa dosya reddedilir
+(denetim atlanmaz).
 
 ## Yayınlama
 
@@ -90,16 +95,34 @@ docker compose exec -T api node dist/cosmetics-cli.js list            # --json d
 docker compose exec -T api node dist/cosmetics-cli.js remove buz
 docker compose exec -T api node dist/cosmetics-cli.js platforms buz desktop,android   # ya da: none
 docker compose exec -T api node dist/cosmetics-cli.js order sakura,buz,neon
+docker compose exec -T api node dist/cosmetics-cli.js prune           # --all: süresi dolmamış önceki sürümleri de
+docker compose exec -T api node dist/cosmetics-cli.js --force-unlock  # takılı kalmış kilidi kaldırır
 ```
 
 - `publish`: önce paketin tamamı doğrulanır; hata varsa **depoya hiç dokunulmaz**. Aynı kimlik yayındaysa
-  yerine geçer (sıradaki yeri korunur), eski dosyalar silinir.
-- `remove`: paketi yayından kaldırır. O seti seçmiş kullanıcıların seçimi veritabanında kalır ama gönderilmez;
-  paket yeniden yayınlanırsa geri gelir.
+  yerine geçer (sıradaki yeri korunur).
+- **Önceki sürüm 24 saat durur.** Yeniden yayında yerini bırakan sürümün dosyaları hemen silinmez: açık
+  istemciler bildirimi tazeleyene dek eski adresleri kullanır, o adresler bu sürede çalışmaya devam eder.
+  Kimlik başına en fazla **bir** önceki sürüm tutulur (disk sınırlı kalır); 24 saati geçen önceki sürüm bir
+  sonraki `publish`/`remove` sırasında ya da `prune` ile silinir.
+- `remove`: paketi yayından kaldırır ve **bütün sürümlerinin dosyalarını hemen siler** (bekleme süresi yok:
+  kaldırılan paketin dosyaları sunulmaya devam etmez). O seti seçmiş kullanıcıların seçimi veritabanında kalır
+  ama gönderilmez; paket yeniden yayınlanırsa geri gelir.
 - `order`: verilen kimlikler bu sırayla başa gelir, diğerleri kendi sıralarıyla arkada kalır. Seçicideki sıra
   budur.
+- `prune`: yerini bırakmış, 24 saati geçmiş önceki sürümleri siler; `--all` ile süresi dolmamış olanları da
+  (ör. yanlış yayınlanmış bir dosyanın eski adresten de hemen kalkması için).
+- **Kilit.** Aynı anda tek yazma işlemi çalışır (`.lock` dosyası; içinde işlemi yapan süreç yazar). Araç
+  yarıda kesilirse kilit kendiliğinden devralınır: sahibi artık çalışmıyorsa hemen, değilse 10 dakika sonra.
+  Takılı kaldığından eminsen `--force-unlock` kaldırır (tek başına ya da bir komutla birlikte:
+  `--force-unlock publish < buz.json`). Başka bir yayın gerçekten sürerken kullanma.
 - Çalışan sunucu değişikliği **birkaç saniye içinde kendisi fark eder** (yeniden başlatmak gerekmez).
-  İstemciler bildirimi oturum açarken, ayarlardaki seçici açılırken ve tanımadıkları bir set görünce tazeler.
+
+**İstemciler bildirimi ne zaman tazeler?** Oturum açarken (her bağlanışta), bağlıyken **10 dakikada bir**,
+uygulama öne gelince, ayarlardaki seçici açılırken, tanımadıkları bir set görünce ve bir paket dosyası
+yüklenemediğinde (en çok dakikada bir). Bildirim değişmediyse yanıt 304'tür (gövde inmez). Yani yeni kimlik
+getirmeyen değişiklikler de (platform kapatma, yeniden yayın, kaldırma) açık istemcilere en geç ~10 dakikada
+ulaşır; telefonda uygulama arka plandayken sorulmaz, öne gelince hemen sorulur.
 
 Geliştirirken: `pnpm --filter @diskort/server exec tsx src/cosmetics-cli.ts publish --dir <klasör> < buz.json`
 (gerçek paketi sunucuya göndermeden önce doğrulamak için de kullanılır).
@@ -108,7 +131,7 @@ Geliştirirken: `pnpm --filter @diskort/server exec tsx src/cosmetics-cli.ts pub
 
 Paketin **oynatıldığı** platformların listesi. Listede olmayan platformda istemci paketi oynatmaz; setin bilgi
 renklerinden sabit bir görünüm gösterir. Emniyet supabıdır: bir platformda oynatma sorun çıkarırsa sürüm
-çıkarmadan kapatılır.
+çıkarmadan kapatılır. Açık istemcilere en geç ~10 dakikada ulaşır (bkz. yukarıda, bildirimin tazelenmesi).
 
 ```bash
 docker compose exec -T api node dist/cosmetics-cli.js platforms buz desktop        # telefonlarda kapat
@@ -123,11 +146,17 @@ Paketler masaüstünde başlar; telefonda oynatma denendikçe platform platform 
 - Depo: `<DATA_DIR>/cosmetic-packs/` (üretimde `/data/cosmetic-packs`).
   - `manifest.json`: yayınlanmış paketler (gösterim sırasıyla) ve dosyalarının bilgisi; atomik yazılır.
   - `<kimlik>/<sürüm>/<dosya adı>`: dosyalar. Sürüm dosyaların içerik özetidir (16 onaltılık): dosyalar
-    değişmedikçe aynı kalır, yalnızca bilgi (ad, platformlar, sıra) değişince adresler değişmez.
+    değişmedikçe aynı kalır, yalnızca bilgi (ad, platformlar, sıra) değişince adresler değişmez. Yayındaki
+    sürümün yanında en fazla bir önceki sürüm durur (yerini bıraktığı an klasörün değişiklik zamanıdır; ayrı
+    bir kayıt tutulmaz).
   - Veritabanı şeması değişmedi. Paketler yedeklenmez: yayın paketinden yeniden yayınlanabilir.
 - `GET /api/cosmetics/packs`: bildirim (kimlik doğrulamasız; `ETag` = gövdedeki `version`, `max-age=60`).
-- `GET /api/cosmetics/packs/<kimlik>/<sürüm>/<ad>`: dosya (süresiz önbellek, `nosniff`, HTTP Range). Yalnızca
-  bildirimde kayıtlı dosyalar sunulur.
+- `GET /api/cosmetics/packs/<kimlik>/<sürüm>/<ad>`: dosya (süresiz önbellek, `nosniff`, HTTP Range).
+  - Yayındaki sürümde yalnızca bildirimde kayıtlı dosyalar sunulur (türü kayıttan).
+  - Önceki sürümde: paket hâlâ yayında olmalı, sürüm klasörü durmalı, ad biçime uymalı ve uzantısı bir türe
+    karşılık gelmeli (`.avif` / `.webp` / `.mp4`; Content-Type yalnızca bundan), dosya doğrudan o klasördeki
+    düz bir dosya olmalı (alt klasör ve sembolik bağ sunulmaz).
+  - Kaldırılan paketin hiçbir dosyası sunulmaz. Açılamayan dosya 404'tür.
 - Kullanıcıların seçebildiği setler: yerleşik altı kimlik ∪ yayında olan paketler. Yerleşik altı kimlik her
   zaman geçerlidir: 0.9.1 ve önceki istemciler onları kendi kodlarıyla çizer.
 
