@@ -1,0 +1,231 @@
+// Kozmetik paketlerinin yerleşim ve kare saati hesapları: parçaların kutuları (paketin dosya ölçüleriyle), çizim
+// yüzeyinin çözünürlüğü, yan yana videonun koordinat hesabı, kare sınırı ve Android'deki video döngüsünün kuralı.
+
+import { describe, expect, it } from 'vitest';
+import {
+  ANIMATED_DECORATION_MIN_SIZE,
+  CARD_BANNER_RATIO,
+  cardEffectBox,
+  decorationBox,
+  decorationCanvasSize,
+  decorationRadius,
+  frameDue,
+  frameInterval,
+  isStackedLayout,
+  plateBox,
+  PLATE_BLEND,
+  stackedSample,
+  stackedUniforms,
+  stepCost,
+  surfaceScale,
+  VIDEO_TAIL_CALLS,
+  videoShouldRewind,
+  withAlpha,
+} from '../src/components/cosmetics/packLayout';
+
+describe('avatar dekorasyonu', () => {
+  it('paketin oranı: 46 piksellik dış yarıçapa 132 piksellik kare', () => {
+    // Profil kartındaki 80 piksellik avatar + halka = 46 piksellik dış yarıçap
+    expect(decorationRadius(80)).toBeCloseTo(46);
+    expect(decorationBox(80)).toBe(132);
+    expect(decorationBox(72)).toBe(119);
+    expect(decorationBox(88)).toBe(145);
+  });
+
+  it('küçük avatarda yerleşim avatarın kendisi, büyükte hareketli kare', () => {
+    expect(decorationCanvasSize(38)).toBe(38);
+    expect(decorationCanvasSize(ANIMATED_DECORATION_MIN_SIZE - 1)).toBe(ANIMATED_DECORATION_MIN_SIZE - 1);
+    expect(decorationCanvasSize(ANIMATED_DECORATION_MIN_SIZE)).toBe(decorationBox(ANIMATED_DECORATION_MIN_SIZE));
+    expect(decorationCanvasSize(72)).toBe(119);
+  });
+});
+
+describe('profil kartı efekti', () => {
+  it('kartın genişliğine ölçeklenir, üste yaslanır, oranı dosyadan gelir', () => {
+    expect(cardEffectBox(300, 540, 600, 900)).toEqual({ width: 300, height: 450, visibleHeight: 450 });
+    expect(cardEffectBox(360, 800, 600, 900)).toEqual({ width: 360, height: 540, visibleHeight: 540 });
+  });
+
+  it('kısa kart altını kırpar', () => {
+    expect(cardEffectBox(300, 320, 600, 900)).toEqual({ width: 300, height: 450, visibleHeight: 320 });
+  });
+
+  it('ölçülmemiş kartta ya da bozuk dosyada boş', () => {
+    expect(cardEffectBox(0, 0, 600, 900).width).toBe(0);
+    expect(cardEffectBox(300, 400, 0, 900).height).toBe(0);
+    expect(cardEffectBox(NaN, 400, 600, 900).height).toBe(0);
+  });
+
+  it('efektin varsaydığı afiş: 300 piksellik kartta 106 piksel (paketin ölçüsü)', () => {
+    expect(Math.round(300 * CARD_BANNER_RATIO)).toBe(106);
+  });
+});
+
+describe('isim plakası', () => {
+  it('paketin satırında (223×40) resim satırı tam kaplar', () => {
+    expect(plateBox(223, 40, 446, 80)).toEqual({ left: 0, width: 223, height: 40, fill: 0, blend: 0 });
+  });
+
+  it('satırın yüksekliğinde, sağa yaslı; solda kalan kısım dolar ve kenar karışır', () => {
+    const box = plateBox(360, 58, 446, 80);
+    expect(box.height).toBe(58);
+    expect(box.width).toBeCloseTo(323.35);
+    expect(box.left + box.width).toBeCloseTo(360);
+    expect(box.fill).toBeCloseTo(36.65);
+    expect(box.blend).toBeCloseTo(323.35 * PLATE_BLEND);
+  });
+
+  it('dar satırda resmin solu kırpılır, dolgu ve karışım yok', () => {
+    const box = plateBox(300, 58, 446, 80);
+    expect(box.left).toBeLessThan(0);
+    expect(box.left + box.width).toBeCloseTo(300);
+    expect(box.fill).toBe(0);
+    expect(box.blend).toBe(0);
+  });
+
+  it('ölçülmemiş satırda boş', () => {
+    expect(plateBox(0, 0, 446, 80)).toEqual({ left: 0, width: 0, height: 0, fill: 0, blend: 0 });
+  });
+});
+
+describe('çizim yüzeyi', () => {
+  it('yüzey dosyanın pikselinden fazlasını çizmez', () => {
+    // 3× ekranda 119 piksellik dekorasyon karesi 357 piksel eder; dosya 264 piksel
+    expect(surfaceScale(264, 119, 3)).toBeCloseTo(264 / 357);
+    // 2× ekranda dosya yüzeyden büyük: tam çözünürlük
+    expect(surfaceScale(264, 119, 2)).toBe(1);
+    expect(surfaceScale(600, 300, 2)).toBe(1);
+  });
+
+  it('geçersiz ölçüde 1', () => {
+    expect(surfaceScale(0, 100, 3)).toBe(1);
+    expect(surfaceScale(264, 0, 3)).toBe(1);
+    expect(surfaceScale(264, 100, NaN)).toBe(1);
+  });
+});
+
+describe('withAlpha', () => {
+  it('"#rrggbb" ve "rgb(a)(…)" renklerinin saydam hali', () => {
+    expect(withAlpha('#04101c', 0)).toBe('rgba(4,16,28,0)');
+    expect(withAlpha('#FFFFFF', 0.5)).toBe('rgba(255,255,255,0.5)');
+    expect(withAlpha('rgba(180,235,255,.35)', 0)).toBe('rgba(180,235,255,0)');
+    expect(withAlpha('rgba(180,235,255,.5)', 0.5)).toBe('rgba(180,235,255,0.25)');
+    expect(withAlpha('rgb(1,2,3)', 1)).toBe('rgba(1,2,3,1)');
+  });
+
+  it('çözülemeyen renk null', () => {
+    expect(withAlpha('red', 0)).toBeNull();
+    expect(withAlpha('#fff', 0)).toBeNull();
+  });
+});
+
+describe('yan yana video', () => {
+  // Gerçek kart dosyası: görünen kare 600×900, video 1216 piksel genişliğinde, alfa yarısı 616. sütunda
+  const layout = { width: 600, height: 900, stackedWidth: 1216, alphaX: 616 };
+
+  it('geçerli yerleşim: alfa yarısı renk yarısının sağında ve videonun içinde', () => {
+    expect(isStackedLayout(layout)).toBe(true);
+    expect(isStackedLayout({ width: 600, height: 900 })).toBe(false);
+    expect(isStackedLayout({ ...layout, alphaX: 500 })).toBe(false);
+    expect(isStackedLayout({ ...layout, alphaX: 700 })).toBe(false);
+    expect(isStackedLayout({ ...layout, width: 0 })).toBe(false);
+  });
+
+  it('çizim biriminden videonun pikseline ölçek', () => {
+    expect(stackedUniforms(layout, 300, 450)).toEqual({ scale: [2, 2], size: [600, 900], alphaX: 616 });
+    expect(stackedUniforms(layout, 360, 540).scale[0]).toBeCloseTo(600 / 360);
+    // boş yüzeyde bölme hatası olmaz
+    expect(stackedUniforms(layout, 0, 0).scale).toEqual([1, 1]);
+  });
+
+  it('renk soldaki yarıdan, alfa aynı noktanın alphaX kadar sağından okunur', () => {
+    const u = stackedUniforms(layout, 300, 450);
+    expect(stackedSample(100, 200, u)).toEqual({ color: [200, 400], alpha: [816, 400] });
+  });
+
+  it('kenarlarda yarım piksel içeride kalır: iki yarı birbirine ve boşluğa taşmaz', () => {
+    const u = stackedUniforms(layout, 300, 450);
+    const topLeft = stackedSample(0, 0, u);
+    expect(topLeft.color).toEqual([0.5, 0.5]);
+    expect(topLeft.alpha).toEqual([616.5, 0.5]);
+    const bottomRight = stackedSample(300, 450, u);
+    expect(bottomRight.color).toEqual([599.5, 899.5]);
+    expect(bottomRight.alpha).toEqual([1215.5, 899.5]);
+    // Renk örneği boşluğa (600–616) ve alfa yarısına hiç girmez; alfa örneği videodan taşmaz
+    expect(bottomRight.color[0]).toBeLessThan(layout.width);
+    expect(bottomRight.alpha[0]).toBeLessThan(layout.stackedWidth);
+    expect(stackedSample(999, 9999, u)).toEqual(bottomRight);
+  });
+});
+
+describe('kare saati', () => {
+  it('kare hızından aralık; geçersiz hız 30, en çok 60', () => {
+    expect(frameInterval(30)).toBeCloseTo(33.33, 1);
+    expect(frameInterval(24)).toBeCloseTo(41.67, 1);
+    expect(frameInterval(120)).toBeCloseTo(16.67, 1);
+    expect(frameInterval(0)).toBeCloseTo(33.33, 1);
+    expect(frameInterval(NaN)).toBeCloseTo(33.33, 1);
+  });
+
+  it('ilk kare hemen çizilir', () => {
+    expect(frameDue(1000, 0, 33.3)).toBe(true);
+  });
+
+  /** Ekranın yenileme hızında bir saniye boyunca kaç kare ilerler */
+  function framesPerSecond(hz: number, fps: number): number {
+    const interval = frameInterval(fps);
+    let last = 0;
+    let frames = 0;
+    for (let i = 1; i <= hz; i++) {
+      const now = 5000 + (i * 1000) / hz;
+      if (frameDue(now, last, interval)) {
+        last = now;
+        frames++;
+      }
+    }
+    return frames;
+  }
+
+  it('60, 90 ve 120 Hz ekranda da saniyede 30 kare', () => {
+    expect(framesPerSecond(60, 30)).toBe(30);
+    expect(framesPerSecond(90, 30)).toBe(30);
+    expect(framesPerSecond(120, 30)).toBe(30);
+  });
+
+  it('kayan ortalama yavaş kareye doğru yavaşça kayar', () => {
+    let cost = 0;
+    for (let i = 0; i < 100; i++) cost = stepCost(cost, 20);
+    expect(cost).toBeGreaterThan(19);
+    expect(stepCost(2, 2)).toBeCloseTo(2);
+    expect(stepCost(0, 30)).toBeCloseTo(3);
+  });
+});
+
+describe('Android video döngüsü', () => {
+  const frames = 180;
+  const duration = 6000;
+  const frameMs = 1000 / 30;
+
+  it('dosyanın bütün kareleri istenmeden sarılmaz', () => {
+    expect(videoShouldRewind(10, frames, 300, duration, frameMs, 2)).toBe(false);
+    // Sarmanın hemen ardından çözücünün zamanı hâlâ eski döngünün sonunu gösterir: yeniden sarılmamalı
+    expect(videoShouldRewind(1, frames, 5966, duration, frameMs, 12)).toBe(false);
+    expect(videoShouldRewind(frames - 3, frames, 5966, duration, frameMs, 12)).toBe(false);
+  });
+
+  it('son karenin zamanı görülünce sarılır', () => {
+    expect(videoShouldRewind(frames - 1, frames, 5966.7, duration, frameMs, 2)).toBe(true);
+    expect(videoShouldRewind(frames - 1, frames, 5900, duration, frameMs, 2)).toBe(false);
+  });
+
+  it('kareler bittikten sonra boşuna bekleyen istekte sarılır', () => {
+    expect(videoShouldRewind(frames + 1, frames, 5833, duration, frameMs, 20)).toBe(true);
+    expect(videoShouldRewind(frames + 1, frames, 5833, duration, frameMs, 1)).toBe(false);
+  });
+
+  it('pay dolunca her durumda sarılır; kare sayısı bilinmiyorsa hiç sarılmaz', () => {
+    expect(videoShouldRewind(frames + VIDEO_TAIL_CALLS, frames, 0, 0, frameMs, 0)).toBe(true);
+    expect(videoShouldRewind(frames + VIDEO_TAIL_CALLS - 1, frames, 0, 0, frameMs, 0)).toBe(false);
+    expect(videoShouldRewind(9999, 0, 0, 0, frameMs, 0)).toBe(false);
+  });
+});
