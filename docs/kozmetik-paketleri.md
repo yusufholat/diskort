@@ -167,3 +167,25 @@ Paketler masaüstünde başlar; telefonda oynatma denendikçe platform platform 
 (`animatedEffect`, `avatarDecoration`, `nameplate`) **yalnızca yerleşik altı kimliği** gönderir; diğerleri `null`
 olur. Yeni istemciler bunu gateway'de `IDENTIFY.features` içinde `cosmetic_packs`, HTTP isteklerinde
 `X-Diskort-Features` başlığıyla bildirir (bkz. `apps/server/src/cosmeticCompat.ts`).
+
+## Telefonda (Android, iOS)
+
+Telefon setleri kodla çizmez; oynatıcı `apps/mobile/src/components/cosmetics/` altındadır (Skia).
+
+| Parça | Oynatılan dosya | Hareket yokken |
+|---|---|---|
+| Avatar dekorasyonu (`deco`), isim plakası (`plate`) | `webp` (hareketli WebP) | `poster` |
+| Profil efekti (`card`), iOS | `stacked-h264`; yoksa `webp` | `poster` |
+| Profil efekti (`card`), Android | `webp` varsa o; yoksa yalnızca `poster` (hareketsiz) | `poster` |
+
+- **Android'de kart videosu oynatılmaz:** Skia'nın videosu en az API 26 ile derlenmiş uygulama ister, uygulamanın
+  `minSdk`'si 24'tür. Açmak için yeni APK gerekir (`minSdkVersion: 26`, sonra `packSource.ts` →
+  `STACKED_VIDEO_PLATFORMS`'a `android`; cihazda denenmelidir). O zamana dek Android'de kartın hareketli olması
+  istenirse pakete kart için bir `webp` eklenebilir (kareleri arayüz iş parçacığında çözülür: ağır kalırsa
+  oynatıcı kendiliğinden postere döner).
+- `avif` telefonda kullanılmaz. Poster düz bir resim olarak gösterilir: "hareketi azalt" açıkken, durdurulmuş
+  görünümde (seçicide seçili olmayan seçenek, seste konuşmayan katılımcı), ekran dışında ve dosya yüklenirken.
+- Küçük avatarlarda (64 pikselden küçük: mesajlar, listeler) dekorasyon yerine setin `accent` renginde sabit bir
+  halka çizilir. Paket platformda kapalıysa: halka, plakada `fallback` renklerinden koyu bir zemin, kartta
+  afişin üstünde hafif bir ışık.
+- Dosyalar cihazda sürümlü adresleriyle önbelleklenir; bildirimde kalmayan sürümler silinir.

@@ -168,6 +168,8 @@ describe('createPackCache', () => {
 
   it('önbellek klasörü yoksa ve adres paket dosyası değilse hata', async () => {
     const t = fakeFs({ [deco]: 100 });
+    expect(createPackCache(t.fs).available).toBe(true);
+    expect(createPackCache({ ...t.fs, dir: null }).available).toBe(false);
     await expect(createPackCache({ ...t.fs, dir: null }).ensure({ url: deco, bytes: 100 })).rejects.toThrow('önbellek');
     await expect(createPackCache(t.fs).ensure({ url: 'https://sunucu.test/a.webp', bytes: 1 })).rejects.toThrow('adresi');
   });

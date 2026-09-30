@@ -6,7 +6,10 @@
 // - "hareketi azalt" açıkken, durdurulmuş görünümde ve dosya hazır olana kadar görünüm canlı değildir (sabit
 //   resmini gösterir);
 // - son görünüm de kalkınca oynatıcı kısa bir süre bekletilir (liste kaydırılırken yeniden kurulmasın), sonra
-//   bırakılır.
+//   bırakılır;
+// - dosya yüklenemez ya da çözülemezse görünümler sabit resimde kalır; geçici hata bir süre sonra kendiliğinden,
+//   bildirim değişince ya da bağlantı geri gelince hemen (`retry`) yeniden denenir: görünümün yeniden kurulması
+//   gerekmez.
 // Çözme ve kare saati sürücüdedir (packDriver.ts: arayüz iş parçacığı); bu dosya React Native'e ve Skia'ya bağlı
 // değildir (birim testleri sahte sürücüyle çalışır). Hiçbir geri çağrısı hata fırlatmaz.
 
@@ -25,8 +28,11 @@ export interface PlayerSpec {
 export interface DriverEvents {
   /** İlk kare hazır */
   ready(): void;
-  /** Yüklenemedi, çözülemedi ya da oynarken hata verdi */
-  failed(error: unknown): void;
+  /**
+   * Yüklenemedi, çözülemedi ya da oynarken hata verdi. `permanent`: yeniden denemek bir şey değiştirmez (cihaz
+   * kareleri yetiştiremiyor): bu oturumda bir daha denenmez. Diğer hatalar geçici sayılır (ağ, eskimiş adres).
+   */
+  failed(error: unknown, permanent?: boolean): void;
 }
 
 /** Sürücünün bir dosya için kurduğu oynatıcı; `F`: görünümlerin çizdiği kare (paylaşılan değer) */
@@ -72,15 +78,18 @@ export interface PlaybackOptions<F> {
   driver: PlayerDriver<F>;
   timers: PlaybackTimers;
   now?: () => number;
-  /** Oynatıcı hata verdi (bildirim için); görünümler sabit resme döner */
-  onError?: (spec: PlayerSpec, error: unknown) => void;
+  /** Oynatıcı hata verdi (bildirim için); görünümler sabit resme döner. `permanent`: bkz. DriverEvents.failed */
+  onError?: (spec: PlayerSpec, error: unknown, permanent: boolean) => void;
 }
 
 /** Görünümlerin ekranda olup olmadığı bu aralıkla ölçülür (ms) */
 export const MEASURE_MS = 500;
 /** Görünümü kalmayan oynatıcı bu kadar sonra bırakılır (ms) */
 export const IDLE_CLOSE_MS = 4000;
-/** Hata veren dosya bu süre geçmeden yeniden denenmez (ms) */
+/**
+ * Geçici hata veren dosya bu kadar sonra (ms) kendiliğinden yeniden denenir (görünümü duruyorsa); daha erken
+ * yalnızca `retry()` ile (bildirim değişti, bağlantı geri geldi)
+ */
 export const RETRY_MS = 60_000;
 
 type State = 'idle' | 'loading' | 'ready' | 'failed';
@@ -100,6 +109,8 @@ interface Player<F> {
   /** Sürücünün eski bir oynatıcısından gelen olaylar yok sayılır */
   generation: number;
   idleTimer: unknown;
+  /** Geçici hatadan sonra kendiliğinden yeniden deneme */
+  retryTimer: unknown;
 }
 
 export interface Playback<F> {
@@ -108,15 +119,41 @@ export interface Playback<F> {
   setAppActive(on: boolean): void;
   /** "Hareketi azalt" açık mı */
   setReducedMotion(on: boolean): void;
+  /**
+   * Geçici hata vermiş dosyaları beklemeden yeniden dener (bildirim değişti, bağlantı geri geldi): görünümler
+   * yeniden kurulmadan, dosya açılınca canlıya döner. Kalıcı hatalar (bkz. DriverEvents.failed) denenmez.
+   */
+  retry(): void;
   stats(): { players: number; views: number; live: number; running: number; loaded: number };
 }
 
 export function createPlayback<F>({ driver, timers, now = Date.now, onError }: PlaybackOptions<F>): Playback<F> {
   const players = new Map<string, Player<F>>();
-  const failures = new Map<string, number>();
+  /** Hata vermiş dosyalar: oynatıcısı bırakılsa da hatırlanır (yeniden kurulan görünüm hemen yeniden denemesin) */
+  const failures = new Map<string, { at: number; permanent: boolean }>();
   let appActive = true;
   let reduced = false;
   let measureTimer: unknown = null;
+
+  /** Dosya şu an denenmemeli mi (kalıcı hata ya da geçici hatanın bekleme süresi dolmadı) */
+  function blocked(url: string): boolean {
+    const failure = failures.get(url);
+    return failure !== undefined && (failure.permanent || now() - failure.at < RETRY_MS);
+  }
+
+  function cancelRetry(p: Player<F>): void {
+    if (p.retryTimer === null) return;
+    timers.clearTimeout(p.retryTimer);
+    p.retryTimer = null;
+  }
+
+  /** Hata vermiş oynatıcıyı yeniden denenebilir yapar; oynatmak isteyen görünümü varsa dosya yeniden açılır */
+  function revive(p: Player<F>): void {
+    cancelRetry(p);
+    if (p.state !== 'failed' || players.get(p.spec.url) !== p) return;
+    p.state = 'idle';
+    refresh(p);
+  }
 
   const wants = (v: ViewRec<F>): boolean => !v.gone && v.focused && v.visible && !v.paused && !reduced;
 
@@ -131,17 +168,18 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
     }
   }
 
-  function fail(p: Player<F>, error: unknown): void {
+  function fail(p: Player<F>, error: unknown, permanent: boolean): void {
     if (p.state === 'failed') return;
     p.state = 'failed';
     p.generation++;
-    failures.set(p.spec.url, now());
+    failures.delete(p.spec.url);
+    failures.set(p.spec.url, { at: now(), permanent });
     if (failures.size > 64) failures.delete(failures.keys().next().value!);
     const handle = p.handle;
     p.handle = null;
     p.running = false;
     try {
-      onError?.(p.spec, error);
+      onError?.(p.spec, error, permanent);
     } catch {
       // bildirim hatası: yapılacak bir şey yok
     }
@@ -150,6 +188,15 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
       handle?.close();
     } catch {
       // zaten kapalı
+    }
+    // Geçici hata sabit resimde sonsuza kadar bırakmaz: bir süre sonra kendiliğinden yeniden denenir
+    cancelRetry(p);
+    if (!permanent && players.get(p.spec.url) === p) {
+      p.retryTimer = timers.setTimeout(() => {
+        p.retryTimer = null;
+        failures.delete(p.spec.url);
+        revive(p);
+      }, RETRY_MS);
     }
   }
 
@@ -164,12 +211,12 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
           p.state = 'ready';
           refresh(p);
         },
-        failed: (error) => {
-          if (current()) fail(p, error);
+        failed: (error, permanent) => {
+          if (current()) fail(p, error, permanent === true);
         },
       });
     } catch (err) {
-      fail(p, err);
+      fail(p, err, false);
     }
   }
 
@@ -189,7 +236,7 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
       try {
         p.handle.setRunning(run);
       } catch (err) {
-        fail(p, err);
+        fail(p, err, false);
       }
     }
     for (const v of p.views) notify(p, v);
@@ -197,6 +244,7 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
 
   function close(p: Player<F>): void {
     if (players.get(p.spec.url) === p) players.delete(p.spec.url);
+    cancelRetry(p);
     p.generation++;
     const handle = p.handle;
     p.handle = null;
@@ -245,11 +293,19 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
     attach(spec, view) {
       let p = players.get(spec.url);
       if (!p) {
-        const failedAt = failures.get(spec.url);
-        const blocked = failedAt !== undefined && now() - failedAt < RETRY_MS;
-        p = { spec, state: blocked ? 'failed' : 'idle', views: new Set(), handle: null, running: false, generation: 0, idleTimer: null };
+        p = {
+          spec,
+          state: blocked(spec.url) ? 'failed' : 'idle',
+          views: new Set(),
+          handle: null,
+          running: false,
+          generation: 0,
+          idleTimer: null,
+          retryTimer: null,
+        };
         players.set(spec.url, p);
-      } else if (p.state === 'failed' && now() - (failures.get(spec.url) ?? 0) >= RETRY_MS) {
+      } else if (p.state === 'failed' && !blocked(spec.url)) {
+        cancelRetry(p);
         p.state = 'idle';
       }
       if (p.idleTimer !== null) {
@@ -303,6 +359,10 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
       if (on === reduced) return;
       reduced = on;
       for (const p of players.values()) refresh(p);
+    },
+    retry() {
+      for (const [url, failure] of failures) if (!failure.permanent) failures.delete(url);
+      for (const p of [...players.values()]) if (p.state === 'failed' && !failures.has(p.spec.url)) revive(p);
     },
     stats() {
       let views = 0;

@@ -2,7 +2,7 @@ import { Component, memo, useEffect, useMemo, useRef, useState, type ReactNode, 
 import { Image, PixelRatio, Platform, StyleSheet, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
 import { useIsFocused } from 'expo-router';
 import type { CosmeticPack, CosmeticPiece, CosmeticSetId } from '@diskort/shared';
-import { cosmeticPacks, useCosmeticPacks, type ResolvedCosmeticAsset } from '@diskort/client-core';
+import { cosmeticAssetFailed, cosmeticPacks, useCosmeticManifest, type ResolvedCosmeticAsset } from '@diskort/client-core';
 import type { SkRuntimeEffect } from '@shopify/react-native-skia';
 import type { Frame } from './packDriver';
 import {
@@ -18,16 +18,18 @@ import {
 } from './packLayout';
 import type { PlaybackHandle, PlayerSpec } from './packPlayer';
 import { pieceSource, type PhoneOS, type PieceSource } from './packSource';
-import { onScreen, playback } from './playback';
+import { onScreen, playback, useRetryEpoch } from './playback';
 import { reportCosmeticError } from './report';
 import { skia, useHasSkia } from './skia';
 
 // Hareketli kozmetiklerin React bileşenleri. Setler telefonda kodla çizilmez: sunucudan inen paketin dosyaları
 // oynatılır (bkz. docs/kozmetik-paketleri.md). Her parçanın altında sabit resmi (poster: düz bir <Image>) durur;
 // parça ekrandayken, ekranı odaktayken ve hareket serbestken üstüne paylaşılan oynatıcının karesini çizen bir
-// Skia yüzeyi gelir (packPlayer.ts / packDriver.ts). Paket bu platformda kapalıysa setin renklerinden sabit bir
-// görünüm, set bildirimde yoksa hiçbir şey gösterilir. Skia'nın yerel modülü olmayan uygulamada kozmetikler
-// gösterilmez (küçük avatarlardaki sabit halka dışında: o düz bir görünümdür).
+// Skia yüzeyi gelir (packPlayer.ts / packDriver.ts). Paket bu platformda kapalıysa (ya da sabit resmi de
+// yüklenemiyorsa) setin renklerinden sabit bir görünüm, set bildirimde yoksa hiçbir şey gösterilir. Yüklenemeyen
+// dosya sunucuya bildirilir (bildirim tazelenir) ve bildirim değişince ya da bağlantı geri gelince yeniden
+// denenir. Skia'nın yerel modülü olmayan uygulamada kozmetikler gösterilmez (küçük avatarlardaki sabit halka
+// dışında: o düz bir görünümdür).
 
 export { hasSkia, useHasSkia } from './skia';
 export { ANIMATED_DECORATION_MIN_SIZE, CARD_BANNER_RATIO, decorationCanvasSize } from './packLayout';
@@ -39,7 +41,7 @@ const SETTLE_MS = 120;
 
 /** Setin bir parçasının kaynağı; bildirim değişince yeniden hesaplanır */
 function usePieceSource(set: CosmeticSetId | null | undefined, piece: CosmeticPiece): PieceSource {
-  const manifest = useCosmeticPacks((s) => s.manifest);
+  const manifest = useCosmeticManifest();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => pieceSource(cosmeticPacks, set, piece, OS), [manifest, set, piece]);
 }
@@ -233,15 +235,44 @@ interface PieceProps {
   /** Kapsayıcının yeri ve boyu */
   style?: StyleProp<ViewStyle>;
   onSize?: (width: number, height: number) => void;
+  /** Gösterilecek sabit resim de yokken (pakette yok ya da yüklenemedi): setin renklerinden sabit görünüm */
+  fallback: ReactNode;
   children?: ReactNode;
 }
 
+/**
+ * Sabit resmin (poster) yüklenmesi. Yüklenemezse paket deposuna bildirilir (bildirim eskimiş olabilir) ve
+ * yeniden deneme sayacı değişince (bildirim değişti, bağlantı geri geldi) bileşen yeniden kurulmadan yeniden
+ * istenir.
+ */
+function usePoster(poster: ResolvedCosmeticAsset | null) {
+  const epoch = useRetryEpoch();
+  const url = poster?.url ?? null;
+  const [failure, setFailure] = useState<{ url: string; epoch: number } | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (!failure || (failure.url === url && failure.epoch === epoch)) return;
+    setFailure(null);
+    setAttempt((n) => n + 1);
+  }, [failure, url, epoch]);
+  return {
+    failed: failure !== null && failure.url === url,
+    key: `${url ?? ''}#${attempt}`,
+    onError: (): void => {
+      if (!url) return;
+      cosmeticAssetFailed(url);
+      setFailure({ url, epoch });
+    },
+  };
+}
+
 /** Paketin bir parçası: altta sabit resim, canlıyken üstünde oynatıcının karesi. Dokunmaları engellemez. */
-function PackPiece({ info, asset, poster, left, top, width, height, visibleHeight, paused, opaque, style, onSize, children }: PieceProps) {
+function PackPiece({ info, asset, poster, left, top, width, height, visibleHeight, paused, opaque, style, onSize, fallback, children }: PieceProps) {
   const box = useRef<View>(null);
   const [broken, setBroken] = useState(false);
   const canPlay = useHasSkia() && !broken;
   const { live, frame, remeasure } = usePlayback(canPlay ? asset : null, info, Boolean(paused), box);
+  const still = usePoster(poster);
   const drawable = width >= 1 && height >= 1;
   const showLive = live && frame !== null && asset !== null && canPlay && drawable;
   const settled = useSettled(showLive);
@@ -251,31 +282,36 @@ function PackPiece({ info, asset, poster, left, top, width, height, visibleHeigh
     remeasure();
   };
   return (
-    <View
-      ref={box}
-      collapsable={false}
-      pointerEvents="none"
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      style={[styles.box, style]}
-      onLayout={onLayout}
-    >
-      {poster && drawable && (
-        <Image
-          source={{ uri: poster.url }}
-          style={[{ position: 'absolute', left, top, width, height }, !opaque && settled && styles.hidden]}
-          resizeMode="stretch"
-          fadeDuration={0}
-          accessibilityIgnoresInvertColors
-        />
-      )}
-      {showLive && (
-        <LiveBoundary onFail={() => setBroken(true)}>
-          <LiveCanvas asset={asset} frame={frame} left={left} top={top} width={width} height={height} visibleHeight={visibleHeight ?? height} />
-        </LiveBoundary>
-      )}
-      {children}
-    </View>
+    <>
+      <View
+        ref={box}
+        collapsable={false}
+        pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[styles.box, style]}
+        onLayout={onLayout}
+      >
+        {poster && drawable && (
+          <Image
+            key={still.key}
+            source={{ uri: poster.url }}
+            style={[{ position: 'absolute', left, top, width, height }, (still.failed || (!opaque && settled)) && styles.hidden]}
+            resizeMode="stretch"
+            fadeDuration={0}
+            onError={still.onError}
+            accessibilityIgnoresInvertColors
+          />
+        )}
+        {showLive && (
+          <LiveBoundary onFail={() => setBroken(true)}>
+            <LiveCanvas asset={asset} frame={frame} left={left} top={top} width={width} height={height} visibleHeight={visibleHeight ?? height} />
+          </LiveBoundary>
+        )}
+        {children}
+      </View>
+      {!showLive && (!poster || still.failed) ? fallback : null}
+    </>
   );
 }
 
@@ -311,6 +347,7 @@ export function CardEffect({ set }: { set: CosmeticSetId }) {
       visibleHeight={box.visibleHeight}
       style={StyleSheet.absoluteFill}
       onSize={onSize}
+      fallback={<CardStaticGlow info={source.info} />}
     />
   );
 }
@@ -362,6 +399,7 @@ export function AnimatedDecoration({
       height={box}
       paused={still || lite === 'paused'}
       style={{ left: off, top: off, width: box, height: box }}
+      fallback={<StaticDecorationRing accent={source.info.accent} size={size} />}
     />
   );
 }
@@ -417,6 +455,7 @@ export function NameplateBackground({ set, still }: { set: CosmeticSetId; still?
       opaque
       style={[StyleSheet.absoluteFill, { backgroundColor: dark }]}
       onSize={onSize}
+      fallback={<PlateStatic info={source.info} />}
     >
       {box.blend > 0 && (
         <View
@@ -459,6 +498,7 @@ export function SetThumb({ set, style }: { set: CosmeticSetId; style?: StyleProp
           style={{ position: 'absolute', left: 0, top: 0, width: size.w, height: (size.w * poster.height) / poster.width }}
           resizeMode="stretch"
           fadeDuration={0}
+          onError={() => cosmeticAssetFailed(poster.url)}
           accessibilityIgnoresInvertColors
         />
       )}

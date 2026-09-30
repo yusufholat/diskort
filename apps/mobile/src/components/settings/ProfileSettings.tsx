@@ -22,7 +22,7 @@ import {
   updateProfileLook,
   uploadAvatar,
   uploadBanner,
-  useCosmeticPacks,
+  useCosmeticManifest,
   useSession,
 } from '@diskort/client-core';
 import { pickAvatar, pickBanner } from '../../attachments';
@@ -50,7 +50,7 @@ export function ProfileSettings() {
   const animated = useHasSkia();
   // Seçilebilir setler sunucudaki bildirimden gelir (yeni set yayınlanınca uygulama güncellemesi gerekmez);
   // sayfa açılırken tazelenir
-  useCosmeticPacks((s) => s.manifest);
+  useCosmeticManifest();
   const sets = cosmeticPacks.selectable();
   useEffect(() => {
     void refreshCosmeticPacks();

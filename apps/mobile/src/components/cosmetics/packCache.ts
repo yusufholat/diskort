@@ -57,6 +57,8 @@ export function staleCacheFiles(existing: readonly string[], keep: ReadonlySet<s
 }
 
 export interface PackCache {
+  /** Cihazda önbellek klasörü var mı (yoksa dosyalar saklanamaz) */
+  available: boolean;
   /**
    * Dosyanın cihazdaki adresi; yoksa indirir. `bytes`: bildirimdeki boyut (tutmayan dosya geçersizdir). Aynı
    * dosya için aynı anda tek indirme yapılır. Önbellek kullanılamıyorsa ya da indirilemezse hata verir.
@@ -95,6 +97,7 @@ export function createPackCache(fs: PackCacheFs, folder = 'kozmetik-paketleri/')
   }
 
   return {
+    available: fs.dir !== null,
     ensure({ url, bytes }) {
       const name = cacheFileName(url);
       if (!name) return Promise.reject(new Error('paket dosyası adresi değil'));

@@ -1,7 +1,7 @@
 // Paylaşılan oynatıcılar: aynı dosyayı gösteren bütün görünümler tek çözücüyü paylaşır; dosya ancak bir görünüm
 // oynatmak isteyince açılır; kare saati yalnızca en az bir görünüm ekranda, odakta ve hareket serbestken, uygulama
-// öndeyken çalışır; son görünüm kalkınca oynatıcı bekletilip bırakılır; hata veren dosya sabit resme döner.
-// Sürücü (çözücü ve kare saati) sahtedir.
+// öndeyken çalışır; son görünüm kalkınca oynatıcı bekletilip bırakılır; hata veren dosya sabit resme döner ve
+// (geçici hataysa) görünüm yeniden kurulmadan yeniden denenir. Sürücü (çözücü ve kare saati) sahtedir.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -28,7 +28,7 @@ const plate: PlayerSpec = { url: 'https://s/api/cosmetics/packs/buz/0123456789ab
 const deco: PlayerSpec = { url: 'https://s/api/cosmetics/packs/buz/0123456789abcdef/deco.webp', kind: 'image', bytes: 10, fps: 30, frames: 180 };
 
 let opened: FakePlayer[];
-let errors: { spec: PlayerSpec; error: unknown }[];
+let errors: { spec: PlayerSpec; error: unknown; permanent: boolean }[];
 let playback: Playback<{ url: string }>;
 let failOpen = false;
 
@@ -53,7 +53,7 @@ beforeEach(() => {
       clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
       nextFrame: (fn) => void setTimeout(fn, 0),
     },
-    onError: (spec, error) => errors.push({ spec, error }),
+    onError: (spec, error, permanent) => errors.push({ spec, error, permanent }),
   });
 });
 
@@ -328,19 +328,89 @@ describe('hata', () => {
     expect(opened[0]!.closed).toBe(1);
   });
 
-  it('hata veren dosya süre dolmadan yeniden denenmez, dolunca denenir', () => {
+  it('geçici hata: görünüm yeniden kurulmadan, süre dolunca kendiliğinden yeniden denenir', () => {
+    const v = view();
+    playback.attach(plate, v.options);
+    opened[0]!.events.failed(new Error('ağ yok'));
+    expect(errors[0]!.permanent).toBe(false);
+    // Bu arada bağlanan başka görünüm yeniden denetmez
+    playback.attach(plate, view().options);
+    vi.advanceTimersByTime(RETRY_MS - 1);
+    expect(opened).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(opened).toHaveLength(2);
+    opened[1]!.events.ready();
+    expect(v.live).toBe(true);
+    expect(v.frame).toBe(opened[1]!.frame);
+  });
+
+  it('retry: bildirim değişince ya da bağlantı gelince beklemeden yeniden denenir', () => {
+    const v = view();
+    playback.attach(plate, v.options);
+    opened[0]!.events.failed(new Error('404'));
+    playback.retry();
+    expect(opened).toHaveLength(2);
+    opened[1]!.events.ready();
+    expect(v.live).toBe(true);
+    // Bekleyen kendiliğinden deneme iptal edilmiştir: çalışan oynatıcı yeniden açılmaz
+    vi.advanceTimersByTime(RETRY_MS * 2);
+    expect(opened).toHaveLength(2);
+    expect(opened[1]!.closed).toBe(0);
+  });
+
+  it('retry: oynatmak isteyen görünüm yoksa dosya açılmaz, isteyince açılır', () => {
+    const v = view();
+    const handle = playback.attach(plate, v.options);
+    opened[0]!.events.failed(new Error('404'));
+    handle.update({ paused: true });
+    playback.retry();
+    expect(opened).toHaveLength(1);
+    handle.update({ paused: false });
+    expect(opened).toHaveLength(2);
+  });
+
+  it('yeniden denemede de hata veren dosya her seferinde bir kez denenir', () => {
+    playback.attach(plate, view().options);
+    opened[0]!.events.failed(new Error('404'));
+    vi.advanceTimersByTime(RETRY_MS);
+    opened[1]!.events.failed(new Error('404'));
+    expect(opened).toHaveLength(2);
+    vi.advanceTimersByTime(RETRY_MS);
+    expect(opened).toHaveLength(3);
+    expect(errors).toHaveLength(2);
+    // Arada başka deneme yok: her süre dolumunda tek açılış
+    expect(opened.slice(0, 2).every((p) => p.closed === 1)).toBe(true);
+  });
+
+  it('kalıcı hata (cihaz kareleri yetiştiremiyor) bu oturumda yeniden denenmez', () => {
+    const v = view();
+    const handle = playback.attach(plate, v.options);
+    opened[0]!.events.ready();
+    opened[0]!.events.failed(new Error('kareler yavaş'), true);
+    expect(v.live).toBe(false);
+    expect(errors[0]!.permanent).toBe(true);
+    vi.advanceTimersByTime(RETRY_MS * 3);
+    playback.retry();
+    playback.attach(plate, view().options);
+    expect(opened).toHaveLength(1);
+    // Oynatıcı bırakılıp yeniden kurulunca da
+    handle.dispose();
+    vi.advanceTimersByTime(RETRY_MS);
+    playback.attach(plate, view().options);
+    expect(opened).toHaveLength(1);
+  });
+
+  it('bırakılmış oynatıcının hatası hatırlanır: yeniden kurulan görünüm süre dolmadan denemez, dolunca dener', () => {
     const handle = playback.attach(plate, view().options);
     opened[0]!.events.failed(new Error('bozuk'));
-    playback.attach(plate, view().options);
-    expect(opened).toHaveLength(1);
-
-    // Oynatıcı bırakıldıktan sonra da hatırlanır
     handle.dispose();
-    vi.advanceTimersByTime(RETRY_MS - 1000);
-    playback.attach(plate, view().options);
-    expect(opened).toHaveLength(1);
+    vi.advanceTimersByTime(IDLE_CLOSE_MS);
+    expect(playback.stats().players).toBe(0);
 
-    vi.advanceTimersByTime(1000);
+    const early = playback.attach(plate, view().options);
+    expect(opened).toHaveLength(1);
+    early.dispose();
+    vi.advanceTimersByTime(RETRY_MS);
     playback.attach(plate, view().options);
     expect(opened).toHaveLength(2);
   });

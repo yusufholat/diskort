@@ -12,9 +12,10 @@ export type PhoneOS = 'android' | 'ios';
  * Yan yana videonun (stacked-h264) oynatıldığı platformlar. Skia'nın videosu Android'de en az API 26 ile
  * derlenmiş uygulama ister (node_modules/@shopify/react-native-skia/android/cpp/rnskia-android/
  * RNSkAndroidVideo.cpp: `__ANDROID_API__ < 26` ise kurucu hata fırlatır); uygulamanın minSdk'si 24 olduğundan
- * Android'de video derlenmemiştir ve denemek bile bir çözücüyü sızdırır. Android'de kart efekti bu yüzden
- * posterle (ya da pakette varsa hareketli WebP ile) gösterilir. Açmak için: minSdk 26 ile yeni APK, bu listeye
- * 'android' ve cihazda deneme (döngü kuralı hazır: packLayout.ts videoShouldRewind).
+ * Android'de video derlenmemiştir; denemek bile Java tarafında açılmış çözücüyü çöp toplanana dek açık bırakır
+ * (RNSkVideo kurulur, ardından C++ kurucusu fırlatır). Android'de kart efekti bu yüzden posterle (ya da pakette
+ * varsa hareketli WebP ile) gösterilir. Açmak için: minSdk 26 ile yeni APK, bu listeye 'android' ve cihazda
+ * deneme (döngü kuralı hazır ama denenmedi: packLayout.ts videoShouldRewind).
  */
 export const STACKED_VIDEO_PLATFORMS: readonly PhoneOS[] = ['ios'];
 

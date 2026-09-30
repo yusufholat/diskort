@@ -56,7 +56,7 @@ const manifest: CosmeticPackManifest = {
   packs: [
     pack('buz', ['desktop', 'android', 'ios']),
     pack('neon', ['desktop']),
-    pack('sakura', ['android', 'ios'], { card: [file('sakura', 'card.webp', 'webp', 300, 450), file('sakura', 'card-poster.webp', 'poster', 600, 900)] }),
+    pack('sakura', ['android', 'ios'], { card: [file('sakura', 'card.webp', 'webp', 600, 900), file('sakura', 'card-poster.webp', 'poster', 600, 900)] }),
     pack('kuzey', ['android', 'ios'], { deco: [file('kuzey', 'deco.avif', 'avif', 264, 264)] }),
   ],
 };
@@ -111,7 +111,7 @@ describe('pieceSource', () => {
 
   it("pakette kartın hareketli WebP'si varsa Android'de o oynar", () => {
     const card = source('sakura', 'card', 'android');
-    expect(card.kind === 'pack' && card.asset).toMatchObject({ kind: 'webp', width: 300, height: 450 });
+    expect(card.kind === 'pack' && card.asset).toMatchObject({ kind: 'webp', width: 600, height: 900 });
   });
 
   it('platformda kapalı paket: setin renklerinden sabit görünüm', () => {

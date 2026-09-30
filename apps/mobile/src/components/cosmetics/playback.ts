@@ -1,7 +1,10 @@
 // Paylaşılan oynatıcıların (packPlayer.ts) uygulamadaki tek örneği: Skia sürücüsü, uygulamanın durumu (önde mi),
-// "hareketi azalt" ayarı ve görünümlerin ekranda olup olmadığının ölçümü. İlk görünüm bağlanınca kurulur.
+// "hareketi azalt" ayarı, görünümlerin ekranda olup olmadığının ölçümü ve yüklenemeyen dosyaların yeniden
+// denenmesi. İlk görünüm bağlanınca kurulur.
 
+import { useSyncExternalStore } from 'react';
 import { AccessibilityInfo, AppState, Dimensions, Platform } from 'react-native';
+import { cosmeticAssetFailed, useCosmeticPacks, useGuild } from '@diskort/client-core';
 import { prefersReducedMotion } from '../../motion';
 import { createSkiaDriver, type Frame } from './packDriver';
 import { watchPackFiles } from './packFiles';
@@ -21,7 +24,11 @@ export function playback(): Playback<Frame> {
       clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
       nextFrame: (fn) => void requestAnimationFrame(fn),
     },
-    onError: (spec, error) => reportCosmeticError(spec.kind === 'video' ? 'video' : 'hareketli resim', error),
+    onError: (spec, error, permanent) => {
+      reportCosmeticError(spec.kind === 'video' ? 'video' : 'hareketli resim', error);
+      // İndirilemeyen ya da çözülemeyen dosya: bildirim eskimiş olabilir (paket yeniden yayınlanmış, kaldırılmış)
+      if (!permanent) cosmeticAssetFailed(spec.url);
+    },
   });
   instance = created;
   created.setAppActive(AppState.currentState === 'active' || AppState.currentState == null);
@@ -34,6 +41,45 @@ export function playback(): Playback<Frame> {
   AccessibilityInfo.addEventListener('reduceMotionChanged', (on) => created.setReducedMotion(on));
   watchPackFiles();
   return created;
+}
+
+// ---------- Yeniden deneme ----------
+
+let epoch = 0;
+const listeners = new Set<() => void>();
+let watching = false;
+
+/** Yüklenemeyen dosyalar yeniden denenir: oynatıcılar hemen, sabit resimler (bileşenlerde) sayaç değişince */
+function retryAll(): void {
+  epoch++;
+  instance?.retry();
+  for (const fn of listeners) fn();
+}
+
+/**
+ * Yeniden denemenin tetikleyicileri: paket bildirimi değişti (yeni sürüm, yeni adresler) ya da sunucu bağlantısı
+ * geri geldi. İkinci çağrı bir şey yapmaz.
+ */
+function watchRetries(): void {
+  if (watching) return;
+  watching = true;
+  useCosmeticPacks.subscribe((state, previous) => {
+    if (state.manifest !== previous.manifest) retryAll();
+  });
+  useGuild.subscribe((state, previous) => {
+    if (state.status === 'ready' && previous.status !== 'ready') retryAll();
+  });
+}
+
+const subscribe = (fn: () => void): (() => void) => {
+  watchRetries();
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+};
+
+/** Yeniden deneme sayacı: değişince yüklenememiş sabit resim yeniden istenir (bileşen yeniden kurulmadan) */
+export function useRetryEpoch(): number {
+  return useSyncExternalStore(subscribe, () => epoch);
 }
 
 /** Ölçülen dikdörtgen pencerede görünür mü (biraz pay bırakılır: kaydırırken geç kalmasın) */

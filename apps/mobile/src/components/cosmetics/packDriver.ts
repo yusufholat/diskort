@@ -130,19 +130,20 @@ function uiStepVideo(key: number, p: UiPlayer, clip: Video, now: number): void {
   }
 }
 
-function uiStep(key: number, p: UiPlayer, now: number): void {
+/** Bir kare ilerletir; kareler bu cihazda yetişmiyorsa (ortalama iş bütçeyi aşıyor) false döner */
+function uiStep(key: number, p: UiPlayer, now: number): boolean {
   'worklet';
   const started = performance.now();
   if (p.clip) uiStepVideo(key, p, p.clip, now);
   else uiStepImage(p);
-  if (!p.primed) return;
+  if (!p.primed) return true;
   p.cost = stepCost(p.cost, performance.now() - started);
   p.steps++;
-  const budget = p.clip ? STEP_BUDGET_MS.video : STEP_BUDGET_MS.image;
-  if (p.steps > STEP_BUDGET_AFTER && p.cost > budget) throw new Error(`kareler yavaş (ortalama ${Math.round(p.cost)} ms)`);
+  return p.steps <= STEP_BUDGET_AFTER || p.cost <= (p.clip ? STEP_BUDGET_MS.video : STEP_BUDGET_MS.image);
 }
 
-function uiFail(key: number, p: UiPlayer, error: unknown): void {
+/** `type`: 'error' dosya açılamadı ya da çözülemedi (geçici sayılır), 'slow' cihaz yetiştiremiyor (yeniden denenmez) */
+function uiFail(key: number, p: UiPlayer, type: 'error' | 'slow', message: string): void {
   'worklet';
   p.failed = true;
   p.running = false;
@@ -152,7 +153,7 @@ function uiFail(key: number, p: UiPlayer, error: unknown): void {
   } catch {
     // zaten durmuş
   }
-  scheduleOnRN(onUiEvent, key, 'error', messageOf(error));
+  scheduleOnRN(onUiEvent, key, type, message);
 }
 
 /** Arayüz çalışma ortamındaki durum (oynatıcılar ve kare döngüsü); ilk çağrıda kurulur */
@@ -173,9 +174,9 @@ function ui(): UiState {
       if (!frameDue(now, p.last, p.interval)) continue;
       p.last = now;
       try {
-        uiStep(Number(key), p, now);
+        if (!uiStep(Number(key), p, now)) uiFail(Number(key), p, 'slow', `kareler yavaş (ortalama ${Math.round(p.cost)} ms)`);
       } catch (err) {
-        uiFail(Number(key), p, err);
+        uiFail(Number(key), p, 'error', messageOf(err));
       }
     }
     if (more) requestAnimationFrame(tick);
@@ -283,7 +284,7 @@ function uiSetRunning(key: number, on: boolean): void {
       else p.clip.pause();
     }
   } catch (err) {
-    uiFail(key, p, err);
+    uiFail(key, p, 'error', messageOf(err));
     return;
   }
   if (on) {
@@ -358,11 +359,11 @@ interface OpenPlayer {
 const opened = new Map<number, OpenPlayer>();
 let nextKey = 1;
 
-function onUiEvent(key: number, type: 'ready' | 'error', message: string): void {
+function onUiEvent(key: number, type: 'ready' | 'error' | 'slow', message: string): void {
   const player = opened.get(key);
   if (!player) return;
   if (type === 'ready') player.events.ready();
-  else player.events.failed(new Error(message));
+  else player.events.failed(new Error(message), type === 'slow');
 }
 
 function onVideoOpened(key: number, clip: Video): void {
@@ -399,8 +400,8 @@ async function load(key: number, player: OpenPlayer): Promise<void> {
     scheduleOnRuntime(videoRuntime(), workerOpenVideo, S, uri, key);
     return;
   }
-  // Önbellek kullanılamıyorsa (klasör yok, yer yok) dosya doğrudan sunucudan okunur
-  const uri = await packFiles.ensure(spec).catch(() => spec.url);
+  // Cihazda önbellek klasörü yoksa dosya doğrudan sunucudan okunur (her açılışta yeniden iner)
+  const uri = packFiles.available ? await packFiles.ensure(spec) : spec.url;
   if (!opened.has(key)) return;
   const data = await withTimeout(S.Data.fromURI(uri), LOAD_TIMEOUT_MS, 'dosyanın okunması');
   if (!opened.has(key)) {
@@ -421,7 +422,7 @@ export function createSkiaDriver(options: { manualVideoLoop: boolean }): PlayerD
       const frame = makeMutable<SkImage | null>(null);
       const sk = skia();
       if (!sk) {
-        queueMicrotask(() => events.failed(new Error('Skia yok')));
+        queueMicrotask(() => events.failed(new Error('Skia yok'), true));
         return { frame, setRunning: () => undefined, close: () => undefined };
       }
       const player: OpenPlayer = {
