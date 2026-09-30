@@ -37,7 +37,6 @@ export function PresenceSubline({
   inVoice = false,
   fallback,
   textStyle,
-  color = colors.muted,
 }: {
   custom: CustomStatus | null | undefined;
   /** Asıl (en son başlanan) etkinlik */
@@ -47,8 +46,6 @@ export function PresenceSubline({
   fallback?: string;
   /** Satırın yazı biçimi (durduğu listenin alt satırıyla aynı) */
   textStyle?: StyleProp<TextStyle>;
-  /** Oyun simgesinin rengi (yazının rengiyle aynı verilir) */
-  color?: string;
 }) {
   const { showGame, showVoice, text } = presenceSubline({ custom, activity, inVoice });
   const label =
@@ -63,7 +60,8 @@ export function PresenceSubline({
   return (
     <View style={styles.line}>
       {showGame && activity && (
-        <Ionicons name={glyphOf(activity)} size={13} color={color} accessibilityLabel={activityLabel(activity)} />
+        // Durum simgeleri aynı renkte (ses simgesinin yeşili)
+        <Ionicons name={glyphOf(activity)} size={13} color={colors.ok} accessibilityLabel={activityLabel(activity)} />
       )}
       {showVoice && <Ionicons name="volume-medium" size={13} color={colors.ok} accessibilityLabel="Sesli sohbette" />}
       <Text style={[styles.lineText, textStyle, text === 'voice' && { color: colors.ok }]} numberOfLines={1}>
@@ -73,8 +71,27 @@ export function PresenceSubline({
   );
 }
 
-const ICON = 56;
-const ICON_COMPACT = 36;
+const ICON = 46;
+const ICON_COMPACT = 34;
+const BADGE = 18;
+
+/** Ses kanalındaki üyenin satırında duran küçük oyun ikonu (ikon yoksa türün simgesi) */
+export function ActivityBadge({ activity }: { activity: Activity }) {
+  const src = activityIconUrl(activity);
+  const [failed, setFailed] = useState<string | null>(null);
+  return src && failed !== src ? (
+    <Image
+      source={{ uri: src }}
+      style={styles.badge}
+      resizeMode="cover"
+      onError={() => setFailed(src)}
+      accessibilityLabel={activityLabel(activity)}
+      accessibilityIgnoresInvertColors
+    />
+  ) : (
+    <Ionicons name={glyphOf(activity)} size={15} color={colors.muted} accessibilityLabel={activityLabel(activity)} />
+  );
+}
 
 /** Etkinliğin ikonu; ikon yoksa ya da yüklenemezse türün simgesiyle düz bir karo */
 function ActivityIcon({ activity, compact }: { activity: Activity; compact: boolean }) {
@@ -92,7 +109,7 @@ function ActivityIcon({ activity, compact }: { activity: Activity; compact: bool
           accessibilityIgnoresInvertColors
         />
       ) : (
-        <Ionicons name={glyphOf(activity)} size={compact ? 20 : 30} color={colors.muted} />
+        <Ionicons name={glyphOf(activity)} size={compact ? 19 : 25} color={colors.muted} />
       )}
     </View>
   );
@@ -126,7 +143,7 @@ export function ActivityCard({
   const now = useNow();
   return (
     <View style={[styles.card, style]} accessible accessibilityLabel={activityLabel(activity)}>
-      {title && <Text style={styles.title}>{activityTitle(activity).toLocaleUpperCase('tr')}</Text>}
+      {title && <Text style={styles.title}>{activityTitle(activity)}</Text>}
       <View style={styles.body}>
         <ActivityIcon activity={activity} compact={compact} />
         <View style={styles.texts}>
@@ -134,7 +151,7 @@ export function ActivityCard({
             {activity.name}
           </Text>
           <View style={styles.elapsed}>
-            <Ionicons name={glyphOf(activity)} size={14} color={colors.okText} />
+            <Ionicons name={glyphOf(activity)} size={13} color={colors.okText} />
             <Text style={styles.elapsedText}>{formatElapsed(now - activity.startedAt)}</Text>
           </View>
         </View>
@@ -170,8 +187,9 @@ const styles = createStyles(() => ({
   lineText: { flexShrink: 1, color: colors.muted, fontSize: font.caption + 0.5 },
   cards: { gap: space.sm },
   // Kenarlık yok: profil kartının degradeli zemininin üstünde durur (bkz. ProfileHeader)
-  card: { backgroundColor: colors.main, borderRadius: radius.md + 4, padding: space.md },
-  title: { color: colors.muted, fontSize: font.caption - 0.5, fontWeight: '800', letterSpacing: 0.3, marginBottom: space.sm },
+  card: { backgroundColor: colors.main, borderRadius: radius.md + 4, paddingHorizontal: space.md, paddingVertical: space.sm + 2 },
+  title: { color: colors.muted, fontSize: font.caption - 1, fontWeight: '600', marginBottom: space.xs + 2 },
+  badge: { width: BADGE, height: BADGE, borderRadius: 4 },
   body: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   icon: {
     width: ICON,
@@ -185,7 +203,7 @@ const styles = createStyles(() => ({
   iconCompact: { width: ICON_COMPACT, height: ICON_COMPACT, borderRadius: radius.md },
   iconImage: { width: ICON, height: ICON },
   iconImageCompact: { width: ICON_COMPACT, height: ICON_COMPACT },
-  texts: { flex: 1, gap: 4 },
+  texts: { flex: 1, gap: 2 },
   name: { color: colors.head, fontSize: font.body, fontWeight: '700' },
   elapsed: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   elapsedText: { color: colors.okText, fontSize: font.small, fontWeight: '600', fontVariant: ['tabular-nums'] },

@@ -21,6 +21,7 @@ import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
 import { Avatar } from '../ui/Avatar';
 import { openProfile, type ProfileAnchor } from '../members/ProfilePopover';
+import { ActivityIcon } from '../status/ActivityCard';
 import { activityCardHandlers } from './ActivityHoverCard';
 import { streamCardHandlers } from './StreamPreviewCard';
 
@@ -117,7 +118,9 @@ export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMy
   const selfId = useSession((s) => s.user?.id);
   const openContextMenu = useUi((s) => s.openContextMenu);
   const isSelf = state.userId === selfId;
-  const playing = useActivity(state.userId) !== null;
+  // Asıl (en son başlanan) oyun: satırın sağında ikonu durur, üstünde bekleyince kartı açılır
+  const activity = useActivity(state.userId);
+  const playing = activity !== null;
   // Sürüklenebilir: kendin (kanal değiştirme) ya da taşıma yetkin olan, senden aşağıdaki üye
   const draggable = useGuild(
     (s) => isSelf || can(s, selfId, Permission.MOVE_MEMBERS, state.channelId),
@@ -176,6 +179,7 @@ export function VoiceMemberRow({ state, inMyChannel }: { state: VoiceState; inMy
         {user?.displayName ?? '…'}
       </span>
       {state.streaming && <WatchLiveBadge userId={state.userId} channelId={state.channelId} tooltip={false} />}
+      {activity && <ActivityIcon activity={activity} size={18} />}
       <VoiceStateIcons state={state} localMuted={localMuted} />
     </div>
   );

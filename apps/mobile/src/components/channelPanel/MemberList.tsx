@@ -225,7 +225,6 @@ const MemberRow = memo(function MemberRow({
             activity={activity}
             inVoice={inVoice}
             textStyle={[styles.sub, plate && styles.plateSub]}
-            color={plate ? PLATE_SUB_COLOR : colors.muted}
           />
         </View>
       </Pressable>

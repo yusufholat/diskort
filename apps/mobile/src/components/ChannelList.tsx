@@ -5,6 +5,7 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { hasPermission, Permission, type Channel, type ChannelType, type VoiceState } from '@diskort/shared';
 import {
   isUnread,
+  useActivity,
   membersOf,
   useCan,
   useGuild,
@@ -17,6 +18,7 @@ import { animateNextLayout, useLayoutAnimationOn, useTimingTo } from '../motion'
 import { toast } from '../stores/ui';
 import { colors, createStyles, font, radius, ripple, space } from '../theme';
 import { useVoice } from '../voice/voice';
+import { ActivityBadge } from './ActivityCard';
 import { Avatar } from './Avatar';
 import { CountBadge, UnreadMarker } from './Badge';
 import { HeaderButton } from './HeaderButton';
@@ -377,6 +379,8 @@ const VoiceMember = memo(function VoiceMember({ state, onLongPress }: { state: V
   const selfId = useSession((s) => s.user?.id);
   const speaking = useVoice((s) => Boolean(s.speaking[state.userId]));
   const inMyChannel = useVoice((s) => s.channelId === state.channelId);
+  // Asıl (en son başlanan) oyunun ikonu, masaüstündeki gibi satırın sağında
+  const activity = useActivity(state.userId);
   return (
     <Pressable
       onLongPress={() => onLongPress(state.userId)}
@@ -400,6 +404,7 @@ const VoiceMember = memo(function VoiceMember({ state, onLongPress }: { state: V
           <Text style={styles.liveText}>YAYINDA</Text>
         </View>
       )}
+      {activity && <ActivityBadge activity={activity} />}
       <VoiceStateIcon state={state} size={15} />
     </Pressable>
   );

@@ -72,12 +72,12 @@ export function PresenceSubline({
 }
 
 /** Etkinliğin ikonu; ikon yoksa ya da yüklenemezse türün simgesiyle düz bir karo */
-function ActivityIcon({ activity, size }: { activity: Activity; size: number }) {
+export function ActivityIcon({ activity, size }: { activity: Activity; size: number }) {
   const src = activityIconUrl(activity);
   // Yüklenemeyen ikonun yerine simge (adres değişince yeniden denenir)
   const [failed, setFailed] = useState<string | null>(null);
   const Glyph = glyphOf(activity);
-  const rounded = size >= 48 ? 'rounded-lg' : 'rounded-md';
+  const rounded = size >= 44 ? 'rounded-lg' : size >= 24 ? 'rounded-md' : 'rounded';
   return src && failed !== src ? (
     <img
       src={src}
@@ -94,7 +94,7 @@ function ActivityIcon({ activity, size }: { activity: Activity; size: number }) 
       className={cn('flex shrink-0 items-center justify-center bg-bg-active text-text-muted', rounded)}
       style={{ width: size, height: size }}
     >
-      <Glyph size={Math.round(size * 0.55)} aria-hidden />
+      <Glyph size={Math.round(size * (size >= 24 ? 0.55 : 0.75))} aria-hidden />
     </span>
   );
 }
@@ -119,18 +119,18 @@ export function ActivityCard({
   const Glyph = glyphOf(activity);
   return (
     <div className={className} aria-label={activityLabel(activity)}>
-      <div className="mb-1.5 flex items-center justify-between gap-2 text-xs font-bold text-text-muted">
-        <span className="uppercase">{activityTitle(activity)}</span>
+      <div className="mb-1 flex items-center justify-between gap-2 text-[11px] leading-none font-semibold text-text-muted">
+        <span>{activityTitle(activity)}</span>
         {more > 0 && <span aria-label={`${more} etkinlik daha`}>+{more}</span>}
       </div>
       <div className={cn('flex items-center', compact ? 'gap-2.5' : 'gap-3')}>
-        <ActivityIcon activity={activity} size={compact ? 40 : 60} />
+        <ActivityIcon activity={activity} size={compact ? 36 : 48} />
         <div className="min-w-0 flex-1 leading-tight">
           <div className="truncate text-sm font-semibold text-text-head" title={activity.name}>
             {activity.name}
           </div>
-          <div className="mt-1 flex items-center gap-1 text-xs font-medium text-ok-text tabular-nums">
-            <Glyph size={14} className="shrink-0" aria-hidden />
+          <div className="mt-0.5 flex items-center gap-1 text-xs font-medium text-ok-text tabular-nums">
+            <Glyph size={13} className="shrink-0" aria-hidden />
             <span aria-label="Geçen süre">{formatElapsed(now - activity.startedAt)}</span>
           </div>
         </div>
@@ -160,7 +160,7 @@ export function ActivityCards({ userId, className }: { userId: string | null | u
           activity={activity}
           // Asıl etkinlik büyük ikonla, öbürleri küçük
           compact={i > 0}
-          className="shrink-0 rounded-lg bg-bg-side p-3"
+          className="shrink-0 rounded-lg bg-bg-side px-3 py-2.5"
         />
       ))}
     </div>
