@@ -84,6 +84,7 @@ async function upload(url: string, token: string, read: () => Promise<Uint8Array
     body: png as Uint8Array<ArrayBuffer>,
   });
   if (put.ok) return 'ready';
-  const definitive = put.status >= 400 && put.status < 500 && put.status !== 401 && put.status !== 408 && put.status !== 429;
+  // 404/405: eski sunucu (uç yok); sunucu güncellenince yeniden denensin diye kalıcı sayılmaz
+  const definitive = put.status >= 400 && put.status < 500 && ![401, 404, 405, 408, 429].includes(put.status);
   return definitive ? 'rejected' : 'retry';
 }

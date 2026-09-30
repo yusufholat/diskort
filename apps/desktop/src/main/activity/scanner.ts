@@ -28,6 +28,10 @@ const HEALTHY_AFTER_MS = 5 * 60_000;
 const MAX_FAILURES = 5;
 /** Yardımcı çalışırken bu süre tarama gelmezse takılmış sayılır (taramalar ~15 sn arayla gelir) */
 const WATCHDOG_MS = 60_000;
+/** İlk tarama için süre: yardımcı boşta önceliğiyle derlenir, yüklü makinede geç açılabilir */
+const FIRST_SCAN_WATCHDOG_MS = 180_000;
+/** Zamanlayıcı bu kadar geç ateşlendiyse bilgisayar uyumuştur */
+const WATCHDOG_LATE_MS = 10_000;
 /** Elle istenen taramalar en sık bu arayla gönderilir */
 const SCAN_REQUEST_GAP_MS = 1000;
 const ICON_TIMEOUT_MS = 10_000;
@@ -144,7 +148,7 @@ export class ActivityScanner {
     this.child = child;
     this.ready = false;
     this.startedAt = Date.now();
-    this.armWatchdog(child);
+    this.armWatchdog(child, FIRST_SCAN_WATCHDOG_MS);
 
     let buffer = '';
     child.stdout.setEncoding('utf8');
@@ -171,14 +175,17 @@ export class ActivityScanner {
   }
 
   /** Tarama gelmeyi keserse (yardımcı takıldı) süreç öldürülür ve yeniden başlatma yoluna girilir */
-  private armWatchdog(child: ChildProcessWithoutNullStreams): void {
+  private armWatchdog(child: ChildProcessWithoutNullStreams, ms = WATCHDOG_MS): void {
     this.clearWatchdog();
+    const armedAt = Date.now();
     this.watchdog = setTimeout(() => {
       this.watchdog = null;
       if (this.child !== child) return;
+      // Bilgisayar uyuduysa süre uykuda dolmuştur; yardımcı sağlam olabilir: bir tur daha beklenir
+      if (Date.now() - armedAt > ms + WATCHDOG_LATE_MS) return this.armWatchdog(child);
       child.kill();
-      this.onExit(child, `${WATCHDOG_MS / 1000} saniyedir tarama gelmedi`);
-    }, WATCHDOG_MS);
+      this.onExit(child, `${ms / 1000} saniyedir tarama gelmedi`);
+    }, ms);
   }
 
   private clearWatchdog(): void {

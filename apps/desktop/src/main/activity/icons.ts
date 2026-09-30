@@ -105,7 +105,8 @@ export class IconStore {
     index.delete(id);
     index.set(id, { mtimeMs, key });
     while (index.size > MAX_INDEX_ENTRIES) index.delete(index.keys().next().value!);
-    await this.saveIndex(index);
+    // Kayıt yazılamasa da (dosya o an kilitli) ikon hazır; bellekteki kayıt sonraki yazmada diske iner
+    await this.saveIndex(index).catch(() => undefined);
     return key;
   }
 

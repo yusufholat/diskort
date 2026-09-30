@@ -279,13 +279,24 @@ describe('etkinlik ikonu', () => {
   });
 
   it('sunucunun kesin reddi (4xx) süre geçse de yeniden denenmez', async () => {
-    for (const status of [400, 404, 413, 415]) {
+    for (const status of [400, 413, 415]) {
       const key = newKey();
       const calls = stubFetch((method) => (method === 'HEAD' ? 404 : status));
       expect(await ensureActivityIcon(key, async () => png)).toBe(false);
       vi.advanceTimersByTime(60 * 60_000);
       expect(await ensureActivityIcon(key, async () => png)).toBe(false);
       expect(calls.map((c) => c.method)).toEqual(['HEAD', 'PUT']);
+    }
+  });
+
+  it('eski sunucu (PUT 404/405) kalıcı sayılmaz: sunucu güncellenince yeniden denenir', async () => {
+    for (const status of [404, 405]) {
+      const key = newKey();
+      const calls = stubFetch((method) => (method === 'HEAD' ? 404 : status));
+      expect(await ensureActivityIcon(key, async () => png)).toBe(false);
+      vi.advanceTimersByTime(5 * 60_000 + 1);
+      expect(await ensureActivityIcon(key, async () => png)).toBe(false);
+      expect(calls.map((c) => c.method)).toEqual(['HEAD', 'PUT', 'HEAD', 'PUT']);
     }
   });
 
