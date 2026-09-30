@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react';
-import { Crown, MessageCircle } from 'lucide-react';
+import { Crown } from 'lucide-react';
 import type { User } from '@diskort/shared';
 import {
   activeGuildContext,
@@ -11,7 +11,6 @@ import {
   voiceLabel,
 } from '@diskort/client-core';
 import { PresenceSubline } from '../status/ActivityCard';
-import { startDm } from '../../lib/dm';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { cn } from '../../lib/utils';
 import { useUi } from '../../stores/ui';
@@ -123,20 +122,6 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
           className={cn('text-xs', plate ? 'nameplate-sub' : 'text-text-muted')}
         />
       </div>
-      {!isSelf && (
-        <button
-          className="press-icon invisible shrink-0 rounded p-1 text-text-muted group-hover:visible hover:text-text-head focus-visible:visible"
-          data-tooltip="Mesaj gönder"
-          aria-label={`${user.displayName} kişisine mesaj gönder`}
-          onClick={(e) => {
-            e.stopPropagation(); // satırın profil kartı açılmasın
-            void startDm(user.id);
-          }}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
-          <MessageCircle size={18} className="ico-pop" />
-        </button>
-      )}
     </div>
   );
 });

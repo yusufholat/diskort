@@ -168,6 +168,8 @@ export interface DiskortBridge {
     getState(): Promise<ActivityState>;
     onState(cb: (state: ActivityState) => void): () => void;
     getSettings(): Promise<ActivitySettings>;
+    /** Oturum açık mı: yalnızca giriş yapılmışken oyun taranır */
+    setActive(active: boolean): Promise<void>;
     setEnabled(enabled: boolean): Promise<ActivitySettings>;
     /** Görünür penceresi olan, oyun sayılmayan programlar (oyun olarak eklenebilir) */
     listPrograms(): Promise<ActivityProgram[]>;

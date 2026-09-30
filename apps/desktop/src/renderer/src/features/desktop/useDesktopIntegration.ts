@@ -21,12 +21,13 @@ export function useDesktopIntegration(): void {
   }, []);
 
   // Etkinlik: ana süreç açık oyunları algılar (Windows), sunucuya iletilir; ayar kapalıyken liste boş gelir ve
-  // etkinlik silinir. Giriş yapılınca yeniden bildirilir (ikon yalnızca oturum açıkken yüklenebilir).
+  // etkinlik silinir. Yalnızca giriş yapılmışken taranır; giriş yapılınca yeniden bildirilir.
   const loggedIn = useSession((s) => s.token !== null);
   useEffect(() => {
     const activity = bridge?.activity;
     if (!activity) return;
     const report = (state: ActivityState): void => reportActivities(state.games, activity.icon);
+    void activity.setActive(loggedIn).catch(() => undefined);
     void activity.getState().then(report, () => undefined);
     return activity.onState(report);
   }, [loggedIn]);

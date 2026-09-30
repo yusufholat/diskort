@@ -53,12 +53,12 @@ export function PresenceSubline({
   return (
     <div className={cn('flex min-w-0 items-center gap-1', className)}>
       {showGame && activity && Glyph && (
-        <span className="flex shrink-0" data-tooltip={activityLabel(activity)}>
+        <span className="flex shrink-0" data-tooltip={activityLabel(activity)} data-tooltip-side="bottom">
           <Glyph size={13} aria-hidden />
         </span>
       )}
       {showVoice && (
-        <span className="flex shrink-0" data-tooltip={voice ?? undefined}>
+        <span className="flex shrink-0" data-tooltip={voice ?? undefined} data-tooltip-side="bottom">
           <Volume2 size={13} aria-hidden />
         </span>
       )}

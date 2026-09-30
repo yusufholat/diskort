@@ -42,6 +42,8 @@ export class ActivityMonitor {
   readonly supported = process.platform === 'win32';
   private prefs: ActivityPrefs = defaultPrefs();
   private started = false;
+  /** Uygulamada oturum açık mı: giriş yapılmamışken kimseye bildirilecek bir şey yok, tarayıcı çalışmaz */
+  private active = false;
   private procs: ScannedProcess[] = [];
   /** Açık oyunlar (en son başlatılan ilk sırada) ve süreçleri */
   private games: (ActivityGame & { pid: number })[] = [];
@@ -97,6 +99,12 @@ export class ActivityMonitor {
     return { enabled: this.prefs.enabled, games };
   }
 
+  setActive(active: boolean): void {
+    if (this.active === active) return;
+    this.active = active;
+    this.updateRunning();
+  }
+
   setEnabled(enabled: boolean): void {
     if (this.prefs.enabled === enabled) return;
     this.update({ ...this.prefs, enabled });
@@ -125,7 +133,7 @@ export class ActivityMonitor {
 
   /** Görünür penceresi olan, henüz oyun sayılmayan programlar (taze bir taramadan) */
   async programs(): Promise<ActivityProgram[]> {
-    if (!this.supported || !this.prefs.enabled) return [];
+    if (!this.supported || !this.prefs.enabled || !this.active) return [];
     await this.freshScan();
     const games = new Set(detectGames(this.procs, this.context()).map((g) => pathKey(g.path)));
     const hidden = new Set(this.prefs.hidden.map(pathKey));
@@ -157,13 +165,13 @@ export class ActivityMonitor {
   private updateRunning(): void {
     if (!this.started || !this.supported) return;
     this.cancelStart();
-    if (this.prefs.enabled) {
+    if (this.prefs.enabled && this.active) {
       this.startTimer = setTimeout(() => {
         this.startTimer = null;
-        if (this.started && this.prefs.enabled) this.scanner.start();
+        if (this.started && this.prefs.enabled && this.active) this.scanner.start();
       }, START_DELAY_MS);
     } else {
-      // Kapatma beklemez: oyun hemen bildirilmez olur
+      // Kapatma (ya da çıkış) beklemez: oyun hemen bildirilmez olur
       this.scanner.stop();
       this.procs = [];
       this.games = [];
@@ -197,7 +205,7 @@ export class ActivityMonitor {
   }
 
   private async handleScan(procs: ScannedProcess[], fresh = false): Promise<void> {
-    if (!this.prefs.enabled) return;
+    if (!this.prefs.enabled || !this.active) return;
     const now = Date.now();
     // Başlangıcı okunamayan süreç ilk görüldüğü anda başlamış sayılır
     const live = new Set<string>();
@@ -258,7 +266,7 @@ export class ActivityMonitor {
         return { pid: game.pid, path: game.path, name: game.name, startedAt: same?.startedAt ?? game.startedAt, icon };
       }),
     );
-    if (!this.prefs.enabled) return; // beklerken kapatıldı
+    if (!this.prefs.enabled || !this.active) return; // beklerken kapatıldı
     const unchanged =
       next.length === previous.length &&
       next.every((g, i) => {
@@ -329,6 +337,9 @@ async function blizzardGameDir(exePath: string): Promise<string | null> {
 export function registerActivityIpc(monitor: ActivityMonitor): void {
   ipcMain.handle('activity:get-state', () => monitor.state);
   ipcMain.handle('activity:get-settings', () => monitor.settings());
+  ipcMain.handle('activity:set-active', (_e, active: unknown) => {
+    if (typeof active === 'boolean') monitor.setActive(active);
+  });
   ipcMain.handle('activity:set-enabled', (_e, enabled: unknown) => {
     if (typeof enabled === 'boolean') monitor.setEnabled(enabled);
     return monitor.settings();

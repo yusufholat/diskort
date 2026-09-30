@@ -37,6 +37,7 @@ const bridge: DiskortBridge = {
     getState: () => ipcRenderer.invoke('activity:get-state'),
     onState: (cb) => listen<ActivityState>('activity:state', cb),
     getSettings: () => ipcRenderer.invoke('activity:get-settings'),
+    setActive: (active) => ipcRenderer.invoke('activity:set-active', active),
     setEnabled: (enabled) => ipcRenderer.invoke('activity:set-enabled', enabled),
     listPrograms: () => ipcRenderer.invoke('activity:list-programs'),
     addGame: (path) => ipcRenderer.invoke('activity:add-game', path),
