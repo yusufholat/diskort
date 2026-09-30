@@ -180,10 +180,11 @@ export function registerTelemetryRoutes(app: FastifyInstance, ctx: AppContext): 
     if (!body) return reply;
     const state = ctx.voice.get(req.user.id);
     const channelId = state?.channelId ?? null;
-    telemetry.ingest(req.user.id, body as VoiceTelemetryReport, {
+    const entry = telemetry.ingest(req.user.id, body as VoiceTelemetryReport, {
       channelId,
       guildId: channelId ? (ctx.store.getChannel(channelId)?.guildId ?? null) : null,
     });
+    ctx.freeze.observe(entry);
     ctx.counters.inc('telemetry.reports');
     return reply.code(204).send();
   });

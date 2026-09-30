@@ -119,6 +119,8 @@ describe('yönetim paneli ek uçları: erişim', () => {
     }
     expect((await s.req(s.owner.token, 'GET', '/api/admin/voice-history?days=500')).statusCode).toBe(400);
     expect((await s.req(s.owner.token, 'GET', '/api/admin/telemetry')).statusCode).toBe(400);
+    expect((await s.req(s.owner.token, 'GET', '/api/admin/telemetry/freezes/yok')).statusCode).toBe(404);
+    expect((await s.req(member.token, 'GET', '/api/admin/telemetry/freezes/yok')).statusCode).toBe(403);
     expect((await s.req(s.owner.token, 'GET', '/api/admin/telemetry?user=x&date=dun')).statusCode).toBe(400);
     // Ölçüm gönderimi oturum ister
     expect((await s.app.inject({ method: 'POST', url: '/api/telemetry/voice', payload: report() })).statusCode).toBe(401);
@@ -174,6 +176,9 @@ describe('ses kalitesi ölçümleri', () => {
       worst: { rttMs: 600, lossInPct: 14 },
     });
     expect(incidents.incidents[0].causes[0]).toEqual({ cause: 'Yüksek gecikme (ping)', count: 2 });
+    // Yayın donması bölümü: tek kullanıcının kaybı orada olay açmaz; örnekleyici durumu gelir
+    expect(incidents.freezes).toEqual([]);
+    expect(incidents.netSampler.readable).toMatchObject({ net: false });
     expect(incidents.users[member.user.id].username).toBe('uye');
     expect(incidents.channels[voice.id].name).toBe(voice.name);
 

@@ -41,6 +41,8 @@ export interface Config {
    * activity.json). SYSTEM_STATS=0 kapatır; testlerde varsayılan kapalı (panel yine istek anında ölçer).
    */
   systemStats: boolean;
+  /** Dış ağ sondaları (NET_PROBE_TARGETS: "udp:1.1.1.1:53,tcp:1.1.1.1:443"; "0" kapatır; boşsa varsayılanlar) */
+  netProbeTargets: string | null;
   /** Makine bilgilerinin okunduğu /proc kökü (PROC_ROOT, varsayılan /proc) */
   procRoot: string;
   /** Aylık trafik kotası, bayt (TRAFFIC_QUOTA_GB, varsayılan 5000 GB = 5 TB; gelen + giden) */
@@ -157,6 +159,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     giphyLang,
     linkPreviews: env.LINK_PREVIEWS ? env.LINK_PREVIEWS !== '0' : env.NODE_ENV !== 'test',
     systemStats: env.SYSTEM_STATS ? env.SYSTEM_STATS !== '0' : env.NODE_ENV !== 'test',
+    netProbeTargets: env.NET_PROBE_TARGETS?.trim() || null,
     procRoot: env.PROC_ROOT || '/proc',
     trafficQuotaBytes: Math.round(trafficQuotaGb * 1e9),
     livekitMetricsUrl: optionalUrl(env.LIVEKIT_METRICS_URL, 'http://127.0.0.1:6789/metrics'),

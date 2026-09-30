@@ -24,6 +24,8 @@ import type { PushService } from './push.js';
 import type { ReleaseService } from './releases.js';
 import type { StreamPreviewStore } from './streamPreview.js';
 import type { VoiceTelemetryStore } from './telemetry.js';
+import type { FreezeCorrelator } from './freezeDiagnosis.js';
+import type { SecondSampler } from './netSeconds.js';
 import type { VoiceModeration } from './voiceModeration.js';
 import type { VoiceStateStore } from './voiceState.js';
 
@@ -64,6 +66,9 @@ export interface AppContext {
   apiStats: ApiStats;
   /** Yönetim paneli: istemcilerin ses kalitesi özetleri ve kalite sorunları */
   telemetry: VoiceTelemetryStore;
+  /** Yönetim paneli: yayın donması olayları (kullanıcı özetleri + sunucu saniyelik ağ kaydı + sondalar) */
+  freeze: FreezeCorrelator;
+  netSampler: SecondSampler;
   /**
    * Ana sunucu (ilk kurulan; silinemez, ilk hesap ve yönetici davetleri ona katılır). Adı, simgesi ya da sahibi değişince
    * yerinde güncellenir. Diğer sunucular veritabanındadır.
