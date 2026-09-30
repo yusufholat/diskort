@@ -174,6 +174,30 @@ describe('createPackCache', () => {
     await expect(createPackCache(t.fs).ensure({ url: 'https://sunucu.test/a.webp', bytes: 1 })).rejects.toThrow('adresi');
   });
 
+  it('discard: çözülemeyen dosyanın kopyası silinir, bir sonraki ensure yeniden indirir', async () => {
+    const t = fakeFs({ [deco]: 100 });
+    const cache = createPackCache(t.fs);
+    await cache.ensure({ url: deco, bytes: 100 });
+    await cache.discard(deco);
+    expect(t.files.has(path)).toBe(false);
+    expect(await cache.ensure({ url: deco, bytes: 100 })).toBe(path);
+    expect(t.downloads).toEqual([deco, deco]);
+  });
+
+  it('discard: süren indirmenin bitmesini bekler; hata vermez', async () => {
+    const t = fakeFs({ [deco]: 100 });
+    const cache = createPackCache(t.fs);
+    const release = t.holdDownloads();
+    const pending = cache.ensure({ url: deco, bytes: 100 });
+    const discarding = cache.discard(deco);
+    release();
+    await pending;
+    await discarding;
+    expect(t.files.has(path)).toBe(false);
+    await expect(cache.discard('https://sunucu.test/a.webp')).resolves.toBeUndefined();
+    await expect(createPackCache({ ...t.fs, dir: null }).discard(deco)).resolves.toBeUndefined();
+  });
+
   it('evict: bildirimde olmayan sürümlerin dosyalarını siler', async () => {
     const t = fakeFs({ [deco]: 100, [url('buz', V2, 'deco.webp')]: 120 });
     const cache = createPackCache(t.fs);

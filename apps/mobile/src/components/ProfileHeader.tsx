@@ -35,7 +35,8 @@ const RING = 4;
  * yoksa avatarın rengi), afişe taşan avatar (halkası kartın renginde), ad, kullanıcı adı ve satırlar. Tema
  * varsa zemin iki renkli degradedir, üstüne yazılar okunsun diye sayfanın renginde yarı saydam bir tül
  * serilir. Hareketli set efekti kartın içeriğinin üstünde, avatarın altındadır: efekt avatarın yerini bilmez
- * (kartın genişliğine göre hazır bir resimdir), avatar bu yüzden efektin üstündeki ayrı bir katmanda çizilir.
+ * (kartın genişliğine göre hazır bir resimdir), avatar bu yüzden efekt varken efektin üstündeki ayrı bir katmanda
+ * çizilir; efekt yokken yerindedir.
  * Üye menüsü ve Ayarlar → Profil'deki önizleme kullanır.
  */
 export function ProfileHeader({
@@ -78,12 +79,17 @@ export function ProfileHeader({
   const ring = theme ? mix(surface, mix(theme.primary, theme.accent, 0.7), VEIL) : surface;
   const size = centered ? 88 : 72;
   const effect = userEffectId(user);
+  const effectShown = useCardEffectShown(effect);
   // Efekt, genişliğin 6/17'si yüksekliğinde bir afiş varsayar: efekt varken afiş, resimli afişin yüksekliğindedir
-  const tall = useCardEffectShown(effect) || Boolean(src);
-  const bannerStyle = tall ? styles.bannerTall : styles.banner;
+  const bannerStyle = effectShown || src ? styles.bannerTall : styles.banner;
   // Avatarın halkasıyla kapladığı kare ve afişe taşması
   const avatarBox = size + 2 * RING;
   const avatarLift = -(avatarBox / 2);
+  const avatarNode = (
+    <View style={[styles.avatarRing, centered && styles.avatarCentered, { backgroundColor: ring, borderRadius: size, marginTop: avatarLift }]}>
+      {avatar ? avatar(ring) : <Avatar user={user} size={size} status={status} surface={ring} decoration={user.avatarDecoration} />}
+    </View>
+  );
 
   return (
     <View style={[styles.card, { backgroundColor: surface }, style]}>
@@ -107,8 +113,13 @@ export function ProfileHeader({
         )}
       </View>
       <View style={[styles.body, centered && styles.bodyCentered]}>
-        {/* Avatarın yeri (kendisi aşağıda, efektin üstündeki katmanda) */}
-        <View style={[styles.avatarRing, centered && styles.avatarCentered, { width: avatarBox, height: avatarBox, marginTop: avatarLift }]} />
+        {effectShown ? (
+          // Avatarın yeri (kendisi aşağıda, efektin üstündeki katmanda)
+          <View style={[styles.avatarRing, centered && styles.avatarCentered, { width: avatarBox, height: avatarBox, marginTop: avatarLift }]} />
+        ) : (
+          // Efekt yokken avatar yerinde durur (ekran okuyucunun sırası da doğal kalır)
+          avatarNode
+        )}
         <View style={[styles.nameRow, centered && styles.nameRowCentered]}>
           <Text style={[styles.name, nameColor ? { color: nameColor } : null]} numberOfLines={1}>
             {user.displayName}
@@ -128,22 +139,17 @@ export function ProfileHeader({
         {children}
       </View>
       {effect && <CardEffect set={effect} />}
-      {/* Avatar katmanı: kartın yerleşimini (afiş, gövdenin kenar boşluğu) yineler, böylece avatar ölçüm gerekmeden
-          yerine düşer. Yalnızca avatar dokunma alır; gerisi alttaki içeriğe geçer. */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-        <View style={bannerStyle} pointerEvents="none" />
-        <View style={[styles.body, centered && styles.bodyCentered]} pointerEvents="box-none">
-          <View
-            style={[
-              styles.avatarRing,
-              centered && styles.avatarCentered,
-              { backgroundColor: ring, borderRadius: size, marginTop: avatarLift },
-            ]}
-          >
-            {avatar ? avatar(ring) : <Avatar user={user} size={size} status={status} surface={ring} decoration={user.avatarDecoration} />}
+      {/* Efekt varken avatar katmanı: kartın yerleşimini (afiş, gövdenin kenar boşluğu) yineler, böylece avatar ölçüm
+          gerekmeden yerine düşer. Yalnızca avatar dokunma alır; gerisi alttaki içeriğe geçer. (Ekran okuyucu avatara
+          bu durumda en son gelir: öne almak, efektin üstünde çizilmesini ve dokunmayı bozmadan mümkün değil.) */}
+      {effectShown && (
+        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          <View style={bannerStyle} pointerEvents="none" />
+          <View style={[styles.body, centered && styles.bodyCentered]} pointerEvents="box-none">
+            {avatarNode}
           </View>
         </View>
-      </View>
+      )}
     </View>
   );
 }

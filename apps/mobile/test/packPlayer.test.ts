@@ -8,6 +8,7 @@ import {
   createPlayback,
   IDLE_CLOSE_MS,
   MEASURE_MS,
+  MAX_FAILURES,
   RETRY_MS,
   VIDEO_PARK_MS,
   type DriverEvents,
@@ -522,6 +523,71 @@ describe('hata', () => {
     vi.advanceTimersByTime(RETRY_MS);
     playback.attach(plate, view().options);
     expect(opened).toHaveLength(1);
+  });
+
+  it('hatadan sonra (önceki görünüm kalkmışken) bağlanan görünüm, bekleme süresinin kalanı dolunca yeniden dener', () => {
+    const first = playback.attach(plate, view().options);
+    opened[0]!.events.failed(new Error('ağ yok'));
+    first.dispose();
+    vi.advanceTimersByTime(IDLE_CLOSE_MS);
+    expect(playback.stats().players).toBe(0);
+    vi.advanceTimersByTime(10_000);
+
+    // Hata hâlâ hatırlanıyor: yeni görünüm hemen denemez, kalan süre (60 − 14 sn) dolunca dener
+    const later = view();
+    playback.attach(plate, later.options);
+    expect(opened).toHaveLength(1);
+    expect(later.live).toBe(false);
+    vi.advanceTimersByTime(RETRY_MS - IDLE_CLOSE_MS - 10_000 - 1);
+    expect(opened).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(opened).toHaveLength(2);
+    opened[1]!.events.ready();
+    expect(later.live).toBe(true);
+  });
+
+  it('aynı oynatıcıya sonradan bağlanan görünüm de bekleyen yeniden denemeden yararlanır', () => {
+    const early = playback.attach(plate, view().options);
+    opened[0]!.events.failed(new Error('ağ yok'));
+    const later = view();
+    playback.attach(plate, later.options);
+    early.dispose();
+    vi.advanceTimersByTime(RETRY_MS);
+    expect(opened).toHaveLength(2);
+    opened[1]!.events.ready();
+    expect(later.live).toBe(true);
+  });
+
+  it('aşırı yük (load): kalıcı değildir, yeniden denenir', () => {
+    const v = view();
+    playback.attach(plate, v.options);
+    opened[0]!.events.ready();
+    opened[0]!.events.failed(new Error('aynı anda çok fazla dosya oynuyor'), 'load');
+    expect(errors[0]!.kind).toBe('load');
+    expect(v.live).toBe(false);
+    vi.advanceTimersByTime(RETRY_MS);
+    expect(opened).toHaveLength(2);
+  });
+
+  it('hata listesi dolunca önce geçici hatalar unutulur, kalıcılar kalır', () => {
+    const spec = (i: number): PlayerSpec => ({ ...plate, url: `${plate.url}?${i}` });
+    // Kalıcı hata (en eski)
+    playback.attach(spec(0), view().options).dispose();
+    opened[0]!.events.failed(new Error('yavaş'), 'device');
+    // Ardından MAX_FAILURES geçici hata
+    for (let i = 1; i <= MAX_FAILURES; i++) {
+      const handle = playback.attach(spec(i), view().options);
+      opened[opened.length - 1]!.events.failed(new Error('ağ'));
+      handle.dispose();
+    }
+    vi.advanceTimersByTime(IDLE_CLOSE_MS);
+    const before = opened.length;
+    // Kalıcı hata hâlâ geçerli: açılmaz
+    playback.attach(spec(0), view().options);
+    expect(opened).toHaveLength(before);
+    // En eski geçici hata unutulmuş: hemen açılır
+    playback.attach(spec(1), view().options);
+    expect(opened).toHaveLength(before + 1);
   });
 
   it('oynatılamayan video bu oturumda yeniden açılmaz (her deneme bir çözücü açar); başka adres denenir', () => {

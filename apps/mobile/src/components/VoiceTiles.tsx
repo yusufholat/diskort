@@ -29,6 +29,23 @@ const AVATAR_SMALL = 56;
 /** Konuşma halkası avatarın dışına taşar (kalınlık + boşluk, iki yanda) */
 const RING_ROOM = 12;
 
+/** Konuşma bittikten sonra dekorasyonun oynamayı sürdürdüğü süre (ms) */
+const DECORATION_HOLD_MS = 1500;
+
+/** `on` iken true; kapandıktan sonra `ms` daha true kalır (arada yeniden açılırsa süre baştan) */
+function useHeld(on: boolean, ms: number): boolean {
+  const [held, setHeld] = useState(on);
+  useEffect(() => {
+    if (on) {
+      setHeld(true);
+      return;
+    }
+    const timer = setTimeout(() => setHeld(false), ms);
+    return () => clearTimeout(timer);
+  }, [on, ms]);
+  return on || held;
+}
+
 /** Büyük avatarın sığdığı en kısa kutucuk (sahne + ad + boşluklar) */
 export const TILE_MIN_HEIGHT = decorationCanvasSize(AVATAR_MAX) + NAME_GAP + NAME_HEIGHT + TILE_PAD * 2;
 
@@ -95,6 +112,8 @@ export const MemberTile = memo(function MemberTile({ state, width, height, selfI
   const edge = useTimingTo(speaking ? 1 : 0, speaking ? 90 : 280);
   const self = state.userId === selfId;
   const { avatar, stage } = stageFor(height);
+  // Dekorasyon konuşurken oynar; konuşma bitince DECORATION_HOLD_MS daha sürer (cümle aralarında durup kalkmasın)
+  const animating = useHeld(speaking, DECORATION_HOLD_MS);
   return (
     <Pressable
       onLongPress={() => onLongPress(state.userId)}
@@ -105,12 +124,12 @@ export const MemberTile = memo(function MemberTile({ state, width, height, selfI
       <TileFrame width={width} height={height} edge={edge}>
         <View style={[styles.stage, { width: stage, height: stage }]}>
           <SpeakingRing speaking={speaking} size={avatar}>
-            {/* Hareketli dekorasyon hafif modda: yalnızca konuşurken oynar (katılımcı kadar yüzey, sesle yarışır) */}
+            {/* Hareketli dekorasyon yalnızca konuşurken oynar (katılımcı kadar dosya, sesle yarışır); susunca sabit resim */}
             <Avatar
               user={user}
               size={avatar}
               decoration={user?.avatarDecoration}
-              decorationLite={speaking ? 'on' : 'paused'}
+              decorationLite={animating ? 'on' : 'paused'}
             />
           </SpeakingRing>
         </View>

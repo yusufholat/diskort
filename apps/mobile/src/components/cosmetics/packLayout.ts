@@ -162,6 +162,21 @@ export function stackedSample(x: number, y: number, u: StackedUniforms): { color
   return { color: [px, py], alpha: [px + u.alphaX, py] };
 }
 
+// ---------- Karelerin ömrü ----------
+
+/**
+ * Gösterilen kareyi değiştirir: yeni kare gösterilir, bir önceki kare bir adım daha yaşar (yüzey JavaScript iş
+ * parçacığında kurulurken okuduğu kare, kaydı bitmeden bırakılmasın). Bırakılması gereken kareyi (iki adım
+ * önceki) döner; yoksa null.
+ */
+export function nextFrames<T>(held: { current: T | null; previous: T | null }, next: T): T | null {
+  'worklet';
+  const old = held.previous;
+  held.previous = held.current;
+  held.current = next;
+  return old;
+}
+
 // ---------- Kare saati ----------
 
 /** Kare sınırı: bir sonraki kareye kalan süre bundan azsa (ms) şimdi çizilir (ekran 60/90/120 Hz olabilir) */
@@ -221,13 +236,39 @@ export function videoShouldRewind(
   return calls >= frames * 2;
 }
 
-/** Kare başına ortalama iş bu süreyi (ms) aşarsa oynatma bırakılır, sabit resme dönülür (arayüz takılmasın) */
-export const STEP_BUDGET_MS = { image: 12, video: 16 } as const;
-/** Ortalama bu kadar kareden sonra değerlendirilir */
-export const STEP_BUDGET_AFTER = 90;
+// ---------- İş bütçesi ----------
+//
+// Kareler arayüz iş parçacığında çözülür: iş uzarsa arayüz takılır. İki bütçe vardır ve ikisi de tek bir
+// takılmayla değil, ortalamanın art arda pek çok karede aşılmasıyla dolar:
+// - oynatıcı başına: tek bir dosyanın karesi bu telefonda yetişmiyorsa o dosya bu oturumda oynatılmaz;
+// - kare başına toplam: aynı anda çok sayıda farklı dosya oynuyorsa (ör. on iki ayrı isim plakası) en pahalı
+//   oynatıcı sabit resme alınır, toplam bütçeye inene kadar sırayla; bunlar bir süre sonra yeniden denenir.
 
-/** Kare işinin kayan ortalaması (ms) */
-export function stepCost(average: number, tookMs: number): number {
+/** Bir oynatıcının kare başına ortalama işi bunu (ms) aşmamalı */
+export const STEP_BUDGET_MS = { image: 12, video: 16 } as const;
+/** Bir karedeki bütün oynatıcıların toplam ortalama işi bunu (ms) aşmamalı */
+export const TICK_BUDGET_MS = 10;
+/** Ortalama art arda bu kadar karede bütçenin üstündeyse (30 kare/sn'de 1,5 sn) bütçe dolmuştur */
+export const BUDGET_STRIKES = 45;
+/** Tek bir ölçüm ortalamaya en çok bütçenin bu katı kadar sayılır (çöp toplama gibi tek bir takılma ortalamayı bozmasın) */
+const SAMPLE_CLAMP = 3;
+
+/** İşin kayan ortalaması (ms); tek ölçüm bütçenin SAMPLE_CLAMP katında kırpılır */
+export function stepCost(average: number, tookMs: number, budget: number): number {
   'worklet';
-  return average * 0.9 + tookMs * 0.1;
+  return average * 0.9 + Math.min(tookMs, budget * SAMPLE_CLAMP) * 0.1;
+}
+
+/** Ortalamanın art arda kaç karedir bütçenin üstünde olduğu (altına inince sıfırlanır) */
+export function budgetStrikes(strikes: number, average: number, budget: number): number {
+  'worklet';
+  return average > budget ? strikes + 1 : 0;
+}
+
+/** Toplam bütçe dolunca sabit resme alınacak oynatıcı: en pahalısı (ortalama işi en yüksek olan); liste boşsa -1 */
+export function heaviest(costs: readonly number[]): number {
+  'worklet';
+  let index = -1;
+  for (let i = 0; i < costs.length; i++) if (index < 0 || costs[i]! > costs[index]!) index = i;
+  return index;
 }

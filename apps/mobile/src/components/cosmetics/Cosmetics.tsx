@@ -1,9 +1,11 @@
 import { Component, memo, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Image, PixelRatio, Platform, StyleSheet, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
+import Reanimated, { makeMutable, useAnimatedStyle, useSharedValue, type SharedValue } from 'react-native-reanimated';
+import { scheduleOnUI } from 'react-native-worklets';
 import { useIsFocused } from 'expo-router';
 import type { CosmeticPack, CosmeticPiece, CosmeticSetId } from '@diskort/shared';
 import { cosmeticAssetFailed, cosmeticPacks, useCosmeticManifest, type ResolvedCosmeticAsset } from '@diskort/client-core';
-import type { SkRuntimeEffect } from '@shopify/react-native-skia';
+import type { CanvasRef, SkRuntimeEffect } from '@shopify/react-native-skia';
 import type { Frame } from './packDriver';
 import {
   ANIMATED_DECORATION_MIN_SIZE,
@@ -37,8 +39,22 @@ export { ANIMATED_DECORATION_MIN_SIZE, CARD_BANNER_RATIO, decorationCanvasSize }
 const DEVICE: PhoneDevice =
   Platform.OS === 'ios' ? { os: 'ios' } : { os: 'android', androidApi: typeof Platform.Version === 'number' ? Platform.Version : 0 };
 
-/** Saydam parçada canlı yüzey belirdikten bu kadar sonra (ms) altındaki sabit resim gizlenir (arada boşluk olmasın) */
-const SETTLE_MS = 120;
+/**
+ * Canlı yüzeyin kaldırılması iki aşamalıdır. Parça canlılığını yitirince yüzey önce boş çizilir: paylaşılan kareye
+ * bağlı eşleyicisi (Skia'nın Reanimated mapper'ı) durur ve yenisi kurulmaz. Yüzey ancak bu kadar (ms) sonra
+ * kaldırılır; bu arada parça yeniden canlanırsa aynı yüzey yeniden beslenir (sesli sahnede konuşma, kaydırma).
+ * Neden: Skia'nın görünüm kaydı (cpp/rnskia/RNSkJsiViewApi.h) kaldırılmış görünüme gelen `picture` yazımını,
+ * görünümü olmayan yeni bir kayıtta saklar ve o kayıt hiç silinmez; eşleyici yalnızca eşzamansız durdurulduğundan
+ * canlıyken kaldırılan yüzeye paylaşılan kare değiştikçe böyle bir yazım gelebilir ve son kare bellekte kalırdı.
+ */
+const CANVAS_LINGER_MS = 3000;
+/**
+ * Yüzey canlıyken kaldırılırsa (satır listeden çıktı, profil kapandı) bu kadar sonra (ms) Skia'nın görünüm kaydındaki
+ * resmi boş bir resimle değiştirilir: kayıt kalsa da kareyi tutmaz. Bu sürede eşleyici kesinlikle durmuştur.
+ */
+const CANVAS_SWEEP_MS = 1000;
+/** Saydam parçada sabit resim, canlı yüzeye bu kadar yeni kare verildikten sonra gizlenir (yüzey çizmiş olsun) */
+const POSTER_HIDE_STEPS = 3;
 
 /** Setin bir parçasının kaynağı; bildirim değişince yeniden hesaplanır */
 function usePieceSource(set: CosmeticSetId | null | undefined, piece: CosmeticPiece): PieceSource {
@@ -117,18 +133,18 @@ function usePlayback(asset: ResolvedCosmeticAsset | null, info: CosmeticPack, pa
   return { ...state, remeasure: () => handle.current?.remeasure() };
 }
 
-/** `on` olduktan SETTLE_MS sonra true; kapanınca hemen false */
-function useSettled(on: boolean): boolean {
-  const [settled, setSettled] = useState(false);
+/** `on` iken true; kapandıktan sonra `ms` daha true kalır */
+function useLinger(on: boolean, ms: number): boolean {
+  const [lingering, setLingering] = useState(on);
   useEffect(() => {
-    if (!on) {
-      setSettled(false);
+    if (on) {
+      setLingering(true);
       return;
     }
-    const timer = setTimeout(() => setSettled(true), SETTLE_MS);
+    const timer = setTimeout(() => setLingering(false), ms);
     return () => clearTimeout(timer);
-  }, [on]);
-  return on && settled;
+  }, [on, ms]);
+  return on || lingering;
 }
 
 // ---------- Canlı yüzey (Skia) ----------
@@ -149,9 +165,29 @@ function stackedEffect(): SkRuntimeEffect | null {
   return effect;
 }
 
+let emptyPicture: { S: unknown; picture: unknown } | null = null;
+
+/**
+ * Kaldırılmış bir yüzeyin Skia görünüm kaydındaki resmini boş bir resimle değiştirir (bkz. CANVAS_SWEEP_MS). Kayıt
+ * yoksa küçük, boş bir kayıt açılır (kabul edilen bedel). `SkiaViewApi`, Skia'nın yerel kurulumunun (skia.ts)
+ * yerleştirdiği JSI küreselidir; paketten dışa aktarılmaz. Hiçbir durumda fırlatmaz.
+ */
+function sweepCanvas(nativeId: number): void {
+  try {
+    const sk = skia();
+    const api = (globalThis as { SkiaViewApi?: { setJsiProperty?: (id: number, name: string, value: unknown) => void } }).SkiaViewApi;
+    if (!sk || typeof api?.setJsiProperty !== 'function') return;
+    if (emptyPicture?.S !== sk.Skia) emptyPicture = { S: sk.Skia, picture: sk.Skia.Picture.MakePicture(null) };
+    api.setJsiProperty(nativeId, 'picture', emptyPicture.picture);
+  } catch {
+    // Skia kalkmış ya da kayıt yazılamadı: yapılacak bir şey yok
+  }
+}
+
 interface LiveProps {
   asset: ResolvedCosmeticAsset;
-  frame: Frame;
+  /** Beslenen kare; null ise yüzey boş çizilir (paylaşılan kareye bağlanmaz, kaldırılmayı bekler) */
+  frame: Frame | null;
   left: number;
   top: number;
   width: number;
@@ -163,10 +199,32 @@ interface LiveProps {
 /**
  * Oynatıcının karesini çizen Skia yüzeyi. Kare paylaşılan değerdir: değişince yüzey arayüz iş parçacığında
  * kendiliğinden boyanır, React yeniden çizilmez. Yüzey dosyanın pikselinden fazlasını çizmez (küçük kurulup
- * sol üstten büyütülür).
+ * sol üstten büyütülür). Beslenmezken hiçbir şey çizmez (bkz. CANVAS_LINGER_MS).
  */
 const LiveCanvas = memo(function LiveCanvas({ asset, frame, left, top, width, height, visibleHeight }: LiveProps) {
   const sk = skia();
+  const canvas = useRef<CanvasRef>(null);
+  // Beslenmenin bittiği an (beslenirken sonsuz): kaldırılırken eşleyicinin durup durmadığı buradan bilinir
+  const fedUntil = useRef(frame ? Number.POSITIVE_INFINITY : 0);
+  useEffect(() => {
+    if (frame) fedUntil.current = Number.POSITIVE_INFINITY;
+    else if (fedUntil.current === Number.POSITIVE_INFINITY) fedUntil.current = Date.now();
+  }, [frame]);
+  useEffect(() => {
+    // Yerel kimlik yüzey kuruluyken okunur (kaldırıldıktan sonra başvuru boştur)
+    let nativeId: number | null = null;
+    try {
+      nativeId = canvas.current?.getNativeId() ?? null;
+    } catch {
+      nativeId = null;
+    }
+    return () => {
+      // Beslenmeyi en az CANVAS_SWEEP_MS önce bırakmış yüzeyin eşleyicisi durmuştur: yazım gelmez
+      if (nativeId === null || Date.now() - fedUntil.current >= CANVAS_SWEEP_MS) return;
+      const id = nativeId;
+      setTimeout(() => sweepCanvas(id), CANVAS_SWEEP_MS);
+    };
+  }, []);
   const k = surfaceScale(asset.width, width, PixelRatio.get());
   const w = width * k;
   const h = height * k;
@@ -174,10 +232,21 @@ const LiveCanvas = memo(function LiveCanvas({ asset, frame, left, top, width, he
   const uniforms = useMemo(() => (layout ? { ...stackedUniforms(layout, w, h) } : null), [layout, w, h]);
   const effect = asset.kind === 'stacked-h264' ? stackedEffect() : null;
   if (!sk) return null;
-  if (asset.kind === 'stacked-h264' && (!effect || !uniforms)) throw new Error('yan yana video çizilemiyor');
+  if (frame && asset.kind === 'stacked-h264' && (!effect || !uniforms)) throw new Error('yan yana video çizilemiyor');
   const { Canvas, Image: SkiaImage, ImageShader, Rect, Shader } = sk;
+  let content: ReactNode = null;
+  if (frame && effect && uniforms) {
+    content = (
+      <Rect x={0} y={0} width={w} height={h}>
+        <Shader source={effect} uniforms={uniforms}>
+          <ImageShader image={frame.image} />
+        </Shader>
+      </Rect>
+    );
+  } else if (frame) content = <SkiaImage image={frame.image} x={0} y={0} width={w} height={h} fit="fill" />;
   return (
     <Canvas
+      ref={canvas}
       pointerEvents="none"
       style={{
         position: 'absolute',
@@ -189,18 +258,50 @@ const LiveCanvas = memo(function LiveCanvas({ asset, frame, left, top, width, he
         transform: [{ scale: 1 / k }],
       }}
     >
-      {effect && uniforms ? (
-        <Rect x={0} y={0} width={w} height={h}>
-          <Shader source={effect} uniforms={uniforms}>
-            <ImageShader image={frame} />
-          </Shader>
-        </Rect>
-      ) : (
-        <SkiaImage image={frame} x={0} y={0} width={w} height={h} fit="fill" />
-      )}
+      {content}
     </Canvas>
   );
 });
+
+/** Sabit resmin gizlenme sayacını kurar: şu anki kare sayısından POSTER_HIDE_STEPS sonra gizlenir */
+function armPoster(armed: SharedValue<boolean>, start: SharedValue<number>, steps: SharedValue<number>): void {
+  'worklet';
+  start.value = steps.value;
+  armed.value = true;
+}
+
+let idleSteps: SharedValue<number> | null = null;
+const noSteps = (): SharedValue<number> => (idleSteps ??= makeMutable(0));
+
+/**
+ * Saydam parçanın sabit resmi: canlı yüzey gerçekten kare aldıktan sonra (arayüz iş parçacığında sayılan
+ * POSTER_HIDE_STEPS yeni kare) gizlenir; yüzey kare almıyorsa (oynatıcı durdu, kare bırakıldı: sayaç sıfırlanır)
+ * görünür kalır ya da yeniden görünür.
+ */
+function FadingPoster({ steps, style, children }: { steps: SharedValue<number> | null; style: StyleProp<ViewStyle>; children: ReactNode }) {
+  const armed = useSharedValue(false);
+  const start = useSharedValue(0);
+  const source = steps ?? noSteps();
+  useEffect(() => {
+    if (!steps) {
+      armed.value = false;
+      return;
+    }
+    scheduleOnUI(armPoster, armed, start, steps);
+    return () => {
+      armed.value = false;
+    };
+  }, [steps, armed, start]);
+  const fade = useAnimatedStyle(
+    () => ({ opacity: armed.value && source.value - start.value >= POSTER_HIDE_STEPS ? 0 : 1 }),
+    [source],
+  );
+  return (
+    <Reanimated.View pointerEvents="none" style={[style, fade]}>
+      {children}
+    </Reanimated.View>
+  );
+}
 
 /** Yüzey çizilemezse (beklenmeyen bir hata) yalnızca canlı yüzey kalkar: sabit resim, kart, satır ve ekran kalır */
 class LiveBoundary extends Component<{ onFail: () => void; children: ReactNode }, { failed: boolean }> {
@@ -277,13 +378,27 @@ function PackPiece({ info, asset, poster, left, top, width, height, visibleHeigh
   const { live, frame, remeasure } = usePlayback(canPlay ? asset : null, info, Boolean(paused), box);
   const still = usePoster(poster);
   const drawable = width >= 1 && height >= 1;
-  const showLive = live && frame !== null && asset !== null && canPlay && drawable;
-  const settled = useSettled(showLive);
+  // Beslenen: canlı yüzey oynatıcının karesini çizer. Yüzey, beslenme bittikten sonra CANVAS_LINGER_MS daha boş
+  // çizilerek kurulu kalır (iki aşamalı kaldırma; yeniden canlanınca aynı yüzey kullanılır).
+  const fed = live && frame !== null && asset !== null && canPlay && drawable;
+  const keepCanvas = useLinger(fed, CANVAS_LINGER_MS) && asset !== null && canPlay && drawable;
   const onLayout = (e: LayoutChangeEvent): void => {
     const { width: w, height: h } = e.nativeEvent.layout;
     onSize?.(w, h);
     remeasure();
   };
+  const place = { position: 'absolute', left, top, width, height } as const;
+  const posterImage = poster && (
+    <Image
+      key={still.key}
+      source={{ uri: poster.url }}
+      style={[opaque ? place : StyleSheet.absoluteFill, still.failed && styles.hidden]}
+      resizeMode="stretch"
+      fadeDuration={0}
+      onError={still.onError}
+      accessibilityIgnoresInvertColors
+    />
+  );
   return (
     <>
       <View
@@ -295,25 +410,26 @@ function PackPiece({ info, asset, poster, left, top, width, height, visibleHeigh
         style={[styles.box, style]}
         onLayout={onLayout}
       >
-        {poster && drawable && (
-          <Image
-            key={still.key}
-            source={{ uri: poster.url }}
-            style={[{ position: 'absolute', left, top, width, height }, (still.failed || (!opaque && settled)) && styles.hidden]}
-            resizeMode="stretch"
-            fadeDuration={0}
-            onError={still.onError}
-            accessibilityIgnoresInvertColors
-          />
-        )}
-        {showLive && (
+        {/* Saydam olmayan parçada (plaka) sabit resim canlı yüzeyin altında hep kalır */}
+        {posterImage &&
+          drawable &&
+          (opaque ? posterImage : <FadingPoster steps={fed && frame ? frame.steps : null} style={place}>{posterImage}</FadingPoster>)}
+        {keepCanvas && asset && (
           <LiveBoundary onFail={() => setBroken(true)}>
-            <LiveCanvas asset={asset} frame={frame} left={left} top={top} width={width} height={height} visibleHeight={visibleHeight ?? height} />
+            <LiveCanvas
+              asset={asset}
+              frame={fed ? frame : null}
+              left={left}
+              top={top}
+              width={width}
+              height={height}
+              visibleHeight={visibleHeight ?? height}
+            />
           </LiveBoundary>
         )}
         {children}
       </View>
-      {!showLive && (!poster || still.failed) ? fallback : null}
+      {!fed && (!poster || still.failed) ? fallback : null}
     </>
   );
 }

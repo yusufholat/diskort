@@ -3,6 +3,12 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  BUDGET_STRIKES,
+  budgetStrikes,
+  heaviest,
+  nextFrames,
+  STEP_BUDGET_MS,
+  TICK_BUDGET_MS,
   ANIMATED_DECORATION_MIN_SIZE,
   CARD_BANNER_RATIO,
   cardEffectBox,
@@ -192,12 +198,106 @@ describe('kare saati', () => {
     expect(framesPerSecond(120, 30)).toBe(30);
   });
 
-  it('kayan ortalama yavaş kareye doğru yavaşça kayar', () => {
+  it('kayan ortalama yavaş kareye doğru yavaşça kayar; tek ölçüm bütçenin üç katında kırpılır', () => {
     let cost = 0;
-    for (let i = 0; i < 100; i++) cost = stepCost(cost, 20);
+    for (let i = 0; i < 100; i++) cost = stepCost(cost, 20, 30);
     expect(cost).toBeGreaterThan(19);
-    expect(stepCost(2, 2)).toBeCloseTo(2);
-    expect(stepCost(0, 30)).toBeCloseTo(3);
+    expect(stepCost(2, 2, 12)).toBeCloseTo(2);
+    expect(stepCost(0, 30, 12)).toBeCloseTo(3);
+    // 500 ms'lik tek takılma ortalamaya 36 ms (3 × 12) olarak girer
+    expect(stepCost(0, 500, 12)).toBeCloseTo(3.6);
+  });
+});
+
+describe('karelerin ömrü', () => {
+  it('yerine yenisi konan kare bir adım daha yaşar; iki adım önceki bırakılır', () => {
+    const held: { current: string | null; previous: string | null } = { current: null, previous: null };
+    const released: (string | null)[] = [];
+    for (const frame of ['a', 'b', 'c', 'd']) {
+      released.push(nextFrames(held, frame));
+      // Gösterilen ve bir önceki kare hiçbir zaman bırakılmaz
+      const disposed = released.filter((f) => f !== null);
+      expect(disposed).not.toContain(held.current);
+      if (held.previous !== null) expect(disposed).not.toContain(held.previous);
+    }
+    expect(released).toEqual([null, null, 'a', 'b']);
+    expect(held).toEqual({ current: 'd', previous: 'c' });
+  });
+});
+
+describe('iş bütçesi', () => {
+  /** Bir oynatıcının kare süreleri boyunca bütçesi dolar mı; dolduğu kare (dolmazsa -1) */
+  function tripsAt(samples: readonly number[], budget: number): number {
+    let cost = 0;
+    let strikes = 0;
+    for (let i = 0; i < samples.length; i++) {
+      cost = stepCost(cost, samples[i]!, budget);
+      strikes = budgetStrikes(strikes, cost, budget);
+      if (strikes >= BUDGET_STRIKES) return i;
+    }
+    return -1;
+  }
+  const steady = (ms: number, n = 600): number[] => Array.from({ length: n }, () => ms);
+
+  it('tek ya da birkaç uzun takılma bütçeyi doldurmaz', () => {
+    const budget = STEP_BUDGET_MS.image;
+    const samples = steady(8);
+    samples[100] = 500;
+    samples[300] = 800;
+    samples[301] = 800;
+    expect(tripsAt(samples, budget)).toBe(-1);
+  });
+
+  it('sürekli bütçenin üstündeki iş art arda BUDGET_STRIKES kareden sonra doldurur', () => {
+    const at = tripsAt(steady(20), STEP_BUDGET_MS.image);
+    expect(at).toBeGreaterThanOrEqual(BUDGET_STRIKES - 1);
+    expect(at).toBeLessThan(BUDGET_STRIKES + 20);
+    // Bütçenin hemen altındaki iş hiç doldurmaz
+    expect(tripsAt(steady(STEP_BUDGET_MS.image - 1), STEP_BUDGET_MS.image)).toBe(-1);
+  });
+
+  it('aşım arada kesilirse sayaç sıfırlanır', () => {
+    let strikes = 0;
+    strikes = budgetStrikes(strikes, 15, 12);
+    strikes = budgetStrikes(strikes, 15, 12);
+    expect(strikes).toBe(2);
+    expect(budgetStrikes(strikes, 11, 12)).toBe(0);
+  });
+
+  it('en pahalı oynatıcı seçilir; liste boşsa hiçbiri', () => {
+    expect(heaviest([1.5, 4, 2])).toBe(1);
+    expect(heaviest([3])).toBe(0);
+    expect(heaviest([])).toBe(-1);
+  });
+
+  it('on iki ayrı plaka (1,5 ms): toplam bütçe dolar, en pahalılar sırayla sabit resme alınır, toplam bütçeye iner', () => {
+    // Sürücünün kare döngüsündeki toplam bütçe kuralının aynısı
+    const costs = Array.from({ length: 12 }, (_, i) => 1.5 + i * 0.01);
+    const running = costs.map(() => true);
+    let total = 0;
+    let strikes = 0;
+    const shed: number[] = [];
+    for (let tick = 0; tick < 2000; tick++) {
+      const sum = costs.reduce((s, c, i) => s + (running[i] ? c : 0), 0);
+      total = stepCost(total, sum, TICK_BUDGET_MS);
+      strikes = budgetStrikes(strikes, total, TICK_BUDGET_MS);
+      if (strikes >= BUDGET_STRIKES) {
+        strikes = 0;
+        const index = heaviest(costs.map((c, i) => (running[i] ? c : -1)).filter((c) => c >= 0));
+        const candidates = costs.map((c, i) => [c, i] as const).filter(([, i]) => running[i]);
+        const [cost, i] = candidates[index]!;
+        running[i] = false;
+        total = Math.max(0, total - cost);
+        shed.push(i);
+      }
+    }
+    // 18 ms → 10 ms'nin altına: en az altı oynatıcı bırakılır, en pahalıdan başlayarak
+    const left = costs.reduce((s, c, i) => s + (running[i] ? c : 0), 0);
+    expect(left).toBeLessThanOrEqual(TICK_BUDGET_MS);
+    expect(shed.length).toBeGreaterThanOrEqual(6);
+    expect(shed.slice(0, 3)).toEqual([11, 10, 9]);
+    // Bütçeye inince daha fazlası bırakılmaz
+    expect(left).toBeGreaterThan(TICK_BUDGET_MS - 2);
   });
 });
 

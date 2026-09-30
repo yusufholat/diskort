@@ -64,6 +64,11 @@ export interface PackCache {
    * dosya için aynı anda tek indirme yapılır. Önbellek kullanılamıyorsa ya da indirilemezse hata verir.
    */
   ensure(file: { url: string; bytes: number }): Promise<string>;
+  /**
+   * Dosyanın cihazdaki kopyasını siler (açılamadı ya da çözülemedi: boyutu tutsa da bozuk olabilir); bir sonraki
+   * `ensure` yeniden indirir. Süren indirme varsa bitmesi beklenir. Hata vermez.
+   */
+  discard(url: string): Promise<void>;
   /** Bildirimde olmayan dosyaları siler; silinen sayısını döner. Hata vermez. */
   evict(manifest: CosmeticPackManifest): Promise<number>;
 }
@@ -86,7 +91,8 @@ export function createPackCache(fs: PackCacheFs, folder = 'kozmetik-paketleri/')
       const status = await fs.download(url, part);
       if (status !== 200) throw new Error(`paket dosyası indirilemedi (${status})`);
       const size = await fs.size(part);
-      if (size !== bytes) throw new Error(`paket dosyasının boyutu tutmuyor (${String(size)} / ${bytes})`);
+      // İleti sabit: bildirimler iletiye göre tekrarsız sayılır
+      if (size !== bytes) throw new Error('paket dosyasının boyutu bildirimle tutmuyor');
       await fs.remove(uri);
       await fs.move(part, uri);
       return uri;
@@ -106,6 +112,16 @@ export function createPackCache(fs: PackCacheFs, folder = 'kozmetik-paketleri/')
       const job = fetchFile(name, url, bytes).finally(() => inflight.delete(name));
       inflight.set(name, job);
       return job;
+    },
+    async discard(url) {
+      const name = cacheFileName(url);
+      if (!name) return;
+      try {
+        await inflight.get(name)?.catch(() => undefined);
+        await fs.remove(root() + name);
+      } catch {
+        // silinemedi (ya da önbellek yok): bir sonraki açılış aynı dosyayı dener
+      }
     },
     async evict(manifest) {
       try {

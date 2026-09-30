@@ -11,11 +11,11 @@ import { watchPackFiles } from './packFiles';
 import { createPlayback, type Playback } from './packPlayer';
 import { reportCosmeticError } from './report';
 
-let instance: Playback<Frame> | null = null;
+let instance: Playback<Frame | null> | null = null;
 
-export function playback(): Playback<Frame> {
+export function playback(): Playback<Frame | null> {
   if (instance) return instance;
-  const created = createPlayback<Frame>({
+  const created = createPlayback<Frame | null>({
     driver: createSkiaDriver({ manualVideoLoop: Platform.OS === 'android' }),
     timers: {
       setTimeout: (fn, ms) => setTimeout(fn, ms),
@@ -27,8 +27,8 @@ export function playback(): Playback<Frame> {
     onError: (spec, error, kind) => {
       reportCosmeticError(spec.kind === 'video' ? 'video' : 'hareketli resim', error);
       // İndirilemeyen ya da çözülemeyen dosya: bildirim eskimiş olabilir (paket yeniden yayınlanmış, kaldırılmış).
-      // Telefonun kareleri yetiştirememesi dosyanın kusuru değildir.
-      if (kind !== 'device') cosmeticAssetFailed(spec.url);
+      // Telefonun kareleri yetiştirememesi ya da aynı anda çok dosya oynaması dosyanın kusuru değildir.
+      if (kind === 'transient' || kind === 'asset') cosmeticAssetFailed(spec.url);
     },
   });
   instance = created;

@@ -41,11 +41,16 @@ export interface DriverEvents {
  * Hatanın türü:
  * - `transient`: geçici sayılır (ağ, eskimiş adres, çözülemeyen resim): bir süre sonra ve `retry()` ile yeniden
  *   denenir
- * - `asset`: dosya bu telefonda oynatılamıyor (video açılamadı ya da oynarken hata verdi): bu oturumda yeniden
- *   denenmez (her deneme bir donanım çözücüsü açar); adres değişirse yeni dosya denenir
+ * - `load`: dosya sağlam ama o an çok fazla dosya oynuyordu, bu oynatıcı sabit resme alındı: `transient` gibi
+ *   yeniden denenir (dosyanın kusuru değildir)
+ * - `asset`: dosya bu telefonda oynatılamıyor (video açılamadı ya da oynarken hata verdi; yeniden indirilen
+ *   resim de çözülemedi): bu oturumda yeniden denenmez; adres değişirse yeni dosya denenir
  * - `device`: dosya sağlam ama telefon kareleri yetiştiremiyor: bu oturumda yeniden denenmez
  */
-export type FailureKind = 'transient' | 'asset' | 'device';
+export type FailureKind = 'transient' | 'load' | 'asset' | 'device';
+
+/** Bu oturumda yeniden denenmeyen hata mı */
+export const isPermanentFailure = (kind: FailureKind): boolean => kind === 'asset' || kind === 'device';
 
 /** Sürücünün bir dosya için kurduğu oynatıcı; `F`: görünümlerin çizdiği kare (paylaşılan değer) */
 export interface DriverPlayer<F> {
@@ -109,6 +114,8 @@ export const VIDEO_PARK_MS = 30_000;
  * yalnızca `retry()` ile (bildirim değişti, bağlantı geri geldi)
  */
 export const RETRY_MS = 60_000;
+/** Hatırlanan hatalı dosya sayısı */
+export const MAX_FAILURES = 64;
 
 type State = 'idle' | 'loading' | 'ready' | 'failed';
 
@@ -235,15 +242,45 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
     }
   }
 
+  /** Hatayı hatırlar; liste dolunca önce en eski GEÇİCİ hata unutulur (kalıcı hatalar oturum boyunca geçerlidir) */
+  function remember(url: string, permanent: boolean): void {
+    failures.delete(url);
+    failures.set(url, { at: now(), permanent });
+    if (failures.size <= MAX_FAILURES) return;
+    let oldest: string | undefined;
+    for (const [key, failure] of failures) {
+      if (key === url) continue;
+      oldest ??= key;
+      if (!failure.permanent) {
+        oldest = key;
+        break;
+      }
+    }
+    if (oldest !== undefined) failures.delete(oldest);
+  }
+
+  /** Geçici hata sabit resimde sonsuza kadar bırakmaz: bekleme süresi dolunca kendiliğinden yeniden denenir */
+  function armRetry(p: Player<F>): void {
+    cancelRetry(p);
+    const failure = failures.get(p.spec.url);
+    if (!failure || failure.permanent || players.get(p.spec.url) !== p) return;
+    p.retryTimer = timers.setTimeout(
+      () => {
+        p.retryTimer = null;
+        failures.delete(p.spec.url);
+        revive(p);
+      },
+      Math.max(0, failure.at + RETRY_MS - now()),
+    );
+  }
+
   function fail(p: Player<F>, error: unknown, kind: FailureKind): void {
     if (p.state === 'failed') return;
-    const permanent = kind !== 'transient';
+    const permanent = isPermanentFailure(kind);
     p.state = 'failed';
     p.generation++;
     cancelPark(p);
-    failures.delete(p.spec.url);
-    failures.set(p.spec.url, { at: now(), permanent });
-    if (failures.size > 64) failures.delete(failures.keys().next().value!);
+    remember(p.spec.url, permanent);
     const handle = p.handle;
     p.handle = null;
     p.running = false;
@@ -258,15 +295,7 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
     } catch {
       // zaten kapalı
     }
-    // Geçici hata sabit resimde sonsuza kadar bırakmaz: bir süre sonra kendiliğinden yeniden denenir
-    cancelRetry(p);
-    if (!permanent && players.get(p.spec.url) === p) {
-      p.retryTimer = timers.setTimeout(() => {
-        p.retryTimer = null;
-        failures.delete(p.spec.url);
-        revive(p);
-      }, RETRY_MS);
-    }
+    armRetry(p);
   }
 
   function open(p: Player<F>): void {
@@ -374,10 +403,13 @@ export function createPlayback<F>({ driver, timers, now = Date.now, onError }: P
           parkTimer: null,
         };
         players.set(spec.url, p);
+        // Hatası hatırlanan dosyanın yeni oynatıcısı: bekleme süresinin kalanı dolunca yeniden denenir (hata,
+        // oynatıcısı bırakıldıktan sonra kurulan görünümü sabit resimde bırakmasın)
+        if (p.state === 'failed') armRetry(p);
       } else if (p.state === 'failed' && !blocked(spec.url)) {
         cancelRetry(p);
         p.state = 'idle';
-      }
+      } else if (p.state === 'failed' && p.retryTimer === null) armRetry(p);
       if (p.idleTimer !== null) {
         timers.clearTimeout(p.idleTimer);
         p.idleTimer = null;
