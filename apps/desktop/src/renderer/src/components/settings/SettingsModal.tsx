@@ -21,7 +21,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH } from '@diskort/shared';
+import { DISPLAY_NAME_MAX_LENGTH } from '@diskort/shared';
 import {
   gateway,
   api,
@@ -336,45 +336,15 @@ function AccountSection() {
   );
 }
 
-/** Profil: profil fotoğrafı, profil rengi (fotoğraf yokken avatarın zemini) ve süsler (afiş, tema, efekt) */
+/** Profil: profil fotoğrafı ve süsler (afiş, tema, efekt) */
 function ProfileSection() {
   const user = useSession((s) => s.user);
-  const [busy, setBusy] = useState(false);
-
-  const saveColor = async (avatarColor: string): Promise<void> => {
-    setBusy(true);
-    try {
-      const updated = await api.updateMe({ avatarColor });
-      useSession.getState().setUser(updated);
-    } catch (err) {
-      toast(errorMessage(err), 'error');
-    } finally {
-      setBusy(false);
-    }
-  };
 
   if (!user) return null;
   return (
     <div>
       <h2 className="mb-5 text-xl font-bold text-text-head">Profil</h2>
       <ProfilePhoto user={user} />
-      <SectionTitle>Profil Rengi</SectionTitle>
-      <p className="mb-3 text-sm text-text-muted">Profil fotoğrafın yokken avatarının zemin rengi.</p>
-      <div className="flex flex-wrap gap-2">
-        {AVATAR_COLORS.map((color) => (
-          <button
-            key={color}
-            disabled={busy}
-            onClick={() => void saveColor(color)}
-            className={cn(
-              'h-10 w-10 rounded-full transition-transform hover:scale-110',
-              user.avatarColor === color && 'ring-2 ring-text-head ring-offset-2 ring-offset-bg-main',
-            )}
-            style={{ background: color }}
-            aria-label={color}
-          />
-        ))}
-      </div>
       <Divider />
       <ProfileLookSettings user={user} />
     </div>

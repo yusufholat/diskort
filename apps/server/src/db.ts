@@ -480,6 +480,15 @@ interface UserRow {
   nameplate: string | null;
 }
 
+/**
+ * Kullanıcının dışarı verilen avatar rengi (fotoğrafsız baş harf avatarının zemini, profil kartı yedek rengi).
+ * Ayrı bir "profil rengi" seçimi yok: profil teması varsa onun ana rengi, yoksa hesapta saklı renk.
+ * Kullanıcıyı dışarı veren tek yer toUser olduğundan tüm istemciler (yayımlanmış eski sürümler dahil)
+ * avatarColor alanını okuyarak bunu istemci mantığı olmadan alır. Saklı renk yedek olarak kalır.
+ */
+const effectiveAvatarColor = (r: Pick<UserRow, 'avatar_color' | 'theme_primary' | 'theme_accent'>): string =>
+  r.theme_primary && r.theme_accent ? r.theme_primary : r.avatar_color;
+
 interface RoleRow {
   id: string;
   guild_id: string;
@@ -789,7 +798,7 @@ export class Store {
       id: r.id,
       username: r.username,
       displayName: r.display_name,
-      avatarColor: r.avatar_color,
+      avatarColor: effectiveAvatarColor(r),
       avatarUrl: r.avatar_hash ? `/api/avatars/${r.id}/${r.avatar_hash}.webp` : null,
       bannerUrl: r.banner_hash ? `/api/banners/${r.id}/${r.banner_hash}.webp` : null,
       profileTheme: r.theme_primary && r.theme_accent ? { primary: r.theme_primary, accent: r.theme_accent } : null,

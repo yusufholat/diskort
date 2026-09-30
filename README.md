@@ -35,7 +35,7 @@ Masaüstü (Electron) ve Android (React Native) uygulamaları + kendi sunucun (L
   JPEG'lerdeki konum (GPS) bilgisi sunucuda silinir
 - **Profil fotoğrafı:** masaüstünde sürükle/yakınlaştır kırpma penceresi, Android'de sistemin kırpma ekranı;
   sunucu 256×256 WebP'ye çevirir (konum dahil üst veriler silinir), değişiklik herkese anında yansır.
-  Fotoğraf yoksa baş harfler ve profil rengi
+  Fotoğraf yoksa baş harfler ve tema rengi (tema yoksa hesabın rengi)
 - **Profil süsleri:** afiş, iki renkli profil teması ve 6 hareketli set (profil efekti, avatar dekorasyonu, isim plakası)
 - **Durum ve etkinlik:** çevrim içi / boşta (10 dk girdi yoksa kendiliğinden) / rahatsız etmeyin / görünmez ve özel
   durum; masaüstü (Windows) açık oyunu algılar, adını ve ikonunu gösterir (Ayarlar → Etkinlik → “Oynadığım oyunu

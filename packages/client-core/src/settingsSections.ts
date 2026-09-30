@@ -74,7 +74,6 @@ export const SETTINGS_GROUPS: readonly SettingsGroupInfo[] = [
           'profil fotoğrafı',
           'avatar',
           'resim',
-          'profil rengi',
           'durum',
           'özel durum',
           'afiş',

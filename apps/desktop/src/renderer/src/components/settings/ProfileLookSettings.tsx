@@ -95,7 +95,7 @@ export function ProfileLookSettings({ user }: { user: User }) {
     [],
   );
 
-  // Tema yokken renk seçicilerin başladığı renkler: üstte profil rengi, altta koyu bir ton
+  // Tema yokken renk seçicilerin başladığı renkler: üstte avatarın rengi, altta koyu bir ton
   const fallback: ProfileTheme = {
     primary: HEX_COLOR.test(user.avatarColor.toLowerCase()) ? user.avatarColor.toLowerCase() : '#5865f2',
     accent: '#1e1f22',
@@ -475,7 +475,7 @@ function BannerPicker({ user }: { user: User }) {
   const remove = async (): Promise<void> => {
     const ok = await confirmDialog({
       title: 'Afiş kaldırılsın mı?',
-      message: 'Kartının üstünde yeniden tema rengin (yoksa profil rengin) görünür.',
+      message: 'Kartının üstünde yeniden tema rengin (yoksa avatarının rengi) görünür.',
       confirmLabel: 'Kaldır',
       danger: true,
     });
