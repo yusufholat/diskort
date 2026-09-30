@@ -11,12 +11,37 @@ const platformIndex = process.argv.indexOf('--platform');
 const platform = platformIndex >= 0 ? process.argv[platformIndex + 1] : 'android';
 if (platform !== 'android' && platform !== 'ios') throw new Error(`Geçersiz --platform: ${platform}`);
 
+/**
+ * Yalnızca Android'in derlemesini etkileyen ayarlar iOS parmak izine girmez. @expo/fingerprint uygulama
+ * yapılandırmasının tamamını (eklentilerin ayarlarıyla birlikte) iki platformun parmak izine de katar; Android'in
+ * en düşük sürümü (expo-build-properties → android.minSdkVersion, yalnızca gradle.properties'e yazılır)
+ * değişince iOS'un yerel kısmı değişmediği halde iOS parmak izi de değişir ve bütün iPhone'lara yeni IPA
+ * gerekirdi. Buraya yalnızca iOS derlemesine hiçbir etkisi olmayan ayarlar eklenir.
+ */
+const ANDROID_ONLY_BUILD_PROPERTIES = ['minSdkVersion'];
+
+/** iOS parmak izi için yapılandırmadan Android'e özgü derleme ayarlarını çıkarır (çözülemezse dokunmaz) */
+function withoutAndroidOnlySettings(contents) {
+  try {
+    const config = JSON.parse(String(contents));
+    const entry = config.plugins?.find((p) => Array.isArray(p) && p[0] === 'expo-build-properties');
+    const android = entry?.[1]?.android;
+    if (!android) return contents;
+    for (const key of ANDROID_ONLY_BUILD_PROPERTIES) delete android[key];
+    return JSON.stringify(config);
+  } catch {
+    return contents;
+  }
+}
+
 const fingerprint = await createFingerprintAsync(process.cwd(), {
   platforms: [platform],
   sourceSkips:
     SourceSkips.ExpoConfigVersions |
     SourceSkips.ExpoConfigRuntimeVersionIfString |
     SourceSkips.PackageJsonScriptsAll,
+  fileHookTransform: (source, chunk) =>
+    platform === 'ios' && source.type === 'contents' && source.id === 'expoConfig' ? withoutAndroidOnlySettings(chunk) : chunk,
   silent: true,
 });
 
