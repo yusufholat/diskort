@@ -42,6 +42,7 @@ export {
   uploadStreamPreview,
 } from './streamPreview';
 export { streamViewers, useStreamViewers } from './streamViewers';
+export { guildVoiceActivity, useGuildVoiceActivity, type GuildVoiceActivity } from './guildVoice';
 export {
   activityLabel,
   activityTitle,
