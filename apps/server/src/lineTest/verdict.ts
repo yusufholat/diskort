@@ -14,8 +14,8 @@ export interface TcpSecond {
 export interface RunOutage {
   at: number;
   durationMs: number;
-  /** tam: sondalar + NIC · gelen: yalnızca NIC sessizliği · sonda: yalnızca dış sondalar */
-  kind: 'tam' | 'gelen' | 'sonda';
+  /** tam: sondalar + NIC · sonda: yalnızca dış sondalar · aday: yalnızca NIC sessizliği (doğrulanmamış; yargıya katılmaz) */
+  kind: 'tam' | 'sonda' | 'aday';
   /** Testin başından kesintiye kadar geçen süre (sn) ve o andaki adım */
   sec: number;
   step: string | null;
@@ -172,7 +172,7 @@ function tcpShortfall(runs: VerdictRun[], dir: Dir): { pct: number; secs: number
 
 const OUTAGE_TEXT: Record<RunOutage['kind'], string> = {
   tam: 'tam kesinti (dış sondalar yanıtsız + sunucuya paket gelmedi)',
-  gelen: 'sunucuya gelen paketler kesildi (NIC sessizliği)',
+  aday: 'sunucuya gelen paketler kısa süre kesildi (yalnızca NIC; dış sondalarla doğrulanmadı)',
   sonda: 'dış sondalar yanıtsız kaldı',
 };
 const secText = (ms: number): string => `${round1(ms / 1000)}`.replace('.', ',');
@@ -191,7 +191,16 @@ function burstFindings(runs: VerdictRun[]): Finding[] {
     const kindOf = (st: StepStat): string | undefined => r.steps[st.step]?.kind;
     const bursts = stats.filter((st) => kindOf(st) === 'burst');
     const peak = Math.max(0, ...r.steps.filter((st) => st.kind === 'burst').map((st) => st.rateBps));
-    const outages = r.outages ?? [];
+    // Yalnızca doğrulanmış kesintiler (dış sondalarla) yargıya girer; NIC adayları ayrıca not edilir
+    const outages = (r.outages ?? []).filter((o) => o.kind !== 'aday');
+    for (const o of (r.outages ?? []).filter((x) => x.kind === 'aday')) {
+      out.push({
+        code: `patlama_aday_${dir}`,
+        tone: 'info',
+        text: `Patlama testi (${DIR_TEXT[dir]}): ${OUTAGE_TEXT.aday}, ${secText(o.durationMs)} sn → kesinti sayılmadı (test trafiğinin kendisi de gelen paket hızını değiştirir).`,
+        evidence: `testin ${String(o.sec).replace('.', ',')}. saniyesi${o.step ? ` · adım: ${o.step}` : ''}`,
+      });
+    }
     for (const o of outages) {
       if (o.burst) {
         out.push({
@@ -267,7 +276,11 @@ export function classify(runs: VerdictRun[]): Finding[] {
   const burst = burstFindings(runs);
   out.push(...burst);
   // Öbür profillerde test sürerken sunucu kesinti gördüyse: o saniyelerdeki kayıp istemci hattına yazılmamalı
-  const seen = runs.filter((r) => r.profile !== 'burst').flatMap((r) => r.outages ?? []);
+  // (yalnızca dış sondalarla doğrulanmış kesintiler: NIC adayları kayıp yorumunu değiştirmez)
+  const seen = runs
+    .filter((r) => r.profile !== 'burst')
+    .flatMap((r) => r.outages ?? [])
+    .filter((o) => o.kind !== 'aday');
   if (seen.length > 0) {
     const longest = seen.reduce((a, b) => (b.durationMs > a.durationMs ? b : a));
     out.push({

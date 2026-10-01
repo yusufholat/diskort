@@ -179,6 +179,13 @@ export function serverResourceProblems(s: ServerSummary | null): { material: str
 function probeVerdict(s: ServerSummary | null): { kind: Diagnosis['probe']; text: string } {
   if (!s || s.probeLossPct === null) return { kind: 'yok', text: 'Dış sonda verisi yok (sunucu ölçümü kapalı ya da yeni başladı).' };
   const outage = (s.outages ?? []).find((o) => o.probe);
+  const corroborated = (s.outages ?? []).find((o) => o.kind === 'tam' && !o.probe && o.nic);
+  if (!outage && corroborated?.nic) {
+    return {
+      kind: 'kayıp',
+      text: `Sunucuya paket gelmeyen saniyelerde (${clockOf(corroborated)}) ${corroborated.nic.probesLost} dış sonda da yanıtsız kaldı: sunucunun dış yolu kesildi.`,
+    };
+  }
   if (outage?.probe) {
     const p = outage.probe;
     return {
@@ -271,7 +278,8 @@ export function diagnose(users: FreezeUser[], server: ServerSummary | null, lk: 
     outages.filter((o) => o.kind === kind).sort((a, b) => b.durationMs - a.durationMs)[0] ?? null;
   const total = longest('tam');
   const probeOnly = longest('sonda');
-  const nicOnly = longest('gelen');
+  /** Doğrulanmamış NIC sessizliği: tek başına hiçbir sağlayıcı yargısını seçmez */
+  const nicOnly = longest('aday');
 
   const lossRange = (list: FreezeUser[], pick: (u: FreezeUser) => number | null): string => {
     const v = list.map(pick).filter((x): x is number => x !== null);
@@ -360,7 +368,16 @@ export function diagnose(users: FreezeUser[], server: ServerSummary | null, lk: 
     const f = freezeNote();
     if (f) evidence.push(f);
   };
-  const done = (cause: FreezeCause, segment: FreezeSegment, summary: string, confidence: Diagnosis['confidence']): Diagnosis => ({
+  const done = (cause: FreezeCause, segment: FreezeSegment, summary: string, confidence: Diagnosis['confidence']): Diagnosis => {
+    // Doğrulanmamış NIC sessizliği, nedeni seçmediği durumlarda yalnızca etken olarak anılır
+    if (nicOnly?.nic && cause !== 'saglayici_gelen' && cause !== 'saglayici_kesinti') {
+      factors.push(
+        `NIC sessizliği adayı: ${clockOf(nicOnly)} anında ${sec(nicOnly.durationMs)} sn sunucuya gelen paket ${num(nicOnly.nic.rxpMin)}/sn'ye düştü; dış sondalarla doğrulanmadı ve birden çok kullanıcının aynı andaki giden kaybıyla desteklenmedi (tek başına sağlayıcıyı göstermez)`,
+      );
+    }
+    return finish(cause, segment, summary, confidence);
+  };
+  const finish = (cause: FreezeCause, segment: FreezeSegment, summary: string, confidence: Diagnosis['confidence']): Diagnosis => ({
     cause,
     label: FREEZE_CAUSE_LABELS[cause],
     segment,
@@ -375,10 +392,12 @@ export function diagnose(users: FreezeUser[], server: ServerSummary | null, lk: 
   // 1) Tam kesinti: dış sondalar yanıtsız VE sunucuya paket gelmiyor (iki bağımsız işaret aynı anda)
   if (total && affected.size > 0) {
     const n = total.nic!;
-    const p = total.probe!;
+    const p = total.probe;
     evidence.push(
-      `Tam kesinti: ${clockOf(total)} anında ${sec(total.durationMs)} sn boyunca sunucuya paket ulaşmadı (gelen ${num(n.rxpMin)} pk/sn, olağanı ${num(n.baseline)}) ` +
-        `ve dış sondalar da yanıtsız kaldı (${p.targets.join(', ')}${p.udp && p.tcp ? '; UDP ve TCP birlikte' : ''}).`,
+      `Tam kesinti: ${clockOf(total)} anında ${sec(total.durationMs)} sn boyunca sunucuya paket ulaşmadı (gelen ${num(n.rxpMin)} pk/sn, taban ${num(n.baseline)})${n.txCollapsed ? '; giden paketler de durdu' : ''} ` +
+        (p
+          ? `ve dış sondalar da yanıtsız kaldı (${p.targets.join(', ')}${p.udp && p.tcp ? '; UDP ve TCP birlikte' : ''}).`
+          : `ve aynı saniyelerde ${n.probesLost} dış sonda yanıtsız kaldı.`),
     );
     userLossLines();
     evidence.push(serverLine());
@@ -433,8 +452,9 @@ export function diagnose(users: FreezeUser[], server: ServerSummary | null, lk: 
   }
 
   // 4) Sunucuya gelen yol: birden çok kullanıcının kendi yükleme hatları AYNI ANDA kaybediyor (bağımsız hatlar
-  // aynı anda bozulmaz) ya da sunucuya gelen paketler kesildi; dış sondalarda kesinti yok
-  if (upSim.users.length >= 2 || (nicOnly && affected.size > 0)) {
+  // aynı anda bozulmaz); dış sondalarda kesinti yok. Doğrulanmamış NIC sessizliği (aday) bu adımı tek başına
+  // seçemez: yalnızca ≥2 kullanıcının eşzamanlı giden kaybıyla birlikte kanıt sayılır.
+  if (upSim.users.length >= 2) {
     const who = upSim.users;
     if (nicOnly) {
       const n = nicOnly.nic!;

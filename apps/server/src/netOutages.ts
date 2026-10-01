@@ -4,32 +4,42 @@ import type { ProbeOutage } from './netProbe.js';
 
 // Bağlantı teşhisi: kısa kesintilerin kaydı. İki bağımsız işaret birleştirilir:
 //  - "sonda" kesintisi (netProbe.ts): sunucudan dışarıya art arda sondalar yanıtsız (≥2 farklı hedef),
-//  - "NIC sessizliği" (aşağıda): sunucuya gelen paket hızı taban çizgisine göre çöküp sonra geri geliyor.
-// İkisi aynı anda görülürse sunucuya hiçbir şey ulaşmamıştır (tam kesinti: sağlayıcı/hipervizör ağı). Yalnızca
-// NIC sessizliği: gelen yön (ya da istemciler göndermeyi kesti). Yalnızca sonda: dış yol kesik ama NIC'e paket
-// gelmeye devam etmiş (ya da trafik dedektörün çalışamayacağı kadar azdı).
+//  - "NIC sessizliği" (aşağıda): sunucuya gelen paket hızı neredeyse SIFIRA iniyor ve sonra geri geliyor.
+// NIC sessizliği tek başına yalnızca bir ADAYDIR ("aday"): hiçbir sağlayıcı yargısını tek başına seçmez. Aynı
+// saniyelerde dış sondalar da yanıtsız kaldıysa (kayıtlı sonda kesintisi ya da en az bir yanıtsız sonda) iki
+// bağımsız işaret örtüşmüştür: tam kesinti (sağlayıcı/hipervizör ağı). Yalnızca sonda: dış yol kesik ama NIC'e
+// paket gelmeye devam etmiş (ya da trafik dedektörün çalışamayacağı kadar azdı).
+//
+// Neden "neredeyse sıfır": gerçek sunucu verisinde gelen paket hızı kesinti olmadan da çok oynar (konuşma
+// durunca ~250 → ~30 pk/sn, yayında ekran durağanlaşınca ~1100 → ~80 pk/sn). Ama biri bağlıyken canlı tutma /
+// RTCP trafiği sessizlikte bile ~28 pk/sn'nin altına inmez; gerçek kesintilerde ise tek haneye düşer. Bu yüzden
+// ölçüt ortancaya oran değil, canlı tutma tabanına göre mutlak bir "neredeyse sıfır" eşiğidir.
 // Kayıt: <dataDir>/telemetry/outages.jsonl (çalışırken kırpılır; 14 gün). Saatler istatistik saat dilimiyle
 // (STATS_UTC_OFFSET_MIN) okunaklı olarak da yazılır.
 
-/** NIC sessizliği: gelen paket hızı çöktü ve geri geldi */
+/** NIC sessizliği: gelen paket hızı neredeyse sıfıra indi ve geri geldi */
 export interface NicSilence {
   /** Çöküşün başladığı an (ms; saniye çözünürlüğünde) */
   at: number;
   durationMs: number;
-  /** Sessizlik sırasındaki en düşük ve öncesindeki (10 sn ortanca) paket/sn */
+  /** Sessizlik sırasındaki en düşük paket/sn ve öncesindeki taban (son ~45 sn'nin %10'luk dilimi: canlı tutma tabanı) */
   rxpMin: number;
   baseline: number;
   /** O an sesteki kişi sayısı (bilinmiyorsa null) */
   participants: number | null;
+  /** Aynı saniyelerde (±2 sn) yanıtsız kalan dış sonda sayısı: > 0 ise sessizlik doğrulanmıştır */
+  probesLost: number;
+  /** Giden paket hızı da çöktü mü (SFU'nun iletecek bir şeyi kalmadı, TCP ACK saatleri durdu): destekleyici işaret */
+  txCollapsed: boolean;
 }
 
-/** tam: ikisi birden · gelen: yalnızca NIC sessizliği · sonda: yalnızca dış sondalar */
-export type OutageKind = 'tam' | 'gelen' | 'sonda';
+/** tam: NIC sessizliği + dış sondalar · sonda: yalnızca dış sondalar · aday: yalnızca NIC sessizliği (doğrulanmamış) */
+export type OutageKind = 'tam' | 'sonda' | 'aday';
 
 export const OUTAGE_KIND_LABELS: Record<OutageKind, string> = {
   tam: 'tam kesinti',
-  gelen: 'yalnız gelen',
   sonda: 'yalnız sonda',
+  aday: 'aday (yalnız NIC)',
 };
 
 export interface Outage {
@@ -43,6 +53,9 @@ export interface Outage {
   nic: NicSilence | null;
 }
 
+/** Kesinti doğrulanmış mı (dış sondalarla); "aday" tek başına bir yargıyı seçemez */
+export const isConfirmedOutage = (o: Pick<Outage, 'kind'>): boolean => o.kind === 'tam' || o.kind === 'sonda';
+
 /** ms → "YYYY-AA-GG SS:DD:SN.mmm +03:00" (verilen saat dilimiyle) */
 export function localStamp(ms: number, offsetMin: number): string {
   const iso = new Date(ms + offsetMin * 60_000).toISOString();
@@ -53,29 +66,39 @@ export function localStamp(ms: number, offsetMin: number): string {
 
 // ---------- NIC sessizliği dedektörü (saf; saniyelik satırlarla sırayla beslenir) ----------
 
-const median = (v: number[]): number => {
+/** Verilen yüzdelik (0..1) */
+const percentile = (v: number[], p: number): number => {
   const s = [...v].sort((a, b) => a - b);
-  return s[Math.floor(s.length / 2)]!;
+  return s[Math.min(s.length - 1, Math.floor(s.length * p))]!;
 };
 
-/** Taban çizgisi için bakılan saniye sayısı ve en az gereken örnek */
-const BASELINE_ROWS = 10;
-const BASELINE_MIN_ROWS = 5;
-/** Sessizlik eşiği: taban çizgisinin bu oranının altı; mutlak alt ve üst sınırla (paket/sn) */
-const SILENCE_RATIO = 0.2;
-const SILENCE_FLOOR_MIN = 10;
-const SILENCE_FLOOR_MAX = 400;
-/** Dedektörün çalışması için gereken taban çizgisi (paket/sn): seste biri varken / yokken */
-const BASELINE_MIN_WITH_VOICE = 20;
-const BASELINE_MIN_IDLE = 40;
-/** Geri gelme: sessizlik bittikten sonra bu kadar saniye içinde taban çizgisinin yarısına dönmeli */
+/** Taban için bakılan saniye sayısı ve en az gereken örnek */
+const BASELINE_ROWS = 45;
+const BASELINE_MIN_ROWS = 10;
+/** Taban: son saniyelerin bu yüzdelik dilimi (en düşüklere yakın: konuşma/yayın yokkenki canlı tutma trafiği) */
+const BASELINE_PERCENTILE = 0.1;
+/**
+ * Sessizlik eşiği (paket/sn): mutlak "neredeyse sıfır". Taban çok yüksekse (kalabalık sunucu) onun küçük bir
+ * oranı kadar yükselir, ama üst sınırı geçmez.
+ */
+const SILENCE_ABS = 8;
+const SILENCE_RATIO = 0.05;
+const SILENCE_MAX = 40;
+/** Dedektörün çalışması için gereken taban (paket/sn): bunun altında "neredeyse sıfır" olağan trafikten ayrılamaz */
+const BASELINE_MIN = 20;
+/** Giden yönün de çöktüğü: giden tabanın bu oranının (ve mutlak sınırın) altı */
+const TX_COLLAPSE_RATIO = 0.3;
+const TX_COLLAPSE_ABS = 25;
+/** Geri gelme: sessizlik bittikten sonra bu kadar saniye içinde tabanın yarısına dönmeli */
 const RECOVERY_RATIO = 0.5;
 const RECOVERY_ROWS = 5;
-/** Bundan uzun süren "sessizlik" kesinti değil seviye değişimidir (yayın bitti, herkes çıktı) */
+/** Bundan uzun süren "sessizlik" kesinti değil seviye değişimidir (herkes çıktı) */
 const MAX_SILENCE_ROWS = 60;
+/** Satırlar arasında bundan uzun boşluk varsa (kayıt kesik) taban baştan kurulur */
+const GAP_RESET_MS = 5_000;
 /**
  * Sesteki kişi ya da yayın sayısı azaldıktan sonraki bu süre içinde başlayan çöküş kesinti sayılmaz: trafik
- * birinin çıkması / yayını kapatması yüzünden azalmıştır (kısa süre sonra yeniden yayın açılsa bile).
+ * birinin çıkması / yayını kapatması yüzünden azalmıştır.
  */
 const VOICE_CHANGE_MS = 3_000;
 
@@ -84,23 +107,41 @@ interface SilenceState {
   end: number;
   rows: number;
   min: number;
+  txMin: number | null;
   baseline: number;
+  txBaseline: number | null;
   threshold: number;
   participants: number | null;
+  probesLost: number;
   /** Sessizlik bitti, geri gelme bekleniyor: geçen saniye */
   waited: number | null;
 }
 
 /** Sessizlik eşiği (paket/sn) */
 export function silenceThreshold(baseline: number): number {
-  return Math.min(SILENCE_FLOOR_MAX, Math.max(SILENCE_FLOOR_MIN, baseline * SILENCE_RATIO));
+  return Math.min(SILENCE_MAX, Math.max(SILENCE_ABS, baseline * SILENCE_RATIO));
+}
+
+export interface SilenceInput {
+  /** Satırın anı (ms) ve kapsadığı süre */
+  t: number;
+  intervalMs?: number;
+  /** Gelen / giden paket hızı (paket/sn) */
+  rxp: number | null;
+  txp?: number | null;
+  /** Sesteki kişi ve yayın sayısı (biliniyorsa) */
+  participants?: number | null;
+  streams?: number | null;
+  /** Bu saniyenin çevresinde (±2 sn) yanıtsız kalan dış sonda sayısı */
+  probesLost?: number;
 }
 
 export class NicSilenceDetector {
-  private history: number[] = [];
+  private history: { rxp: number; txp: number | null }[] = [];
   private cur: SilenceState | null = null;
   private lastLoad: { participants: number; streams: number } | null = null;
   private loadDroppedAt = Number.NEGATIVE_INFINITY;
+  private lastT: number | null = null;
 
   constructor(private readonly onSilence: (s: NicSilence) => void) {}
 
@@ -109,24 +150,38 @@ export class NicSilenceDetector {
     this.cur = null;
   }
 
-  private remember(rxp: number): void {
-    this.history.push(rxp);
+  private remember(rxp: number, txp: number | null): void {
+    this.history.push({ rxp, txp });
     if (this.history.length > BASELINE_ROWS) this.history.shift();
   }
 
-  /**
-   * Bir saniyelik ölçüm (t: satırın anı, rxp: gelen paket/sn, intervalMs: satırın kapsadığı süre).
-   * Dönen değer: bu saniye sessizlik (adayı) mı. `corroborated`: aynı saniyede dış sonda da yanıtsız kaldıysa
-   * tek saniyelik sessizlik de sayılır. `streams`: o anki yayın sayısı (biliniyorsa).
-   */
-  push(t: number, rxp: number | null, participants: number | null, corroborated = false, intervalMs = 1000, streams: number | null = null): boolean {
+  private finish(cur: SilenceState): NicSilence {
+    return {
+      at: cur.start,
+      durationMs: Math.max(0, cur.end - cur.start),
+      rxpMin: cur.min,
+      baseline: Math.round(cur.baseline),
+      participants: cur.participants,
+      probesLost: cur.probesLost,
+      txCollapsed: cur.txMin !== null && cur.txBaseline !== null && cur.txMin <= Math.max(TX_COLLAPSE_ABS, cur.txBaseline * TX_COLLAPSE_RATIO),
+    };
+  }
+
+  /** Bir saniyelik ölçüm. Dönen değer: bu saniye sessizlik (adayı) mı. */
+  push(input: SilenceInput): boolean {
+    const { t, rxp } = input;
+    const txp = input.txp ?? null;
+    const participants = input.participants ?? null;
+    const lost = input.probesLost ?? 0;
+    if (this.lastT !== null && t - this.lastT > GAP_RESET_MS) this.reset();
+    this.lastT = t;
     if (rxp === null) {
       this.reset();
       return false;
     }
     // Sesteki kişi / yayın sayısı azaldı mı (trafiğin olağan nedenle azalması)
     if (participants !== null) {
-      const load = { participants, streams: streams ?? 0 };
+      const load = { participants, streams: input.streams ?? 0 };
       if (this.lastLoad && (load.participants < this.lastLoad.participants || load.streams < this.lastLoad.streams)) this.loadDroppedAt = t;
       this.lastLoad = load;
     }
@@ -134,20 +189,24 @@ export class NicSilenceDetector {
     if (voiceChanged && this.cur && this.cur.waited === null && this.cur.rows <= VOICE_CHANGE_MS / 1000) {
       // Çöküş başladıktan hemen sonra birinin çıktığı / yayını kapattığı öğrenildi: kesinti değil
       this.reset();
-      this.remember(rxp);
+      this.remember(rxp, txp);
       return false;
     }
     const cur = this.cur;
+    const extend = (c: SilenceState): void => {
+      c.end = t;
+      c.min = Math.min(c.min, rxp);
+      if (txp !== null) c.txMin = c.txMin === null ? txp : Math.min(c.txMin, txp);
+      c.probesLost = Math.max(c.probesLost, lost);
+    };
     if (cur && cur.waited === null) {
-      if (rxp < cur.threshold) {
+      if (rxp <= cur.threshold) {
         cur.rows++;
-        cur.end = t;
-        cur.min = Math.min(cur.min, rxp);
-        if (corroborated) cur.rows = Math.max(cur.rows, 2);
+        extend(cur);
         if (cur.rows > MAX_SILENCE_ROWS) {
-          // Seviye değişimi: yeni taban çizgisi baştan kurulur
+          // Seviye değişimi: taban yeni trafikle baştan kurulur
           this.reset();
-          this.remember(rxp);
+          this.remember(rxp, txp);
           return false;
         }
         return true;
@@ -157,63 +216,57 @@ export class NicSilenceDetector {
     if (cur && cur.waited !== null) {
       if (rxp >= cur.baseline * RECOVERY_RATIO) {
         this.cur = null;
-        // Düşük taban çizgisinde tek saniyelik dalgalanma gürültüdür: en az iki saniye (ya da sonda kaybıyla doğrulanmış)
-        if (cur.rows >= (cur.baseline >= 100 ? 1 : 2)) {
-          this.onSilence({
-            at: cur.start,
-            durationMs: Math.max(0, cur.end - cur.start),
-            rxpMin: cur.min,
-            baseline: Math.round(cur.baseline),
-            participants: cur.participants,
-          });
-        }
-        this.remember(rxp);
+        this.onSilence(this.finish(cur));
+        this.remember(rxp, txp);
         return false;
       }
-      if (rxp < cur.threshold) {
+      if (rxp <= cur.threshold) {
         // Yeniden çöktü: aynı sessizliğin devamı
         cur.rows += cur.waited + 1;
-        cur.end = t;
-        cur.min = Math.min(cur.min, rxp);
+        extend(cur);
         cur.waited = null;
         return true;
       }
       if (++cur.waited >= RECOVERY_ROWS) {
         // Geri gelmedi: kesinti değil, trafik azaldı
         this.reset();
-        this.remember(rxp);
+        this.remember(rxp, txp);
       }
       return false;
     }
     if (this.history.length >= BASELINE_MIN_ROWS) {
-      const baseline = median(this.history);
-      const eligible = baseline >= ((participants ?? 0) >= 1 ? BASELINE_MIN_WITH_VOICE : BASELINE_MIN_IDLE);
+      const baseline = percentile(this.history.map((h) => h.rxp), BASELINE_PERCENTILE);
       const threshold = silenceThreshold(baseline);
-      if (eligible && rxp < threshold && voiceChanged) {
-        // Seviye değişimi: taban çizgisi yeni trafikle baştan kurulur
-        this.reset();
-      } else if (eligible && rxp < threshold) {
-        this.cur = {
-          start: t - intervalMs,
-          end: t,
-          rows: corroborated ? 2 : 1,
-          min: rxp,
-          baseline,
-          threshold,
-          participants,
-          waited: null,
-        };
-        return true;
+      if (baseline >= BASELINE_MIN && rxp <= threshold) {
+        if (voiceChanged) {
+          this.reset();
+        } else {
+          const tx = this.history.map((h) => h.txp).filter((v): v is number => v !== null);
+          this.cur = {
+            start: t - (input.intervalMs ?? 1000),
+            end: t,
+            rows: 1,
+            min: rxp,
+            txMin: txp,
+            baseline,
+            txBaseline: tx.length >= BASELINE_MIN_ROWS ? percentile(tx, BASELINE_PERCENTILE) : null,
+            threshold,
+            participants,
+            probesLost: lost,
+            waited: null,
+          };
+          return true;
+        }
       }
     }
-    this.remember(rxp);
+    this.remember(rxp, txp);
     return false;
   }
 
   /** Süren sessizlik (henüz geri gelmedi: aday); yoksa null */
-  open(): { at: number; seconds: number; baseline: number; rxpMin: number } | null {
+  open(): { at: number; seconds: number; baseline: number; rxpMin: number; probesLost: number } | null {
     const c = this.cur;
-    return c && c.waited === null ? { at: c.start, seconds: c.rows, baseline: Math.round(c.baseline), rxpMin: c.min } : null;
+    return c && c.waited === null ? { at: c.start, seconds: c.rows, baseline: Math.round(c.baseline), rxpMin: c.min, probesLost: c.probesLost } : null;
   }
 }
 
@@ -272,21 +325,29 @@ export class OutageLog {
     }
     const lines = text.split('\n').filter(Boolean);
     const since = this.now() - KEEP_MS;
+    // Birleşen kayıt dosyaya ikinci kez eklenmiş olabilir: aynı kimlikte son satır geçerlidir
+    const byId = new Map<string, Outage>();
     for (const line of lines) {
       try {
         const v = JSON.parse(line) as unknown;
-        if (isOutage(v) && v.at >= since) this.items.push(v);
+        if (isOutage(v) && v.at >= since) {
+          byId.delete(v.id);
+          byId.set(v.id, v);
+        }
       } catch {
         // bozuk satır atlanır
       }
     }
-    this.items = this.items.slice(-MEMORY_MAX);
+    this.items = [...byId.values()].sort((a, b) => a.at - b.at).slice(-MEMORY_MAX);
+    // Yeni kimlikler dosyadakilerle çakışmasın
+    this.seq = this.items.length;
     this.fileLines = lines.length;
   }
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => void this.flush(), 5_000);
+    // flush kendi hatasını yakalar; zamanlayıcıdan dışarı hiçbir şey sızmamalı
+    this.timer = setInterval(() => void this.flush().catch(() => undefined), 5_000);
     this.timer.unref();
   }
 
@@ -313,7 +374,7 @@ export class OutageLog {
       else o.nic = part.nic;
     } else {
       o = {
-        id: `${at.toString(36)}-${(this.seq++).toString(36)}`,
+        id: `${Math.round(at).toString(36)}-${(this.seq++).toString(36)}`,
         at,
         durationMs,
         t: '',
@@ -324,7 +385,9 @@ export class OutageLog {
       this.items.push(o);
       if (this.items.length > MEMORY_MAX) this.items.splice(0, this.items.length - MEMORY_MAX);
     }
-    o.kind = o.probe && o.nic ? 'tam' : o.nic ? 'gelen' : 'sonda';
+    // NIC sessizliği yalnızca dış sondalarla doğrulanırsa (kayıtlı sonda kesintisi ya da aynı saniyelerde yanıtsız
+    // sonda) tam kesintidir; tek başına adaydır
+    o.kind = o.nic ? (o.probe || o.nic.probesLost > 0 ? 'tam' : 'aday') : 'sonda';
     o.t = localStamp(o.at, this.opts.offsetMin ?? 180);
     if (this.file) this.unsaved.set(o.id, this.now());
     return o;

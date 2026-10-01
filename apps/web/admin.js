@@ -1110,7 +1110,9 @@ const DIAG_VIEWS = ['canli', 'olaylar', 'testler', 'ayrinti'];
 const DIAG_LABEL = { canli: 'Canlı durum', olaylar: 'Olaylar', testler: 'Testler', ayrinti: 'Ayrıntı' };
 /** Görünümün yenilenme aralığı (ms) */
 const DIAG_EVERY = { canli: 2_000, olaylar: 30_000, testler: 10_000, ayrinti: 10_000 };
-const OUTAGE_KIND = { tam: ['tam kesinti', 'bad'], gelen: ['yalnız gelen', 'warn'], sonda: ['yalnız sonda', 'warn'] };
+/** aday: yalnızca NIC sessizliği, dış sondalarla doğrulanmamış (tek başına kesinti sayılmaz) */
+const OUTAGE_KIND = { tam: ['tam kesinti', 'bad'], sonda: ['yalnız sonda', 'warn'], aday: ['aday (yalnız NIC)', 'muted'] };
+const confirmedOutages = (list) => (list ?? []).filter((o) => o.kind !== 'aday');
 const LIVE_WINDOW_MS = 300_000;
 /** Her yoklamada son bu kadar saniye yeniden istenir (sonda sonuçları ve kesinti işaretleri satıra sonradan işlenir) */
 const LIVE_OVERLAP_MS = 15_000;
@@ -1288,12 +1290,18 @@ function outageRow(o, meta) {
       'adm-row-main',
       h('div', 'adm-row-title', dateTimeSec(o.at), ' ', badge(text, tone), ' ', badge(`${secs1(o.durationMs)} sn`, 'muted')),
       p && h('div', 'adm-sub', `Dış sondalar: ${num(p.lost)} sonda art arda yanıtsız (${p.targets.join(', ')})${p.udp && p.tcp ? ' · UDP ve TCP birlikte' : p.udp ? ' · yalnızca UDP' : ' · yalnızca TCP'}`),
-      n && h('div', 'adm-sub', `Sunucuya gelen paket: ${num(n.baseline)} → ${num(n.rxpMin)} pk/sn${n.participants !== null && n.participants !== undefined ? ` · seste ${num(n.participants)} kişi` : ''}`),
+      n &&
+        h(
+          'div',
+          'adm-sub',
+          `Sunucuya gelen paket: taban ${num(n.baseline)} → ${num(n.rxpMin)} pk/sn${n.txCollapsed ? ' · giden de durdu' : ''}${n.participants !== null && n.participants !== undefined ? ` · seste ${num(n.participants)} kişi` : ''}` +
+            (p ? '' : n.probesLost > 0 ? ` · aynı saniyelerde ${num(n.probesLost)} dış sonda yanıtsız` : ' · dış sondalar yanıt aldı: doğrulanmadı (aday)'),
+        ),
       h(
         'div',
         'adm-actions',
         h('button', { type: 'button', class: 'adm-more', on: { click: () => openOutage(o, meta) } }, 'Saniyeleri göster'),
-        h('button', { type: 'button', class: 'adm-more', on: { click: () => openProviderReport([o], meta) } }, 'Sağlayıcı raporu'),
+        o.kind !== 'aday' && h('button', { type: 'button', class: 'adm-more', on: { click: () => openProviderReport([o], meta) } }, 'Sağlayıcı raporu'),
       ),
     ),
   );
@@ -1305,9 +1313,9 @@ function liveView(d) {
   const stale = !last || d.now - last.t > 6_000;
   const sm = d.sampler;
   const meta = { serverIp: sm.serverIp, iface: sm.iface };
-  const marks = outageMarks(d.outages);
+  // Grafiklerde yalnızca doğrulanmış kesintiler işaretlenir
+  const marks = outageMarks(confirmedOutages(d.outages));
   if (d.open.probe) marks.push({ from: d.open.probe.at, to: d.now });
-  if (d.open.nic) marks.push({ from: d.open.nic.at, to: d.now });
   const out = [];
 
   // --- Bölüm bölüm durum ---
@@ -1351,7 +1359,7 @@ function liveView(d) {
         label: `Sunucuya gelen (${sm.iface ?? '—'})`,
         value: stale ? '—' : ppsText(last.rxp),
         compact: true,
-        tone: d.open.nic ? 'bad' : stale ? 'warn' : undefined,
+        tone: d.open.nic ? (d.open.probe || d.open.nic.probesLost > 0 ? 'bad' : 'warn') : stale ? 'warn' : undefined,
         sub: [
           d.open.nic ? `Sessizlik adayı: ${num(d.open.nic.seconds)} sn'dir ${num(d.open.nic.rxpMin)} pk/sn (olağanı ${num(d.open.nic.baseline)})` : stale ? 'Ölçüm gelmiyor' : `↓ ${mbpsText(last.rx)}`,
           `Seste ${num(d.voice.participants)} kişi · ${num(d.voice.streams)} yayın`,
@@ -1430,7 +1438,7 @@ function liveView(d) {
   out.push(
     h(
       'article',
-      `adm-card adm-wide${d.open.probe || d.open.nic ? ' adm-tone-bad' : ''}`,
+      `adm-card adm-wide${d.open.probe ? ' adm-tone-bad' : ''}`,
       h('div', 'adm-label', `Son kesintiler · son 24 saatte ${num(d.outageCounts.day)}, 7 günde ${num(d.outageCounts.week)}`),
       d.outages.length === 0
         ? h('div', 'adm-sub', 'Kayıtlı kesinti yok.')
@@ -1442,7 +1450,7 @@ function liveView(d) {
       h(
         'div',
         'adm-sub adm-note',
-        'tam kesinti: dış sondalar yanıtsız ve sunucuya paket gelmiyor (sağlayıcı/hipervizör ağı). yalnız gelen: sunucuya gelen paketler kesildi ama sondalar yanıt aldı (gelen medya yolu ya da istemciler göndermeyi kesti). yalnız sonda: dış sondalar yanıtsız ama sunucuya paket gelmeye devam etti.',
+        'tam kesinti: sunucuya gelen paketler neredeyse sıfıra indi ve aynı saniyelerde dış sondalar da yanıtsız kaldı (sağlayıcı/hipervizör ağı). yalnız sonda: dış sondalar art arda yanıtsız ama sunucuya paket gelmeye devam etti. aday (yalnız NIC): gelen paketler neredeyse sıfıra indi ama sondalar yanıt aldı; tek başına kesinti sayılmaz (istemciler göndermeyi kesmiş olabilir).',
       ),
     ),
   );
@@ -1457,7 +1465,7 @@ function openOutage(o, meta) {
     try {
       const d = await apiGet(`/api/admin/net/seconds?from=${o.at - 30_000}&to=${o.at + o.durationMs + 30_000}`);
       if (seq !== sheet.seq) return;
-      const marks = outageMarks(d.outages);
+      const marks = outageMarks(confirmedOutages(d.outages));
       const [text, tone] = OUTAGE_KIND[o.kind] ?? [o.kind, 'muted'];
       $('adm-sheet-body').replaceChildren(
         ...[
@@ -1465,7 +1473,7 @@ function openOutage(o, meta) {
             'div',
             'adm-card',
             h('div', 'adm-row-title', badge(text, tone), ' ', `${dateTimeSec(o.at)} · ${secs1(o.durationMs)} sn`),
-            h('button', { type: 'button', class: 'adm-more', on: { click: () => openProviderReport([o], meta) } }, 'Sağlayıcı raporu'),
+            o.kind !== 'aday' && h('button', { type: 'button', class: 'adm-more', on: { click: () => openProviderReport([o], meta) } }, 'Sağlayıcı raporu'),
           ),
           d.rows.length < 2
             ? h('div', 'adm-card adm-empty', 'Bu aralığın saniyelik kaydı yok (bellekten çıkmış ve diske yazılmamış).')
@@ -1497,8 +1505,10 @@ function providerReportText(outages, facts) {
   const ip = facts.serverIp ?? '<sunucu IP>';
   const tr = [];
   const en = [];
-  tr.push('Konu: Sanal sunucuda kısa süreli ağ kesintileri (paketler misafir makinenin ağ arayüzüne ulaşmıyor)', '');
-  en.push('Subject: Short network blackouts on the virtual server (packets do not reach the guest NIC)', '');
+  // Rapor yalnızca verinin gösterdiğini söyler: her cümle ilgili kanıt varsa yazılır
+  const anyNic = outages.some((o) => o.nic);
+  tr.push(anyNic ? 'Konu: Sanal sunucuda kısa süreli ağ kesintileri (paketler misafir makinenin ağ arayüzüne ulaşmıyor)' : 'Konu: Sanal sunucudan dışarıya kısa süreli bağlantı kesintileri (giden sondalar yanıtsız kalıyor)', '');
+  en.push(anyNic ? 'Subject: Short network blackouts on the virtual server (packets do not reach the guest NIC)' : 'Subject: Short outbound connectivity losses from the virtual server (outbound probes get no reply)', '');
   tr.push(`Sunucu IP: ${ip}${facts.iface ? ` (arayüz ${facts.iface})` : ''}`);
   en.push(`Server IP: ${facts.serverIp ?? '<server IP>'}${facts.iface ? ` (interface ${facts.iface})` : ''}`);
   tr.push('', 'Kesintiler:');
@@ -1510,6 +1520,14 @@ function providerReportText(outages, facts) {
       tr.push(`    Misafir NIC'e gelen paket hızı ${num(o.nic.baseline)} → ${num(o.nic.rxpMin)} paket/sn'ye düştü (sunucuya neredeyse hiç paket ulaşmadı).`);
       en.push(`    Inbound packet rate on the guest NIC dropped from ${o.nic.baseline} to ${o.nic.rxpMin} packets/s (almost no packets reached the guest).`);
     }
+    if (!o.probe && o.nic && o.nic.probesLost > 0) {
+      tr.push(`    Aynı saniyelerde sunucudan dışarıya giden ${num(o.nic.probesLost)} sonda (DNS/TCP) yanıtsız kaldı.`);
+      en.push(`    In the same seconds ${o.nic.probesLost} outbound probes (DNS/TCP) from the server got no reply.`);
+    }
+    if (!o.nic) {
+      tr.push('    Bu sürede sunucuya paket gelmeye devam etti (NIC sessizliği saptanmadı): gözlenen, giden sondaların yanıtsız kalmasıdır.');
+      en.push('    Packets kept arriving at the guest during this interval (no NIC silence detected): what was observed is unanswered outbound probes.');
+    }
     if (o.probe) {
       const kinds = o.probe.udp && o.probe.tcp ? ['UDP (DNS) ve TCP (443)', 'UDP (DNS) and TCP (443)'] : o.probe.udp ? ['UDP (DNS)', 'UDP (DNS)'] : ['TCP (443)', 'TCP (443)'];
       tr.push(`    Aynı anda sunucudan dışarıya giden ${kinds[0]} sondaları yanıtsız kaldı: ${o.probe.targets.join(', ')} (${num(o.probe.lost)} sonda art arda).`);
@@ -1519,15 +1537,19 @@ function providerReportText(outages, facts) {
   tr.push('', 'Misafir işletim sistemindeki sayaçlar (kesinti çevresinde):');
   en.push('', 'Guest OS counters (around the outage):');
   if (facts.nicDrops !== null) {
-    tr.push(`- NIC düşen/hatalı paket: ${num(facts.nicDrops)}; UDP tampon hatası: ${num(facts.udpErrors)}${facts.nicDrops + facts.udpErrors === 0 ? ' → paketler makineye hiç gelmedi; kayıp misafirin dışında.' : ''}`);
-    en.push(`- NIC dropped/errored packets: ${facts.nicDrops}; UDP buffer errors: ${facts.udpErrors}${facts.nicDrops + facts.udpErrors === 0 ? ' → the packets never arrived at the guest; the loss is upstream of the VM.' : ''}`);
+    const clean = facts.nicDrops + facts.udpErrors === 0;
+    // "Paketler makineye hiç gelmedi" yalnızca NIC sessizliği gözlendiyse ve misafirde düşen paket yoksa söylenebilir
+    tr.push(`- NIC düşen/hatalı paket: ${num(facts.nicDrops)}; UDP tampon hatası: ${num(facts.udpErrors)}${clean ? (anyNic ? ' → paketler makineye hiç gelmedi; kayıp misafirin dışında.' : ' → misafir işletim sisteminde paket düşmedi.') : ''}`);
+    en.push(`- NIC dropped/errored packets: ${facts.nicDrops}; UDP buffer errors: ${facts.udpErrors}${clean ? (anyNic ? ' → the packets never arrived at the guest; the loss is upstream of the VM.' : ' → no packets were dropped inside the guest OS.') : ''}`);
   } else {
     tr.push('- Saniyelik sayaç kaydı bu aralık için elde yok.');
     en.push('- Per-second counters are not available for this interval.');
   }
   if (facts.psiMax !== null) {
-    tr.push(`- CPU baskısı (PSI) en çok %${nf1.format(facts.psiMax)}: sunucu yük altında değildi.`);
-    en.push(`- CPU pressure (PSI) peaked at ${facts.psiMax.toFixed(1)}%: the server was not overloaded.`);
+    // "Yük altında değildi" yalnızca baskı gerçekten düşükse yazılır
+    const calm = facts.psiMax < 10;
+    tr.push(`- CPU baskısı (PSI) en çok %${nf1.format(facts.psiMax)}${calm ? ': sunucu yük altında değildi.' : '.'}`);
+    en.push(`- CPU pressure (PSI) peaked at ${facts.psiMax.toFixed(1)}%${calm ? ': the server was not overloaded.' : '.'}`);
   }
   if (facts.burst) {
     const b = facts.burst;
@@ -1608,7 +1630,7 @@ function freezeRow(f, x, linked) {
         'adm-badges',
         badge(f.label, SEGMENT_TONE[f.segment] ?? 'warn'),
         badge(`güven: ${f.confidence}`, CONFIDENCE_TONE[f.confidence] ?? 'muted'),
-        outs.map((o) => badge(`${(OUTAGE_KIND[o.kind] ?? [o.kind])[0]} ${secs1(o.durationMs)} sn`, 'bad')),
+        outs.map((o) => badge(`${(OUTAGE_KIND[o.kind] ?? [o.kind])[0]} ${secs1(o.durationMs)} sn`, (OUTAGE_KIND[o.kind] ?? [])[1] ?? 'muted')),
         f.freezes > 0 && badge(`${num(f.freezes)} donma · ${dec(f.freezeSec)} sn`),
         f.probe === 'kayıp' && outs.length === 0 && badge('dış sondalarda kayıp', 'warn'),
         f.probe === 'temiz' && badge('dış sondalar temiz', 'muted'),
@@ -1758,7 +1780,7 @@ function freezeDetail(d, x) {
   const rows = d.rows;
   const lk = d.lk ?? [];
   const outs = f.server?.outages ?? [];
-  const marks = outageMarks(outs);
+  const marks = outageMarks(confirmedOutages(outs));
   const linked = x.incidents.filter((i) => incidentInFreeze(i, f));
   const tests = (x.lineTests ?? []).filter((t) => t.freezeIds.includes(f.id));
   const meta = { serverIp: d.serverIp ?? null, iface: x.netSampler?.iface ?? null, burst: f.server?.burst ?? null, rows: rows.length > 0 ? rows : null };
@@ -1773,7 +1795,8 @@ function freezeDetail(d, x) {
       f.evidence.map((t) => h('div', 'adm-sub', `• ${t}`)),
       f.factors.length > 0 && [h('div', 'adm-label', 'Diğer etkenler'), f.factors.map((t) => h('div', 'adm-sub', `• ${t}`))],
       (f.missing?.length ?? 0) > 0 && [h('div', 'adm-label', 'Eksik kanıt (doğrulanamayanlar)'), f.missing.map((t) => h('div', 'adm-sub', `• ${t}`))],
-      outs.length > 0 && h('button', { type: 'button', class: 'adm-more', on: { click: () => openProviderReport(outs, meta) } }, 'Sağlayıcı raporu'),
+      confirmedOutages(outs).length > 0 &&
+        h('button', { type: 'button', class: 'adm-more', on: { click: () => openProviderReport(confirmedOutages(outs), meta) } }, 'Sağlayıcı raporu'),
     ),
   );
   if (outs.length > 0) {
@@ -1960,8 +1983,8 @@ const LINE_MODE = { up: 'yukarı', down: 'aşağı', both: 'iki yön' };
 const LINE_TONE = { bad: 'bad', warn: 'warn', ok: 'ok', info: 'muted' };
 /** Komutlarda gösterilen sunucu adresi: panelin açıldığı köken */
 const LINE_SERVER = location.origin;
-/** Aşamanın sunucu tarafında görülen kesintileri */
-const runOutages = (r) => r.outages ?? [];
+/** Aşamanın sunucu tarafında görülen (dış sondalarla doğrulanmış) kesintileri */
+const runOutages = (r) => (r.outages ?? []).filter((o) => o.kind !== 'aday');
 
 /** Aşamanın bir yönündeki toplam kayıp yüzdesi (ölçülmediyse null) */
 function dirLoss(run, dir) {

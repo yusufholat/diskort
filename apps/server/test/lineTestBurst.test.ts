@@ -114,8 +114,16 @@ describe('yorum: patlama testi', () => {
     // Öbür profillerde: sunucu kesinti gördüyse kayıp istemci hattına yazılmasın diye not düşülür
     const plan = buildPlan('quick', 'both');
     const clean: SecondStat[] = plan.seconds.map((p) => ({ planned: p.pps, recv: p.pps, lost: 0, reord: 0, dup: 0, bytes: p.pps * p.size, jit: 1 }));
-    const quick = classify([{ transport: 'udp', mode: 'both', profile: 'quick', steps: plan.steps, up: clean, down: clean, outages: [{ at: 1, durationMs: 1_800, kind: 'gelen', sec: 4.2, step: '4 Mbps' }] }]);
+    const quick = classify([{ transport: 'udp', mode: 'both', profile: 'quick', steps: plan.steps, up: clean, down: clean, outages: [{ at: 1, durationMs: 1_800, kind: 'sonda', sec: 4.2, step: '4 Mbps' }] }]);
     expect(quick.find((x) => x.code === 'sunucu_kesinti')).toMatchObject({ tone: 'warn', evidence: '4,2. sn (4 Mbps)' });
+    // Doğrulanmamış NIC sessizliği (aday) kesinti sayılmaz: ne "sunucu kesinti gördü" ne "patlama kesintiyi tetikledi"
+    const aday = classify([{ transport: 'udp', mode: 'both', profile: 'quick', steps: plan.steps, up: clean, down: clean, outages: [{ at: 1, durationMs: 1_800, kind: 'aday', sec: 4.2, step: '4 Mbps' }] }]);
+    expect(aday.map((x) => x.code)).toEqual(['temiz']);
+    const burstAday = classify([burstRun('down', () => 0, [{ at: 1, durationMs: 1_000, kind: 'aday', sec: 14.2, step: 'taban 3 Mbps', burst: 'patlama 30 Mbps', afterBurstSec: 1.2 }])]);
+    expect(burstAday.map((x) => [x.code, x.tone])).toEqual([
+      ['patlama_aday_down', 'info'],
+      ['patlama_temiz_down', 'ok'],
+    ]);
   });
 
   it('üst basamaklarda kayıp ama sunucuda kesinti yok: istemci hattı; patlama sonrası taban hızda kayıp: çöküş', () => {

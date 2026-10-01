@@ -4,7 +4,7 @@ rem probe.mjs her calistirmada SHA-256 ile dogrulanir; uymazsa GitHub'dan yenide
 rem Bu hash tools/udp-probe/probe.mjs ile birebir ayni olmali (test/lineTest.test.ts denetler).
 rem Patlama testi (yonetici koduyla, ~45 sn): hat-testi.cmd --patlama   (diger secenekler: README.md)
 setlocal EnableDelayedExpansion
-set "PROBE_SHA256=ddd557c854d244050d80f56d9526066e04de590e507b573497a0d080e02dc79e"
+set "PROBE_SHA256=ebd5c4ed637add674fff83bbde02a0f308cbe56af6c8e1f104af2b34811f5372"
 set "PROBE_URL=https://raw.githubusercontent.com/yusufholat/diskort/main/tools/udp-probe/probe.mjs"
 chcp 65001 >nul
 cd /d "%~dp0"

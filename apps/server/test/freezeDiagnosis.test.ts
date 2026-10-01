@@ -135,8 +135,8 @@ function outage(kind: Outage['kind'], atSec: number, durationMs: number): Outage
     durationMs,
     t: `2026-10-01 01:18:${String(atSec).padStart(2, '0')}.000 +03:00`,
     kind,
-    probe: kind === 'gelen' ? null : { at, durationMs, lost: 12, targets: ['udp 1.1.1.1', 'tcp 8.8.8.8', 'udp 8.8.8.8'], udp: true, tcp: true },
-    nic: kind === 'sonda' ? null : { at, durationMs, rxpMin: 4, baseline: 70, participants: 0 },
+    probe: kind === 'aday' ? null : { at, durationMs, lost: 12, targets: ['udp 1.1.1.1', 'tcp 8.8.8.8', 'udp 8.8.8.8'], udp: true, tcp: true },
+    nic: kind === 'sonda' ? null : { at, durationMs, rxpMin: 4, baseline: 70, participants: 0, probesLost: kind === 'tam' ? 12 : 0, txCollapsed: true },
   };
 }
 
@@ -162,13 +162,43 @@ describe('sınıflandırıcı: sağlayıcı yolu', () => {
     expect(d.missing.join(' ')).toContain('patlama profilli hat testi');
   });
 
-  it('iki kullanıcıda aynı anda giden kayıp: orta güven; NIC sessizliği de varsa yüksek', () => {
+  it('iki kullanıcıda aynı anda giden kayıp: orta güven; NIC sessizliği adayı da varsa yüksek', () => {
     const two = [entry('a', { lossOut: 14 }), entry('b', { lossOut: 9 }), entry('c', {})];
     expect(diagnose(buildUsers(two), summary(healthyRows()))).toMatchObject({ cause: 'saglayici_gelen', confidence: 'orta' });
-    const d = diagnose(buildUsers(two), summary(healthyRows(), [outage('gelen', 12, 2_600)]));
+    const d = diagnose(buildUsers(two), summary(healthyRows(), [outage('aday', 12, 2_600)]));
     expect(d).toMatchObject({ cause: 'saglayici_gelen', confidence: 'yüksek' });
     expect(d.summary).toBe('Sorun: sunucuya gelen yol (barındırma sağlayıcısı) — sunucuya gelen paketler 2,6 sn kesildi');
     expect(d.evidence[0]).toContain('NIC sessizliği: 01:18:12 anında 2,6 sn');
+  });
+
+  it('doğrulanmamış NIC sessizliği (aday) tek başına sağlayıcıyı seçmez: tek etkilenen kullanıcıda yayıncı/izleyici adımlarına düşer', () => {
+    const aday = [outage('aday', 12, 2_000)];
+    // Yalnızca yayıncıda giden kayıp: yayıncının hattı (aday etken olarak yazılır)
+    const streamer = diagnose(
+      buildUsers([entry('yayinci', { lossOut: 18, screen: streamerScreen({ fps: 28 }) }), entry('i1', { lossIn: 15, watch: watching(5) }), entry('i2', { lossIn: 12, watch: watching(3) })]),
+      summary(healthyRows(), aday),
+    );
+    expect(streamer.cause).toBe('yayinci_yukleme');
+    expect(streamer.factors.join(' ')).toContain('NIC sessizliği adayı: 01:18:12 anında 2,0 sn');
+    expect(streamer.factors.join(' ')).toContain('tek başına sağlayıcıyı göstermez');
+    // Tek izleyicide gelen kayıp: tek kullanıcı
+    const viewer = diagnose(buildUsers([entry('yayinci', { screen: streamerScreen({ fps: 30 }) }), entry('i1', { lossIn: 14, watch: watching(5) })]), summary(healthyRows(), aday));
+    expect(viewer.cause).toBe('tek_kullanici');
+    // Kimsede kayıp yok, kodlayıcı düşük: kodlayıcı
+    const enc = diagnose(
+      buildUsers([entry('yayinci', { screen: streamerScreen({ fps: 17, limitation: 'cpu', limitedRatio: 0.6 }) }), entry('i1', { watch: watching(6) }), entry('i2', { watch: watching(3) })]),
+      summary(healthyRows(), aday),
+    );
+    expect(enc.cause).toBe('kodlayici');
+    expect(enc.probe).toBe('temiz');
+    // Sondalarla doğrulanmış sessizlik (kayıtlı sonda kesintisi olmadan da) tam kesintidir
+    const confirmed: ReturnType<typeof outage> = { ...outage('tam', 12, 1_000), probe: null };
+    confirmed.nic!.probesLost = 2;
+    const d = diagnose(buildUsers(incidentEntries()), summary(healthyRows(), [confirmed]));
+    expect(d.cause).toBe('saglayici_kesinti');
+    expect(d.evidence[0]).toContain('aynı saniyelerde 2 dış sonda yanıtsız kaldı');
+    expect(d.evidence[0]).toContain('giden paketler de durdu');
+    expect(d.probe).toBe('kayıp');
   });
 
   it('birden çok dış hedefte kayıp: sağlayıcı yolu etkeni; tek hedefteki kayıp sağlayıcıyı suçlamaz', () => {
@@ -439,7 +469,7 @@ describe('FreezeCorrelator', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  /** Saniyede 3000 paket; `silent` verilen saniyelerde (T0'a göre) neredeyse hiç paket gelmez */
+  /** Saniyede 3000 paket; `silent` verilen saniyelerde (T0'a göre) neredeyse hiç paket gelmez ve sondalar yanıtsız kalır */
   function feedSampler(rowsN: number, silent: (sec: number) => boolean = () => false): SecondSampler {
     const s = new SecondSampler({ procRoot: '/yok', dir: null, livekitCpu: () => 0.22, participants: () => 4 });
     let b = 0;
@@ -447,10 +477,8 @@ describe('FreezeCorrelator', () => {
       const at = T0 - 60_000 + i * 1000;
       b += silent(i - 60) ? 4_000 : 3_000_000;
       s.tick(at, files({ dev: devText(b, b) }));
-      if (!silent(i - 60)) {
-        s.addProbe('udp 1.1.1.1', at - 400, 10);
-        s.addProbe('udp 8.8.8.8', at - 300, 14);
-      }
+      s.addProbe('udp 1.1.1.1', at - 400, silent(i - 60) ? null : 10);
+      s.addProbe('udp 8.8.8.8', at - 300, silent(i - 60) ? null : 14);
     }
     return s;
   }
@@ -495,7 +523,8 @@ describe('FreezeCorrelator', () => {
     sampler.addProbeOutage({ at: T0 + 9_700, durationMs: 3_800, lost: 15, targets: ['udp 1.1.1.1', 'tcp 8.8.8.8', 'udp 8.8.8.8'], udp: true, tcp: true });
     const [o] = sampler.outages.list(0);
     expect(o).toMatchObject({ kind: 'tam' });
-    expect(o!.nic).toMatchObject({ baseline: 3000, rxpMin: 4, participants: 4 });
+    expect(o!.nic).toMatchObject({ baseline: 3000, rxpMin: 4, participants: 4, txCollapsed: true });
+    expect(o!.nic!.probesLost).toBeGreaterThan(0);
     const c = new FreezeCorrelator({ dir, sampler });
     for (const e of incidentEntries()) c.observe(e);
     c.sweep(T0 + 200_000);

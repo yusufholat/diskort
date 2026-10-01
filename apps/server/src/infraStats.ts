@@ -177,6 +177,7 @@ export class LiveKitMetrics {
   private timer: NodeJS.Timeout | null = null;
   private fastUntil = 0;
   private stopped = false;
+  private looping = false;
   private readonly fetchImpl: typeof fetch;
 
   constructor(private readonly opts: ScrapeOptions) {
@@ -188,7 +189,11 @@ export class LiveKitMetrics {
   }
 
   private readonly loop = (): void => {
+    // Zamanlayıcı ateşlendi: ölçüm sürerken yeni bir zamanlayıcı kurulmaz (bkz. boost)
+    this.timer = null;
+    this.looping = true;
     void this.scrape().finally(() => {
+      this.looping = false;
       if (this.stopped) return;
       this.timer = setTimeout(this.loop, this.error ? 60_000 : Date.now() < this.fastUntil ? SCRAPE_FAST_MS : SCRAPE_MS);
       this.timer.unref();
@@ -196,7 +201,7 @@ export class LiveKitMetrics {
   };
 
   start(): void {
-    if (!this.configured || this.timer) return;
+    if (!this.configured || this.timer || this.looping) return;
     this.stopped = false;
     this.loop();
   }
@@ -211,7 +216,8 @@ export class LiveKitMetrics {
   boost(until: number, now = Date.now()): void {
     const wasFast = now < this.fastUntil;
     this.fastUntil = Math.max(this.fastUntil, until);
-    if (wasFast || !this.timer || this.stopped || this.error) return;
+    // Döngünün ölçümü sürüyorsa bir sonraki aralığı zaten o belirler: ikinci bir döngü başlatılmaz
+    if (wasFast || this.looping || !this.timer || this.stopped || this.error) return;
     clearTimeout(this.timer);
     this.timer = setTimeout(this.loop, SCRAPE_FAST_MS);
     this.timer.unref();
@@ -257,7 +263,7 @@ export class LiveKitMetrics {
 
   /** Paneldeki durum: son ölçüm eskiyse (ölçüm döngüsü çalışmıyorsa, ör. testler) şimdi ölçer */
   async status(now = Date.now()): Promise<LiveKitMetricsStatus> {
-    if (this.configured && this.timer === null && now - this.lastTryAt > 15_000) await this.scrape(now);
+    if (this.configured && this.timer === null && !this.looping && now - this.lastTryAt > 15_000) await this.scrape(now);
     const ok = this.configured && this.error === null && this.lastOkAt !== null;
     return {
       configured: this.configured,

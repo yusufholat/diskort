@@ -25,7 +25,7 @@ export interface LineFinding {
 export interface LineOutage {
   at: number;
   durationMs: number;
-  kind: 'tam' | 'gelen' | 'sonda';
+  kind: 'tam' | 'sonda' | 'aday';
   /** Testin başından kesintiye kadar geçen süre (sn) ve o andaki adım */
   sec: number;
   step: string | null;

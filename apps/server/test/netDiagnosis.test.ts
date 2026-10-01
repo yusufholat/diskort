@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseDefaultGateway } from '../src/hostNetwork.js';
 import { LiveKitMetrics } from '../src/infraStats.js';
-import { localStamp, NicSilenceDetector, OutageLog, silenceThreshold, type NicSilence, type Outage } from '../src/netOutages.js';
+import { isConfirmedOutage, localStamp, NicSilenceDetector, OutageLog, silenceThreshold, type NicSilence, type Outage } from '../src/netOutages.js';
 import { DEFAULT_PROBE_TARGETS, dnsQuery, OutageDetector, parseProbeTargets, ProbeEngine, type ProbeOutage, type ProbeTarget } from '../src/netProbe.js';
 import {
   bucketRows,
@@ -16,6 +16,7 @@ import {
   parseSoftnetStat,
   rowBetween,
   SecondSampler,
+  SilenceScanner,
   summarizeRows,
   type MinuteRow,
   type ProcFiles,
@@ -389,6 +390,41 @@ describe('dış sondalar', () => {
     const b = engine.status(60 * 250).targets.find((t) => t.label === 'b')!;
     expect(b.disabled).toBe(true);
     expect(b.sent).toBe(15);
+    // Kapatma kalıcı değil: dakikada bir yeniden denenir, yanıt verince sıraya döner
+    let bWorks = false;
+    const sent: string[] = [];
+    const e3 = new ProbeEngine({
+      targets: [target('a'), target('b'), target('c')],
+      onResult: (l) => sent.push(l),
+      onOutage: (o) => outages.push(o),
+      run: async (t) => (t.label === 'b' && !bWorks ? null : 7),
+    });
+    for (let i = 0; i < 60; i++) await e3.tick(i * 250);
+    expect(e3.status(15_000).targets.find((t) => t.label === 'b')!.disabled).toBe(true);
+    sent.length = 0;
+    for (let i = 60; i < 300; i++) await e3.tick(i * 250); // 15. – 75. saniyeler: bir kez yeniden denenir (yanıtsız)
+    expect(sent.filter((l) => l === 'b')).toHaveLength(1);
+    expect(outages).toEqual([]);
+    bWorks = true;
+    sent.length = 0;
+    for (let i = 300; i < 600; i++) await e3.tick(i * 250);
+    expect(e3.status(150_000).targets.find((t) => t.label === 'b')!.disabled).toBe(false);
+    expect(sent.filter((l) => l === 'b').length).toBeGreaterThan(30);
+    // Kesinti sırasında başlayan motor: hiçbir hedef yanıt vermiyorken HİÇBİRİ kapatılmaz; yol gelince hepsi çalışır
+    let up = false;
+    const e4 = new ProbeEngine({ targets: [target('a'), target('b', 'tcp'), target('c')], onResult: () => undefined, onOutage: (o) => outages.push(o), run: async () => (up ? 5 : null) });
+    for (let i = 0; i < 120; i++) await e4.tick(i * 250);
+    expect(e4.status(30_000).targets.map((t) => t.disabled)).toEqual([false, false, false]);
+    up = true;
+    for (let i = 120; i < 126; i++) await e4.tick(i * 250);
+    expect(e4.status(31_500).targets.every((t) => t.lastRtt === 5)).toBe(true);
+    expect(outages).toEqual([]); // hiç yanıt alınmadan önceki kayıplar yargıya katılmaz
+    up = false;
+    for (let i = 126; i < 132; i++) await e4.tick(i * 250);
+    up = true;
+    await e4.tick(132 * 250);
+    expect(outages).toMatchObject([{ lost: 6, udp: true, tcp: true }]);
+    outages.length = 0;
     // Kalan iki hedef de kesilirse (hiç yanıt vermemiş hedef yargıya katılmadan) kesinti yakalanır
     let down = true;
     const e2 = new ProbeEngine({ targets: [target('a'), target('c', 'tcp')], onResult: () => undefined, onOutage: (o) => outages.push(o), run: async () => (down ? null : 5) });
@@ -433,83 +469,116 @@ describe('dış sondalar', () => {
 
 // ---------- NIC sessizliği ----------
 
-function feed(d: NicSilenceDetector, values: number[], opts: { participants?: number | ((i: number) => number); streams?: (i: number) => number; lost?: (i: number) => boolean } = {}): boolean[] {
-  return values.map((v, i) => {
-    const p = typeof opts.participants === 'function' ? opts.participants(i) : (opts.participants ?? 0);
-    return d.push(T0 + (i + 1) * 1000, v, p, opts.lost?.(i) ?? false, 1000, opts.streams?.(i) ?? null);
-  });
+function feed(
+  d: NicSilenceDetector,
+  values: number[],
+  opts: { participants?: number | ((i: number) => number); streams?: (i: number) => number; lost?: (i: number) => number; txp?: (i: number, rxp: number) => number } = {},
+): boolean[] {
+  return values.map((v, i) =>
+    d.push({
+      t: T0 + (i + 1) * 1000,
+      rxp: v,
+      txp: opts.txp ? opts.txp(i, v) : v * 2,
+      participants: typeof opts.participants === 'function' ? opts.participants(i) : (opts.participants ?? null),
+      streams: opts.streams?.(i) ?? null,
+      probesLost: opts.lost?.(i) ?? 0,
+    }),
+  );
 }
+/** Konuşmayla oynayan ses trafiği: sessizlik tabanı ~30 pk/sn, konuşurken 80-250 */
+const VOICE = [98, 84, 36, 31, 151, 118, 38, 121, 28, 96, 40, 142, 192, 34, 47, 36, 31];
 
 describe('NIC sessizliği dedektörü', () => {
-  it('boşta taban çizgisi ~45–100 pk/sn, 4 sn boyunca 0–8 pk/sn (sondalar da yanıtsız): sessizlik', () => {
+  it('ölçüt mutlak "neredeyse sıfır"dır: konuşma durunca 250 → 30 pk/sn ya da yayın durağanlaşınca 1100 → 80 pk/sn sessizlik DEĞİL', () => {
+    const out: NicSilence[] = [];
+    const voice = new NicSilenceDetector((s) => out.push(s));
+    // 250 pk/sn konuşma, sonra herkes susar (taban 28-40), sonra yeniden konuşma
+    expect(feed(voice, [...Array.from({ length: 15 }, () => 250), 30, 28, 34, 31, 40, 29, 250, 240]).some(Boolean)).toBe(false);
+    const stream = new NicSilenceDetector((s) => out.push(s));
+    expect(feed(stream, [...Array.from({ length: 20 }, (_, i) => 1000 + (i % 5) * 40), 78, 168, 186, 90, 80, 1100, 1200]).some(Boolean)).toBe(false);
+    expect(out).toEqual([]);
+    // Eşik: mutlak 8 pk/sn; taban çok yüksekse %5'i, en çok 40
+    expect([silenceThreshold(28), silenceThreshold(100), silenceThreshold(400), silenceThreshold(4000)]).toEqual([8, 8, 20, 40]);
+  });
+
+  it('gerçek kesinti: gelen tek haneye iner, giden de durur; sondalarla doğrulanınca probesLost > 0', () => {
     const out: NicSilence[] = [];
     const d = new NicSilenceDetector((s) => out.push(s));
-    const flags = feed(d, [60, 45, 80, 100, 55, 70, 90, 48, 66, 75, 0, 8, 3, 5, 70, 80], { lost: (i) => i >= 10 && i <= 13 });
-    expect(flags.slice(10, 14)).toEqual([true, true, true, true]);
-    expect(flags.filter(Boolean)).toHaveLength(4);
-    expect(out).toEqual([{ at: T0 + 10_000, durationMs: 4_000, rxpMin: 0, baseline: 70, participants: 0 }]);
+    // Gerçek şekil: 32 → 8 → 4 → 3 → 0 → 42 (giden 59 → 19 → 9 → 22 → 12)
+    const tx = [19, 9, 22, 12];
+    const flags = feed(d, [...VOICE, 32, 8, 4, 3, 0, 42, 92], { lost: (i) => (i >= 18 && i <= 21 ? 3 : 0), txp: (i, v) => (i >= 18 && i <= 21 ? tx[i - 18]! : v * 2) });
+    expect(flags.map((f, i) => (f ? i : -1)).filter((i) => i >= 0)).toEqual([18, 19, 20, 21]);
+    expect(out).toEqual([{ at: T0 + 18_000, durationMs: 4_000, rxpMin: 0, baseline: 31, participants: null, probesLost: 3, txCollapsed: true }]);
     expect(d.open()).toBeNull();
-    expect(silenceThreshold(70)).toBe(14);
+    // Tek saniyelik kesinti (gelen 0) de yakalanır
+    const one = new NicSilenceDetector((s) => out.push(s));
+    feed(one, [...VOICE, 21, 0, 49, 34], { lost: (i) => (i === 18 ? 2 : 0) });
+    expect(out[1]).toMatchObject({ at: T0 + 18_000, durationMs: 1_000, rxpMin: 0, probesLost: 2 });
+    // Sondalar yanıt alıyorsa aynı şekil yalnızca adaydır (probesLost 0); giden sürüyorsa txCollapsed da false
+    const cand = new NicSilenceDetector((s) => out.push(s));
+    feed(cand, [...VOICE, 3, 2, 60, 70], { txp: (_i, v) => (v < 10 ? 300 : v * 2) });
+    expect(out[2]).toMatchObject({ probesLost: 0, txCollapsed: false, durationMs: 2_000 });
   });
 
-  it('yayın sırasında 500–4000 pk/sn taban çizgisi ~80 pk/sn\'ye çöker: sessizlik (tek saniye de yeter)', () => {
+  it('süren sessizlik "aday" olarak görünür; geri gelmezse (herkes çıktı) kesinti sayılmaz', () => {
     const out: NicSilence[] = [];
     const d = new NicSilenceDetector((s) => out.push(s));
-    feed(d, [900, 1500, 3200, 4000, 500, 2500, 1800, 2200, 1200, 2800, 80, 85, 2400, 2600], { participants: 4, streams: () => 1 });
-    expect(out).toEqual([{ at: T0 + 10_000, durationMs: 2_000, rxpMin: 80, baseline: 2200, participants: 4 }]);
-    // Taban çizgisi 500 pk/sn iken de ~80 eşiğin (100) altındadır
-    const low: NicSilence[] = [];
-    const d2 = new NicSilenceDetector((s) => low.push(s));
-    feed(d2, [500, 500, 520, 480, 500, 510, 80, 500], { participants: 3 });
-    expect(low).toHaveLength(1);
-    expect(low[0]).toMatchObject({ durationMs: 1_000, baseline: 500 });
-    expect(silenceThreshold(4000)).toBe(400);
-  });
-
-  it('süren sessizlik "aday" olarak görünür; geri gelmezse (yayın bitti) kesinti sayılmaz', () => {
-    const out: NicSilence[] = [];
-    const d = new NicSilenceDetector((s) => out.push(s));
-    feed(d, [2000, 2100, 1900, 2000, 2050, 2000, 150, 140], { participants: 3 });
-    expect(d.open()).toMatchObject({ at: T0 + 6_000, seconds: 2, baseline: 2000 });
-    // Trafik yeni düzeyde kalır (yarısına bile dönmez): 60 sn sonra aday düşer
-    feed(d, Array.from({ length: 70 }, () => 150), { participants: 3 });
+    feed(d, [...VOICE, 2, 1], { participants: 3 });
+    expect(d.open()).toMatchObject({ at: T0 + 17_000, seconds: 2, baseline: 31, rxpMin: 1 });
+    // Trafik sıfırda kalır: 60 sn sonra aday düşer
+    feed(d, Array.from({ length: 70 }, () => 1), { participants: 3 });
     expect(out).toEqual([]);
     expect(d.open()).toBeNull();
+    // Sessizlikten sonra tabanın yarısına bile dönmeyen trafik (5 sn içinde): kesinti değil, seviye değişimi
+    const d2 = new NicSilenceDetector((s) => out.push(s));
+    feed(d2, [...VOICE, 2, 1, 10, 11, 12, 10, 11, 12, 10]);
+    expect(out).toEqual([]);
   });
 
-  it('biri sesten çıktıktan / yayını kapattıktan hemen sonraki çöküş kesinti değildir (yeniden yayın açılsa bile)', () => {
+  it('biri sesten çıktıktan / yayını kapattıktan hemen sonraki çöküş kesinti değildir', () => {
     const out: NicSilence[] = [];
     const d = new NicSilenceDetector((s) => out.push(s));
-    // 6. saniyede yayın kapanır (trafik çöker), 12. saniyede yeniden açılır
-    const flags = feed(d, [2000, 2100, 1900, 2000, 2050, 2000, 150, 140, 150, 160, 150, 150, 2000, 2100], { participants: 3, streams: (i) => (i >= 6 && i < 12 ? 0 : 1) });
+    // 17. saniyede son kişi de çıkar (trafik sıfırlanır), 22. saniyede yeniden girer
+    const flags = feed(d, [...VOICE, 2, 1, 0, 2, 1, 60, 70], { participants: (i) => (i >= 17 && i < 22 ? 0 : 3) });
     expect(flags.every((f) => !f)).toBe(true);
     expect(out).toEqual([]);
-    // Aynı trafik, ses durumu değişmeden: kesinti
+    // Aynı trafik, ses durumu değişmeden: sessizlik
     const d2 = new NicSilenceDetector((s) => out.push(s));
-    feed(d2, [2000, 2100, 1900, 2000, 2050, 2000, 150, 140, 150, 160, 150, 150, 2000, 2100], { participants: 3, streams: () => 1 });
+    feed(d2, [...VOICE, 2, 1, 0, 2, 1, 60, 70], { participants: 3 });
     expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({ durationMs: 6_000 });
+    expect(out[0]).toMatchObject({ durationMs: 5_000, participants: 3 });
   });
 
-  it('düşük taban çizgisinde dedektör çalışmaz; tek saniyelik dalgalanma (doğrulanmamış) sayılmaz; okunamayan saniye sıfırlar', () => {
+  it('taban düşükse (kimse bağlı değil) dedektör çalışmaz; okunamayan saniye ve kayıt boşluğu tabanı sıfırlar', () => {
     const out: NicSilence[] = [];
     const idle = new NicSilenceDetector((s) => out.push(s));
-    feed(idle, [15, 12, 18, 14, 16, 15, 0, 0, 0, 15, 16]); // seste kimse yok, taban çizgisi < 40
+    feed(idle, [15, 12, 18, 14, 16, 15, 13, 17, 12, 15, 14, 0, 0, 0, 15, 16]); // taban < 20
     expect(out).toEqual([]);
-    const blip = new NicSilenceDetector((s) => out.push(s));
-    feed(blip, [50, 55, 60, 52, 58, 50, 4, 55, 60]); // tek saniye, taban çizgisi < 100
-    expect(out).toEqual([]);
-    const confirmed = new NicSilenceDetector((s) => out.push(s));
-    feed(confirmed, [50, 55, 60, 52, 58, 50, 4, 55, 60], { lost: (i) => i === 6 });
-    expect(out).toHaveLength(1);
-    // Seste biri varken daha düşük taban çizgisi (≥20) de yeterli
-    const voice = new NicSilenceDetector((s) => out.push(s));
-    feed(voice, [30, 28, 32, 30, 31, 29, 2, 1, 30], { participants: 1 });
-    expect(out).toHaveLength(2);
     const d = new NicSilenceDetector((s) => out.push(s));
-    feed(d, [2000, 2000, 2000, 2000, 2000, 2000]);
-    expect(d.push(T0 + 7_000, null, 0)).toBe(false);
-    expect(d.push(T0 + 8_000, 10, 0)).toBe(false); // taban çizgisi yeniden kurulmalı
+    feed(d, VOICE);
+    expect(d.push({ t: T0 + 18_000, rxp: null })).toBe(false);
+    expect(d.push({ t: T0 + 19_000, rxp: 0 })).toBe(false); // taban yeniden kurulmalı
+    const gap = new NicSilenceDetector((s) => out.push(s));
+    feed(gap, VOICE);
+    expect(gap.push({ t: T0 + 600_000, rxp: 0 })).toBe(false); // kayıtta 10 dk boşluk
+    expect(out).toEqual([]);
+  });
+
+  it('SilenceScanner: satırlar iki satır gecikmeyle değerlendirilir; sonradan işlenen yanıtsız sondalar sessizliği doğrular', () => {
+    const out: NicSilence[] = [];
+    const sc = new SilenceScanner((s) => out.push(s));
+    const rows = [...VOICE, 0, 45, 50, 48].map((rxp, i) => row(i + 1, { rxp, txp: rxp * 2 }));
+    rows.slice(0, 18).forEach((r) => sc.push(r));
+    // 18. satır (gelen 0) henüz değerlendirilmedi; o saniyenin sondası 450 ms sonra zaman aşımına uğrayıp satıra işlenir
+    expect(sc.open()).toBeNull();
+    rows[17]!.p = { 'udp 1.1.1.1': -1 };
+    rows[16]!.p = { 'tcp 8.8.8.8': -1, 'ağ geçidi': -1 };
+    rows.slice(18).forEach((r) => sc.push(r));
+    sc.drain();
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ at: T0 + 17_000, durationMs: 1_000, probesLost: 2 }); // ağ geçidi sayılmaz
+    expect(rows.map((r) => r.o ?? 0).filter(Boolean)).toEqual([2]);
+    expect(rows[17]!.o).toBe(2);
   });
 });
 
@@ -525,7 +594,7 @@ describe('kesinti kaydı', () => {
   });
 
   const probe = (at: number, durationMs: number): ProbeOutage => ({ at, durationMs, lost: 6, targets: ['udp 1.1.1.1', 'tcp 8.8.8.8'], udp: true, tcp: true });
-  const nic = (at: number, durationMs: number): NicSilence => ({ at, durationMs, rxpMin: 3, baseline: 70, participants: 0 });
+  const nic = (at: number, durationMs: number, probesLost = 0): NicSilence => ({ at, durationMs, rxpMin: 3, baseline: 70, participants: 0, probesLost, txCollapsed: true });
 
   it('yerel saat damgası istatistik saat dilimiyle yazılır', () => {
     expect(localStamp(T0 + 47_250, 180)).toBe('2026-10-01 01:18:47.250 +03:00');
@@ -533,67 +602,102 @@ describe('kesinti kaydı', () => {
     expect(localStamp(T0, -330)).toBe('2026-09-30 16:48:00.000 -05:30');
   });
 
-  it('çakışan sonda kesintisi ve NIC sessizliği tek kayıt olur (tam kesinti); çakışmayanlar ayrı', () => {
+  it('NIC sessizliği tek başına adaydır; sonda kesintisiyle ya da yanıtsız sondalarla doğrulanınca tam kesinti', () => {
     const log = new OutageLog({ dir: null, offsetMin: 180, now: () => T0 + 600_000 });
     // NIC sessizliği saniye çözünürlüğünde, sonda kesintisi milisaniye: yakınsa aynı kesinti
-    log.addNic(nic(T0 + 10_000, 4_000));
+    expect(log.addNic(nic(T0 + 10_000, 4_000)).kind).toBe('aday');
     const o = log.addProbe(probe(T0 + 9_700, 3_800));
     expect(log.list(0)).toHaveLength(1);
     expect(o).toMatchObject({ kind: 'tam', at: T0 + 9_700, durationMs: 4_300, t: '2026-10-01 01:18:09.700 +03:00' });
+    expect(isConfirmedOutage(o)).toBe(true);
     // Sırası fark etmez
     log.addProbe(probe(T0 + 100_000, 1_200));
     expect(log.addNic(nic(T0 + 100_000, 2_000)).kind).toBe('tam');
-    // Yalnız sonda / yalnız gelen
+    // Yalnız sonda / yalnız NIC (aday) / yanıtsız sondalarla doğrulanmış NIC (kayıtlı sonda kesintisi olmadan)
     expect(log.addProbe(probe(T0 + 200_000, 900)).kind).toBe('sonda');
-    expect(log.addNic(nic(T0 + 300_000, 3_000)).kind).toBe('gelen');
+    const cand = log.addNic(nic(T0 + 300_000, 3_000));
+    expect(cand.kind).toBe('aday');
+    expect(isConfirmedOutage(cand)).toBe(false);
+    expect(log.addNic(nic(T0 + 400_000, 1_000, 2))).toMatchObject({ kind: 'tam', probe: null });
     // Aynı türden ikinci işaret birleşmez
     expect(log.addProbe(probe(T0 + 200_500, 900)).kind).toBe('sonda');
-    expect(log.list(0).map((x) => x.kind)).toEqual(['gelen', 'sonda', 'sonda', 'tam', 'tam']);
+    expect(log.list(0).map((x) => x.kind)).toEqual(['tam', 'aday', 'sonda', 'sonda', 'tam', 'tam']);
     expect(log.between(T0 + 9_000, T0 + 11_000).map((x) => x.kind)).toEqual(['tam']);
-    expect(log.between(T0 + 400_000, T0 + 500_000)).toEqual([]);
+    expect(log.between(T0 + 500_000, T0 + 550_000)).toEqual([]);
   });
 
-  it('durulan kayıtlar outages.jsonl dosyasına yazılır, yeniden açılışta okunur, çalışırken kırpılır', async () => {
+  it('durulan kayıtlar outages.jsonl dosyasına yazılır, yeniden açılışta okunur (aynı kimlik bir kez), çalışırken kırpılır', async () => {
     let now = T0 + 20_000;
-    const log = new OutageLog({ dir, offsetMin: 180, now: () => now, settleMs: 8_000, maxFileLines: 3 });
+    const log = new OutageLog({ dir, offsetMin: 180, now: () => now, settleMs: 8_000, maxFileLines: 6 });
     log.addProbe(probe(T0 + 10_000, 1_000));
     await log.flush();
     // Henüz durulmadı (öbür işaret gelip birleşebilir): dosya yok
     expect(fs.existsSync(path.join(dir, 'outages.jsonl'))).toBe(false);
-    log.addNic(nic(T0 + 10_000, 2_000));
     now += 9_000;
     await log.flush();
     const read = (): Outage[] => fs.readFileSync(path.join(dir, 'outages.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Outage);
-    expect(read()).toHaveLength(1);
-    expect(read()[0]).toMatchObject({ kind: 'tam', t: '2026-10-01 01:18:10.000 +03:00' });
+    expect(read()).toMatchObject([{ kind: 'sonda' }]);
+    // Dosyaya yazıldıktan SONRA öbür işaret gelip birleşti: aynı kimlik ikinci kez eklenir
+    log.addNic(nic(T0 + 10_000, 2_000));
+    now += 9_000;
+    await log.flush();
+    expect(read().map((o) => [o.id, o.kind])).toEqual([
+      [read()[0]!.id, 'sonda'],
+      [read()[0]!.id, 'tam'],
+    ]);
+    // Yeniden açılışta aynı kimlik bir kez sayılır ve son hali geçerlidir
     const again = new OutageLog({ dir, offsetMin: 180, now: () => now });
     expect(again.list(0)).toHaveLength(1);
-    // Çalışırken kırpma: 14 günden eski kayıtlar ve sınırı aşan satırlar atılır
-    for (let i = 0; i < 4; i++) log.addProbe(probe(T0 + 60_000 + i * 20_000, 800));
+    expect(again.list(0)[0]).toMatchObject({ kind: 'tam', t: '2026-10-01 01:18:10.000 +03:00' });
+    // Yeni kimlikler dosyadakilerle çakışmaz
+    expect(again.addProbe(probe(T0 + 10_000 + 3_600_000, 500)).id).not.toBe(read()[0]!.id);
+    // Çalışırken kırpma: sınır aşılınca dosya bellekteki listeyle (her kimlik bir kez) yeniden yazılır
+    for (let i = 0; i < 5; i++) log.addProbe(probe(T0 + 60_000 + i * 20_000, 800));
     await log.stop();
     const lines = read();
-    expect(lines.length).toBe(5);
-    expect(new Set(lines.map((l) => l.id)).size).toBe(5);
+    expect(lines.length).toBe(6);
+    expect(new Set(lines.map((l) => l.id)).size).toBe(6);
     const old = new OutageLog({ dir, offsetMin: 180, now: () => now + 15 * 86_400_000 });
     expect(old.list(0)).toEqual([]);
   });
 
-  it('örnekleyici: NIC sessizliği + sonda kesintisi birleşir, satırlar işaretlenir, süren sessizlik görünür', () => {
+  it('örnekleyici: sessizlik gecikmeli değerlendirilir, sonda kesintisiyle birleşir, satırlar işaretlenir', () => {
     const s = new SecondSampler({ procRoot: '/yok', dir: null, participants: () => 2 });
     let b = 0;
     const tick = (i: number, pps: number): SecondRow | null => s.tick(T0 + i * 1000, files({ dev: devText((b += pps * 1000), b) }));
     for (let i = 0; i <= 15; i++) tick(i, 1000);
     for (let i = 16; i <= 18; i++) tick(i, 5);
-    expect(s.openSilence()).toMatchObject({ at: T0 + 15_000, seconds: 3, baseline: 1000 });
+    // İki satır gecikme: 18. saniyede yalnızca 16. saniye değerlendirildi
+    expect(s.openSilence()).toMatchObject({ at: T0 + 15_000, seconds: 1, baseline: 1000 });
     expect(s.outages.list(0)).toEqual([]);
     for (let i = 19; i <= 22; i++) tick(i, 1000);
     expect(s.openSilence()).toBeNull();
-    expect(s.outages.list(0)).toMatchObject([{ kind: 'gelen', at: T0 + 15_000, durationMs: 3_000 }]);
+    // Sondalarla doğrulanmadı: aday
+    expect(s.outages.list(0)).toMatchObject([{ kind: 'aday', at: T0 + 15_000, durationMs: 3_000, nic: { probesLost: 0, txCollapsed: true } }]);
     const o = s.addProbeOutage({ at: T0 + 15_200, durationMs: 2_900, lost: 11, targets: ['udp 1.1.1.1', 'tcp 8.8.8.8'], udp: true, tcp: true });
     expect(o.kind).toBe('tam');
     const marks = s.window(T0 + 14_000, T0 + 20_000).map((r) => r.o ?? 0);
     // 15. sn temiz; 16-18: NIC (2) + sonda (1); 19: yalnızca sonda kesintisinin son 100 ms'si
     expect(marks).toEqual([0, 0, 3, 3, 3, 1, 0]);
+  });
+
+  it('örnekleyici zamanlayıcısındaki hata süreci düşürmez (yakalanır ve günlüğe yazılır)', async () => {
+    const warns: string[] = [];
+    let calls = 0;
+    const s = new SecondSampler({
+      procRoot: '/yok',
+      dir: null,
+      readFiles: () => {
+        calls++;
+        throw new Error('okuma patladı');
+      },
+      log: { warn: (_o, m) => warns.push(m) },
+    });
+    s.start();
+    await sleep(2_300);
+    await s.stop();
+    expect(calls).toBeGreaterThanOrEqual(2);
+    expect(warns).toEqual(['saniyelik ağ ölçümü hata verdi']); // seyrek: her hatada değil
   });
 });
 
@@ -616,6 +720,29 @@ describe('LiveKit ölçüm geçmişi (olay kanıtı)', () => {
     expect(lk.historySince(0)).toHaveLength(10);
     // boost: zamanlayıcı yokken (testler) güvenle yok sayılır
     expect(() => lk.boost(Date.now() + 60_000)).not.toThrow();
+  });
+
+  it('boost: ölçüm sürerken çağrılırsa ikinci bir ölçüm döngüsü başlamaz', async () => {
+    let calls = 0;
+    let release: (() => void) | null = null;
+    const slow = new LiveKitMetrics({
+      url: 'http://lk.test/metrics',
+      fetchImpl: (async () => {
+        calls++;
+        await new Promise<void>((r) => (release = r));
+        return new Response(text(calls), { status: 200 });
+      }) as typeof fetch,
+    });
+    slow.start(); // ilk ölçüm askıda
+    await sleep(20);
+    expect(calls).toBe(1);
+    slow.boost(Date.now() + 60_000); // ölçüm sürerken: yeni zamanlayıcı kurulmamalı
+    slow.boost(Date.now() + 60_000);
+    release!();
+    await sleep(2_400); // sık aralık (2 sn): tek döngü → tek yeni ölçüm
+    expect(calls).toBe(2);
+    release!();
+    slow.stop();
   });
 });
 

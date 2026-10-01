@@ -99,6 +99,7 @@ export class LineTestServer {
   private readonly byIdentity = new Map<string, number>();
   private readonly handshakes = new Map<string, { at: number; n: number }>();
   private lastPaceAt = 0;
+  private timerErrors = 0;
   port: number | null = null;
   reservedTotal = 0;
   reservedPpsTotal = 0;
@@ -134,7 +135,7 @@ export class LineTestServer {
       this.socket = socket;
       this.port = socket.address().port;
       // Gönderim zamanlayıcısı (2 ms) yalnızca oturum varken çalışır (bkz. open/release)
-      this.sweepTimer = setInterval(() => this.sweep(), 1000);
+      this.sweepTimer = setInterval(() => this.guarded(() => this.sweep()), 1000);
       this.sweepTimer.unref();
       return this.port;
     }
@@ -158,10 +159,19 @@ export class LineTestServer {
     this.reservedPpsTotal = 0;
   }
 
+  /** Zamanlayıcı geri çağrısındaki beklenmeyen hata süreci düşürmemeli: yakalanır, seyrek günlüğe yazılır */
+  private guarded(fn: () => void): void {
+    try {
+      fn();
+    } catch (err) {
+      if (this.timerErrors++ % 1000 === 0) this.opts.log?.warn({ err: String(err), count: this.timerErrors }, 'hat testi zamanlayıcısı hata verdi');
+    }
+  }
+
   private startPace(): void {
     if (this.timer || !this.socket) return;
     this.lastPaceAt = 0;
-    this.timer = setInterval(() => this.pace(), PACE_TICK_MS);
+    this.timer = setInterval(() => this.guarded(() => this.pace()), PACE_TICK_MS);
     this.timer.unref();
   }
 

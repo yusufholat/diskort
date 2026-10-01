@@ -171,7 +171,7 @@ uçlarından gelir (hepsi yalnızca hesap yöneticilerine, `Cache-Control: no-st
 - **Bağlantı teşhisi:** "donma/kesilme nerede oluyor" sorusunun tek yeri; dört görünüm:
   - *Canlı durum* (`GET /api/admin/net/live`, 2 sn'de bir): bölüm bölüm durum (dış sondalar, sunucuya gelen,
     ses sunucusu, sunucudan giden, sunucu kaynağı), son 5 dakikanın saniyelik grafikleri (kesinti saniyeleri
-    işaretli) ve son kesintiler (tam kesinti / yalnız gelen / yalnız sonda). Kesintiden **sağlayıcı raporu**
+    işaretli) ve son kesintiler (tam kesinti / yalnız sonda / doğrulanmamış NIC adayı). Kesintiden **sağlayıcı raporu**
     (Türkçe + İngilizce, kopyalanabilir) üretilir.
   - *Olaylar* (`GET /api/admin/telemetry/incidents?days=`): yayın donması olayları ve tek kullanıcılık kalite
     sorunları tek zaman çizelgesinde. Her olayda arızalı bölümü söyleyen özet cümlesi, güven, kanıt ve **eksik

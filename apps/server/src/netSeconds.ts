@@ -4,7 +4,7 @@ import os from 'node:os';
 import readline from 'node:readline';
 import { dayKey } from './counters.js';
 import { hostNetSample, parseDefaultGateway, readHostNet, type HostNetCounters } from './hostNetwork.js';
-import { NicSilenceDetector, OutageLog, type Outage } from './netOutages.js';
+import { NicSilenceDetector, OutageLog, type NicSilence, type Outage } from './netOutages.js';
 import type { ProbeOutage } from './netProbe.js';
 
 // Bağlantı teşhisi: sunucu ağının saniyelik kaydı (uçuş kaydedicisi) ve makinenin TEK ağ örnekleyicisi.
@@ -59,7 +59,7 @@ export interface SecondRow {
   lk: number | null;
   /** Sesteki kişi sayısı (0 ise yazılmaz) */
   vp?: number;
-  /** Kesinti işaretleri (bit): 1 = dış sonda kesintisi, 2 = NIC sessizliği (adayı) */
+  /** Kesinti işaretleri (bit): 1 = dış sonda kesintisi, 2 = NIC sessizliği (adayı; birkaç saniye gecikmeyle işlenir) */
   o?: number;
   /** Dış sondalar: hedef etiketi → RTT (ms) ya da -1 (yanıt gelmedi); yalnızca o saniyede gönderilenler */
   p?: Record<string, number>;
@@ -546,7 +546,7 @@ export interface SamplerOptions {
 }
 
 const RING_MS = 30 * 60_000;
-/** Bir satır değerlendirilmeden önce beklenen süre: sonda yanıtları (zaman aşımı ≤ 0,5 sn) satıra işlensin */
+/** Bir satır değerlendirilmeden önce beklenen süre: sonda yanıtları ve (iki satır gecikmeli) sessizlik işareti işlensin */
 const PERSIST_LAG_MS = 3_000;
 /** Bekleyen satırlar en geç bu kadar sürede diske yazılır (olay sırasında kanıt kaybolmasın) */
 const FLUSH_EVERY_MS = 15_000;
@@ -580,6 +580,66 @@ export function isAbnormalRow(r: SecondRow, recent: SecondRow[]): boolean {
   return external(r).some(([, v]) => v >= 400);
 }
 
+/** Sessizlik, satırdan sonraki bu kadar satır geldikten sonra değerlendirilir: sonda sonuçları (zaman aşımı ~0,5 sn) işlensin */
+const SILENCE_LAG_ROWS = 2;
+/** Sessizliği doğrulayan yanıtsız sondalar için bakılan çevre (ms): öncesi ve sonrası */
+const CORROBORATE_BEFORE_MS = 2_000;
+const CORROBORATE_AFTER_MS = 1_000;
+
+const lostExternal = (r: SecondRow): number => Object.entries(r.p ?? {}).filter(([label, v]) => label !== GATEWAY_LABEL && v < 0).length;
+
+/**
+ * Saniyelik satırları NIC sessizliği dedektörüne GECİKMELİ verir: bir satır, kendisinden sonraki iki satır da
+ * geldikten sonra değerlendirilir. Böylece o saniyelerde gönderilip zaman aşımına uğrayan sondalar satırlara
+ * işlenmiş olur ve sessizlik "dış sondalar da yanıtsızdı" bilgisiyle birlikte yargılanır. Sessiz saniyelerin
+ * satırları işaretlenir (o |= 2). Örnekleyici ve gerçek veriyle yeniden oynatma testi aynı sınıfı kullanır.
+ */
+export class SilenceScanner {
+  private readonly detector: NicSilenceDetector;
+  private pending: { row: SecondRow; participants: number | null; streams: number | null; intervalMs: number }[] = [];
+  private before: SecondRow[] = [];
+
+  constructor(onSilence: (s: NicSilence) => void) {
+    this.detector = new NicSilenceDetector(onSilence);
+  }
+
+  push(row: SecondRow, participants: number | null = null, streams: number | null = null, intervalMs = 1000): void {
+    this.pending.push({ row, participants, streams, intervalMs });
+    while (this.pending.length > SILENCE_LAG_ROWS) this.evaluate();
+  }
+
+  /** Bekleyen satırları da değerlendirir (yeniden oynatmanın sonunda) */
+  drain(): void {
+    while (this.pending.length > 0) this.evaluate();
+  }
+
+  private evaluate(): void {
+    const cur = this.pending.shift()!;
+    const { row } = cur;
+    const near = [...this.before, row, ...this.pending.map((p) => p.row)].filter(
+      (r) => r.t >= row.t - CORROBORATE_BEFORE_MS && r.t <= row.t + CORROBORATE_AFTER_MS,
+    );
+    const probesLost = near.reduce((n, r) => n + lostExternal(r), 0);
+    const silent = this.detector.push({
+      t: row.t,
+      intervalMs: cur.intervalMs,
+      rxp: row.rxp,
+      txp: row.txp,
+      participants: cur.participants,
+      streams: cur.streams,
+      probesLost,
+    });
+    if (silent) row.o = (row.o ?? 0) | OUTAGE_BIT_NIC;
+    this.before.push(row);
+    if (this.before.length > 3) this.before.shift();
+  }
+
+  /** Süren sessizlik (adayı) */
+  open(): ReturnType<NicSilenceDetector['open']> {
+    return this.detector.open();
+  }
+}
+
 type PendingLine = { kind: 'netsec' | 'netmin'; day: string; line: string };
 
 export class SecondSampler {
@@ -597,7 +657,8 @@ export class SecondSampler {
   private warned = false;
   private minuteAt: number | null = null;
   private probeBuffer: { label: string; sentAt: number; rtt: number | null }[] = [];
-  private readonly silence: NicSilenceDetector;
+  private readonly silence: SilenceScanner;
+  private tickErrors = 0;
   /** Kesinti kaydı (dış sonda kesintileri + NIC sessizliği) */
   readonly outages: OutageLog;
   /** Hangi /proc dosyaları okunabiliyor (panel için) */
@@ -609,7 +670,7 @@ export class SecondSampler {
 
   constructor(private readonly opts: SamplerOptions) {
     this.outages = new OutageLog({ dir: opts.dir, offsetMin: opts.offsetMin ?? 180, ...(opts.log ? { log: opts.log } : {}) });
-    this.silence = new NicSilenceDetector((s) => void this.outages.addNic(s));
+    this.silence = new SilenceScanner((s) => void this.outages.addNic(s));
   }
 
   private get offsetMin(): number {
@@ -618,7 +679,14 @@ export class SecondSampler {
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => this.tick(), 1_000);
+    // Ölçümdeki bir hata API sürecini düşürmemeli: yakalanır, seyrek günlüğe yazılır
+    this.timer = setInterval(() => {
+      try {
+        this.tick();
+      } catch (err) {
+        if (this.tickErrors++ % 300 === 0) this.opts.log?.warn({ err: String(err), count: this.tickErrors }, 'saniyelik ağ ölçümü hata verdi');
+      }
+    }, 1_000);
     this.timer.unref();
     this.outages.start();
   }
@@ -674,8 +742,8 @@ export class SecondSampler {
     const held = this.probeBuffer;
     this.probeBuffer = [];
     for (const p of held) this.addProbe(p.label, p.sentAt, p.rtt);
-    const lostNow = Object.entries(row.p ?? {}).some(([label, v]) => label !== GATEWAY_LABEL && v < 0);
-    if (this.silence.push(row.t, row.rxp, participants, lostNow, cur.at - prev.at, this.opts.streams?.() ?? null)) row.o = (row.o ?? 0) | OUTAGE_BIT_NIC;
+    // NIC sessizliği iki satır gecikmeyle değerlendirilir (o saniyelerin sonda sonuçları işlensin)
+    this.silence.push(row, participants, this.opts.streams?.() ?? null, cur.at - prev.at);
     const from = now - RING_MS;
     let cut = 0;
     while (cut < this.rows.length && this.rows[cut]!.t < from) cut++;
@@ -716,7 +784,7 @@ export class SecondSampler {
   }
 
   /** Süren NIC sessizliği (adayı) */
-  openSilence(): ReturnType<NicSilenceDetector['open']> {
+  openSilence(): ReturnType<SilenceScanner['open']> {
     return this.silence.open();
   }
 
@@ -885,21 +953,27 @@ export class SecondSampler {
   private async readLines<T>(file: string, keep: (v: T) => boolean | 'stop', max: number): Promise<T[]> {
     const out: T[] = [];
     if (!fs.existsSync(file)) return out;
-    const rl = readline.createInterface({ input: fs.createReadStream(file, 'utf8'), crlfDelay: Infinity });
-    for await (const line of rl) {
-      if (!line) continue;
-      let v: T;
-      try {
-        v = JSON.parse(line) as T;
-      } catch {
-        continue;
+    const stream = fs.createReadStream(file, 'utf8');
+    const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+    try {
+      for await (const line of rl) {
+        if (!line) continue;
+        let v: T;
+        try {
+          v = JSON.parse(line) as T;
+        } catch {
+          continue;
+        }
+        const k = keep(v);
+        if (k === 'stop') break;
+        if (k) out.push(v);
+        if (out.length >= max) break;
       }
-      const k = keep(v);
-      if (k === 'stop') break;
-      if (k) out.push(v);
-      if (out.length >= max) break;
+    } finally {
+      // Döngüden erken çıkılınca readline akışı kapatmaz: dosya tanıtıcısı sızmasın
+      rl.close();
+      stream.destroy();
     }
-    rl.close();
     return out;
   }
 

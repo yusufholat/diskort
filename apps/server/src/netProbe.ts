@@ -123,6 +123,8 @@ export interface ProbeResult {
   sentAt: number;
   /** RTT (ms); null: zaman aşımı */
   rtt: number | null;
+  /** Yargıya katılmaz (kapatılmış hedefin yanıtsız kalan yeniden denemesi) */
+  skip?: boolean;
 }
 
 /** Dış bağlantı kesintisi: art arda yanıtsız sondalar (≥2 farklı hedef) */
@@ -232,12 +234,19 @@ interface TargetState {
   sent: number;
   replied: number;
   disabled: boolean;
+  /** Kapalıyken en son yeniden denendiği an */
+  retriedAt: number;
+  lastReplyAt: number;
   recent: { at: number; rtt: number | null }[];
 }
 
 /** İlk bu kadar sondanın hiçbiri yanıtlanmadıysa hedef (ya da ağ geçidi) bu yöntemle yoklanamıyor: bırakılır */
 const NEVER_REPLIED_AFTER = 15;
 const RECENT_MS = 60_000;
+/** Kapatılan hedef bu aralıkla yeniden denenir; yanıt verirse sıraya döner */
+const RETRY_DISABLED_MS = 60_000;
+/** Bir hedef ancak başka bir hedef bu süre içinde yanıt vermişken kapatılır (kesinti sırasında hepsi birden kapanmasın) */
+const OTHERS_ALIVE_MS = 10_000;
 
 export class ProbeEngine {
   private timer: NodeJS.Timeout | null = null;
@@ -253,7 +262,7 @@ export class ProbeEngine {
   private readonly detector: OutageDetector;
 
   constructor(private readonly opts: ProbeEngineOptions) {
-    this.states = opts.targets.map((target) => ({ target, sent: 0, replied: 0, disabled: false, recent: [] }));
+    this.states = opts.targets.map((target) => ({ target, sent: 0, replied: 0, disabled: false, retriedAt: 0, lastReplyAt: 0, recent: [] }));
     this.detector = new OutageDetector({
       // Tek hedef varsa "iki farklı hedef" koşulu sağlanamaz: kesinti yargısı verilmez
       minTargets: 2,
@@ -275,12 +284,13 @@ export class ProbeEngine {
 
   start(): void {
     if (this.timer || this.gwTimer) return;
+    // Bir sondadaki beklenmeyen hata süreci düşürmemeli
     if (this.states.length > 0) {
-      this.timer = setInterval(() => void this.tick(), this.interval);
+      this.timer = setInterval(() => void this.tick().catch(() => undefined), this.interval);
       this.timer.unref();
     }
     if (this.opts.gateway) {
-      this.gwTimer = setInterval(() => void this.gatewayOnce(), this.opts.gatewayIntervalMs ?? 5_000);
+      this.gwTimer = setInterval(() => void this.gatewayOnce().catch(() => undefined), this.opts.gatewayIntervalMs ?? 5_000);
       this.gwTimer.unref();
     }
   }
@@ -291,11 +301,14 @@ export class ProbeEngine {
     this.timer = this.gwTimer = null;
   }
 
-  /** Sıradaki (kapatılmamış) hedef */
-  private next(): TargetState | null {
+  /** Sıradaki hedef: kapatılmış olanlar atlanır, ama dakikada bir yeniden denenir (yanıt verirse sıraya döner) */
+  private next(now: number): TargetState | null {
     for (let i = 0; i < this.states.length; i++) {
       const s = this.states[(this.rotation + i) % this.states.length]!;
-      if (s.disabled) continue;
+      if (s.disabled) {
+        if (now - s.retriedAt < RETRY_DISABLED_MS) continue;
+        s.retriedAt = now;
+      }
       this.rotation = (this.rotation + i + 1) % this.states.length;
       return s;
     }
@@ -304,18 +317,28 @@ export class ProbeEngine {
 
   /** Sıradaki hedefe bir sonda gönderir; sonuç gönderim sırasına dizilir (testler doğrudan çağırır) */
   async tick(sentAt = this.now()): Promise<number | null> {
-    const s = this.next();
+    const s = this.next(sentAt);
     if (!s) return null;
     const seq = this.seq++;
+    const wasDisabled = s.disabled;
     const rtt = await (this.opts.run ?? defaultRun)(s.target, this.timeout).catch(() => null);
     s.sent++;
-    if (rtt !== null) s.replied++;
+    if (rtt !== null) {
+      s.replied++;
+      s.lastReplyAt = sentAt;
+      // Kapatılmış hedef yanıt verdi: sıraya döner
+      s.disabled = false;
+    }
     s.recent.push({ at: sentAt, rtt });
     while (s.recent.length > 0 && s.recent[0]!.at < sentAt - RECENT_MS) s.recent.shift();
     this.opts.onResult(s.target.label, sentAt, rtt);
-    this.done.set(seq, { seq, label: s.target.label, kind: s.target.kind, sentAt, rtt });
-    // Hiç yanıt vermeyen hedef (ör. sağlayıcı o portu süzüyor) sıradan çıkar; sonuçları kesinti sayılmaz
-    if (s.sent >= NEVER_REPLIED_AFTER && s.replied === 0) s.disabled = true;
+    // Kapalı hedefin yeniden deneme sondası kesinti yargısına katılmaz (yanıtsızsa sıradaki boşluk sayılmaz)
+    this.done.set(seq, { seq, label: s.target.label, kind: s.target.kind, sentAt, rtt, skip: wasDisabled && rtt === null });
+    // Hiç yanıt vermeyen hedef (ör. sağlayıcı o portu süzüyor) sıradan çıkar; sonuçları kesinti sayılmaz. Ama
+    // yalnızca başka bir hedef yakın zamanda yanıt vermişse: hepsi birden yanıtsızsa bu hedefin değil yolun sorunudur
+    // (ör. sunucu kesinti sırasında başladı) ve hiçbir hedef kapatılmaz.
+    const othersAlive = this.states.some((x) => x !== s && x.lastReplyAt > 0 && sentAt - x.lastReplyAt <= OTHERS_ALIVE_MS);
+    if (s.sent >= NEVER_REPLIED_AFTER && s.replied === 0 && othersAlive) s.disabled = true;
     this.drain();
     return rtt;
   }
@@ -328,8 +351,9 @@ export class ProbeEngine {
       this.done.delete(this.cursor);
       this.cursor++;
       const state = this.states.find((x) => x.target.label === r.label);
-      // Henüz hiç yanıt vermemiş hedefin kayıpları yargıya katılmaz (hedef yoklanamıyor olabilir)
-      if (r.rtt === null && state && state.replied === 0) continue;
+      // Henüz hiç yanıt vermemiş hedefin kayıpları ve kapalı hedefin yeniden denemeleri yargıya katılmaz
+      // (hedef yoklanamıyor olabilir)
+      if (r.skip || (r.rtt === null && state && state.replied === 0)) continue;
       this.detector.push(r);
     }
   }

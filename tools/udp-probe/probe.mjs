@@ -480,12 +480,14 @@ function tcpLines(title, secs, plan) {
   }
 }
 
-const OUTAGE_KIND = { tam: 'TAM KESİNTİ (dış sondalar yanıtsız + sunucuya paket gelmedi)', gelen: 'sunucuya gelen paketler kesildi', sonda: 'sunucunun dış sondaları yanıtsız kaldı' };
+const OUTAGE_KIND = { tam: 'TAM KESİNTİ (dış sondalar yanıtsız + sunucuya paket gelmedi)', sonda: 'sunucunun dış sondaları yanıtsız kaldı' };
 const tr = (n) => String(n).replace('.', ',');
 
 /** Test sürerken sunucunun kendi ağında gördüğü kesintiler ve API olay döngüsü gecikmesi */
 function printServerSide(r) {
-  for (const o of r.outages ?? []) {
+  // "aday" (yalnızca NIC sessizliği, dış sondalarla doğrulanmamış) kesinti sayılmaz
+  const confirmed = (r.outages ?? []).filter((o) => o.kind !== 'aday');
+  for (const o of confirmed) {
     const where = o.burst
       ? `"${o.burst}" adımı${o.afterBurstSec ? `ndan ${tr(o.afterBurstSec)} sn sonra` : ' sırasında'}`
       : o.sec < 0
@@ -493,7 +495,7 @@ function printServerSide(r) {
         : `testin ${tr(o.sec)}. saniyesinde`;
     console.log(`  !! SUNUCU KESİNTİ GÖRDÜ: ${where}: ${OUTAGE_KIND[o.kind] ?? o.kind}, ${tr(Math.round(o.durationMs / 100) / 10)} sn`);
   }
-  if (r.session?.plan?.profile === 'burst' && (r.outages ?? []).length === 0) console.log('  Sunucu tarafı: test sürerken kesinti görülmedi (dış sondalar ve NIC temiz).');
+  if (r.session?.plan?.profile === 'burst' && confirmed.length === 0) console.log('  Sunucu tarafı: test sürerken kesinti görülmedi (dış sondalar ve NIC temiz).');
   if (r.loopLag && r.loopLag.maxMs >= 20) console.log(`  (Sunucu olay döngüsü gecikmesi en çok ${tr(r.loopLag.maxMs)} ms, ${r.loopLag.stalls} takılma: ölçüm sunucu yükünden etkilenmiş olabilir.)`);
 }
 
