@@ -2,8 +2,9 @@
 rem Diskort hat testi: cift tikla, test kodunu ve adini yaz.
 rem probe.mjs her calistirmada SHA-256 ile dogrulanir; uymazsa GitHub'dan yeniden indirilir, yine uymazsa calistirilmaz.
 rem Bu hash tools/udp-probe/probe.mjs ile birebir ayni olmali (test/lineTest.test.ts denetler).
+rem Patlama testi (yonetici koduyla, ~45 sn): hat-testi.cmd --patlama   (diger secenekler: README.md)
 setlocal EnableDelayedExpansion
-set "PROBE_SHA256=44c86978bd5eef6dbe625cd764c4b421eacbd76cf66ea48df2a5dd7f5ed07b16"
+set "PROBE_SHA256=d5d7152623d97a024a7bc79a35a93ca65404dfff098912fa94f5d024992af103"
 set "PROBE_URL=https://raw.githubusercontent.com/yusufholat/diskort/main/tools/udp-probe/probe.mjs"
 chcp 65001 >nul
 cd /d "%~dp0"

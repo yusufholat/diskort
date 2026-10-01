@@ -13,7 +13,7 @@ import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_SERVER = 'https://diskort.ziroo.net';
-export const TOOL_VERSION = '1';
+export const TOOL_VERSION = '2';
 
 // ---------- Protokol ----------
 const MAGIC = 0x444b;
@@ -174,6 +174,12 @@ async function runUdp({ host, session, onSecond, signal }) {
   const address = await lookup4(host);
   const socket = dgram.createSocket('udp4');
   await new Promise((resolve) => socket.bind(0, resolve));
+  try {
+    // Patlama profilinde saniyede binlerce paket gelir: varsayılan alma tamponu (Windows'ta 64 KB) taşmasın
+    socket.setRecvBufferSize(2 * 1024 * 1024);
+  } catch {
+    // işletim sistemi izin vermezse varsayılan tamponla sürer
+  }
   const waiters = { challenge: null, ready: null };
   const counter = plan.mode === 'up' ? null : new LossCounter(plan.seconds);
   let running = false;
@@ -368,14 +374,22 @@ export const SUITES = {
     { profile: 'ramp', mode: 'both', transport: 'tcp', label: 'TCP karşılaştırması (HTTPS)' },
   ],
   hizli: [{ profile: 'quick', mode: 'both', label: 'Kısa hat testi (iki yön)' }],
+  // Patlama: yayında sahne değişimi gibi ani hız artışını sese girmeden taklit eder (yalnızca yönetici kodu /
+  // yönetici hesabı). Taban 3 Mbps, ardından 2 sn'lik patlamalar: aşağı 10-20-30-40 Mbps, yukarı 6-10-12 Mbps.
+  // Sunucu, her patlamanın ardından kendi ağında kesinti görüp görmediğini sonuca ekler.
+  patlama: [
+    { profile: 'burst', mode: 'down', label: 'Patlama: sunucu -> bilgisayar (10, 20, 30, 40 Mbps)' },
+    { profile: 'burst', mode: 'up', label: 'Patlama: bilgisayar -> sunucu (6, 10, 12 Mbps)' },
+  ],
 };
 
 /**
  * Bir paketi sırayla çalıştırır. auth: { token } (Diskort hesap jetonu) ya da { code, name }.
  * onEvent: { type: 'phase-start' | 'second' | 'phase-done' | 'note' | 'phase-error', ... }
+ * force: canlı yayın varken patlama testini yine de başlat (sunucu aksi halde reddeder).
  * Döner: { suite, phases: [{ phase, result | error }] }
  */
-export async function runSuite({ server = DEFAULT_SERVER, auth, phases, suite, client = {}, onEvent = () => {}, signal }) {
+export async function runSuite({ server = DEFAULT_SERVER, auth, phases, suite, client = {}, onEvent = () => {}, signal, force = false }) {
   const host = new URL(server).hostname;
   const suiteId = suite ?? `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
   const out = [];
@@ -395,7 +409,7 @@ export async function runSuite({ server = DEFAULT_SERVER, auth, phases, suite, c
       const session = await api(server, '/api/line-test/session', {
         method: 'POST',
         headers: auth.token ? { authorization: `Bearer ${auth.token}` } : {},
-        body: { profile: ph.profile, mode: ph.mode, transport, ...(auth.code ? { code: auth.code, name: auth.name } : {}) },
+        body: { profile: ph.profile, mode: ph.mode, transport, ...(auth.code ? { code: auth.code, name: auth.name } : {}), ...(force ? { force: true } : {}) },
       });
       onEvent({ type: 'plan', index: i, session });
       const progress = (sec, total) => onEvent({ type: 'second', index: i, sec, total, step: session.plan.seconds[sec]?.step ?? 0 });
@@ -431,7 +445,8 @@ export async function runSuite({ server = DEFAULT_SERVER, auth, phases, suite, c
     } catch (err) {
       out.push({ phase: ph, error: err.message });
       onEvent({ type: 'phase-error', index: i, total: phases.length, error: err.message, status: err.status });
-      if (err.status === 401 || err.status === 503) break;
+      // Kimlik/yetki/yayın engeli sonraki aşamalarda da değişmez: paketi kes
+      if (err.status === 401 || err.status === 403 || err.status === 503 || (err.status === 409 && ph.profile === 'burst')) break;
     }
   }
   return { suite: suiteId, phases: out };
@@ -465,6 +480,19 @@ function tcpLines(title, secs, plan) {
   }
 }
 
+const OUTAGE_KIND = { tam: 'TAM KESİNTİ (dış sondalar yanıtsız + sunucuya paket gelmedi)', gelen: 'sunucuya gelen paketler kesildi', sonda: 'sunucunun dış sondaları yanıtsız kaldı' };
+const tr = (n) => String(n).replace('.', ',');
+
+/** Test sürerken sunucunun kendi ağında gördüğü kesintiler ve API olay döngüsü gecikmesi */
+function printServerSide(r) {
+  for (const o of r.outages ?? []) {
+    const where = o.burst ? `"${o.burst}" adımı${o.afterBurstSec ? `ndan ${tr(o.afterBurstSec)} sn sonra` : ' sırasında'}` : `testin ${tr(o.sec)}. saniyesinde`;
+    console.log(`  !! SUNUCU KESİNTİ GÖRDÜ: ${where}: ${OUTAGE_KIND[o.kind] ?? o.kind}, ${tr(Math.round(o.durationMs / 100) / 10)} sn`);
+  }
+  if (r.session?.plan?.profile === 'burst' && (r.outages ?? []).length === 0) console.log('  Sunucu tarafı: test sürerken kesinti görülmedi (dış sondalar ve NIC temiz).');
+  if (r.loopLag && r.loopLag.maxMs >= 20) console.log(`  (Sunucu olay döngüsü gecikmesi en çok ${tr(r.loopLag.maxMs)} ms, ${r.loopLag.stalls} takılma: ölçüm sunucu yükünden etkilenmiş olabilir.)`);
+}
+
 function parseArgs(argv) {
   const a = { server: DEFAULT_SERVER, suite: 'tam', tcp: true };
   for (let i = 0; i < argv.length; i++) {
@@ -476,6 +504,8 @@ function parseArgs(argv) {
     else if (k === '--ad' || k === '--name') a.name = v();
     else if (k === '--at') a.at = v();
     else if (k === '--hizli') a.suite = 'hizli';
+    else if (k === '--patlama') a.suite = 'patlama';
+    else if (k === '--zorla' || k === '--force') a.force = true;
     else if (k === '--tcp-yok') a.tcp = false;
     else if (k === '--tracert') a.tracert = true;
     else if (k === '--json') a.json = true;
@@ -491,6 +521,9 @@ Seçenekler:
   --server URL     sunucu (varsayılan ${DEFAULT_SERVER})
   --at SS:DD:SN    belirli saatte başla (birkaç kişi aynı anda test etsin diye)
   --hizli          yalnızca kısa test (~12 sn)
+  --patlama        patlama testi (~45 sn; yalnızca yönetici kodu ya da yönetici hesabıyla): ani hız artışının
+                   sunucu ağında kesinti tetikleyip tetiklemediğini sese girmeden sınar
+  --zorla          canlı yayın varken de patlama testini başlat (yayını dondurabilir)
   --tcp-yok        TCP karşılaştırmasını atla
   --tracert        sonda yol izleme (tracert) de ekle (servis sağlayıcıya destek talebi için)
   --json           sonucu JSON olarak da yaz`;
@@ -533,6 +566,7 @@ async function main() {
     auth: a.token ? { token: a.token } : { code: a.code, name: a.name },
     phases,
     client,
+    force: a.force === true,
     onEvent: (e) => {
       if (e.type === 'phase-start') console.log(`\n=== Aşama ${e.index + 1}/${e.total}: ${e.label} ===`);
       else if (e.type === 'plan' && e.session.streamLive) console.log('  (Şu an bir kanalda canlı yayın var; sonuç "yayın açıkken" diye kaydedilir.)');
@@ -548,6 +582,7 @@ async function main() {
         }
         tcpLines('TCP yukarı:', r.tcpUp, plan);
         tcpLines('TCP aşağı:', r.tcpDown, plan);
+        printServerSide(r);
         last = r;
         all.push(r);
       } else if (e.type === 'phase-error') console.log(`\n  HATA: ${e.error}`);
@@ -562,7 +597,7 @@ async function main() {
     if (f.evidence) console.log(`        ${f.evidence}`);
   }
   console.log(`\nSonuçlar yönetim paneline yüklendi (test no: ${res.suite}). Bu ekranın görüntüsünü de paylaşabilirsin.`);
-  if (a.json) console.log(JSON.stringify(all.map((r) => ({ runId: r.runId, stats: r.stats, findings: r.findings })), null, 1));
+  if (a.json) console.log(JSON.stringify(all.map((r) => ({ runId: r.runId, stats: r.stats, findings: r.findings, outages: r.outages ?? [], loopLag: r.loopLag ?? null })), null, 1));
 }
 
 // Yalnızca doğrudan `node probe.mjs` ile çalışınca (masaüstü uygulamasına gömülünce çalışmaz)
