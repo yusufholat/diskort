@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   ALL_PERMISSIONS,
   CLIENT_FEATURE_COSMETIC_PACKS,
+  CLIENT_FEATURE_VOICE_TRACE,
   CLIENT_FEATURE_DM,
   CLIENT_FEATURE_PRESENCE,
   DM_PERMISSIONS,
@@ -128,6 +129,7 @@ describe('direkt mesajlar', () => {
       CLIENT_FEATURE_DM,
       CLIENT_FEATURE_PRESENCE,
       CLIENT_FEATURE_COSMETIC_PACKS,
+      CLIENT_FEATURE_VOICE_TRACE,
     ]);
   });
 

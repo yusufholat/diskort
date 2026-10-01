@@ -4,6 +4,7 @@ import type { Feedback } from './feedback';
 import type { PermissionOverwrite, Role } from './permissions';
 import type { ActivityReport } from './activity';
 import type { Presence, SelfStatus } from './presence';
+import type { VoiceTraceRequest } from './voiceTrace';
 import {
   COSMETIC_SET_LABELS,
   COSMETIC_SETS,
@@ -20,6 +21,7 @@ export * from './activity';
 export * from './search';
 export * from './telemetry';
 export * from './cosmetics';
+export * from './voiceTrace';
 
 // ---------- Modeller ----------
 
@@ -893,7 +895,12 @@ export type GatewayServerMessage =
   | { t: 'FEEDBACK_CREATE'; d: Feedback }
   /** Geri bildirimin durumu ya da notu değişti (hesap yöneticilerine ve gönderene) */
   | { t: 'FEEDBACK_UPDATE'; d: Feedback }
-  | { t: 'FEEDBACK_DELETE'; d: { id: number } };
+  | { t: 'FEEDBACK_DELETE'; d: { id: number } }
+  /**
+   * Sunucu, ses kanalındaki istemcilerden olay kaydını (son ~2 dakikanın saniyelik bağlantı ölçümleri) ister.
+   * Yalnızca CLIENT_FEATURE_VOICE_TRACE bildiren oturumlara gider; eski istemciler tanımadığı olayı yok sayar.
+   */
+  | { t: 'VOICE_TRACE_REQUEST'; d: VoiceTraceRequest };
 
 /** İstemci türü: sürüm kuralı her platform için ayrı uygulanır */
 export type ClientPlatform = 'desktop' | 'android' | 'ios';

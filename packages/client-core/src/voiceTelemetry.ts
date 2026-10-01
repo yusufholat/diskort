@@ -24,6 +24,7 @@ import {
   type VideoCounters,
 } from './connectionStats';
 import { env } from './env';
+import { serverClock } from './serverClock';
 import { useSession } from './session';
 
 /**
@@ -249,6 +250,8 @@ export class LoopLagMeter {
   private timer: ReturnType<typeof setInterval> | null = null;
   private last = 0;
   private lags: number[] = [];
+  /** Son takePeak()'ten beri en yüksek gecikme (olay kaydının saniyelik ölçümü; take()'ten bağımsız) */
+  private peak: number | null = null;
 
   constructor(
     private readonly now: () => number = monotonicNow,
@@ -272,6 +275,7 @@ export class LoopLagMeter {
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = null;
     this.lags = [];
+    this.peak = null;
   }
 
   /**
@@ -282,6 +286,7 @@ export class LoopLagMeter {
     const lag = Math.max(0, at - this.last - this.tickMs);
     this.last = at;
     if (lag > MAX_STEP_MS) return;
+    if (this.peak === null || lag > this.peak) this.peak = lag;
     this.lags.push(lag);
     if (this.lags.length > LAG_MAX_SAMPLES) this.lags.shift();
   }
@@ -289,6 +294,13 @@ export class LoopLagMeter {
   /** Uygulama öne gelince: arka planda geçen süre sonraki tikte takılma sayılmasın */
   rebase(): void {
     this.last = this.now();
+  }
+
+  /** Son takePeak()'ten beri en yüksek gecikme (ms; tik gelmediyse null). Özetin ölçümlerine dokunmaz. */
+  takePeak(): number | null {
+    const peak = this.peak;
+    this.peak = null;
+    return peak;
   }
 
   /** Son okumadan beri ölçülenlerin özeti; ölçümler sıfırlanır */
@@ -328,6 +340,11 @@ class Window {
   available = new Mean();
   sentPackets = 0;
   lostPackets = 0;
+  // Giden kayıp, ses ve görüntü ayrı (yalnızca karşı tarafın rapor verdiği akışlar)
+  sentAudio = 0;
+  lostAudio = 0;
+  sentVideo = 0;
+  lostVideo = 0;
   outBits = 0;
   outMs = 0;
   inBits = 0;
@@ -420,6 +437,11 @@ export class VoiceTelemetry {
     this.prevQuality = 'unknown';
   }
 
+  /** JS olay döngüsünün son okumadan beri en yüksek gecikmesi (olay kaydı için; özetin ölçümlerine dokunmaz) */
+  lagPeak(): number | null {
+    return this.lag.takePeak();
+  }
+
   /** Uygulama öne geldi (telefon): arka planda duran zamanlayıcı takılma sayılmaz */
   rebaseLag(): void {
     this.lag.rebase();
@@ -482,8 +504,19 @@ export class VoiceTelemetry {
       for (const st of pub.streams) {
         const p = prevStreams.get(st.id);
         if (st.direction !== 'out' || !p) continue;
-        w.sentPackets += Math.max(0, st.packets - p.packets);
-        if (st.packetsLost !== null && p.packetsLost !== null) w.lostPackets += Math.max(0, st.packetsLost - p.packetsLost);
+        const dSent = Math.max(0, st.packets - p.packets);
+        w.sentPackets += dSent;
+        if (st.packetsLost !== null && p.packetsLost !== null) {
+          const dLost = Math.max(0, st.packetsLost - p.packetsLost);
+          w.lostPackets += dLost;
+          if (st.kind === 'video') {
+            w.sentVideo += dSent;
+            w.lostVideo += dLost;
+          } else {
+            w.sentAudio += dSent;
+            w.lostAudio += dLost;
+          }
+        }
       }
       // Ekran yayını: kare, kare hızı, kodlayıcı ve kısıtlama nedeni
       const screen = screenStream(pub);
@@ -664,6 +697,9 @@ export class VoiceTelemetry {
       audioIn,
       jsLag,
       settings: ctx.settings ?? null,
+      lossOutAudioPct: round(pct(w.lostAudio, w.sentAudio), 2),
+      lossOutVideoPct: round(pct(w.lostVideo, w.sentVideo), 2),
+      endAt: at,
     };
     this.lastSentAt = at;
     this.send(report);
@@ -673,6 +709,10 @@ export class VoiceTelemetry {
     const now = Date.now();
     const token = useSession.getState().token;
     if (!token || now < this.pausedUntil) return;
+    // Gönderim anı ve tahmini saat farkı (platform sesliyken ölçtürür, bkz. serverClock): sunucu, geç ulaşan
+    // özeti aralığın gerçek bitişine yerleştirir
+    report.sentAt = now;
+    report.offsetMs = serverClock.offsetMs;
     void fetch(`${normalizeServerUrl(env().serverUrl())}/api/telemetry/voice`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
