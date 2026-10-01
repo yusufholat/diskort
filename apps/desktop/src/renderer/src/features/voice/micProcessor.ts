@@ -169,7 +169,8 @@ export async function firstAvailableDenoiser(ladder: readonly Denoiser[]): Promi
 }
 
 /**
- * Mikrofon işleme zinciri: [köprü ⇄ model: DPDFNet] → ses kapısı (VAD / bas-konuş) → LiveKit.
+ * Mikrofon işleme zinciri: [köprü ⇄ model: DPDFNet] → giriş seviyesi → tepe sınırlayıcı + ses kapısı (VAD /
+ * bas-konuş; ikisi de gate-worklet.js'te) → LiveKit. Modelli ve standart yol aynıdır; mikrofon testi de bunu kullanır.
  * Gürültü engelleyici mikrofonun ses iş parçacığında çalışmaz: oradaki köprü (bridge-worklet.js) yalnızca
  * paylaşımlı halka tamponlara örnek kopyalar. Model, ayrı ve sessiz ikinci bir AudioContext'in gerçek zamanlı
  * ses iş parçacığında (compute.worklet.ts) çalışır; o kurulamazsa bir Web Worker'da (denoise.worker.ts).

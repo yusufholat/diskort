@@ -70,6 +70,7 @@ import {
 import { prepareHardwareEncoder, releaseHardwareEncoder, type HwEncoderChoice } from './hardwareEncoder';
 import { SCREEN_PRESETS } from './screenPresets';
 import { MicTest } from './micTest';
+import { RemoteSpeakingMeter } from './remoteSpeaking';
 import { StreamPreviewUploader } from './streamPreviewUploader';
 import type { ScreenCodec, ScreenContent, ScreenPresetId } from '../../stores/settings';
 
@@ -203,7 +204,10 @@ class VoiceClient {
   private pttReleaseTimer: number | null = null;
   private joinSeq = 0;
   private readonly duplicates = new SpuriousDuplicateGuard();
-  private remoteSpeaking = new Set<string>();
+  /** Sunucunun bildirdiği konuşanlar; yalnızca sesi yerelde ölçülemeyenler için (bkz. remoteSpeaking.ts) */
+  private serverSpeaking = new Set<string>();
+  /** Uzak mikrofonların duyulan sesinden konuşma halkası */
+  private readonly remoteMeter = new RemoteSpeakingMeter(sharedAudioContext, () => this.publishSpeaking());
   private selfSpeaking = false;
   /** Görüşmede mikrofon açılamadı (izin yok, aygıt yok); mikrofon testi kendi zincirini dener */
   private micFailed = false;
@@ -390,7 +394,8 @@ class VoiceClient {
     this.processor = null;
     this.micFailed = false;
     this.micTest?.liveChanged();
-    this.remoteSpeaking.clear();
+    this.serverSpeaking.clear();
+    this.remoteMeter.clear();
     this.selfSpeaking = false;
     this.audioSink.replaceChildren();
   }
@@ -400,6 +405,9 @@ class VoiceClient {
   /**
    * @param denoiser Zincirde çalışacak yapay zekâ gürültü engelleyicisi. Çalışırken tarayıcının gürültü
    * engelleyicisi kapatılır (çift işlem sesi bozar); hiçbiri yüklenemezse standart engelleme devreye girer.
+   * Tarayıcının otomatik kazancı da model çalışırken kapalıdır: sessizlikte gürültü tabanını yükseltip modelin
+   * önüne pompalanan bir giriş verir. Model düşüp standarda geçilince yakalama yeniden açılır (bkz. openMic),
+   * kullanıcının ayarı yeniden uygulanır. Mikrofon testi de bu seçenekleri kullanır.
    */
   private captureOptions(denoiser: Denoiser | null): AudioCaptureOptions {
     const s = getSettings();
@@ -408,7 +416,7 @@ class VoiceClient {
       deviceId: s.inputDeviceId,
       echoCancellation: s.echoCancellation,
       noiseSuppression: s.noise === 'standard' || (wantsAi && !denoiser),
-      autoGainControl: s.autoGainControl,
+      autoGainControl: s.autoGainControl && !denoiser,
       channelCount: 1,
       sampleRate: 48000,
     };
@@ -960,7 +968,8 @@ class VoiceClient {
       next.inputDeviceId !== prev.inputDeviceId ||
       next.noise !== prev.noise ||
       next.echoCancellation !== prev.echoCancellation ||
-      next.autoGainControl !== prev.autoGainControl ||
+      // Model çalışırken otomatik kazanç zaten kapalı; değiştirmek mikrofonu boşuna yeniden kurmasın
+      (next.autoGainControl !== prev.autoGainControl && !this.processor?.activeDenoiser) ||
       next.audioBitrateKbps !== prev.audioBitrateKbps
     ) {
       void this.republishMic();
@@ -980,8 +989,9 @@ class VoiceClient {
         }
         if (pub.source === Track.Source.ScreenShare && room === this.room) this.channelSounds.push('userStreamStop');
       })
-      .on(RoomEvent.TrackSubscribed, (track, _pub, _p) => this.onSubscribed(track))
+      .on(RoomEvent.TrackSubscribed, (track, pub, p) => this.onSubscribed(track, pub, p))
       .on(RoomEvent.TrackUnsubscribed, (track) => {
+        this.remoteMeter.remove(track.mediaStreamTrack);
         track.detach().forEach((el) => el.remove());
         this.bumpTracks();
       })
@@ -990,13 +1000,14 @@ class VoiceClient {
         if (room === this.room) this.channelSounds.push('userJoin');
       })
       .on(RoomEvent.ParticipantDisconnected, (p) => {
-        this.remoteSpeaking.delete(p.identity);
+        this.serverSpeaking.delete(p.identity);
+        this.remoteMeter.removeIdentity(p.identity);
         this.publishSpeaking();
         this.refreshStream(p);
         if (room === this.room) this.channelSounds.push('userLeave');
       })
       .on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => {
-        this.remoteSpeaking = new Set(speakers.filter((sp) => !sp.isLocal).map((sp) => sp.identity));
+        this.serverSpeaking = new Set(speakers.filter((sp) => !sp.isLocal).map((sp) => sp.identity));
         this.publishSpeaking();
       })
       .on(RoomEvent.ConnectionQualityChanged, (quality, p) => {
@@ -1084,8 +1095,13 @@ class VoiceClient {
     }
   }
 
-  private onSubscribed(track: RemoteTrack): void {
+  private onSubscribed(track: RemoteTrack, pub: RemoteTrackPublication, p: RemoteParticipant): void {
     if (track.kind === Track.Kind.Audio) this.audioSink.appendChild(track.attach());
+    // Konuşma halkası yalnızca bu odadaki mikrofonlardan ölçülür (yayın sesi konuşma sayılmaz)
+    const mic = track.kind === Track.Kind.Audio && pub.source === Track.Source.Microphone;
+    if (mic && this.room?.remoteParticipants.get(p.identity) === p) {
+      this.remoteMeter.add(p.identity, track.mediaStreamTrack);
+    }
     this.applyVolumes();
     this.bumpTracks();
   }
@@ -1110,11 +1126,23 @@ class VoiceClient {
     });
   }
 
+  /**
+   * Konuşma halkalarının tek çıkışı. Uzak katılımcılar: sesi yerelde ölçülüyorsa ölçüm (duyulanla eş zamanlı),
+   * ölçülemiyorsa (henüz abone olunmadı, ses bağlamı çalışmıyor) sunucunun bildirimi. Küme değişmediyse store'a
+   * yazılmaz.
+   */
   private publishSpeaking(): void {
     const speaking: Record<string, true> = {};
-    for (const id of this.remoteSpeaking) speaking[id] = true;
+    for (const id of this.room?.remoteParticipants.keys() ?? []) {
+      if (this.remoteMeter.measures(id) ? this.remoteMeter.isSpeaking(id) : this.serverSpeaking.has(id)) {
+        speaking[id] = true;
+      }
+    }
     const selfId = useSession.getState().user?.id;
     if (this.selfSpeaking && selfId) speaking[selfId] = true;
+    const prev = useVoice.getState().speaking;
+    const ids = Object.keys(speaking);
+    if (ids.length === Object.keys(prev).length && ids.every((id) => prev[id])) return;
     setVoice({ speaking });
   }
 

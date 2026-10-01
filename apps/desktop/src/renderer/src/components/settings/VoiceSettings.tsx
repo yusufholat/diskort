@@ -356,7 +356,11 @@ export function VoiceSettings() {
         />
         <Toggle
           label="Otomatik kazanç kontrolü"
-          description="Ses seviyeni otomatik olarak dengeler."
+          description={
+            s.noise === 'dpdfnet'
+              ? 'Ses seviyeni otomatik olarak dengeler. Gelişmiş yapay zekâ çalışırken kapalı tutulur; standart engellemeye geçilirse yeniden devreye girer.'
+              : 'Ses seviyeni otomatik olarak dengeler.'
+          }
           checked={s.autoGainControl}
           onChange={(autoGainControl) => s.set({ autoGainControl })}
         />

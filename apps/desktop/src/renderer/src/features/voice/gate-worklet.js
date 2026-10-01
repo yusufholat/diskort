@@ -1,10 +1,17 @@
 // Ses kapısı (voice activity gate) + bas-konuş için AudioWorklet işlemcisi.
 // Her 128 örneklik blokta seviyeyi ölçer, eşik/PTT durumuna göre kazancı yumuşakça açıp kapatır
 // ve arayüze ~20 Hz ile seviye bilgisi gönderir. Zamanlayıcı kullanmadığı için arka planda da hassastır.
+// Kapıyla birlikte bir tepe sınırlayıcı da çalışır (giriş ses seviyesi 2'ye kadar çıkar, kırpılma olmasın).
 
 const ATTACK_S = 0.004;
 const RELEASE_S = 0.06;
 const REPORT_INTERVAL_S = 0.05;
+// Tepe sınırlayıcı: -3 dBFS tavan, anında atak (ileriye bakmasız: ek gecikme yok, tavan hiç aşılmaz), 150 ms
+// bırakma. Normal konuşma tavanın altında kaldığı için dokunulmaz; yalnızca tepeler ve kırpılacak bağırmalar
+// kısılır. DynamicsCompressorNode yerine bu: Chromium'da sabit 6 ms ileriye bakma gecikmesi ve tüm sese
+// uygulanan otomatik telafi kazancı (-3 dB eşikte ~+1,7 dB) var.
+const LIMIT_CEILING = Math.pow(10, -3 / 20);
+const LIMIT_RELEASE_S = 0.15;
 
 class DiskortGateProcessor extends AudioWorkletProcessor {
   constructor() {
@@ -22,6 +29,8 @@ class DiskortGateProcessor extends AudioWorkletProcessor {
     this.gains = new Float32Array(128);
     this.attackCoef = 1 - Math.exp(-1 / (sampleRate * ATTACK_S));
     this.releaseCoef = 1 - Math.exp(-1 / (sampleRate * RELEASE_S));
+    this.limitGain = 1;
+    this.limitReleaseCoef = 1 - Math.exp(-1 / (sampleRate * LIMIT_RELEASE_S));
     this.port.onmessage = (e) => Object.assign(this, e.data);
   }
 
@@ -58,11 +67,18 @@ class DiskortGateProcessor extends AudioWorkletProcessor {
     const n = ch0.length;
     if (this.gains.length < n) this.gains = new Float32Array(n);
     let g = this.gain;
+    let lg = this.limitGain;
     for (let i = 0; i < n; i++) {
       g += (target - g) * (target > g ? this.attackCoef : this.releaseCoef);
-      this.gains[i] = g;
+      // Sınırlayıcı: gereken kazanç düşükse hemen ona iner, değilse yavaşça geri çıkar (tavan aşılmaz)
+      const a = Math.abs(ch0[i]);
+      const need = a > LIMIT_CEILING ? LIMIT_CEILING / a : 1;
+      if (need < lg) lg = need;
+      else lg += (need - lg) * this.limitReleaseCoef;
+      this.gains[i] = g * lg;
     }
     this.gain = g;
+    this.limitGain = lg;
 
     for (let c = 0; c < output.length; c++) {
       const inp = input[c] || ch0;
