@@ -4,7 +4,7 @@
 # yedek bulutta kalır. Windows Görev Zamanlayıcı her gün çalıştırır.
 # Elle çalıştırmak için: powershell -ExecutionPolicy Bypass -File scripts\pull-db-backups.ps1
 param(
-  [string]$Server = 'root@185.92.0.242',
+  [string]$Server = 'root@38.60.208.88',
   [string]$Key = "$env:USERPROFILE\.ssh\diskort_vps",
   [string]$Destination = "$(if ($env:OneDrive) { $env:OneDrive } else { $env:USERPROFILE })\Yedekler\Diskort",
   # Dosya ekleri (boşsa: <Destination>\ekler)

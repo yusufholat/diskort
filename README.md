@@ -466,7 +466,7 @@ Açık olması gereken portlar: `80/tcp`, `443/tcp`, `7881/tcp`, `3478/udp`, `50
   bash /opt/diskort/infra/restore-db.sh /var/backups/diskort/diskort-2026-09-27_0400.db.gz
   ```
   Bilgisayardaki bir yedeği geri yüklemek için önce sunucuya kopyala:
-  `scp -i ~/.ssh/diskort_vps <dosya>.db.gz root@185.92.0.242:/root/`
+  `scp -i ~/.ssh/diskort_vps <dosya>.db.gz root@38.60.208.88:/root/`
 
 ## Kurulum ve güncellemeler
 
