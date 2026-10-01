@@ -22,6 +22,8 @@ const MAX_PENDING = 5;
 
 interface Pending {
   capture: TraceCapture;
+  /** Kesitin alındığı hesap: gönderim anında başka hesap açıksa kesit atılır (başkasının adına gitmesin) */
+  userId: string;
   createdAt: number;
   attempt: number;
 }
@@ -45,7 +47,9 @@ export class VoiceTraceUploader {
 
   enqueue(capture: TraceCapture): void {
     if (this.unsupported) return;
-    this.queue.push({ capture, createdAt: this.now(), attempt: 0 });
+    const userId = useSession.getState().user?.id;
+    if (!userId) return;
+    this.queue.push({ capture, userId, createdAt: this.now(), attempt: 0 });
     if (this.queue.length > MAX_PENDING) this.queue.shift();
     void this.pump();
   }
@@ -102,9 +106,11 @@ export class VoiceTraceUploader {
 
   private async send(p: Pending): Promise<'done' | 'retry' | 'unsupported'> {
     p.attempt++;
-    const token = useSession.getState().token;
+    const { token, user } = useSession.getState();
     // Oturum yoksa (çıkış yapıldı) beklenir: süre dolunca kesit atılır
-    if (!token) return 'retry';
+    if (!token || !user) return 'retry';
+    // Bu arada başka hesapla giriş yapıldı: kesit o hesabın adına gönderilmez
+    if (user.id !== p.userId) return 'done';
     try {
       await this.clock.refresh();
       const { platform, version } = env();

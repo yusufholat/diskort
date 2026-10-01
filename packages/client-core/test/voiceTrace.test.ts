@@ -323,10 +323,11 @@ describe('tetikleyiciler', () => {
     expect(paused.captures).toHaveLength(0);
   });
 
-  it('gelen akış tümüyle kesilince (veri gelirken iki saniye sıfır bayt) tetiklenir; boş odada tetiklenmez', () => {
+  it('gelen akış tümüyle kesilince (veri gelirken iki saniye sıfır bayt, STUN yanıtsız) tetiklenir; boş odada tetiklenmez', () => {
     const sim = new Sim({ videoIn: videoInState() });
     sim.run(5);
     sim.run(3, (s) => {
+      s.responsesReceived -= 1;
       s.bytesReceived -= 300_000;
       s.videoIn!.packets -= 250;
       s.videoIn!.bytes -= 300_000;
@@ -473,13 +474,137 @@ describe('sunucu isteği', () => {
 });
 
 describe('telefon (2 saniyelik ölçüm)', () => {
-  it('aynı eşikler süreye göre uygulanır: tek 2 saniyelik ölçüm "iki saniye" sayılır', () => {
+  it('tek 2 saniyelik ölçüm hiçbir "süren" tetikleyiciyi çalıştırmaz; art arda iki ölçüm çalıştırır', () => {
+    // Giden kayıp
+    const single = new Sim({ screen: screenState() }, 2000);
+    single.run(5);
+    single.step((s) => (s.screen!.lost += 80));
+    single.run(30);
+    expect(single.captures).toHaveLength(0);
+
     const sim = new Sim({ screen: screenState() }, 2000);
     sim.run(5);
-    sim.step((s) => (s.screen!.lost += 80));
+    sim.run(2, (s) => (s.screen!.lost += 80));
     sim.run(VOICE_TRACE_POST_MS / 2000);
     expect(sim.captures).toHaveLength(1);
     expect(sim.captures[0]).toMatchObject({ reason: 'loss-out', intervalMs: 2000 });
     expect(sim.captures[0]!.samples.every((s) => s.dt === 2000)).toBe(true);
+
+    // Gizleme patlaması: tek ölçüm yetmez
+    const conceal = new Sim({ audioIn: audioInState() }, 2000);
+    conceal.run(5);
+    conceal.step((s) => (s.audioIn!.concealed += 40_000));
+    conceal.run(30);
+    expect(conceal.captures).toHaveLength(0);
+    conceal.run(2, (s) => (s.audioIn!.concealed += 40_000));
+    conceal.run(VOICE_TRACE_POST_MS / 2000);
+    expect(conceal.captures.map((c) => c.reason)).toEqual(['conceal']);
+
+    // Gelen akış kesintisi: tek ölçüm yetmez
+    const dead = (s: TraceState): void => {
+      s.responsesReceived -= 1;
+      s.bytesReceived -= 600_000;
+      s.videoIn!.packets -= 500;
+      s.videoIn!.bytes -= 600_000;
+      s.videoIn!.framesDecoded -= 60;
+      s.videoIn!.bufferEmitted -= 60;
+    };
+    const blip = new Sim({ videoIn: videoInState() }, 2000);
+    blip.run(5);
+    blip.step(dead);
+    blip.run(30);
+    expect(blip.captures.flatMap((c) => c.reasons)).not.toContain('blackout');
+  });
+});
+
+describe('giden kayıp: alıcı raporları ve susan mikrofon', () => {
+  /** Mikrofon: `pps` paket/sn gönderir; alıcı raporu `every` ölçümde bir gelir ve `lost` kayıp taşır */
+  function micSim(pps: number, every: number, lost: (report: number) => number, seconds: number): Sim {
+    const sim = new Sim({ mic: { packets: 1000, bytes: 100_000, lost: 0, reportAt: 1 } });
+    let n = 0;
+    let reports = 0;
+    sim.run(seconds, (s) => {
+      // healthy() saniyede 50 paket ekler: istenen hıza çekilir
+      s.mic!.packets += pps - 50;
+      if (++n % every === 0) {
+        s.mic!.lost += lost(reports++);
+        s.mic!.reportAt = sim.at;
+      }
+    });
+    return sim;
+  }
+
+  it('susan (DTX) mikrofon: birkaç paketin kaybı büyük yüzde verse de tetiklemez', () => {
+    // Saniyede 3 paket, her saniye rapor, her raporda 2 kayıp (%67)
+    expect(micSim(3, 1, () => 2, 90).captures).toHaveLength(0);
+    // Seyrek rapor (5 sn'de bir, 15 paketin 3'ü): yine paket sayısı eşiğin altında
+    expect(micSim(3, 5, () => 3, 90).captures).toHaveLength(0);
+  });
+
+  it('konuşmanın ardından susan mikrofona gelen gecikmiş rapor (önceki konuşmanın kayıpları) tetiklemez', () => {
+    const sim = new Sim({ mic: { packets: 1000, bytes: 100_000, lost: 0, reportAt: 1 } });
+    const report = (lost: number) => (s: TraceState) => {
+      s.mic!.lost += lost;
+      s.mic!.reportAt = sim.at;
+    };
+    // Konuşma (50 paket/sn, kayıpsız raporlar), sonra sessizlik (5 paket/sn) ve 2 kayıplı iki rapor
+    sim.run(10, report(0));
+    for (let i = 0; i < 2; i++) {
+      sim.step((s) => {
+        s.mic!.packets -= 45;
+        report(2)(s);
+      });
+    }
+    sim.run(40, (s) => {
+      s.mic!.packets -= 45;
+      report(0)(s);
+    });
+    expect(sim.captures).toHaveLength(0);
+  });
+
+  it('gerçek %10 ses kaybı seyrek raporlarla (3 sn\'de bir) tetikler; tek kötü rapor tetiklemez', () => {
+    // 3 sn'de 150 paket, 15 kayıp: ikinci kötü raporda tetiklenir
+    // (kayıp sürdükçe gönderim ertelenir: tetiklemeden 60 sn sonra kesilir)
+    const sim = micSim(50, 3, () => 15, 75);
+    expect(sim.captures.length).toBeGreaterThanOrEqual(1);
+    expect(sim.captures[0]).toMatchObject({ reason: 'loss-out' });
+    expect(sim.captures[0]!.triggerAt).toBe(T0 + 5_000);
+    // Rapor gelmeyen ölçümlerde rr 0, gelenlerde 1
+    const rr = sim.captures[0]!.samples.slice(0, 6).map((s) => s.up[0]!.rr);
+    expect(rr).toEqual([0, 1, 0, 0, 1, 0]);
+
+    // Tek kötü rapor, sonrası temiz
+    expect(micSim(50, 3, (r) => (r === 2 ? 15 : 0), 60).captures).toHaveLength(0);
+    // Kötü raporlar arasında temiz rapor varsa "art arda" sayılmaz
+    expect(micSim(50, 3, (r) => (r % 2 === 0 ? 15 : 0), 60).captures).toHaveLength(0);
+  });
+});
+
+describe('gelen akış kesintisi: sessizleşen oda', () => {
+  it('herkes susunca (ortam paketi yok, STUN yanıtlanıyor) tetiklenmez; hız tahmini söner', () => {
+    const sim = new Sim({ videoIn: videoInState(), audioIn: audioInState() });
+    sim.run(10);
+    // Yayın ve ses durdu: hiç bayt gelmiyor, STUN isteği de gitmiyor (yanıtsız istek yok)
+    const quiet = (s: TraceState): void => {
+      s.requestsSent -= 1;
+      s.responsesReceived -= 1;
+      s.bytesReceived -= 300_000;
+      s.videoIn!.packets -= 250;
+      s.videoIn!.bytes -= 300_000;
+      s.videoIn!.framesDecoded -= 30;
+      s.videoIn!.bufferEmitted -= 30;
+      s.audioIn!.packets -= 50;
+      s.audioIn!.bytes -= 5_000;
+      s.audioIn!.samples -= 48_000;
+    };
+    sim.run(20, quiet);
+    // Uzun sessizlikten sonra STUN yanıtsız kalsa da "gelen akış kesildi" denmez (kesilecek akış yoktu)
+    sim.run(4, (s) => {
+      quiet(s);
+      s.requestsSent += 1;
+    });
+    sim.run(VOICE_TRACE_POST_MS / 1000 + 5);
+    expect(sim.captures.flatMap((c) => c.reasons)).not.toContain('blackout');
+    expect(sim.captures.flatMap((c) => c.reasons)).toContain('stun');
   });
 });

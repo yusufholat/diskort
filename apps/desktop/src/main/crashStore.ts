@@ -74,6 +74,27 @@ export function pruneDumps(dir: string, keep: number): void {
   for (const d of listDumps(dir).slice(keep)) rmSync(d.path, { force: true });
 }
 
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Metindeki yerel yolları yer tutucularla değiştirir: hata mesajı ve yığınındaki mutlak yollar işletim
+ * sistemi kullanıcı adını taşır (C:\Users\<ad>\…), bildirime girmemeli. Verilen yollar (ör. uygulama klasörü,
+ * ev klasörü; uzun olan önce verilmeli) üç yazımıyla aranır: olduğu gibi, JSON'da kaçışlı (\\) ve düz
+ * eğik çizgili (file:// adresleri). Ardından kalan her "Users/<ad>" ve "home/<ad>" öneki de `~` yapılır.
+ */
+export function scrubPaths(text: string, replacements: readonly (readonly [path: string, placeholder: string])[]): string {
+  let out = text;
+  for (const [path, placeholder] of replacements) {
+    if (path.length < 3) continue;
+    const variants = new Set([path, path.replace(/\\/g, '\\\\'), path.replace(/\\/g, '/')]);
+    for (const v of variants) out = out.replace(new RegExp(escapeRegExp(v), 'gi'), placeholder);
+  }
+  // En iyi çaba: yalnızca kökten başlayan yollar (sürücü harfi, ya da sözcük başındaki / file:// sonrasındaki
+  // '/'); adreslerdeki "/api/users/…" gibi parçalara dokunulmaz. Boşluklu adın yalnızca ilk sözcüğü gider
+  // (asıl ev klasörü yukarıdaki listeyle tam temizlenir).
+  return out.replace(/(?:(?<![A-Za-z])[A-Za-z]:[\\/]+|(?:(?<![\w.\/-])|(?<=file:\/\/))\/)(?:Users|home)[\\/]+[^\\/\s"'<>:|]+/gi, '~');
+}
+
 const kb = (bytes: number): string => `${Math.round(bytes / 1024)} KB`;
 
 /** Bildirimin ayrıntısı: ortam bilgisi (JSON) ve varsa hata yığını; sunucu sınırına kısaltılır */
@@ -91,6 +112,8 @@ export class CrashStore {
   constructor(
     private readonly file: string,
     private readonly now: () => number = Date.now,
+    /** Saklanmadan önce mesaj ve ayrıntıya uygulanır (yerel yolların temizlenmesi) */
+    private readonly scrub: (text: string) => string = (text) => text,
   ) {
     this.state = this.load();
   }
@@ -127,7 +150,13 @@ export class CrashStore {
   add(where: string, message: string, detail: string): string {
     const at = this.now();
     const id = `${at.toString(36)}-${(this.seq++).toString(36)}`;
-    this.state.reports.push({ id, at, where: where.slice(0, 64), message: message.slice(0, MESSAGE_MAX), detail: detail.slice(0, DETAIL_MAX) });
+    this.state.reports.push({
+      id,
+      at,
+      where: where.slice(0, 64),
+      message: this.scrub(message).slice(0, MESSAGE_MAX),
+      detail: this.scrub(detail).slice(0, DETAIL_MAX),
+    });
     if (this.state.reports.length > MAX_PENDING) this.state.reports.splice(0, this.state.reports.length - MAX_PENDING);
     this.save();
     return id;

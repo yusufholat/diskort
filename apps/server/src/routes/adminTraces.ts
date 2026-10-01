@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import type { TraceMeta } from '../clientTrace.js';
+import { TRACE_TIME_MAX, type TraceMeta } from '../clientTrace.js';
 import { parseBody, sendError, type AppContext } from '../context.js';
 
 // Yönetim paneli: olay kayıtları (istemcilerin sorun anındaki saniyelik bağlantı ölçümleri; bkz. clientTrace.ts).
@@ -11,17 +11,19 @@ const DAY = 86_400_000;
 const WINDOW_MAX_MS = 15 * 60_000;
 
 const id = z.string().min(1).max(64);
+/** Unix ms; aralık dışı sayı (tarih hesabını bozar) reddedilir */
+const time = z.coerce.number().finite().min(0).max(TRACE_TIME_MAX);
 const listQuery = z.object({
-  from: z.coerce.number().finite().optional(),
-  to: z.coerce.number().finite().optional(),
+  from: time.optional(),
+  to: time.optional(),
   channelId: id.optional(),
   userId: id.optional(),
   eventId: id.optional(),
   limit: z.coerce.number().int().min(1).max(1_000).optional(),
 });
 const windowQuery = z.object({
-  from: z.coerce.number().finite(),
-  to: z.coerce.number().finite(),
+  from: time,
+  to: time,
   channelId: id.optional(),
   userId: id.optional(),
   eventId: id.optional(),
@@ -68,7 +70,7 @@ export function registerAdminTraceRoutes(app: FastifyInstance, ctx: AppContext):
       from,
       to,
       retentionDays: traces.retentionDays,
-      stats: { received: traces.received, duplicates: traces.duplicates, dropped: traces.dropped },
+      stats: { received: traces.received, duplicates: traces.duplicates, dropped: traces.dropped, overBudget: traces.overBudget },
       traces: list,
       truncated,
       ...names(list),

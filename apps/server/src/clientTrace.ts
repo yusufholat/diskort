@@ -42,6 +42,7 @@ const upSchema = z.object({
   bs: z.number().finite().transform(clamp(0, 1e12)),
   pl: num(1e9),
   fl: num(100),
+  rr: num(100),
   rtt: num(600_000),
   jt: num(600_000),
   tb: num(1e11),
@@ -206,6 +207,12 @@ export interface ClientTraceStoreOptions {
   offsetMin?: number;
   /** Klasör yokken bellekte tutulan en fazla kayıt */
   memoryMax?: number;
+  /**
+   * Bir kullanıcının bir günde saklanan kayıtlarının en büyük toplam boyutu (bayt) ve sayısı: tek hesap
+   * günlük dosya payının tamamını tüketemesin. Aşan kayıtlar saklanmaz (sunucu yeniden başlayınca sayım sıfırlanır).
+   */
+  maxUserDayBytes?: number;
+  maxUserDayCount?: number;
   log?: { warn(obj: object, msg: string): void };
 }
 
@@ -214,6 +221,9 @@ const OFFSET_TOLERANCE_MS = 30_000;
 /** Aynı kesitin yeniden gönderimi bu süre içinde tanınır */
 const DEDUPE_MS = 15 * 60_000;
 const CLEANUP_INTERVAL_MS = 6 * 3_600_000;
+/** Sorgularda kabul edilen en büyük an (Unix ms; ~2096): ötesi tarih hesabını bozar */
+export const TRACE_TIME_MAX = 4e12;
+const validTime = (t: number): boolean => Number.isFinite(t) && t >= 0 && t <= TRACE_TIME_MAX;
 const SAMPLES_KEY = ',"samples":[';
 const FILE_RE = /^traces-(\d{4}-\d{2}-\d{2})\.jsonl$/;
 
@@ -227,10 +237,18 @@ export class ClientTraceStore {
   private warned = false;
   private seq = 0;
   private lastCleanup = 0;
-  /** Sunucu açıldığından beri alınan / yinelenen / boyut sınırı yüzünden yazılmayan kayıtlar */
+  /** Gün → kullanıcı → o gün saklanan kayıtların boyutu ve sayısı (kullanıcı başına günlük pay) */
+  private readonly userDay = new Map<string, Map<string, { bytes: number; count: number }>>();
+  /**
+   * Sunucu açıldığından beri alınan / yinelenen / günlük dosya sınırı yüzünden yazılmayan / kullanıcının
+   * günlük payını aştığı için saklanmayan kayıtlar
+   */
   received = 0;
   duplicates = 0;
   dropped = 0;
+  overBudget = 0;
+  private readonly maxUserDayBytes: number;
+  private readonly maxUserDayCount: number;
   readonly retentionDays: number;
   private readonly maxDayBytes: number;
   private readonly offsetMin: number;
@@ -241,6 +259,8 @@ export class ClientTraceStore {
     this.maxDayBytes = opts.maxDayBytes ?? 48 * 1024 * 1024;
     this.offsetMin = opts.offsetMin ?? 180;
     this.memoryMax = opts.memoryMax ?? 100;
+    this.maxUserDayBytes = opts.maxUserDayBytes ?? 6 * 1024 * 1024;
+    this.maxUserDayCount = opts.maxUserDayCount ?? 400;
   }
 
   private file(day: string): string {
@@ -272,7 +292,7 @@ export class ClientTraceStore {
 
   /**
    * Yeni kayıt (rota doğrulamasından sonra). Aynı kesit daha önce alındıysa (yeniden deneme; yanıt
-   * istemciye ulaşmamış olabilir) null döner, kaydedilmez.
+   * istemciye ulaşmamış olabilir) ya da kullanıcı günlük payını aştıysa null döner, kaydedilmez.
    */
   ingest(
     userId: string,
@@ -323,6 +343,22 @@ export class ClientTraceStore {
     // `samples` en sonda: liste okunurken satır buradan kesilir
     const stored: StoredTrace = { ...meta, marks: upload.marks, samples: upload.samples };
     const line = JSON.stringify(stored);
+    // Kullanıcı başına günlük pay
+    const day = dayKey(now, this.offsetMin);
+    let users = this.userDay.get(day);
+    if (!users) {
+      // Yeni gün: eski günlerin sayımı bırakılır
+      for (const d of this.userDay.keys()) if (d < day) this.userDay.delete(d);
+      users = new Map();
+      this.userDay.set(day, users);
+    }
+    const used = users.get(userId) ?? { bytes: 0, count: 0 };
+    const bytes = Buffer.byteLength(line) + 1;
+    if (used.count + 1 > this.maxUserDayCount || used.bytes + bytes > this.maxUserDayBytes) {
+      this.overBudget++;
+      return null;
+    }
+    users.set(userId, { bytes: used.bytes + bytes, count: used.count + 1 });
     if (this.opts.dir) {
       this.buffer.push(line);
     } else {
@@ -407,6 +443,10 @@ export class ClientTraceStore {
 
   /** Aralıkla ilgili satırlar (dosyalardan ya da bellekten), eskiden yeniye */
   private async *lines(from: number, to: number): AsyncGenerator<string> {
+    // Geçersiz ya da ters aralık: kayıt yok (tarih hesabı aralık dışı sayıda hata verir)
+    if (!validTime(from) || !validTime(to) || from > to) return;
+    // Saklama süresinden eski gün dosyası olamaz: taranacak gün sayısı sınırlı kalır
+    from = Math.max(from, to - (this.retentionDays + 1) * 86_400_000);
     if (!this.opts.dir) {
       yield* this.memory;
       return;
@@ -464,14 +504,23 @@ export class ClientTraceStore {
   /** Kayıtların özetleri (ölçümler olmadan), yeniden eskiye */
   async list(q: TraceQuery): Promise<{ traces: TraceMeta[]; truncated: boolean }> {
     const limit = Math.min(1_000, Math.max(1, q.limit ?? 200));
-    const all: TraceMeta[] = [];
+    // Tarama sırasında yalnızca en yeni `limit` özet tutulur (bellek, eşleşen kayıt sayısıyla büyümez)
+    let top: TraceMeta[] = [];
+    let truncated = false;
+    const newestFirst = (a: TraceMeta, b: TraceMeta): number => b.to - a.to;
     for await (const line of this.lines(q.from, q.to)) {
       if (q.userId !== undefined && !line.includes(`"userId":${JSON.stringify(q.userId)}`)) continue;
       const meta = ClientTraceStore.metaOf(line);
-      if (meta && ClientTraceStore.matches(meta, q)) all.push(meta);
+      if (!meta || !ClientTraceStore.matches(meta, q)) continue;
+      top.push(meta);
+      if (top.length >= limit * 2) {
+        top = top.sort(newestFirst).slice(0, limit);
+        truncated = true;
+      }
     }
-    all.sort((a, b) => b.to - a.to);
-    return { traces: all.slice(0, limit), truncated: all.length > limit };
+    top.sort(newestFirst);
+    if (top.length > limit) truncated = true;
+    return { traces: top.slice(0, limit), truncated };
   }
 
   /**
@@ -503,7 +552,7 @@ export class ClientTraceStore {
   /** Tek kayıt (kimliğiyle); kimlik ulaştığı anı taşır, yalnızca o günün dosyasına bakılır */
   async get(id: string): Promise<AlignedTrace | null> {
     const at = parseInt(id.split('-')[0] ?? '', 36);
-    if (!Number.isFinite(at)) return null;
+    if (!validTime(at)) return null;
     const needle = `{"id":${JSON.stringify(id)},`;
     for await (const line of this.lines(at, at)) {
       if (line.startsWith(needle)) return ClientTraceStore.align(line);

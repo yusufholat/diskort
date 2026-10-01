@@ -59,6 +59,8 @@ export interface TraceOut {
   bytesSent: number;
   packetsLost: number | null;
   fractionLost: number | null;
+  /** Son alıcı raporunun geliş anı (remote-inbound-rtp.timestamp); bildirilmiyorsa null */
+  reportAt: number | null;
   rttMs: number | null;
   jitterMs: number | null;
   targetBitrate: number | null;
@@ -179,6 +181,7 @@ export function parseTraceTotals(reports: readonly StatsSource[]): TraceTotals {
           bytesSent: num(s.bytesSent) ?? 0,
           packetsLost: remote ? num(remote.packetsLost) : null,
           fractionLost: fraction === null ? null : Math.min(100, Math.max(0, fraction * 100)),
+          reportAt: remote ? num(remote.timestamp) : null,
           rttMs: remote ? ms(remote.roundTripTime) : null,
           jitterMs: remote ? ms(remote.jitter) : null,
           targetBitrate: num(s.targetBitrate),
@@ -266,6 +269,8 @@ export function uplinkDeltas(
     u.bs += diff(s.bytesSent, p.bytesSent) ?? 0;
     u.pl = addN(u.pl ?? null, diff(s.packetsLost, p.packetsLost));
     u.fl = maxN(u.fl ?? null, round1(s.fractionLost));
+    // Yeni alıcı raporu geldi mi (geliş anı değiştiyse); an bildirilmiyorsa alan eklenmez
+    if (s.reportAt !== null && p.reportAt !== null) u.rr = (u.rr ?? 0) + (s.reportAt !== p.reportAt ? 1 : 0);
     u.rtt = maxN(u.rtt ?? null, s.rttMs);
     u.jt = maxN(u.jt ?? null, s.jitterMs);
     if (!s.video) continue;
@@ -377,11 +382,25 @@ export function downlinkDeltas(
 
 // ---------- Tetikleyiciler ----------
 
-/** Giden kayıp: bir türde, bir ölçümde en az bu kadar paket ve bu oranda (%) kayıp; art arda iki ölçüm */
+/**
+ * Giden kayıp: kayıp, alıcı raporları (RR) arasında gönderilen paketlere oranlanır (rapor her ölçümde gelmez).
+ * Bir rapor aralığı "kötü" sayılır: en az bu oranda (%) ve bu kadar paket kayıp, ve aralıkta en az
+ * TRACE_LOSS_MIN_SENT paket gönderilmiş (susan DTX mikrofonu saniyede 2-3 paket gönderir: birkaç paketin
+ * kaybı büyük yüzde verir, sayılmaz). Art arda iki kötü rapor aralığı (farklı ölçümlerde) tetikler.
+ */
 export const TRACE_LOSS_PCT = 5;
 const TRACE_LOSS_MIN_PACKETS = 2;
-/** Koşulun "sürdü" sayılması için geçmesi gereken süre (art arda ölçümlerin toplamı) */
+const TRACE_LOSS_MIN_SENT = 20;
+/** Paydada en çok bu kadar sürenin paketleri birikir (rapor uzun süre gelmezse eski paketler oranı sulandırmasın) */
+const TRACE_LOSS_ACCUM_MS = 6_000;
+/** İki kötü rapor aralığı arasında en çok bu kadar süre olabilir (seyrek raporlar: ~5 sn'de bir) */
+const TRACE_LOSS_RUN_GAP_MS = 6_500;
+/**
+ * Koşulun "sürdü" sayılması: art arda EN AZ İKİ ölçüm ve toplam bu kadar süre (masaüstünde 2 × 1 sn, telefonda
+ * 2 × 2 sn). Tek ölçüm, aralığı ne kadar uzun olursa olsun yetmez.
+ */
 const TRACE_HOLD_MS = 1_900;
+const TRACE_HOLD_SAMPLES = 2;
 /** STUN bu kadar süre yanıtsızsa tetiklenir; arayüzde ping bu kadar süre yanıtsızsa "eski" görünür */
 export const TRACE_STUN_UNANSWERED_MS = 2_000;
 export const PING_STALE_MS = 3_000;
@@ -393,8 +412,15 @@ const TRACE_BWE_MIN_SAMPLES = 5;
 const TRACE_FREEZE_MIN_MS = 500;
 const TRACE_STALL_MIN_PACKETS = 5;
 const TRACE_FULL_SAMPLE_MS = 900;
-/** "Gelen akış kesildi" yalnızca öncesinde en az bu kadar veri (bayt/sn) geliyorsa: boş odada STUN arası sıfırlar sayılmaz */
+/**
+ * "Gelen akış kesildi": öncesinde en az bu kadar veri (bayt/sn) ve kısa süre önce gelen ortam paketi varken
+ * hiç bayt gelmiyor VE yanıtlanmamış STUN isteği var. Oda sessizleşince (herkes sustu) STUN yanıtları
+ * gelmeye devam eder; yanıtlar arasındaki sıfır baytlı ölçümler kesinti değildir.
+ */
 const TRACE_BLACKOUT_MIN_RATE = 2_000;
+const TRACE_BLACKOUT_RECENT_MEDIA_MS = 5_000;
+/** Bayt gelmeyen her ölçümde hız tahmini bu oranla söner */
+const TRACE_IN_RATE_DECAY = 0.7;
 /** Gelen seste gizlenen örnek oranı (sessizlik hariç) */
 const TRACE_CONCEAL_RATIO = 0.2;
 /** Bu kadar kısa aralıkla gelen ölçüm (ör. panel açılınca anında alınan) kaydedilmez */
@@ -420,16 +446,30 @@ function median(values: readonly number[]): number {
   return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
 }
 
-/** Koşul art arda ölçümlerde TRACE_HOLD_MS boyunca sürdü mü */
+/** Koşul art arda en az TRACE_HOLD_SAMPLES ölçümde ve TRACE_HOLD_MS boyunca sürdü mü */
 class Hold {
   private heldMs = 0;
+  private samples = 0;
   feed(active: boolean, dt: number): boolean {
     this.heldMs = active ? this.heldMs + dt : 0;
-    return this.heldMs >= TRACE_HOLD_MS;
+    this.samples = active ? this.samples + 1 : 0;
+    return this.samples >= TRACE_HOLD_SAMPLES && this.heldMs >= TRACE_HOLD_MS;
   }
   reset(): void {
     this.heldMs = 0;
+    this.samples = 0;
   }
+}
+
+/** Bir giden akış türünün kayıp durumu: son rapordan beri biriken paketler ve art arda kötü rapor aralıkları */
+interface LossRun {
+  /** Son alıcı raporundan beri gönderilen / kayıp bildirilen paket ve birikimin başladığı an */
+  sent: number;
+  lost: number;
+  since: number;
+  /** Art arda kötü rapor aralığı sayısı ve sonuncusunun anı */
+  bad: number;
+  lastBadAt: number;
 }
 
 // ---------- Kayıt ----------
@@ -501,7 +541,9 @@ export class VoiceTraceRecorder {
   private stunPendingSince: number | null = null;
   private stunStaleMs = 0;
   // Tetikleyici durumları
-  private lossRun = new Map<VoiceTraceUplinkKind, number>();
+  private lossRun = new Map<VoiceTraceUplinkKind, LossRun>();
+  /** Gelen ortam (RTP) paketinin görüldüğü son ölçümün anı */
+  private lastInboundMediaAt = Number.NEGATIVE_INFINITY;
   private blackout = new Hold();
   private conceal = new Hold();
   /** Gelen veri hızının (bayt/sn) yumuşatılmış değeri; yalnızca veri gelen ölçümlerde güncellenir */
@@ -554,6 +596,7 @@ export class VoiceTraceRecorder {
     this.blackout.reset();
     this.conceal.reset();
     this.inRate = 0;
+    this.lastInboundMediaAt = Number.NEGATIVE_INFINITY;
     this.everConnected = false;
     this.pending = null;
     this.request = null;
@@ -725,14 +768,8 @@ export class VoiceTraceRecorder {
     const reasons = new Set<TraceReason>();
     const { x, up, da, dv, dt } = sample;
 
-    // Giden kayıp: bir türde art arda ölçümlerde (~2 sn) eşik üstü
-    for (const u of up) {
-      const lost = u.pl ?? 0;
-      const bad = lost >= TRACE_LOSS_MIN_PACKETS && (lost / Math.max(1, u.ps)) * 100 >= TRACE_LOSS_PCT;
-      const run = bad ? (this.lossRun.get(u.k) ?? 0) + dt : 0;
-      this.lossRun.set(u.k, run);
-      if (run >= TRACE_HOLD_MS) reasons.add('loss-out');
-    }
+    // Giden kayıp: bir türde art arda iki alıcı raporu aralığında eşik üstü (bkz. TRACE_LOSS_PCT)
+    for (const u of up) if (this.lossBad(u, sample.t)) reasons.add('loss-out');
 
     if (x) {
       // STUN yanıtsız: ortamdan bağımsız "UDP yolu canlı mı" işareti
@@ -749,11 +786,19 @@ export class VoiceTraceRecorder {
         if (recent.length >= TRACE_BWE_MIN_SAMPLES && x.ao < median(recent) * TRACE_BWE_DROP) reasons.add('bwe');
       }
       // Gelen akış tümüyle kesildi: veri gelirken art arda ölçümlerde (~2 sn) tek bayt gelmedi
+      // (öncesinde ortam paketi gelirken ve STUN isteği yanıtsızken; bkz. TRACE_BLACKOUT_MIN_RATE)
       if (x.br !== null) {
-        if (this.blackout.feed(x.br === 0 && this.inRate >= TRACE_BLACKOUT_MIN_RATE, dt)) reasons.add('blackout');
+        const dead =
+          x.br === 0 &&
+          x.su > 0 &&
+          this.inRate >= TRACE_BLACKOUT_MIN_RATE &&
+          sample.t - dt - this.lastInboundMediaAt <= TRACE_BLACKOUT_RECENT_MEDIA_MS;
+        if (this.blackout.feed(dead, dt)) reasons.add('blackout');
         if (x.br > 0) {
           const rate = (x.br / dt) * 1000;
           this.inRate = this.inRate === 0 ? rate : this.inRate * 0.7 + rate * 0.3;
+        } else {
+          this.inRate *= TRACE_IN_RATE_DECAY;
         }
       }
       // Bağlantı "connected" durumundan çıktı (daha önce bağlıyken)
@@ -765,6 +810,8 @@ export class VoiceTraceRecorder {
       if (broken && this.everConnected) reasons.add('state');
       if (known && !broken) this.everConnected = true;
     }
+
+    if ((da?.pr ?? 0) > 0 || (dv ?? []).some((v) => v.pr > 0)) this.lastInboundMediaAt = sample.t;
 
     // İzlenen yayın dondu: donma sayacı arttı ya da paket gelirken bir ölçüm boyunca kare çözülmedi
     (dv ?? []).forEach((v, n) => {
@@ -780,6 +827,41 @@ export class VoiceTraceRecorder {
     const concealing = !!da && da.ss !== null && da.ss > 0 && da.cs !== null && da.cs / da.ss >= TRACE_CONCEAL_RATIO;
     if (this.conceal.feed(concealing, dt)) reasons.add('conceal');
     return [...reasons];
+  }
+
+  /**
+   * Giden akış türünün kaybı tetikleme eşiğinde mi. Paketler alıcı raporu gelene dek biriktirilir; rapor
+   * gelen ölçümde aralığın oranı değerlendirilir. İstemci raporun geliş anını bildirmiyorsa (`rr` yok) her
+   * ölçüm bir rapor aralığı sayılır.
+   */
+  private lossBad(u: VoiceTraceUp, at: number): boolean {
+    let run = this.lossRun.get(u.k);
+    if (!run) {
+      run = { sent: 0, lost: 0, since: at, bad: 0, lastBadAt: Number.NEGATIVE_INFINITY };
+      this.lossRun.set(u.k, run);
+    }
+    // Rapor çok uzun süredir gelmedi: eski paketler paydayı şişirmesin
+    if (at - run.since > TRACE_LOSS_ACCUM_MS) {
+      run.sent = 0;
+      run.lost = 0;
+      run.since = at;
+    }
+    run.sent += u.ps;
+    run.lost += u.pl ?? 0;
+    const reported = u.rr === undefined || u.rr === null ? true : u.rr > 0 || (u.pl ?? 0) > 0;
+    if (!reported) return false;
+    const bad =
+      run.lost >= TRACE_LOSS_MIN_PACKETS && run.sent >= TRACE_LOSS_MIN_SENT && (run.lost / run.sent) * 100 >= TRACE_LOSS_PCT;
+    run.sent = 0;
+    run.lost = 0;
+    run.since = at;
+    if (!bad) {
+      run.bad = 0;
+      return false;
+    }
+    run.bad = at - run.lastBadAt <= TRACE_LOSS_RUN_GAP_MS ? run.bad + 1 : 1;
+    run.lastBadAt = at;
+    return run.bad >= 2;
   }
 
   private trigger(at: number, reasons: readonly TraceReason[]): void {

@@ -159,6 +159,61 @@ describe('olay kaydı deposu', () => {
   });
 });
 
+describe('olay kaydı deposu: sınırlar', () => {
+  it('kullanıcı başına günlük pay: tek hesap günlük dosyayı dolduramaz, başkalarının kaydı saklanır', async () => {
+    const now = Date.now();
+    const where = { channelId: null, guildId: null };
+    const byCount = new ClientTraceStore({ dir: null, maxUserDayCount: 3 });
+    const results = Array.from({ length: 5 }, () => byCount.ingest('u1', upload(now, 2), where, now));
+    expect(results.map((r) => r !== null)).toEqual([true, true, true, false, false]);
+    expect(byCount.ingest('u2', upload(now, 2), where, now)).not.toBeNull();
+    expect(byCount).toMatchObject({ overBudget: 2, received: 6 });
+    expect((await byCount.list({ from: now - 3_600_000, to: now })).traces).toHaveLength(4);
+    // Ertesi gün pay yenilenir
+    expect(byCount.ingest('u1', upload(now + 86_400_000, 2), where, now + 86_400_000)).not.toBeNull();
+
+    const byBytes = new ClientTraceStore({ dir: null, maxUserDayBytes: 100_000 });
+    const stored = Array.from({ length: 6 }, () => byBytes.ingest('u1', upload(now, 60), where, now)).filter((r) => r !== null);
+    expect(stored.length).toBeGreaterThan(0);
+    expect(stored.length).toBeLessThan(6);
+    expect(byBytes.overBudget).toBe(6 - stored.length);
+  });
+
+  it('liste yalnızca en yeni kayıtları tutar (sınır taramada uygulanır) ve kesildiğini bildirir', async () => {
+    const store = new ClientTraceStore({ dir: null, memoryMax: 500, maxUserDayCount: 1_000 });
+    const now = Date.now();
+    // Karışık sırayla 120 kayıt: bitişleri now - i dakika
+    const order = Array.from({ length: 120 }, (_, i) => (i * 37) % 120);
+    for (const i of order) store.ingest('u1', upload(now - i * 60_000, 2), { channelId: null, guildId: null }, now);
+    const res = await store.list({ from: now - 3 * 3_600_000, to: now, limit: 10 });
+    expect(res.truncated).toBe(true);
+    expect(res.traces.map((t) => t.to)).toEqual(Array.from({ length: 10 }, (_, i) => now - i * 60_000));
+    const all = await store.list({ from: now - 3 * 3_600_000, to: now, limit: 500 });
+    expect(all).toMatchObject({ truncated: false });
+    expect(all.traces).toHaveLength(120);
+  });
+
+  it('aralık dışı zamanlar ve imkânsız kimlikler hata vermez: boş sonuç / null', async () => {
+    const dir = path.join(tmp, 'telemetry');
+    const store = new ClientTraceStore({ dir });
+    const now = Date.now();
+    store.ingest('u1', upload(now, 5), { channelId: null, guildId: null }, now);
+    for (const [from, to] of [
+      [0, 1e300],
+      [-1e300, now],
+      [Number.NaN, now],
+      [now, Number.POSITIVE_INFINITY],
+      [now, now - 1],
+    ] as const) {
+      expect((await store.list({ from, to })).traces).toEqual([]);
+      expect((await store.window({ from, to })).traces).toEqual([]);
+    }
+    // Çok eski başlangıç: yalnızca saklama süresi kadar gün taranır, kayıt bulunur
+    expect((await store.list({ from: 0, to: now })).traces).toHaveLength(1);
+    for (const id of ['zzzzzzzzzzzzzzzzzzzz-0-aaaa', '-1-0', 'yok', '', '0-0-0']) expect(await store.get(id)).toBeNull();
+  });
+});
+
 describe('olay kaydı uçları', () => {
   let s: TestServer;
   beforeEach(async () => {
@@ -217,6 +272,26 @@ describe('olay kaydı uçları', () => {
     expect(traces.map((t) => t.channelId).sort()).toEqual([null, voice.id].sort());
   });
 
+  it('geç ulaşan kayıt, kullanıcının o anki kanalıyla değil alındığı (bildirdiği, görebildiği) ses kanalıyla saklanır', async () => {
+    const member = await s.member('uye');
+    const voice = s.channel('voice');
+    const other = s.ctx.store.createChannel(s.guildId, 'ikinci ses', 'voice');
+    const text = s.channel('text');
+    const now = Date.now();
+    // Kayıt ilk kanalda alındı; ulaştığında kullanıcı ikinci kanala geçmişti
+    s.ctx.voice.join(member.user.id, other.id);
+    const send = (u: unknown) => s.req(member.token, 'POST', '/api/telemetry/voice-trace', u);
+    expect((await send(upload(now, 5, { channelId: voice.id, reason: 'ilk' }))).statusCode).toBe(204);
+    // Bildirilen kanal ses kanalı değilse ya da yoksa ses durumundaki kanal
+    expect((await send(upload(now, 5, { channelId: text.id, reason: 'metin' }))).statusCode).toBe(204);
+    expect((await send(upload(now, 5, { channelId: 'uydurma', reason: 'yok' }))).statusCode).toBe(204);
+    const { traces } = (await s.req(s.owner.token, 'GET', '/api/admin/voice/traces')).json() as { traces: TraceMeta[] };
+    const channelOf = (reason: string): string | null => traces.find((t) => t.reason === reason)!.channelId;
+    expect(channelOf('ilk')).toBe(voice.id);
+    expect(channelOf('metin')).toBe(other.id);
+    expect(channelOf('yok')).toBe(other.id);
+  });
+
   it('yeniden gönderilen kesit bir kez saklanır; kullanıcı başına gönderim sınırı vardır', async () => {
     const member = await s.member('uye');
     const now = Date.now();
@@ -245,6 +320,21 @@ describe('olay kaydı uçları', () => {
     expect((await s.req(s.owner.token, 'GET', `/api/admin/voice/traces/window?from=${now - 3_600_000}&to=${now}`)).statusCode).toBe(400);
     expect((await s.req(s.owner.token, 'GET', '/api/admin/voice/traces/yok-0-aaaa')).statusCode).toBe(404);
     expect((await s.req(s.owner.token, 'GET', '/api/admin/voice/traces?limit=0')).statusCode).toBe(400);
+    // Aralık dışı sayılar ve imkânsız kimlikler 500 değil 400 / 404 döner
+    for (const url of [
+      '/api/admin/voice/traces?to=1e300',
+      '/api/admin/voice/traces?from=-5',
+      '/api/admin/voice/traces?from=1e15&to=1e15',
+      '/api/admin/voice/traces/window?from=1e300&to=1e300',
+      '/api/admin/voice/traces/window?from=8e15&to=8e15',
+    ]) {
+      expect((await s.req(s.owner.token, 'GET', url)).statusCode).toBe(400);
+    }
+    for (const badId of ['zzzzzzzzzzzzzzzz-0-aaaa', '0-0-0', '9']) {
+      expect((await s.req(s.owner.token, 'GET', `/api/admin/voice/traces/${badId}`)).statusCode).toBe(404);
+    }
+    // Çok eski başlangıç saklama süresine çekilir
+    expect((await s.req(s.owner.token, 'GET', '/api/admin/voice/traces?from=0')).statusCode).toBe(200);
 
     const win = (
       await s.req(s.owner.token, 'GET', `/api/admin/voice/traces/window?from=${now - 50_000}&to=${now - 40_000}&userId=${member.user.id}`)

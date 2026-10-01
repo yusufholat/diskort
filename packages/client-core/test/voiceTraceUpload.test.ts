@@ -153,6 +153,46 @@ describe('olay kaydı gönderimi', () => {
     expect(fetchMock.mock.calls.filter((c) => String(c[0]).endsWith('/api/time'))).toHaveLength(1);
   });
 
+  it('bekleyen kesit, bu arada başka hesapla giriş yapıldıysa o hesabın adına gönderilmez', async () => {
+    traceReplies = [new TypeError('ağ yok')];
+    const up = new VoiceTraceUploader(new ServerClock());
+    up.enqueue(capture('benim'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(up.pending).toBe(1);
+    // Çıkış yapıldı: beklenir (gönderilmez)
+    useSession.getState().logout();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(uploads()).toHaveLength(1);
+    expect(up.pending).toBe(1);
+    // Başka hesap girdi: kesit atılır
+    useSession.getState().setSession('baska-jeton', { id: 'u2', username: 'o', displayName: 'O', avatarColor: '#fff', avatarUrl: null, isAdmin: false });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(uploads()).toHaveLength(1);
+    expect(up.pending).toBe(0);
+    // Yeni hesabın kendi kesiti gider
+    up.enqueue(capture('onun'));
+    await vi.advanceTimersByTimeAsync(0);
+    const last = fetchMock.mock.calls.filter((c) => String(c[0]).endsWith('/voice-trace')).at(-1)!;
+    expect((last[1] as RequestInit).headers).toMatchObject({ Authorization: 'Bearer baska-jeton' });
+    expect(uploads().map((u) => u.id)).toEqual(['benim', 'onun']);
+  });
+
+  it('aynı hesap yeniden giriş yaparsa bekleyen kesit gider; oturum yokken alınan kesit kuyruğa girmez', async () => {
+    traceReplies = [new TypeError('ağ yok')];
+    const up = new VoiceTraceUploader(new ServerClock());
+    up.enqueue(capture('benim'));
+    await vi.advanceTimersByTimeAsync(0);
+    useSession.getState().logout();
+    useSession.getState().setSession('yeni-jeton', { id: 'u1', username: 'ben', displayName: 'Ben', avatarColor: '#fff', avatarUrl: null, isAdmin: false });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(uploads().map((u) => u.attempt)).toEqual([1, 2]);
+    expect(up.pending).toBe(0);
+
+    useSession.getState().logout();
+    up.enqueue(capture('sahipsiz'));
+    expect(up.pending).toBe(0);
+  });
+
   it('bağlantı geri gelince (kick) bekleyen kesit beklemeden denenir', async () => {
     traceReplies = [new TypeError('ağ yok'), new TypeError('ağ yok'), new TypeError('ağ yok')];
     const up = new VoiceTraceUploader(new ServerClock());

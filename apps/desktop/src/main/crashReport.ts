@@ -1,7 +1,8 @@
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { app, crashReporter, dialog, ipcMain, type BrowserWindow } from 'electron';
 import type { CrashContext } from '../shared/bridge';
-import { buildDetail, CrashStore, EMPTY_CONTEXT, listDumps, parseCrashContext, pruneDumps } from './crashStore';
+import { buildDetail, CrashStore, EMPTY_CONTEXT, listDumps, parseCrashContext, pruneDumps, scrubPaths } from './crashStore';
 import { createLogger } from './log';
 
 /**
@@ -12,7 +13,8 @@ import { createLogger } from './log';
  * arayüzdedir) ve gönderileni kuyruktan sildirir. Çökme gönderime engel olursa bildirim sonraki açılışta gider.
  *
  * Electron'un crashReporter'ı yalnızca yerel döküm (minidump) yazmak için açılır (uploadToServer: false):
- * döküm hiçbir yere gönderilmez; bildirime yalnızca dosya adı ve boyutu girer. Davranış değişmez: arayüz
+ * döküm hiçbir yere gönderilmez; bildirime yalnızca dosya adı ve boyutu girer. Mesaj ve yığındaki yerel yollar
+ * (kullanıcı adını taşır) saklanmadan önce yer tutucularla değiştirilir. Davranış değişmez: arayüz
  * çökünce yeniden yükleme yapılmaz, ana süreç hatasında Electron'un varsayılan hata penceresi yine gösterilir.
  */
 
@@ -137,7 +139,15 @@ export function startCrashCapture(): void {
   } catch (err) {
     log.warn(err);
   }
-  store = new CrashStore(join(app.getPath('userData'), 'crash-reports.json'));
+  // Hata mesajı ve yığınındaki mutlak yollar (işletim sistemi kullanıcı adını taşır) bildirime girmez
+  const places: [string, string][] = [];
+  try {
+    places.push([app.getAppPath(), '<app>']);
+  } catch {
+    // uygulama yolu okunamadı
+  }
+  places.push([homedir(), '~']);
+  store = new CrashStore(join(app.getPath('userData'), 'crash-reports.json'), Date.now, (text) => scrubPaths(text, places));
 
   process.on('uncaughtException', (error) => {
     reportMainError('hata', error);

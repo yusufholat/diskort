@@ -11,9 +11,10 @@ const TIME_PER_MINUTE = 20;
 
 /**
  * Olay kayıtları (bkz. clientTrace.ts ve client-core voiceTrace.ts) ve saat farkı ölçümü. Yalnızca giriş
- * yapmış kullanıcılar, kullanıcı başına sınırlı. Kayıt sesten çıkıldıktan sonra da ulaşabilir (kesintide
- * alınan kayıt yeniden denenir): kanal önce sunucunun bildiği ses durumundan, yoksa istemcinin bildirdiği
- * ve kullanıcının görebildiği kanaldan alınır.
+ * yapmış kullanıcılar, kullanıcı başına sınırlı. Kayıt geç ulaşabilir (kesintide alınan kayıt 5 dakikaya
+ * kadar yeniden denenir; kullanıcı bu arada sesten çıkmış ya da başka kanala geçmiş olabilir): kanal,
+ * istemcinin bildirdiği (kaydın alındığı) kanaldır — ses kanalıysa ve kullanıcı görebiliyorsa; değilse
+ * sunucunun bildiği ses durumundan alınır.
  */
 export function registerVoiceTraceRoutes(app: FastifyInstance, ctx: AppContext): void {
   const allowTrace = createRateLimiter(TRACES_PER_MINUTE, 60_000);
@@ -32,15 +33,17 @@ export function registerVoiceTraceRoutes(app: FastifyInstance, ctx: AppContext):
       if (!allowTrace(req.user.id)) return sendError(reply, 429, 'rate_limited', 'Çok sık olay kaydı gönderiliyor.');
       const body = parseBody(traceUploadSchema, req.body, reply);
       if (!body) return reply;
-      const state = ctx.voice.get(req.user.id);
       const claimed = ctx.store.getChannel(body.channelId);
       const channelId =
-        state?.channelId ?? (claimed && ctx.permissions.canView(req.user.id, claimed.id) ? claimed.id : null);
+        claimed && claimed.type === 'voice' && ctx.permissions.canView(req.user.id, claimed.id)
+          ? claimed.id
+          : (ctx.voice.get(req.user.id)?.channelId ?? null);
       const meta = ctx.traces.ingest(req.user.id, body as VoiceTraceUpload, {
         channelId,
         guildId: channelId ? (ctx.store.getChannel(channelId)?.guildId ?? null) : null,
       });
-      ctx.counters.inc(meta ? 'trace.uploads' : 'trace.duplicates');
+      // Saklanmadıysa: yinelenen kesit ya da kullanıcının günlük payı doldu (istemci yeniden denemesin: 204)
+      ctx.counters.inc(meta ? 'trace.uploads' : 'trace.rejected');
       return reply.code(204).send();
     },
   );

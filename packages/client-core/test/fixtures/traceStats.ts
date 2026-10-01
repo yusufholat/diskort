@@ -13,7 +13,8 @@ export interface TraceState {
   bytesSent: number;
   bytesReceived: number;
   discardedOnSend: number;
-  mic: { packets: number; bytes: number; lost: number } | null;
+  /** reportAt: son alıcı raporunun geliş anı (verilmezse istemci bildirmiyor sayılır) */
+  mic: { packets: number; bytes: number; lost: number; reportAt?: number } | null;
   screen: {
     packets: number;
     bytes: number;
@@ -134,7 +135,18 @@ export function traceReport(s: TraceState): RtcStat[] {
     out.push(
       { id: 'SA1', type: 'media-source', kind: 'audio', trackIdentifier: 'mic-track' },
       { id: 'OTA1', type: 'outbound-rtp', kind: 'audio', ssrc: 1, mediaSourceId: 'SA1', packetsSent: s.mic.packets, bytesSent: s.mic.bytes, active: true },
-      { id: 'RIA1', type: 'remote-inbound-rtp', kind: 'audio', ssrc: 1, localId: 'OTA1', packetsLost: s.mic.lost, fractionLost: 0, jitter: 0.004, roundTripTime: 0.045 },
+      {
+        id: 'RIA1',
+        type: 'remote-inbound-rtp',
+        kind: 'audio',
+        ssrc: 1,
+        localId: 'OTA1',
+        packetsLost: s.mic.lost,
+        fractionLost: 0,
+        jitter: 0.004,
+        roundTripTime: 0.045,
+        ...(s.mic.reportAt !== undefined ? { timestamp: s.mic.reportAt } : {}),
+      },
     );
   }
   if (s.screen) {

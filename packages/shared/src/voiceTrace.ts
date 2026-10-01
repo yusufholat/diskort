@@ -45,6 +45,11 @@ export interface VoiceTraceUp {
   pl?: number | null;
   /** Son alıcı raporundaki kayıp oranı (%) */
   fl?: number | null;
+  /**
+   * Bu ölçümde yeni alıcı raporu gelen akış sayısı (0: rapor gelmedi, `pl` bu yüzden 0'dır); istemci
+   * raporun geliş anını bildirmiyorsa alan yoktur
+   */
+  rr?: number | null;
   /** SSRC başına gidiş-dönüş süresi ve karşı tarafın titreşimi (ms) */
   rtt?: number | null;
   jt?: number | null;

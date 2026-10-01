@@ -11,6 +11,7 @@ import {
   MESSAGE_MAX,
   parseCrashContext,
   pruneDumps,
+  scrubPaths,
 } from '../src/main/crashStore.js';
 
 let dir: string;
@@ -101,6 +102,45 @@ describe('çökme bildirimi kuyruğu', () => {
     expect(existsSync(join(dir, 'Crashpad', 'reports', 'd5.dmp'))).toBe(false);
     // Olmayan klasör hata vermez
     expect(listDumps(join(dir, 'yok'))).toEqual([]);
+  });
+});
+
+describe('yerel yolların temizlenmesi', () => {
+  const places = [
+    ['C:\\Users\\yusuf\\AppData\\Local\\Programs\\Diskort\\resources\\app.asar', '<app>'],
+    ['C:\\Users\\yusuf', '~'],
+  ] as const;
+
+  it('uygulama ve ev klasörü üç yazımıyla (düz, JSON kaçışlı, eğik çizgili) yer tutucu olur', () => {
+    const stack = [
+      "Error: ENOENT: no such file or directory, open 'C:\\Users\\yusuf\\AppData\\Roaming\\Diskort\\x.json'",
+      '    at foo (C:\\Users\\yusuf\\AppData\\Local\\Programs\\Diskort\\resources\\app.asar\\out\\main\\index.js:10:5)',
+      '    at bar (file:///C:/Users/yusuf/AppData/Local/Programs/Diskort/resources/app.asar/out/main/index.js:2:1)',
+      '    at baz (c:\\users\\YUSUF\\belge.txt:1:1)',
+    ].join('\n');
+    const out = scrubPaths(stack, places);
+    expect(out).not.toMatch(/yusuf/i);
+    expect(out).toContain("open '~\\AppData\\Roaming\\Diskort\\x.json'");
+    expect(out).toContain('at foo (<app>\\out\\main\\index.js:10:5)');
+    expect(out).toContain('at bar (file:///<app>/out/main/index.js:2:1)');
+    expect(out).toContain('at baz (~\\belge.txt:1:1)');
+
+    const json = JSON.stringify({ message: 'C:\\Users\\yusuf\\x', app: '0.9.3' });
+    expect(scrubPaths(json, places)).toBe('{"message":"~\\\\x","app":"0.9.3"}');
+  });
+
+  it('listede olmayan kullanıcı klasörleri de temizlenir (başka sürücü, macOS, Linux)', () => {
+    expect(scrubPaths('D:\\Users\\Ayşe Nur\\x.js ve /Users/ali/app/y.js ve /home/veli/z.js', [])).toBe('~ Nur\\x.js ve ~/app/y.js ve ~/z.js');
+    expect(scrubPaths('yol yok: https://diskort.ziroo.net/api/users/42', [])).toBe('yol yok: https://diskort.ziroo.net/api/users/42');
+    expect(scrubPaths('at x (file:///Users/ali/app/y.js:1:1)', [])).toBe('at x (file://~/app/y.js:1:1)');
+    expect(scrubPaths('düz metin', places)).toBe('düz metin');
+  });
+
+  it('kuyruğa yazılan mesaj ve ayrıntı temizlenmiş olur', () => {
+    const store = new CrashStore(file(), Date.now, (text) => scrubPaths(text, places));
+    store.add('masaustu-ana', "Ana süreçte yakalanmamış hata: open 'C:\\Users\\yusuf\\a.txt'", '{}\nError\n    at C:\\Users\\yusuf\\b.js:1:1');
+    expect(readFileSync(file(), 'utf8')).not.toMatch(/yusuf/i);
+    expect(store.pending()[0]!.message).toBe("Ana süreçte yakalanmamış hata: open '~\\a.txt'");
   });
 });
 
