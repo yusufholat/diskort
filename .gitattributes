@@ -5,3 +5,4 @@
 *.exe binary
 *.bin binary
 *.onnx binary
+*.cmd text eol=crlf

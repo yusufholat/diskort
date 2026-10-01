@@ -54,6 +54,10 @@ export interface LineSession {
   secOf: Uint16Array;
   endsAt: number;
   expiresAt: number;
+  /** TCP: akış bitene kadar ayrılan bant/pps geri bırakılmaz (finish erken gelse de) */
+  holdUntil: number;
+  closed: boolean;
+  reservedPps: number;
 }
 
 export interface LineFinish {
@@ -71,6 +75,10 @@ export interface LineServerOptions {
   /** Aynı anda ayrılabilecek toplam bant genişliği (bit/sn) */
   maxBps: number;
   perIpSessions?: number;
+  /** Aynı anda ayrılabilecek toplam paket/sn (tepe pps x yön sayısı); varsayılan 12000 */
+  maxPps?: number;
+  /** Oturum bırakılınca (finish, süre dolumu) */
+  onRelease?: (sid: number) => void;
   now?: () => number;
   log?: { warn(obj: object, msg: string): void; info(obj: object, msg: string): void };
   /** İstemci rapor göndermeden süresi dolan oturum (yalnızca sunucu tarafı ölçümüyle) */
@@ -86,6 +94,7 @@ export class LineTestServer {
   private readonly handshakes = new Map<string, { at: number; n: number }>();
   port: number | null = null;
   reservedTotal = 0;
+  reservedPpsTotal = 0;
   readonly stats = { rx: 0, tx: 0, dropped: 0, rateLimited: 0, sendErrors: 0, handshakes: 0, started: 0 };
   private readonly now: () => number;
 
@@ -140,6 +149,7 @@ export class LineTestServer {
     this.sessions.clear();
     this.byIdentity.clear();
     this.reservedTotal = 0;
+    this.reservedPpsTotal = 0;
   }
 
   /** HTTP'de oturum açılırken: kimlik/adres başına tek test ve toplam bant sınırı burada uygulanır */
@@ -152,6 +162,8 @@ export class LineTestServer {
     if (perIp >= (this.opts.perIpSessions ?? 2)) return 'busy_ip';
     const reserved = reservedBps(plan);
     if (this.reservedTotal + reserved > this.opts.maxBps) return 'capacity';
+    const reservedPps = Math.max(0, ...plan.seconds.map((x) => x.pps)) * (plan.mode === 'both' ? 2 : 1);
+    if (this.reservedPpsTotal + reservedPps > (this.opts.maxPps ?? 12_000)) return 'capacity';
     const session: LineSession = {
       sid: token.s,
       token,
@@ -169,25 +181,33 @@ export class LineTestServer {
       secOf: secondOfSeqTable(plan.seconds),
       endsAt: 0,
       expiresAt: token.x,
+      holdUntil: 0,
+      closed: false,
+      reservedPps,
     };
     if (this.sessions.has(session.sid)) return 'busy_user';
     this.sessions.set(session.sid, session);
     this.byIdentity.set(token.i, session.sid);
     this.reservedTotal += reserved;
+    this.reservedPpsTotal += reservedPps;
     return session;
   }
 
   /** HTTP'deki bitiş çağrısı: sonuçları verir ve ayrılan bant genişliğini geri bırakır */
   finish(sid: number): LineFinish | null {
     const s = this.sessions.get(sid);
-    if (!s) return null;
+    if (!s || s.closed) return null;
     const out = this.collect(s);
-    this.release(s);
+    // TCP akışı hâlâ sürüyor olabilir: bant süre dolana kadar tutulur (sweep bırakır); oturum kapalı sayılır
+    if (s.holdUntil > this.now()) s.closed = true;
+    else this.release(s);
     return out;
   }
 
+  /** Açık (kapatılmamış) oturum */
   get(sid: number): LineSession | undefined {
-    return this.sessions.get(sid);
+    const s = this.sessions.get(sid);
+    return s && !s.closed ? s : undefined;
   }
 
   private collect(s: LineSession): LineFinish {
@@ -203,6 +223,8 @@ export class LineTestServer {
   private release(s: LineSession): void {
     if (this.sessions.delete(s.sid)) {
       this.reservedTotal = Math.max(0, this.reservedTotal - s.reserved);
+      this.reservedPpsTotal = Math.max(0, this.reservedPpsTotal - s.reservedPps);
+      this.opts.onRelease?.(s.sid);
       if (this.byIdentity.get(s.token.i) === s.sid) this.byIdentity.delete(s.token.i);
     }
   }
@@ -210,6 +232,10 @@ export class LineTestServer {
   private sweep(): void {
     const now = this.now();
     for (const s of [...this.sessions.values()]) {
+      if (s.closed) {
+        if (now >= s.holdUntil) this.release(s);
+        continue;
+      }
       const limit = s.startedAt === null ? s.expiresAt : s.endsAt + FINISH_GRACE_MS;
       if (now < limit) continue;
       // Yalnızca gerçekten başlamış testler kaydedilir; hiç başlamayanlar sessizce kapanır
@@ -225,7 +251,11 @@ export class LineTestServer {
     const now = this.now();
     const h = this.handshakes.get(ip);
     if (!h || now - h.at > HANDSHAKE_WINDOW_MS) {
-      if (this.handshakes.size >= HANDSHAKE_MAP_MAX) return false;
+      // Harita doluysa en eski girdi çıkar (sahte adres seliyle gerçek kullanıcılar dışarıda kalmasın)
+      if (this.handshakes.size >= HANDSHAKE_MAP_MAX) {
+        const oldest = this.handshakes.keys().next().value;
+        if (oldest !== undefined) this.handshakes.delete(oldest);
+      }
       this.handshakes.set(ip, { at: now, n: 1 });
       return true;
     }
@@ -236,14 +266,30 @@ export class LineTestServer {
   /** Yanıt isteğin boyunu hiçbir zaman aşmaz (yansıtma/çoğaltma saldırısına karşı tek kapı) */
   private reply(buf: Buffer, requestLen: number, ip: string, port: number): void {
     if (!this.socket || buf.length > requestLen) return;
-    this.stats.tx++;
-    this.socket.send(buf, port, ip, (err) => {
-      if (err) this.stats.sendErrors++;
-    });
+    try {
+      this.socket.send(buf, port, ip, (err) => {
+        if (err) this.stats.sendErrors++;
+      });
+      this.stats.tx++;
+    } catch {
+      // geçersiz hedef (ör. port 0) senkron fırlatabilir; süreç çökmemeli
+      this.stats.sendErrors++;
+    }
   }
 
   private onMessage(msg: Buffer, ip: string, port: number): void {
+    try {
+      this.handle(msg, ip, port);
+    } catch (err) {
+      this.stats.dropped++;
+      this.opts.log?.warn({ err: String(err) }, 'hat testi paketi işlenemedi');
+    }
+  }
+
+  private handle(msg: Buffer, ip: string, port: number): void {
     this.stats.rx++;
+    // Kaynak port 0 / ayrıcalıklı port: yanıtlanamaz ya da sahte adres işareti; hiç işlenmez
+    if (port < 1024) return void this.stats.dropped++;
     if (msg.length > MAX_DATAGRAM) return void this.stats.dropped++;
     const head = parseHeader(msg);
     if (!head) return void this.stats.dropped++;
@@ -313,13 +359,18 @@ export class LineTestServer {
         const p = s.plan.seconds[sec]!;
         const buf = encodeData(T_DOWN, s.sid, p.size, { seq, step: p.step, ts: t });
         s.downSent[sec] = (s.downSent[sec] ?? 0) + 1;
-        this.stats.tx++;
-        this.socket.send(buf, s.addr.port, s.addr.ip, (err) => {
-          if (err) {
-            this.stats.sendErrors++;
-            s.downErrors![sec] = (s.downErrors![sec] ?? 0) + 1;
-          }
-        });
+        try {
+          this.socket.send(buf, s.addr.port, s.addr.ip, (err) => {
+            if (err) {
+              this.stats.sendErrors++;
+              s.downErrors![sec] = (s.downErrors![sec] ?? 0) + 1;
+            }
+          });
+          this.stats.tx++;
+        } catch {
+          this.stats.sendErrors++;
+          s.downErrors![sec] = (s.downErrors![sec] ?? 0) + 1;
+        }
       }
     }
   }

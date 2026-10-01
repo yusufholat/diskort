@@ -201,9 +201,10 @@ async function runUdp({ host, session, onSecond, signal }) {
   try {
     const cookie = await handshake('challenge', () => encodeHello(sid, token));
     if (!cookie) return { ok: false, reason: 'HELLO yanıtsız', down: null };
+    // Aşağı yön sayımı START'tan itibaren (sunucu READY'den önce de göndermeye başlayabilir)
+    running = true;
     const ready = await handshake('ready', () => encodeStart(sid, cookie, token));
     if (ready === null) return { ok: false, reason: 'START yanıtsız', down: null };
-    running = true;
     t0 = now();
     const sendUp = plan.mode !== 'down';
     const cum = cumulative(plan.seconds);
@@ -401,10 +402,14 @@ export async function runSuite({ server = DEFAULT_SERVER, auth, phases, suite, c
       let down = null;
       let tcpDown = null;
       let note;
+      let udpFailed = false;
       if (transport === 'udp') {
         const r = await runUdp({ host, session, onSecond: progress, signal });
         down = r.down;
-        if (!r.ok) note = `UDP el sıkışması başarısız: ${r.reason}`;
+        if (!r.ok) {
+          note = `UDP el sıkışması başarısız: ${r.reason}`;
+          udpFailed = true;
+        }
       } else {
         const r = await runTcp({ server, session, onSecond: progress, signal });
         tcpDown = r.tcpDown;
@@ -415,6 +420,7 @@ export async function runSuite({ server = DEFAULT_SERVER, auth, phases, suite, c
         body: {
           suite: suiteId,
           ...(down ? { down } : {}),
+          ...(udpFailed ? { udpFailed: true } : {}),
           ...(tcpDown ? { tcpDown } : {}),
           client: { ...ctx, ...(note ? { note } : {}) },
         },

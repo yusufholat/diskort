@@ -72,6 +72,8 @@ export interface LineServiceOptions {
   /** O an yayın var mı ve hangi kanallarda */
   streamInfo: () => { live: boolean; channels: string[] };
   serverTxMbps: () => number | null;
+  /** Diskteki kayıt dosyasının en çok satırı (aşılınca bellekteki listeyle yeniden yazılır); varsayılan 1000 */
+  maxFileLines?: number;
   log?: { warn(obj: object, msg: string): void; info(obj: object, msg: string): void };
 }
 
@@ -106,6 +108,11 @@ export class LineTestService {
   /** TCP oturumlarının saniye başına bayt sayaçları (sid -> yön -> dizi) */
   private readonly tcp = new Map<number, TcpState>();
   private readonly now: () => number;
+  private fileLines = 0;
+  private get runsMax(): number {
+    return Math.min(RUNS_MAX, this.opts.maxFileLines ?? FILE_MAX_LINES);
+  }
+  private writing: Promise<void> = Promise.resolve();
 
   constructor(private readonly opts: LineServiceOptions) {
     this.now = opts.now ?? Date.now;
@@ -116,6 +123,7 @@ export class LineTestService {
       maxBps: opts.maxBps,
       now: this.now,
       ...(opts.log ? { log: opts.log } : {}),
+      onRelease: (sid) => void this.tcp.delete(sid),
       onAbandon: (s, f) => this.record(s, f, null, null, null, null, true),
     });
     this.load();
@@ -135,6 +143,7 @@ export class LineTestService {
       return;
     }
     const lines = text.split('\n').filter(Boolean);
+    this.fileLines = lines.length;
     const since = this.now() - KEEP_MS;
     const loaded: LineRun[] = [];
     for (const line of lines) {
@@ -145,8 +154,9 @@ export class LineTestService {
         // bozuk satır atlanır
       }
     }
-    this.runs = loaded.slice(-RUNS_MAX);
-    if (lines.length > FILE_MAX_LINES) {
+    this.runs = loaded.slice(-this.runsMax);
+    if (lines.length > (this.opts.maxFileLines ?? FILE_MAX_LINES)) {
+      this.fileLines = this.runs.length;
       try {
         fs.writeFileSync(file, this.runs.map((r) => JSON.stringify(r)).join('\n') + '\n');
       } catch {
@@ -229,16 +239,24 @@ export class LineTestService {
 
   tcpState(sid: number): TcpState | undefined {
     const s = this.tcp.get(sid);
-    if (s && s.t0 === 0) s.t0 = this.now();
+    if (s && s.t0 === 0) {
+      s.t0 = this.now();
+      // Akış süresince (+ tolerans) oturum ve ayrılan bant tutulur; finish erken gelse de bırakılmaz
+      const sess = this.server.get(sid);
+      if (sess) {
+        sess.holdUntil = s.t0 + sess.plan.durationMs + 5000;
+        sess.expiresAt = Math.max(sess.expiresAt, sess.holdUntil + 30_000);
+      }
+    }
     return s;
   }
 
   // ---------- Bitiş ve kayıt ----------
 
-  finish(session: LineSession, clientDown: SecondStat[] | null, tcp: { up: number[] | null; down: number[] | null } | null, client: ClientContext | null, suite: string | null): LineRun | null {
+  finish(session: LineSession, clientDown: SecondStat[] | null, tcp: { up: number[] | null; down: number[] | null } | null, client: ClientContext | null, suite: string | null, udpFailed = false): LineRun | null {
     const f = this.server.finish(session.sid);
     if (!f) return null;
-    return this.record(session, f, clientDown, tcp, client, suite, false);
+    return this.record(session, f, clientDown, tcp, client, suite, false, udpFailed);
   }
 
   private record(
@@ -249,6 +267,7 @@ export class LineTestService {
     client: ClientContext | null,
     suite: string | null,
     partial: boolean,
+    udpFailed = false,
   ): LineRun | null {
     const transport = s.token.t;
     const tcpState = this.tcp.get(s.sid);
@@ -256,7 +275,8 @@ export class LineTestService {
     const info = this.opts.streamInfo();
     const startedAt = f.startedAt ?? tcpState?.t0 ?? this.now() - s.plan.durationMs;
     // UDP el sıkışması hiç tamamlanmadıysa (port/güvenlik duvarı): "ulaşılamadı" olarak kaydedilir
-    const unreachable = transport === 'udp' && f.startedAt === null;
+    // İstemci el sıkışmayı başaramadığını bildirdiyse (START'ı sunucu görmüş olsa bile) yukarı yön sayımı geçersizdir
+    const unreachable = transport === 'udp' && (f.startedAt === null || udpFailed);
     const live = info.live;
     const run: LineRun = {
       id: nanoid(10),
@@ -271,8 +291,8 @@ export class LineTestService {
       steps: s.plan.steps,
       streaming: { start: live, end: live, channels: info.channels },
       serverTxMbps: this.opts.serverTxMbps(),
-      up: transport === 'udp' ? f.up : null,
-      down: transport === 'udp' ? clientDown : null,
+      up: transport === 'udp' && !unreachable ? f.up : null,
+      down: transport === 'udp' && !unreachable ? clientDown : null,
       downSent: transport === 'udp' ? f.downSent : null,
       downErrors: transport === 'udp' ? f.downErrors : null,
       tcpUp: transport === 'tcp' && tcpState ? tcpSeconds(tcpState.up, s.plan) : null,
@@ -284,10 +304,17 @@ export class LineTestService {
     // TCP'de yukarı yönü sunucu, aşağı yönü istemci ölçer
     if (transport === 'tcp' && run.tcpUp && s.plan.mode === 'down') run.tcpUp = null;
     this.runs.push(run);
-    if (this.runs.length > RUNS_MAX) this.runs.splice(0, this.runs.length - RUNS_MAX);
+    if (this.runs.length > this.runsMax) this.runs.splice(0, this.runs.length - this.runsMax);
     const file = this.file;
     if (file) {
-      fs.promises.appendFile(file, JSON.stringify(run) + '\n').catch((err: unknown) => this.opts.log?.warn({ err: String(err) }, 'hat testi kaydı yazılamadı'));
+      this.fileLines++;
+      const trim = this.fileLines > (this.opts.maxFileLines ?? FILE_MAX_LINES);
+      if (trim) this.fileLines = this.runs.length;
+      // Yazmalar sıraya girer; sınır aşılınca dosya bellekteki (kırpılmış) listeyle yeniden yazılır
+      const snapshot = trim ? this.runs.map((r) => JSON.stringify(r)).join('\n') + '\n' : null;
+      this.writing = this.writing
+        .then(() => (snapshot !== null ? fs.promises.writeFile(file, snapshot) : fs.promises.appendFile(file, JSON.stringify(run) + '\n')))
+        .catch((err: unknown) => this.opts.log?.warn({ err: String(err) }, 'hat testi kaydı yazılamadı'));
     }
     return run;
   }

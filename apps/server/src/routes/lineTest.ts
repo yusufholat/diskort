@@ -38,6 +38,8 @@ const finishSchema = z.object({
     .regex(/^[A-Za-z0-9_-]{4,40}$/)
     .optional(),
   down: z.array(secSchema).max(60).nullable().optional(),
+  /** İstemci UDP el sıkışmasını tamamlayamadı: sunucunun yukarı yön sayımı yok sayılır */
+  udpFailed: z.boolean().optional(),
   tcpDown: z.array(z.number().min(0).max(1e9)).max(60).nullable().optional(),
   client: z
     .object({
@@ -70,7 +72,24 @@ export function registerLineTestRoutes(app: FastifyInstance, ctx: AppContext): v
   const allowTime = createRateLimiter(30, 10_000);
   const allowOpenByIp = createRateLimiter(40, 600_000);
   const allowOpenByUser = createRateLimiter(30, 600_000);
-  const allowCodeTry = createRateLimiter(10, 600_000);
+  // Yanlış kod denemeleri: sınır önce denetlenir, aşılınca doğru kod da reddedilir (kod tahmini yavaşlar)
+  const codeFails = new Map<string, { n: number; at: number }>();
+  const codeBlocked = (ip: string): boolean => {
+    const f = codeFails.get(ip);
+    if (!f) return false;
+    if (Date.now() - f.at > 600_000) {
+      codeFails.delete(ip);
+      return false;
+    }
+    return f.n >= 10;
+  };
+  const codeFailed = (ip: string): void => {
+    const now = Date.now();
+    if (codeFails.size > 5_000) codeFails.delete(codeFails.keys().next().value!);
+    const f = codeFails.get(ip);
+    if (f && now - f.at <= 600_000) f.n++;
+    else codeFails.set(ip, { n: 1, at: now });
+  };
   const admin = { preHandler: ctx.auth.requireInstanceAdmin };
 
   const tokenOf = (req: FastifyRequest): string | undefined => {
@@ -102,10 +121,10 @@ export function registerLineTestRoutes(app: FastifyInstance, ctx: AppContext): v
     let code = null;
     if (!user) {
       if (!body.code) return sendError(reply, 401, 'unauthorized', 'Giriş ya da test kodu gerekli.');
+      if (codeBlocked(req.ip)) return sendError(reply, 429, 'rate_limited', 'Çok fazla kod denemesi, 10 dakika sonra tekrar dene.');
       code = lineTest.checkCode(body.code);
       if (!code) {
-        // Yalnızca başarısız denemeler sayılır (kod tahmini engellenir)
-        if (!allowCodeTry(req.ip)) return sendError(reply, 429, 'rate_limited', 'Çok fazla kod denemesi.');
+        codeFailed(req.ip);
         return sendError(reply, 401, 'bad_code', 'Test kodu geçersiz ya da süresi dolmuş.');
       }
       if (!body.name) return sendError(reply, 400, 'invalid_body', 'Adını yaz (--ad).');
@@ -163,6 +182,11 @@ export function registerLineTestRoutes(app: FastifyInstance, ctx: AppContext): v
         sec >= s.plan.seconds.length
           ? (cum[s.plan.seconds.length] ?? 0)
           : (cum[sec] ?? 0) + Math.floor(((s.plan.seconds[sec]!.pps * s.plan.seconds[sec]!.size) * (t - sec * 1000)) / 1000);
+      if (!lineTest.server.get(s.sid)) {
+        clearInterval(timer);
+        raw.destroy();
+        return;
+      }
       let need = target - written;
       // Yavaş istemcide bellekte birikme olmasın
       while (need > 0 && raw.writableLength < 512 * 1024) {
@@ -210,6 +234,10 @@ export function registerLineTestRoutes(app: FastifyInstance, ctx: AppContext): v
           resolve();
         }, limit);
         stream.on('data', (chunk: Buffer) => {
+          if (!lineTest.server.get(s.sid)) {
+            stream.destroy();
+            return;
+          }
           const sec = Math.floor((Date.now() - t0) / 1000);
           if (sec < st.up.length) st.up[sec] = (st.up[sec] ?? 0) + chunk.length;
           total += chunk.length;
@@ -251,7 +279,7 @@ export function registerLineTestRoutes(app: FastifyInstance, ctx: AppContext): v
         return { planned: p.pps, recv, lost: Math.max(0, p.pps - recv), reord: x?.reord ?? 0, dup: x?.dup ?? 0, bytes: x?.bytes ?? 0, jit: x?.jit ?? 0 };
       });
     }
-    const run = lineTest.finish(s, down, { up: null, down: body.tcpDown ?? null }, (body.client as ClientContext | undefined) ?? null, body.suite ?? null);
+    const run = lineTest.finish(s, down, { up: null, down: body.tcpDown ?? null }, (body.client as ClientContext | undefined) ?? null, body.suite ?? null, body.udpFailed === true);
     if (!run) return sendError(reply, 404, 'not_found', 'Test oturumu bulunamadı.');
     lineTest.markStreamingEnd(run);
     const suite = groupSuites(lineTest.runsOfSuite(run.suite))[0];

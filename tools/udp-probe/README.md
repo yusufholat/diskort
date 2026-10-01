@@ -8,7 +8,7 @@ sekmesine yüklenir ve otomatik yorumlanır. Ek paket gerekmez (yalnızca Node 1
 
 1. Yönetici panelde **Hat testleri > Test kodu üret** der, kodu arkadaşına verir (12 saat geçerli).
 2. Arkadaşı iki dosyayı aynı klasöre koyar: `probe.mjs` ve `hat-testi.cmd`
-   (GitHub: `tools/udp-probe/`; `hat-testi.cmd` tek başına da olur, `probe.mjs`'yi kendisi indirir).
+   (GitHub: `tools/udp-probe/`). `hat-testi.cmd` tek başına da olur: `probe.mjs`'yi GitHub'dan indirir ve içindeki sabit SHA-256 ile doğrular, uymazsa çalıştırmaz. `probe.mjs` değişirse `hat-testi.cmd` içindeki `PROBE_SHA256` güncellenmeli (sunucu testi uyuşmazlığı yakalar).
 3. `hat-testi.cmd` dosyasına çift tıklar, kodu ve adını yazar. 2-3 dakika bekler, sonuç ekranda çıkar.
 
 Tek komut (Node kuruluysa):
@@ -28,7 +28,7 @@ node probe.mjs --kod KOD --ad ADIN --at 21:30:00
 ```
 
 Panelde aynı dakikadaki testler **Ortak test** olarak yan yana gösterilir. Aynı anda en fazla birkaç kişi
-çalışabilir (sunucu toplam bant sınırı, varsayılan 48 Mbps; dolunca "meşgul" der, biraz sonra tekrar denenir).
+çalışabilir (sunucu toplam bant sınırı, varsayılan 24 Mbps; dolunca "meşgul" der, biraz sonra tekrar denenir).
 
 ## Seçenekler
 

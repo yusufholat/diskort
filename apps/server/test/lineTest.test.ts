@@ -33,7 +33,8 @@ import {
   type LineProfile,
 } from '../src/lineTest/plan.js';
 import { LineTestServer } from '../src/lineTest/udpServer.js';
-import { groupSuites, syncGroups, type LineRun } from '../src/lineTest/service.js';
+import { LineTestService, groupSuites, syncGroups, type LineRun } from '../src/lineTest/service.js';
+import { createHash } from 'node:crypto';
 import { classify, stepStats, thresholdIndex, type StepStat, type TcpSecond, type VerdictRun } from '../src/lineTest/verdict.js';
 import { loadConfig } from '../src/config.js';
 import { auth, startServer, type TestServer } from './helpers.js';
@@ -550,6 +551,10 @@ describe('hat testi uçları', () => {
       last = (await s.app.inject({ method: 'POST', url: '/api/line-test/session', payload: { profile: 'quick', code: `KOD${i}`, name: 'x' } })).statusCode;
     }
     expect(last).toBe(429);
+    // sınır aşıldıktan sonra doğru kod da reddedilir
+    const valid = s.ctx.lineTest.createCode('x', 1, 5);
+    const blocked = await s.app.inject({ method: 'POST', url: '/api/line-test/session', payload: { profile: 'quick', code: valid.code, name: 'x' } });
+    expect(blocked.statusCode).toBe(429);
     const badToken = await s.app.inject({ method: 'POST', url: '/api/line-test/session', headers: auth('uydurma'), payload: { profile: 'quick' } });
     expect(badToken.statusCode).toBe(401);
     expect((await s.app.inject({ method: 'POST', url: '/api/line-test/finish', payload: {} })).statusCode).toBe(401);
@@ -636,5 +641,121 @@ describe('hat testi uçları', () => {
     const b = ctx.lineTest.mint(who, code, 'pps', 'up', 'udp', '1.1.1.1'); // 9,6 Mbps
     expect(b.ok).toBe(true);
     await app.close();
+  });
+});
+
+describe('sertleştirme', () => {
+  const tokens = new LineTokens(SECRET);
+  const hello = (token: LineToken): Buffer => encodeHello(token.s, tokens.sign(token));
+  type Priv = {
+    onMessage(m: Buffer, ip: string, port: number): void;
+    reply(b: Buffer, n: number, ip: string, port: number): void;
+    allowHandshake(ip: string): boolean;
+    handshakes: Map<string, unknown>;
+    sweep(): void;
+  };
+
+  it('kaynak port 0 / <1024 paketleri ve port 0 hedefli gönderim süreci çökertmez', async () => {
+    const server = new LineTestServer({ tokens, ports: [0], maxBps: 30_000_000 });
+    await server.start();
+    const priv = server as unknown as Priv;
+    const token = tokenOf({ s: 31 });
+    const session = server.open(token, buildPlan('quick', 'both'), '127.0.0.1');
+    expect(typeof session).not.toBe('string');
+    expect(() => priv.onMessage(hello(token), '127.0.0.1', 0)).not.toThrow();
+    expect(() => priv.onMessage(hello(token), '127.0.0.1', 80)).not.toThrow();
+    expect(server.stats.dropped).toBe(2);
+    expect(server.stats.handshakes).toBe(0);
+    // reply() port 0'a gerçekten gönderirse dgram senkron fırlatır: yakalanmalı
+    expect(() => priv.reply(Buffer.alloc(4), 100, '127.0.0.1', 0)).not.toThrow();
+    expect(server.stats.sendErrors).toBeGreaterThan(0);
+    server.stop();
+  });
+
+  it('el sıkışma haritası dolunca en eski girdi çıkar, yeni adresler engellenmez', () => {
+    const server = new LineTestServer({ tokens, ports: [0], maxBps: 1e9 });
+    const priv = server as unknown as Priv;
+    for (let i = 0; i < 4000; i++) expect(priv.allowHandshake(`10.${i >> 8}.${i & 255}.1`)).toBe(true);
+    expect(priv.allowHandshake('99.9.9.9')).toBe(true);
+    expect(priv.handshakes.size).toBe(4000);
+    expect(priv.handshakes.has('10.0.0.1')).toBe(false);
+    expect(priv.handshakes.has('99.9.9.9')).toBe(true);
+  });
+
+  it('toplam pps bütçesi open() içinde denetlenir', async () => {
+    const server = new LineTestServer({ tokens, ports: [0], maxBps: 1e9, perIpSessions: 9 });
+    await server.start();
+    expect(typeof server.open(tokenOf({ s: 41, i: 'u:a' }), buildPlan('pps', 'both'), '1.1.1.1')).not.toBe('string'); // 12000 pk/sn
+    expect(server.open(tokenOf({ s: 42, i: 'u:b' }), buildPlan('pps', 'up'), '1.1.1.2')).toBe('capacity');
+    server.finish(41);
+    expect(server.reservedPpsTotal).toBe(0);
+    expect(typeof server.open(tokenOf({ s: 43, i: 'u:b' }), buildPlan('pps', 'up'), '1.1.1.2')).not.toBe('string');
+    server.stop();
+  });
+
+  it('TCP oturumunun bandı akış süresince tutulur; erken finish bırakmaz, süre dolunca bırakılır', async () => {
+    let t = 1_000_000;
+    const released: number[] = [];
+    const server = new LineTestServer({ tokens, ports: [0], maxBps: 20_000_000, now: () => t, onRelease: (sid) => released.push(sid) });
+    await server.start();
+    const token = tokenOf({ s: 51, t: 'tcp', i: 'u:t', x: t + 600_000 });
+    const sess = server.open(token, buildPlan('quick', 'both'), '1.1.1.1');
+    if (typeof sess === 'string') throw new Error(sess);
+    sess.holdUntil = t + 15_000; // akış başladı
+    expect(server.finish(51)).not.toBeNull();
+    expect(server.get(51)).toBeUndefined(); // kapalı: akışlar ve ikinci finish reddedilir
+    expect(server.finish(51)).toBeNull();
+    expect(server.reservedTotal).toBeGreaterThan(0);
+    expect(server.open(tokenOf({ s: 52, i: 'u:other' }), buildPlan('ramp', 'up'), '1.1.1.2')).toBe('capacity'); // 16 + 12 > 20
+    expect(released).toEqual([]);
+    t += 16_000;
+    (server as unknown as Priv).sweep();
+    expect(server.reservedTotal).toBe(0);
+    expect(released).toEqual([51]);
+    server.stop();
+  });
+
+  it('release TCP sayaçlarını siler; udpFailed yukarı sayımı yok sayar; kayıt dosyası çalışırken kırpılır', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'diskort-hat2-'));
+    const svc = new LineTestService({ secret: SECRET, dir: tmp, ports: [0], maxBps: 1e9, maxFileLines: 3, streamInfo: () => ({ live: false, channels: [] }), serverTxMbps: () => null });
+    await svc.start();
+    const tcpMap = (svc as unknown as { tcp: Map<number, unknown> }).tcp;
+    const who = { kind: 'code' as const, userId: null, name: 'a' };
+    const code = svc.createCode('x', 1, 100);
+    const tcp = svc.mint(who, code, 'quick', 'both', 'tcp', '1.1.1.1');
+    if (!tcp.ok) throw new Error(tcp.error);
+    expect(tcpMap.has(tcp.session.sid)).toBe(true);
+    svc.finish(tcp.session, null, { up: null, down: null }, null, 'sx');
+    expect(tcpMap.has(tcp.session.sid)).toBe(false);
+    // udpFailed: sunucu START görmüş olsa bile up yok sayılır
+    for (let i = 0; i < 5; i++) {
+      const m = svc.mint(who, code, 'quick', 'both', 'udp', '1.1.1.1');
+      if (!m.ok) throw new Error(m.error);
+      m.session.startedAt = Date.now();
+      const run = svc.finish(m.session, null, null, null, `sy${i}`, i === 0)!;
+      if (i === 0) {
+        expect(run.unreachable).toBe(true);
+        expect(run.up).toBeNull();
+      }
+    }
+    await sleep(300);
+    const lines = fs.readFileSync(path.join(tmp, 'line-tests.jsonl'), 'utf8').trim().split('\n');
+    expect(lines.length).toBeLessThanOrEqual(3);
+    svc.stop();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+});
+
+describe('hat-testi.cmd', () => {
+  const dir = path.resolve(import.meta.dirname, '../../../tools/udp-probe');
+  const cmd = fs.readFileSync(path.join(dir, 'hat-testi.cmd'));
+  it('sabit SHA-256 probe.mjs ile birebir aynı, BOM yok, girdi doğrulaması var', () => {
+    const probe = fs.readFileSync(path.join(dir, 'probe.mjs'), 'utf8').replace(/\r\n/g, '\n');
+    const hash = createHash('sha256').update(probe, 'utf8').digest('hex');
+    const text = cmd.toString('latin1');
+    expect(text).toContain(`PROBE_SHA256=${hash}`);
+    expect([cmd[0], cmd[1], cmd[2]]).not.toEqual([0xef, 0xbb, 0xbf]);
+    expect(text).toContain('[A-Za-z0-9 _.-]');
+    expect(text).toContain('certutil -hashfile');
   });
 });

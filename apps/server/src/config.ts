@@ -45,7 +45,7 @@ export interface Config {
   netProbeTargets: string | null;
   /**
    * Hat testi UDP ucu: denenecek portlar (LINE_TEST_PORT, varsayılan 59999; bağlanamazsa bir altındaki denenir; "off" kapatır,
-   * testlerde varsayılan kapalı) ve bir anda ayrılabilecek toplam bant genişliği (LINE_TEST_MAX_MBPS, varsayılan 48).
+   * testlerde varsayılan kapalı) ve bir anda ayrılabilecek toplam bant genişliği (LINE_TEST_MAX_MBPS, varsayılan 24).
    */
   lineTestPorts: number[];
   lineTestMaxBps: number;
@@ -136,7 +136,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (lineTestRaw !== 'off' && lineTestRaw !== '0' && (!Number.isInteger(lineTestBase) || lineTestBase < 1024 || lineTestBase > 65535)) {
     throw new Error(`Geçersiz LINE_TEST_PORT: ${env.LINE_TEST_PORT}`);
   }
-  const lineTestMbps = Number(env.LINE_TEST_MAX_MBPS || 48);
+  const lineTestMbps = Number(env.LINE_TEST_MAX_MBPS || 24);
   if (!Number.isFinite(lineTestMbps) || lineTestMbps <= 0) throw new Error(`Geçersiz LINE_TEST_MAX_MBPS: ${env.LINE_TEST_MAX_MBPS}`);
 
   return {
