@@ -203,11 +203,15 @@ function burstFindings(runs: VerdictRun[]): Finding[] {
           evidence: `testin ${String(o.sec).replace('.', ',')}. saniyesi · adım: ${o.step ?? '?'}`,
         });
       } else {
+        // Test başlamadan önce başlamış kesinti testten kaynaklanamaz; ilk patlamadan önceki de patlamaya bağlanamaz
+        const before = o.sec < 0;
         out.push({
           code: `patlama_oncesi_kesinti_${dir}`,
           tone: 'warn',
-          text: `Patlama testi (${DIR_TEXT[dir]}): ilk patlamadan önce (taban hızda) sunucu ağında kesinti görüldü: ${OUTAGE_TEXT[o.kind]}, ${secText(o.durationMs)} sn → patlamayla ilgisiz olabilir; testi tekrarla.`,
-          evidence: `testin ${String(o.sec).replace('.', ',')}. saniyesi`,
+          text:
+            `Patlama testi (${DIR_TEXT[dir]}): ${before ? 'test başlamadan önce başlamış bir kesinti sürüyordu' : 'ilk patlamadan önce (taban hızda) sunucu ağında kesinti görüldü'}: ` +
+            `${OUTAGE_TEXT[o.kind]}, ${secText(o.durationMs)} sn → patlamayla ilgisiz${before ? '' : ' olabilir'}; ölçüm etkilenmiş olabilir, testi tekrarla.`,
+          evidence: before ? `test başlamadan ${String(-o.sec).replace('.', ',')} sn önce başladı` : `testin ${String(o.sec).replace('.', ',')}. saniyesi`,
         });
       }
     }
@@ -262,6 +266,17 @@ export function classify(runs: VerdictRun[]): Finding[] {
   const measured = dirs.filter((d) => data[d].all.length > 0);
   const burst = burstFindings(runs);
   out.push(...burst);
+  // Öbür profillerde test sürerken sunucu kesinti gördüyse: o saniyelerdeki kayıp istemci hattına yazılmamalı
+  const seen = runs.filter((r) => r.profile !== 'burst').flatMap((r) => r.outages ?? []);
+  if (seen.length > 0) {
+    const longest = seen.reduce((a, b) => (b.durationMs > a.durationMs ? b : a));
+    out.push({
+      code: 'sunucu_kesinti',
+      tone: 'warn',
+      text: `Test sürerken sunucu kendi ağında ${seen.length} kesinti gördü (en uzunu ${OUTAGE_TEXT[longest.kind]}, ${secText(longest.durationMs)} sn): o saniyelerdeki kayıp istemci hattından değil, sunucu/sağlayıcı tarafındandır.`,
+      evidence: seen.map((o) => `${String(o.sec).replace('.', ',')}. sn${o.step ? ` (${o.step})` : ''}`).join(' · '),
+    });
+  }
   if (measured.length === 0 && burst.length === 0) {
     out.push({ code: 'veri_yok', tone: 'info', text: 'UDP ölçümü yok (yalnızca TCP ya da rapor eksik).', evidence: '' });
   }

@@ -486,7 +486,11 @@ const tr = (n) => String(n).replace('.', ',');
 /** Test sürerken sunucunun kendi ağında gördüğü kesintiler ve API olay döngüsü gecikmesi */
 function printServerSide(r) {
   for (const o of r.outages ?? []) {
-    const where = o.burst ? `"${o.burst}" adımı${o.afterBurstSec ? `ndan ${tr(o.afterBurstSec)} sn sonra` : ' sırasında'}` : `testin ${tr(o.sec)}. saniyesinde`;
+    const where = o.burst
+      ? `"${o.burst}" adımı${o.afterBurstSec ? `ndan ${tr(o.afterBurstSec)} sn sonra` : ' sırasında'}`
+      : o.sec < 0
+        ? `test başlamadan ${tr(-o.sec)} sn önce başlayan`
+        : `testin ${tr(o.sec)}. saniyesinde`;
     console.log(`  !! SUNUCU KESİNTİ GÖRDÜ: ${where}: ${OUTAGE_KIND[o.kind] ?? o.kind}, ${tr(Math.round(o.durationMs / 100) / 10)} sn`);
   }
   if (r.session?.plan?.profile === 'burst' && (r.outages ?? []).length === 0) console.log('  Sunucu tarafı: test sürerken kesinti görülmedi (dış sondalar ve NIC temiz).');
@@ -596,7 +600,8 @@ async function main() {
     console.log(`${mark} ${f.text}`);
     if (f.evidence) console.log(`        ${f.evidence}`);
   }
-  console.log(`\nSonuçlar yönetim paneline yüklendi (test no: ${res.suite}). Bu ekranın görüntüsünü de paylaşabilirsin.`);
+  if (all.length > 0) console.log(`\nSonuçlar yönetim paneline yüklendi (test no: ${res.suite}). Bu ekranın görüntüsünü de paylaşabilirsin.`);
+  else console.log('\nTest çalıştırılamadı; yukarıdaki hataya bak.');
   if (a.json) console.log(JSON.stringify(all.map((r) => ({ runId: r.runId, stats: r.stats, findings: r.findings, outages: r.outages ?? [], loopLag: r.loopLag ?? null })), null, 1));
 }
 

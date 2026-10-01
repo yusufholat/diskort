@@ -1,6 +1,6 @@
 // Yönetim paneli (/admin): hesap yöneticilerine sunucunun genel durumu. Özet GET /api/admin/dashboard'dan sayfa
-// görünürken 5 sn'de bir gelir; ağır/ayrıntılı veriler (ses geçmişi, ses kalitesi ayrıntıları, altyapı, API,
-// güvenlik, sunucular, geri bildirimler) yalnızca ilgili sekme açıkken kendi uçlarından istenir (LOADERS).
+// görünürken 5 sn'de bir gelir; ağır/ayrıntılı veriler (ses geçmişi, bağlantı teşhisi, altyapı, API, güvenlik,
+// sunucular, geri bildirimler) yalnızca ilgili sekme açıkken kendi uçlarından istenir (LOADERS).
 // Giriş, uygulamanın kendi giriş ucuyla (POST /api/auth/login) yapılır; jeton sessionStorage'da ("Beni hatırla"
 // seçilirse localStorage'da) durur.
 // CSP gereği satır içi betik ve stil yok (öğe stilleri yalnızca CSSOM ile; resimler data: adresiyle). Tüm
@@ -10,6 +10,7 @@
 const REFRESH_MS = 5_000;
 const TOKEN_KEY = 'diskort-admin-token';
 const TAB_KEY = 'diskort-admin-tab';
+const DIAG_KEY = 'diskort-admin-diag';
 const USERS_SHOWN = 15;
 const DAY_MS = 86_400_000;
 /** Sunucunun gün dosyalarının saat dilimi (STATS_UTC_OFFSET_MIN varsayılanı: Türkiye) */
@@ -50,9 +51,21 @@ let inflight = false;
 let lastData = null;
 let failures = 0;
 
-const TABS = ['genel', 'ses', 'ses-gecmisi', 'makine', 'api', 'istemciler', 'guvenlik', 'sunucular', 'geri-bildirim', 'iphone', 'hat-testleri', 'hatalar'];
-/** Eski bağlantılar (#sunucu) yeni sekmelere */
-const TAB_ALIASES = { sunucu: 'makine' };
+const TABS = ['genel', 'ses', 'teshis', 'ses-gecmisi', 'makine', 'api', 'istemciler', 'guvenlik', 'sunucular', 'geri-bildirim', 'iphone', 'hatalar'];
+/** Eski bağlantılar (#sunucu, #hat-testleri) yeni sekmelere */
+const TAB_ALIASES = { sunucu: 'makine', 'hat-testleri': 'teshis' };
+
+/** "Bağlantı teşhisi" sekmesinin açılış görünümü: eski #hat-testleri bağlantısı testleri açar */
+function initialDiagView() {
+  if (decodeURIComponent(location.hash.slice(1)) === 'hat-testleri') return 'testler';
+  try {
+    const saved = localStorage.getItem(DIAG_KEY);
+    if (['canli', 'olaylar', 'testler', 'ayrinti'].includes(saved)) return saved;
+  } catch {
+    // depolama kapalı
+  }
+  return 'canli';
+}
 
 function initialTab() {
   const hash = decodeURIComponent(location.hash.slice(1));
@@ -78,6 +91,9 @@ const ui = {
   fbType: '',
   allEvents: false,
   lineDays: 7,
+  diagView: initialDiagView(),
+  /** Dakikalık ağ geçmişinde seçili gün (null: bugün) */
+  minuteDay: null,
 };
 
 const VIEWS = ['adm-login', 'adm-denied', 'adm-loading', 'adm-dashboard'];
@@ -259,14 +275,8 @@ document.addEventListener('visibilitychange', () => {
  * gelen veriyle sekmenin bölümlerini çizer.
  */
 const LOADERS = {
-  ses: {
-    url: () => `/api/admin/telemetry/incidents?days=${ui.incidentDays}`,
-    every: 30_000,
-    render: (x) => {
-      draw('adm-incidents', () => incidents(x));
-      draw('adm-freezes', () => freezes(x));
-    },
-  },
+  // Bağlantı teşhisi: görünüme göre farklı uç ve aralık (bkz. loadDiag)
+  teshis: { load: () => loadDiag(), every: () => DIAG_EVERY[ui.diagView], render: (x) => renderDiag(x) },
   'ses-gecmisi': {
     url: () => `/api/admin/voice-history?days=${ui.historyDays}&tz=${new Date().getTimezoneOffset()}`,
     every: 60_000,
@@ -277,7 +287,6 @@ const LOADERS = {
     every: 10_000,
     render: (x) => {
       draw('adm-infra', () => infra(x));
-      draw('adm-livekit', () => livekit(x));
       draw('adm-usage', () => usage(x));
     },
   },
@@ -288,11 +297,6 @@ const LOADERS = {
     url: () => `/api/feedback?${new URLSearchParams({ ...(ui.fbStatus ? { status: ui.fbStatus } : {}), ...(ui.fbType ? { type: ui.fbType } : {}) })}`,
     every: 60_000,
     render: (x) => draw('adm-feedback-list', () => feedbackList(x)),
-  },
-  'hat-testleri': {
-    url: () => `/api/admin/line-tests?days=${ui.lineDays}`,
-    every: 10_000,
-    render: (x) => draw('adm-line', () => lineTests(x)),
   },
   iphone: { url: () => '/api/admin/ios-devices', every: 20_000, render: (x) => draw('adm-iphone', () => iosDevices(x)) },
   hatalar: { url: () => '/api/admin/api-stats', every: 15_000, render: (x) => draw('adm-logs', () => serverLogs(x)) },
@@ -314,13 +318,15 @@ async function loadExtra(force = false) {
   if (!loader || !token || document.hidden) return;
   const seq = ++extra.seq;
   const cached = extra.data[tab];
-  if (cached && !force && Date.now() - cached.at < loader.every) {
-    extra.timer = setTimeout(() => loadExtra(true), loader.every - (Date.now() - cached.at));
+  // Aralık sekmenin o anki görünümüne göre değişebilir (bağlantı teşhisi)
+  const every = typeof loader.every === 'function' ? loader.every() : loader.every;
+  if (cached && !force && Date.now() - cached.at < every) {
+    extra.timer = setTimeout(() => loadExtra(true), every - (Date.now() - cached.at));
     return;
   }
   if (!cached) placeholder(tab, 'Yükleniyor…');
   try {
-    const data = await apiGet(loader.url());
+    const data = loader.load ? await loader.load() : await apiGet(loader.url());
     if (seq !== extra.seq || ui.tab !== tab) return;
     extra.data[tab] = { at: Date.now(), value: data };
     loader.render(data);
@@ -328,21 +334,20 @@ async function loadExtra(force = false) {
     if (err instanceof AccessError || seq !== extra.seq) return;
     if (!extra.data[tab]) placeholder(tab, `Veri alınamadı (${err.message}); yeniden denenecek.`);
   }
-  if (seq === extra.seq && token) extra.timer = setTimeout(() => loadExtra(true), loader.every);
+  if (seq === extra.seq && token) extra.timer = setTimeout(() => loadExtra(true), typeof loader.every === 'function' ? loader.every() : loader.every);
 }
 
 /** Sekme verisi gelene kadar bölümlerinde kısa bir not */
 function placeholder(tab, text) {
   const target = {
-    ses: ['adm-incidents', 'adm-freezes'],
+    teshis: ['adm-diag'],
     'ses-gecmisi': ['adm-history'],
-    makine: ['adm-infra', 'adm-livekit', 'adm-usage'],
+    makine: ['adm-infra', 'adm-usage'],
     api: ['adm-api'],
     guvenlik: ['adm-security'],
     sunucular: ['adm-guilds'],
     'geri-bildirim': ['adm-feedback-list'],
     iphone: ['adm-iphone'],
-    'hat-testleri': ['adm-line'],
     hatalar: ['adm-logs'],
   }[tab];
   for (const id of target ?? []) $(id).replaceChildren(h('article', 'adm-card adm-wide adm-empty', text));
@@ -363,6 +368,7 @@ function setTab(tab, scroll = true) {
     // depolama kapalı
   }
   if (location.hash !== `#${tab}`) window.history.replaceState(null, '', `#${tab}`);
+  if (tab === 'teshis') drawDiagNav();
   const cached = extra.data[tab];
   if (cached) LOADERS[tab]?.render(cached.value);
   stopExtra();
@@ -384,6 +390,7 @@ $('adm-tabs').addEventListener('keydown', (e) => {
 window.addEventListener('hashchange', () => {
   const hash = decodeURIComponent(location.hash.slice(1));
   const tab = TAB_ALIASES[hash] ?? hash;
+  if (hash === 'hat-testleri') setDiagView('testler');
   if (TABS.includes(tab) && tab !== ui.tab) setTab(tab);
 });
 
@@ -553,9 +560,10 @@ function meter(fraction, label) {
 
 /**
  * Küçük çizgi grafik. points: [{ at, v }] (v null ise çizgide boşluk). Fareyle ya da dokunarak üzerine
- * gelinen ölçümün saati ve değeri gösterilir. `axis`: altta başlangıç ve bitiş saati.
+ * gelinen ölçümün saati ve değeri gösterilir. `axis`: altta başlangıç ve bitiş saati. `marks`: vurgulanacak
+ * zaman aralıkları ([{ from, to }], ör. kesinti saniyeleri): grafiğin arkasına dikey bant olarak çizilir.
  */
-function sparkline(points, { max, format, color = 'brand', label, axis = false, seconds = true }) {
+function sparkline(points, { max, format, color = 'brand', label, axis = false, seconds = true, marks = [] }) {
   const W = 300;
   const H = 60;
   const wrap = h('div', `adm-spark adm-c-${color}`);
@@ -585,6 +593,11 @@ function sparkline(points, { max, format, color = 'brand', label, axis = false, 
   }
   flush();
   const chart = svg('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': label });
+  for (const m of marks) {
+    if (m.to < from || m.from > to) continue;
+    const x0 = x(Math.max(from, m.from));
+    chart.append(svg('rect', { x: x0.toFixed(1), y: 0, width: Math.max(1.5, x(Math.min(to, m.to)) - x0).toFixed(1), height: H, class: 'adm-spark-mark' }));
+  }
   chart.append(svg('path', { d: area, class: 'adm-spark-area' }));
   chart.append(svg('path', { d: line, class: 'adm-spark-line', 'vector-effect': 'non-scaling-stroke' }));
   const cursor = h('div', 'adm-spark-cursor');
@@ -818,7 +831,7 @@ function voice(d, now) {
         sub:
           mx.ok && mx.latest
             ? [`↓ ${rate(mx.latest.bytesIn)} · ↑ ${rate(mx.latest.bytesOut)}`, `Kayıp ${pct(mx.latest.lossInPct, 2)} · RTT ${msText(mx.latest.rttMs)}`]
-            : ['Metrikler kapalı (Makine sekmesine bak)'],
+            : ['Metrikler kapalı (Bağlantı teşhisi > Ayrıntı)'],
       }),
   ];
   if (v.channels.length === 0) {
@@ -1089,19 +1102,549 @@ function incidentRow(i, x, now) {
   );
 }
 
-function incidents(x) {
+// ---------- Bağlantı teşhisi: canlı durum, olaylar, testler, ayrıntı ----------
+// Tek sekme, dört görünüm. Veriler: /api/admin/net/* (saniyelik ağ kaydı, sondalar, kesintiler, dakikalık özet),
+// /api/admin/telemetry/incidents (olaylar), /api/admin/line-tests (testler), /api/admin/infra (LiveKit ayrıntısı).
+
+const DIAG_VIEWS = ['canli', 'olaylar', 'testler', 'ayrinti'];
+const DIAG_LABEL = { canli: 'Canlı durum', olaylar: 'Olaylar', testler: 'Testler', ayrinti: 'Ayrıntı' };
+/** Görünümün yenilenme aralığı (ms) */
+const DIAG_EVERY = { canli: 2_000, olaylar: 30_000, testler: 10_000, ayrinti: 10_000 };
+const OUTAGE_KIND = { tam: ['tam kesinti', 'bad'], gelen: ['yalnız gelen', 'warn'], sonda: ['yalnız sonda', 'warn'] };
+const LIVE_WINDOW_MS = 300_000;
+/** Her yoklamada son bu kadar saniye yeniden istenir (sonda sonuçları ve kesinti işaretleri satıra sonradan işlenir) */
+const LIVE_OVERLAP_MS = 15_000;
+
+/** Canlı görünümün biriken verisi (yoklamalar arasında korunur) */
+const live = { rows: [], lk: [] };
+
+function setDiagView(view) {
+  if (!DIAG_VIEWS.includes(view) || view === ui.diagView) return;
+  ui.diagView = view;
+  try {
+    localStorage.setItem(DIAG_KEY, view);
+  } catch {
+    // depolama kapalı
+  }
+  delete extra.data.teshis;
+  stopExtra();
+  drawDiagNav();
+  placeholder('teshis', 'Yükleniyor…');
+  void loadExtra(true);
+}
+
+function drawDiagNav() {
+  $('adm-diag-nav').replaceChildren(
+    chips(
+      DIAG_VIEWS.map((v) => [v, DIAG_LABEL[v]]),
+      ui.diagView,
+      setDiagView,
+      'Bağlantı teşhisi görünümü',
+    ),
+  );
+}
+
+async function loadDiag() {
+  const view = ui.diagView;
+  if (view === 'canli') return { view, data: await loadLive() };
+  if (view === 'olaylar') return { view, data: await apiGet(`/api/admin/telemetry/incidents?days=${ui.incidentDays}`) };
+  if (view === 'testler') return { view, data: await apiGet(`/api/admin/line-tests?days=${ui.lineDays}`) };
+  const [infraData, minutes] = await Promise.all([
+    apiGet('/api/admin/infra'),
+    apiGet(`/api/admin/net/minutes${ui.minuteDay ? `?day=${ui.minuteDay}` : ''}`),
+  ]);
+  return { view, data: { infra: infraData, minutes } };
+}
+
+function renderDiag(x) {
+  drawDiagNav();
+  // Görünüm değiştiyse eski verinin çizimi atlanır (yenisi yolda)
+  if (x.view !== ui.diagView) return;
+  const view = { canli: liveView, olaylar: eventsView, testler: lineTests, ayrinti: detailView }[x.view];
+  draw('adm-diag', () => view(x.data));
+}
+
+const secs1 = (ms) => nf1.format(ms / 1000);
+const dateTimeSec = (ms) =>
+  new Date(ms).toLocaleString('tr-TR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const mbpsText = (v) => (v === null || v === undefined ? '—' : `${nf1.format(v)} Mbps`);
+const ppsText = (v) => (v === null || v === undefined ? '—' : `${nf.format(Math.round(v))} pk/sn`);
+/** Dış hedeflerin (ağ geçidi hariç) bir saniyedeki sonda sonuçları */
+const externalProbes = (r) =>
+  Object.entries(r.p ?? {})
+    .filter(([k]) => k !== 'ağ geçidi')
+    .map(([, v]) => v);
+
+/** Panoya kopyalama düğmesi */
+function copyButton(text, label = 'Kopyala') {
+  const btn = h('button', { type: 'button', class: 'adm-more' }, label);
+  btn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(typeof text === 'function' ? text() : text);
+      btn.textContent = 'Kopyalandı';
+    } catch {
+      btn.textContent = 'Kopyalanamadı (metni seçip kopyala)';
+    }
+    setTimeout(() => (btn.textContent = label), 2_000);
+  });
+  return btn;
+}
+
+/** Kesintilerden grafik işaretleri ({ from, to }) */
+const outageMarks = (outages) => (outages ?? []).map((o) => ({ from: o.at, to: o.at + Math.max(o.durationMs, 1_000) }));
+
+/** Başlıklı küçük grafik kutusu; veri yoksa null */
+function chartBox(label, pts, format, opts = {}) {
+  if (!pts.some((p) => p.v !== null && p.v !== undefined)) return null;
+  const last = pts.findLast((p) => p.v !== null && p.v !== undefined)?.v;
+  return h(
+    'div',
+    'adm-card adm-chart',
+    h('div', 'adm-net-head', h('span', 'adm-muted', label), h('b', null, format(last))),
+    sparkline(pts, { format, label, axis: true, ...opts }),
+  );
+}
+
+/** Saniyelik sunucu satırlarının grafikleri (paket hızları ve kesinti işaretleriyle) */
+function serverCharts(rows, marks) {
+  const chart = (label, pick, format, opts = {}) =>
+    chartBox(
+      label,
+      rows.map((r) => ({ at: r.t, v: pick(r) })),
+      format,
+      { marks, ...opts },
+    );
+  const probeLost = (r) => {
+    const v = externalProbes(r);
+    return v.length === 0 ? null : (v.filter((n) => n < 0).length / v.length) * 100;
+  };
+  const probeRtt = (r) => {
+    const v = externalProbes(r).filter((n) => n >= 0);
+    return v.length === 0 ? null : Math.max(...v);
+  };
+  return h(
+    'div',
+    'adm-chart-grid',
+    chart('Sunucuya gelen paket (NIC)', (r) => r.rxp, ppsText, { color: 'ok' }),
+    chart('Sunucudan giden paket (NIC)', (r) => r.txp, ppsText),
+    chart('Sunucuya gelen (NIC)', (r) => r.rx, mbpsText, { color: 'ok' }),
+    chart('Sunucudan giden (NIC)', (r) => r.tx, mbpsText),
+    chart('Dış sonda kaybı (saniye başına)', probeLost, (v) => pct(v, 0), { max: 100, color: 'pink' }),
+    chart('Dış sonda gecikmesi (en yüksek)', probeRtt, msText, { max: 100 }),
+    chart('NIC düşen/hatalı paket', (r) => r.nd, (v) => `${num(v)} paket`, { max: 5, color: 'pink' }),
+    chart('UDP tampon/giriş hatası', (r) => r.ue + r.ur + r.us, (v) => `${num(v)} paket`, { max: 5, color: 'pink' }),
+    chart('LiveKit işlemcisi', (r) => r.lk, (v) => `%${dec(v * 100, 0)} çekirdek`, { max: 1, color: 'ok' }),
+    chart('CPU baskısı (PSI)', (r) => r.psi, (v) => pct(v), { max: 10, color: 'pink' }),
+    chart('Bağlantı izleme tablosu (conntrack)', (r) => (r.ct != null && r.ctm ? (r.ct / r.ctm) * 100 : null), (v) => pct(v), { max: 100 }),
+    chart('Çekirdek ağ kuyruğu (düşen + time_squeeze)', (r) => (r.sd === null || r.sd === undefined ? null : r.sd + (r.sq ?? 0)), (v) => `${num(v)}`, { max: 5, color: 'pink' }),
+  );
+}
+
+/** LiveKit ölçümleri (düğüm geneli hızlar) */
+function lkCharts(lk, marks) {
+  const chart = (label, pick, format, opts = {}) =>
+    chartBox(
+      label,
+      lk.map((r) => ({ at: r.t, v: pick(r) })),
+      format,
+      { marks, ...opts },
+    );
+  return h(
+    'div',
+    'adm-chart-grid',
+    chart('LiveKit: yeniden gönderme isteği (NACK)', (r) => r.nack, perSec, { max: 5 }),
+    chart('LiveKit: anahtar kare isteği (PLI + FIR)', (r) => (r.pli === null && r.fir === null ? null : (r.pli ?? 0) + (r.fir ?? 0)), perSec, { max: 2, color: 'pink' }),
+    chart('LiveKit: yayıncılardan gelen akışta kayıp', (r) => r.lin, (v) => pct(v, 2), { max: 2, color: 'pink' }),
+    chart('LiveKit: izleyicilere giden akışta kayıp', (r) => r.lout, (v) => pct(v, 2), { max: 2, color: 'pink' }),
+    chart('LiveKit: gelen paket', (r) => r.pin, perSec, { color: 'ok' }),
+    chart('LiveKit: giden paket', (r) => r.pout, perSec),
+  );
+}
+
+// ---------- Canlı durum ----------
+
+async function loadLive() {
+  const last = live.rows.at(-1)?.t;
+  const d = await apiGet(`/api/admin/net/live?seconds=${LIVE_WINDOW_MS / 1000}${last ? `&since=${last - LIVE_OVERLAP_MS}` : ''}`);
+  const cut = d.now - LIVE_WINDOW_MS;
+  const merge = (old, add) => {
+    const from = add.length > 0 ? add[0].t : Infinity;
+    return [...old.filter((r) => r.t < from && r.t >= cut), ...add];
+  };
+  live.rows = merge(live.rows, d.rows);
+  live.lk = merge(live.lk, d.livekit.history);
+  return { ...d, rows: live.rows, lk: live.lk };
+}
+
+function outageRow(o, meta) {
+  const [text, tone] = OUTAGE_KIND[o.kind] ?? [o.kind, 'muted'];
+  const p = o.probe;
+  const n = o.nic;
+  return h(
+    'li',
+    'adm-row adm-row-top',
+    h(
+      'div',
+      'adm-row-main',
+      h('div', 'adm-row-title', dateTimeSec(o.at), ' ', badge(text, tone), ' ', badge(`${secs1(o.durationMs)} sn`, 'muted')),
+      p && h('div', 'adm-sub', `Dış sondalar: ${num(p.lost)} sonda art arda yanıtsız (${p.targets.join(', ')})${p.udp && p.tcp ? ' · UDP ve TCP birlikte' : p.udp ? ' · yalnızca UDP' : ' · yalnızca TCP'}`),
+      n && h('div', 'adm-sub', `Sunucuya gelen paket: ${num(n.baseline)} → ${num(n.rxpMin)} pk/sn${n.participants !== null && n.participants !== undefined ? ` · seste ${num(n.participants)} kişi` : ''}`),
+      h(
+        'div',
+        'adm-actions',
+        h('button', { type: 'button', class: 'adm-more', on: { click: () => openOutage(o, meta) } }, 'Saniyeleri göster'),
+        h('button', { type: 'button', class: 'adm-more', on: { click: () => openProviderReport([o], meta) } }, 'Sağlayıcı raporu'),
+      ),
+    ),
+  );
+}
+
+function liveView(d) {
+  const rows = d.rows;
+  const last = rows.at(-1) ?? null;
+  const stale = !last || d.now - last.t > 6_000;
+  const sm = d.sampler;
+  const meta = { serverIp: sm.serverIp, iface: sm.iface };
+  const marks = outageMarks(d.outages);
+  if (d.open.probe) marks.push({ from: d.open.probe.at, to: d.now });
+  if (d.open.nic) marks.push({ from: d.open.nic.at, to: d.now });
+  const out = [];
+
+  // --- Bölüm bölüm durum ---
+  const targets = d.probes.targets.filter((t) => !t.disabled);
+  const sent = targets.reduce((n, t) => n + t.sent, 0);
+  const lost = targets.reduce((n, t) => n + t.lost, 0);
+  const lossyTargets = targets.filter((t) => t.lost >= 2).length;
+  const probeValue = d.open.probe ? 'Kesinti' : !d.probes.running ? 'Kapalı' : sent === 0 ? 'Ölçülüyor…' : lost === 0 ? 'Temiz' : `${pct((lost / sent) * 100)} kayıp`;
+  const probeTone = d.open.probe || lossyTargets >= 2 ? 'bad' : !d.probes.running ? undefined : lost > 0 ? 'warn' : sent > 0 ? 'ok' : undefined;
+  out.push(
+    card({
+      label: 'Dış sondalar (sunucu → internet)',
+      value: probeValue,
+      compact: true,
+      tone: probeTone,
+      sub: d.probes.running
+        ? [
+            d.open.probe && `${secs1(d.open.probe.durationMs)} sn'dir yanıt yok (${d.open.probe.targets.join(', ')})`,
+            `Son 60 sn: ${num(sent)} sonda, ${num(lost)} yanıtsız`,
+            targets.map((t) => `${t.label} ${t.lastRtt === null ? (t.lastAt ? '✕' : '—') : `${nf.format(Math.round(t.lastRtt))} ms`}`).join(' · '),
+            d.probes.targets.some((t) => t.disabled) && `Yanıt vermediği için bırakılan: ${d.probes.targets.filter((t) => t.disabled).map((t) => t.label).join(', ')}`,
+          ]
+        : ['Sondalar çalışmıyor (geliştirme kipi, SYSTEM_STATS=0 ya da NET_PROBE_TARGETS=0).'],
+    }),
+  );
+  if (!sm.readable.net) {
+    out.push(card({ label: 'Sunucu ağı', value: 'Bilgi yok', compact: true, tone: 'warn', sub: 'Saniyelik ağ ölçümü yalnızca Linux sunucuda (/proc) çalışır.' }));
+  } else {
+    const lk = d.livekit;
+    const l = lk.latest;
+    const recent = rows.slice(-LIVE_WINDOW_MS / 1000);
+    const sum = (pick) => recent.reduce((n, r) => n + (pick(r) ?? 0), 0);
+    const drops = sum((r) => r.nd);
+    const udpErr = sum((r) => r.ur + r.us);
+    const softnet = sum((r) => r.sd);
+    const psiMax = Math.max(0, ...recent.map((r) => r.psi ?? 0));
+    const ctPct = last?.ct != null && last?.ctm ? (last.ct / last.ctm) * 100 : null;
+    const keyframes = l ? (l.pli ?? 0) + (l.fir ?? 0) : 0;
+    out.push(
+      card({
+        label: `Sunucuya gelen (${sm.iface ?? '—'})`,
+        value: stale ? '—' : ppsText(last.rxp),
+        compact: true,
+        tone: d.open.nic ? 'bad' : stale ? 'warn' : undefined,
+        sub: [
+          d.open.nic ? `Sessizlik adayı: ${num(d.open.nic.seconds)} sn'dir ${num(d.open.nic.rxpMin)} pk/sn (olağanı ${num(d.open.nic.baseline)})` : stale ? 'Ölçüm gelmiyor' : `↓ ${mbpsText(last.rx)}`,
+          `Seste ${num(d.voice.participants)} kişi · ${num(d.voice.streams)} yayın`,
+        ],
+      }),
+      card({
+        label: 'Ses sunucusu (LiveKit)',
+        value: lk.ok && l ? percent(l.cpu) : 'Ölçüm yok',
+        unit: lk.ok && l ? 'işlemci' : undefined,
+        compact: true,
+        tone: !lk.ok ? undefined : keyframes >= 2 || (l?.lin ?? 0) >= 3 ? 'warn' : undefined,
+        sub: lk.ok && l ? [`NACK ${perSec(l.nack)} · anahtar kare isteği ${perSec(keyframes)}`, `Kayıp ↓ ${pct(l.lin, 2)} · ↑ ${pct(l.lout, 2)} · ${num(l.parts)} katılımcı`] : [lk.error ?? 'Metrikler kapalı'],
+      }),
+      card({
+        label: 'Sunucudan giden',
+        value: stale ? '—' : mbpsText(last.tx),
+        compact: true,
+        sub: [stale ? 'Ölçüm gelmiyor' : `↑ ${ppsText(last.txp)}`, `Son 5 dk en yüksek ${mbpsText(Math.max(0, ...recent.map((r) => r.tx ?? 0)))}`],
+      }),
+      card({
+        label: 'Sunucu kaynağı',
+        value: drops + udpErr + softnet === 0 && psiMax < 30 ? 'Temiz' : psiMax >= 30 ? `PSI ${pct(psiMax)}` : `${num(drops + udpErr + softnet)} düşen`,
+        compact: true,
+        tone: psiMax >= 50 || (ctPct ?? 0) >= 90 ? 'bad' : drops + udpErr + softnet > 0 || psiMax >= 30 ? 'warn' : 'ok',
+        sub: [
+          `Son 5 dk: NIC düşen ${num(drops)} · UDP tampon ${num(udpErr)} · çekirdek kuyruğu ${num(softnet)}`,
+          `CPU baskısı en çok ${pct(psiMax)}${ctPct !== null ? ` · conntrack ${pct(ctPct)} (${num(last.ct)}/${num(last.ctm)})` : sm.readable.conntrack ? '' : ' · conntrack okunamıyor'}`,
+        ],
+      }),
+    );
+    // --- Son 5 dakika, saniye saniye ---
+    const chart = (label, pick, format, opts = {}) =>
+      chartBox(
+        label,
+        rows.map((r) => ({ at: r.t, v: pick(r) })),
+        format,
+        { marks, ...opts },
+      );
+    out.push(
+      h(
+        'article',
+        'adm-card adm-wide',
+        h('div', 'adm-label', 'Son 5 dakika, saniye saniye (kırmızı bantlar: kesinti saniyeleri)'),
+        h(
+          'div',
+          'adm-chart-grid',
+          chart('Gelen paket', (r) => r.rxp, ppsText, { color: 'ok' }),
+          chart('Giden paket', (r) => r.txp, ppsText),
+          chart('Gelen', (r) => r.rx, mbpsText, { color: 'ok' }),
+          chart('Giden', (r) => r.tx, mbpsText),
+          chart(
+            'Dış sonda gecikmesi (en yüksek)',
+            (r) => {
+              const v = externalProbes(r).filter((n) => n >= 0);
+              return v.length === 0 ? null : Math.max(...v);
+            },
+            msText,
+            { max: 100 },
+          ),
+          chartBox(
+            'LiveKit: NACK',
+            d.lk.map((r) => ({ at: r.t, v: r.nack })),
+            perSec,
+            { max: 5, marks, color: 'pink' },
+          ),
+        ),
+        h(
+          'div',
+          'adm-sub adm-note',
+          `Ölçüm: ${sm.iface ?? '?'} · ağ geçidi ${sm.gateway ?? 'bilinmiyor'}${sm.serverIp ? ` · sunucu ${sm.serverIp}` : ''} · bellekte ${num(sm.ring)} sn · diske yazılan (anormal saniyelerin çevresi) ${num(sm.persistedRows)} satır.`,
+        ),
+      ),
+    );
+  }
+  // --- Son kesintiler ---
+  out.push(
+    h(
+      'article',
+      `adm-card adm-wide${d.open.probe || d.open.nic ? ' adm-tone-bad' : ''}`,
+      h('div', 'adm-label', `Son kesintiler · son 24 saatte ${num(d.outageCounts.day)}, 7 günde ${num(d.outageCounts.week)}`),
+      d.outages.length === 0
+        ? h('div', 'adm-sub', 'Kayıtlı kesinti yok.')
+        : h(
+            'ul',
+            'adm-rows',
+            d.outages.map((o) => outageRow(o, meta)),
+          ),
+      h(
+        'div',
+        'adm-sub adm-note',
+        'tam kesinti: dış sondalar yanıtsız ve sunucuya paket gelmiyor (sağlayıcı/hipervizör ağı). yalnız gelen: sunucuya gelen paketler kesildi ama sondalar yanıt aldı (gelen medya yolu ya da istemciler göndermeyi kesti). yalnız sonda: dış sondalar yanıtsız ama sunucuya paket gelmeye devam etti.',
+      ),
+    ),
+  );
+  return out;
+}
+
+/** Bir kesintinin çevresindeki saniyeler (±30 sn) */
+function openOutage(o, meta) {
+  openSheet(`Kesinti · ${dateTimeSec(o.at)} · ${secs1(o.durationMs)} sn`);
+  const seq = ++sheet.seq;
+  void (async () => {
+    try {
+      const d = await apiGet(`/api/admin/net/seconds?from=${o.at - 30_000}&to=${o.at + o.durationMs + 30_000}`);
+      if (seq !== sheet.seq) return;
+      const marks = outageMarks(d.outages);
+      const [text, tone] = OUTAGE_KIND[o.kind] ?? [o.kind, 'muted'];
+      $('adm-sheet-body').replaceChildren(
+        ...[
+          h(
+            'div',
+            'adm-card',
+            h('div', 'adm-row-title', badge(text, tone), ' ', `${dateTimeSec(o.at)} · ${secs1(o.durationMs)} sn`),
+            h('button', { type: 'button', class: 'adm-more', on: { click: () => openProviderReport([o], meta) } }, 'Sağlayıcı raporu'),
+          ),
+          d.rows.length < 2
+            ? h('div', 'adm-card adm-empty', 'Bu aralığın saniyelik kaydı yok (bellekten çıkmış ve diske yazılmamış).')
+            : serverCharts(d.rows, marks),
+          d.livekit.length >= 2 && lkCharts(d.livekit, marks),
+        ].filter(Boolean),
+      );
+    } catch (err) {
+      if (err instanceof AccessError || seq !== sheet.seq) return;
+      $('adm-sheet-body').replaceChildren(h('div', 'adm-sub', `Veri alınamadı: ${err.message}`));
+    }
+  })();
+}
+
+// ---------- Sağlayıcı raporu ----------
+
+const utcStamp = (ms) => `${new Date(ms).toISOString().replace('T', ' ').slice(0, 19)} UTC`;
+function localStampText(ms) {
+  const d = new Date(ms);
+  const off = -d.getTimezoneOffset();
+  const pad = (n) => String(n).padStart(2, '0');
+  const zone = `UTC${off < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(off) / 60))}:${pad(Math.abs(off) % 60)}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} (${zone})`;
+}
+
+/** Barındırma sağlayıcısına gönderilecek düz metin (Türkçe ve İngilizce) */
+function providerReportText(outages, facts) {
+  const en1 = (ms) => (ms / 1000).toFixed(1);
+  const ip = facts.serverIp ?? '<sunucu IP>';
+  const tr = [];
+  const en = [];
+  tr.push('Konu: Sanal sunucuda kısa süreli ağ kesintileri (paketler misafir makinenin ağ arayüzüne ulaşmıyor)', '');
+  en.push('Subject: Short network blackouts on the virtual server (packets do not reach the guest NIC)', '');
+  tr.push(`Sunucu IP: ${ip}${facts.iface ? ` (arayüz ${facts.iface})` : ''}`);
+  en.push(`Server IP: ${facts.serverIp ?? '<server IP>'}${facts.iface ? ` (interface ${facts.iface})` : ''}`);
+  tr.push('', 'Kesintiler:');
+  en.push('', 'Outages:');
+  for (const o of outages) {
+    tr.push(`- ${utcStamp(o.at)} / yerel ${localStampText(o.at)}: ${secs1(o.durationMs)} sn`);
+    en.push(`- ${utcStamp(o.at)} / local ${localStampText(o.at)}: ${en1(o.durationMs)} s`);
+    if (o.nic) {
+      tr.push(`    Misafir NIC'e gelen paket hızı ${num(o.nic.baseline)} → ${num(o.nic.rxpMin)} paket/sn'ye düştü (sunucuya neredeyse hiç paket ulaşmadı).`);
+      en.push(`    Inbound packet rate on the guest NIC dropped from ${o.nic.baseline} to ${o.nic.rxpMin} packets/s (almost no packets reached the guest).`);
+    }
+    if (o.probe) {
+      const kinds = o.probe.udp && o.probe.tcp ? ['UDP (DNS) ve TCP (443)', 'UDP (DNS) and TCP (443)'] : o.probe.udp ? ['UDP (DNS)', 'UDP (DNS)'] : ['TCP (443)', 'TCP (443)'];
+      tr.push(`    Aynı anda sunucudan dışarıya giden ${kinds[0]} sondaları yanıtsız kaldı: ${o.probe.targets.join(', ')} (${num(o.probe.lost)} sonda art arda).`);
+      en.push(`    At the same time outbound ${kinds[1]} probes from the server got no reply: ${o.probe.targets.join(', ')} (${o.probe.lost} consecutive probes).`);
+    }
+  }
+  tr.push('', 'Misafir işletim sistemindeki sayaçlar (kesinti çevresinde):');
+  en.push('', 'Guest OS counters (around the outage):');
+  if (facts.nicDrops !== null) {
+    tr.push(`- NIC düşen/hatalı paket: ${num(facts.nicDrops)}; UDP tampon hatası: ${num(facts.udpErrors)}${facts.nicDrops + facts.udpErrors === 0 ? ' → paketler makineye hiç gelmedi; kayıp misafirin dışında.' : ''}`);
+    en.push(`- NIC dropped/errored packets: ${facts.nicDrops}; UDP buffer errors: ${facts.udpErrors}${facts.nicDrops + facts.udpErrors === 0 ? ' → the packets never arrived at the guest; the loss is upstream of the VM.' : ''}`);
+  } else {
+    tr.push('- Saniyelik sayaç kaydı bu aralık için elde yok.');
+    en.push('- Per-second counters are not available for this interval.');
+  }
+  if (facts.psiMax !== null) {
+    tr.push(`- CPU baskısı (PSI) en çok %${nf1.format(facts.psiMax)}: sunucu yük altında değildi.`);
+    en.push(`- CPU pressure (PSI) peaked at ${facts.psiMax.toFixed(1)}%: the server was not overloaded.`);
+  }
+  if (facts.burst) {
+    const b = facts.burst;
+    const when = b.secBeforeLoss === null ? 'Kesinti sırasında ' : b.secBeforeLoss === 0 ? 'Kesintinin hemen öncesinde ' : `Kesintiden ${num(b.secBeforeLoss)} sn önce `;
+    tr.push(`- ${when}giden trafik ${mbpsText(b.txMbps)}${b.txPps != null ? ` / ${num(b.txPps)} paket/sn` : ''} düzeyine sıçradı (olağanı ${mbpsText(b.baseTxMbps)}).`);
+    en.push(`- ${b.secBeforeLoss === null ? 'Around' : b.secBeforeLoss === 0 ? 'Immediately before' : `${b.secBeforeLoss} s before`} the outage egress traffic spiked to ${b.txMbps} Mbps${b.txPps != null ? ` / ${b.txPps} packets/s` : ''} (baseline ${b.baseTxMbps} Mbps).`);
+  }
+  tr.push(
+    '',
+    `İstek: Bu zaman aralıklarında hipervizör, sanal anahtar ve ağ koruma (DDoS süzgeci / hız sınırlayıcı) kayıtlarını inceler misiniz?${facts.burst ? ' Ani trafik artışında devreye giren bir hız sınırı (policer) var mı?' : ''}`,
+  );
+  en.push(
+    '',
+    `Request: Could you check the hypervisor, virtual switch and network protection (DDoS filter / rate limiter) logs for these intervals?${facts.burst ? ' Is there a policer that triggers on traffic bursts?' : ''}`,
+  );
+  return { tr: tr.join('\n'), en: en.join('\n') };
+}
+
+/** Kesinti(ler) için sağlayıcıya gönderilecek metin; sayaçlar kesinti çevresindeki saniyelerden okunur */
+function openProviderReport(outages, meta) {
+  openSheet('Sağlayıcı raporu');
+  const seq = ++sheet.seq;
+  void (async () => {
+    const facts = { serverIp: meta.serverIp ?? null, iface: meta.iface ?? null, nicDrops: null, udpErrors: null, psiMax: null, burst: meta.burst ?? null };
+    try {
+      let rows = meta.rows ?? null;
+      if (!rows) {
+        const from = Math.min(...outages.map((o) => o.at)) - 5_000;
+        const to = Math.min(from + 14 * 60_000, Math.max(...outages.map((o) => o.at + o.durationMs)) + 5_000);
+        rows = (await apiGet(`/api/admin/net/seconds?from=${from}&to=${to}`)).rows;
+      }
+      if (rows.length > 0) {
+        facts.nicDrops = rows.reduce((n, r) => n + r.nd, 0);
+        facts.udpErrors = rows.reduce((n, r) => n + r.ur + r.us, 0);
+        const psi = rows.map((r) => r.psi).filter((v) => v !== null && v !== undefined);
+        facts.psiMax = psi.length > 0 ? Math.max(...psi) : null;
+      }
+    } catch (err) {
+      if (err instanceof AccessError) return;
+      // Sayaçlar alınamadıysa rapor onlarsız yazılır
+    }
+    if (seq !== sheet.seq) return;
+    const text = providerReportText(outages, facts);
+    $('adm-sheet-body').replaceChildren(
+      h('div', 'adm-sub', 'Barındırma sağlayıcısına destek talebi olarak gönderilebilecek özet. Metni göndermeden önce gözden geçir.'),
+      h('div', 'adm-card', h('div', 'adm-label', 'Türkçe'), h('pre', 'adm-pre', text.tr), copyButton(text.tr)),
+      h('div', 'adm-card', h('div', 'adm-label', 'English'), h('pre', 'adm-pre', text.en), copyButton(text.en)),
+    );
+  })();
+}
+
+// ---------- Olaylar: yayın donmaları + kalite sorunları tek zaman çizelgesinde ----------
+
+const CONFIDENCE_TONE = { yüksek: 'ok', orta: 'warn', düşük: 'muted' };
+/** Olay hangi bölümü gösteriyor: rozet tonu */
+const SEGMENT_TONE = { saglayici: 'bad', saglayici_gelen: 'bad', saglayici_giden: 'bad', sunucu: 'bad', sfu: 'bad', yayinci: 'warn', kullanici: 'warn', belirsiz: 'muted' };
+/** Eski kayıtlarda özet cümlesi yok */
+const freezeSummary = (f) => f.summary ?? `Olası neden: ${f.label}`;
+/** Kalite kaydı bu olayın kanalında ve penceresinde mi (±30 sn) */
+const incidentInFreeze = (i, f) => i.channelId === f.channelId && i.start <= f.end + 30_000 && i.end >= f.start - 30_000;
+
+function freezeRow(f, x, linked) {
+  const channel = x.channels[f.channelId]?.name;
+  const names = f.users.map((u) => userName(x.users[u.userId], 'Kullanıcı'));
+  const outs = f.server?.outages ?? [];
+  const tests = (x.lineTests ?? []).filter((t) => t.freezeIds.includes(f.id));
+  return h(
+    'li',
+    { class: 'adm-row adm-row-top adm-clickable', tabindex: 0, role: 'button', on: rowOpen(() => openFreeze(f, x)) },
+    h(
+      'div',
+      'adm-row-main',
+      h('div', 'adm-row-title', freezeSummary(f)),
+      h('div', 'adm-sub', `${dateTime(f.start)} – ${clock(f.end)} · ${duration((f.end - f.start) / 1000)}${channel ? ` · 🔊 ${channel}` : ''} · ${num(f.affected)}/${num(f.users.length)} kullanıcı etkilendi: ${names.slice(0, 6).join(', ')}${names.length > 6 ? '…' : ''}`),
+      f.evidence[0] && h('div', 'adm-sub', f.evidence[0]),
+      h(
+        'div',
+        'adm-badges',
+        badge(f.label, SEGMENT_TONE[f.segment] ?? 'warn'),
+        badge(`güven: ${f.confidence}`, CONFIDENCE_TONE[f.confidence] ?? 'muted'),
+        outs.map((o) => badge(`${(OUTAGE_KIND[o.kind] ?? [o.kind])[0]} ${secs1(o.durationMs)} sn`, 'bad')),
+        f.freezes > 0 && badge(`${num(f.freezes)} donma · ${dec(f.freezeSec)} sn`),
+        f.probe === 'kayıp' && outs.length === 0 && badge('dış sondalarda kayıp', 'warn'),
+        f.probe === 'temiz' && badge('dış sondalar temiz', 'muted'),
+        f.factors.some((t) => t.startsWith('patlama_sonrasi')) && badge('patlama sonrası', 'warn'),
+        (f.missing?.length ?? 0) > 0 && badge(`${num(f.missing.length)} eksik kanıt`, 'muted'),
+        linked.length > 0 && badge(`${num(linked.length)} kişisel kalite kaydı`, 'muted'),
+        tests.length > 0 && badge(`${num(tests.length)} hat testi çakışıyor`, 'muted'),
+      ),
+    ),
+  );
+}
+
+function eventsView(x) {
   const now = x.now;
   const st = x.storage;
+  const s = x.netSampler;
+  const freezeList = x.freezes ?? [];
   const pick = (days) => {
     ui.incidentDays = days;
-    delete extra.data.ses;
+    delete extra.data.teshis;
     void loadExtra(true);
   };
+  // Tek zaman çizelgesi: yayın donması olayları + onlara bağlanamayan (tek kullanıcılık) kalite kayıtları
+  const linkedOf = new Map(freezeList.map((f) => [f.id, x.incidents.filter((i) => incidentInFreeze(i, f))]));
+  const linkedIds = new Set([...linkedOf.values()].flat().map((i) => i.id));
+  const single = x.incidents.filter((i) => !linkedIds.has(i.id));
+  const items = [...freezeList.map((f) => ({ end: f.end, freeze: f })), ...single.map((i) => ({ end: i.end, incident: i }))].sort((a, b) => b.end - a.end);
+  const shown = ui.allEvents ? items : items.slice(0, 60);
+  const counts = new Map();
+  for (const f of freezeList) counts.set(f.label, (counts.get(f.label) ?? 0) + 1);
+  const reads = s ? [s.readable.net && 'ağ', s.readable.snmp && 'UDP', s.readable.softnet && 'softnet', s.readable.psi && 'CPU baskısı', s.readable.conntrack && 'conntrack'].filter(Boolean) : [];
   return [
     h(
       'article',
       'adm-card adm-wide',
-      h('div', 'adm-label', 'Kötü kalite dönemleri: kim, ne zaman, ne kadar, olası neden'),
+      h('div', 'adm-label', 'Olaylar: birden çok kullanıcıyı etkileyen donma/kayıp olayları (arızalı bölüm ve kanıtla) ve tek kullanıcılık kalite sorunları'),
       chips(
         [
           [1, 'Son 24 saat'],
@@ -1112,78 +1655,42 @@ function incidents(x) {
         pick,
         'Dönem',
       ),
-      x.incidents.length === 0
-        ? h('div', 'adm-sub', 'Bu dönemde kalite sorunu yok.')
+      freezeList.length > 0 &&
+        h(
+          'div',
+          'adm-badges',
+          [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([label, n]) => badge(`${label}: ${num(n)}`, 'muted')),
+          single.length > 0 && badge(`tek kullanıcı kalite sorunu: ${num(single.length)}`, 'muted'),
+        ),
+      items.length === 0
+        ? h('div', 'adm-sub', 'Bu dönemde olay yok.')
         : h(
             'ul',
             'adm-rows',
-            x.incidents.slice(0, 60).map((i) => incidentRow(i, x, now)),
+            shown.map((it) => (it.freeze ? freezeRow(it.freeze, x, linkedOf.get(it.freeze.id) ?? []) : incidentRow(it.incident, x, now))),
           ),
+      items.length > shown.length &&
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'adm-more',
+            on: {
+              click: () => {
+                ui.allEvents = true;
+                renderDiag({ view: 'olaylar', data: x });
+              },
+            },
+          },
+          `Tümünü göster (${num(items.length)})`,
+        ),
       h(
         'div',
         'adm-sub adm-note',
-        `Ölçümler ${num(st.retentionDays)} gün saklanır (${num(st.files)} gün dosyası, ${bytes(st.bytes)}). Son 24 saatte ${num(st.reports24h)} özet` +
-          `${st.dropped ? ` · boyut sınırı yüzünden yazılmayan ${num(st.dropped)}` : ''}.`,
-      ),
-    ),
-  ];
-}
-
-// ---------- Yayın donmaları ----------
-
-/** Olayın en olası nedeni için rozet tonu */
-const FREEZE_TONE = { ortak_yol: 'warn', sunucu_kaynak: 'warn', yayinci_yukleme: 'warn', kodlayici: 'warn' };
-
-function freezeRow(f, x) {
-  const channel = x.channels[f.channelId]?.name;
-  const names = f.users.map((u) => userName(x.users[u.userId], 'Kullanıcı'));
-  const srv = f.server;
-  return h(
-    'li',
-    { class: 'adm-row adm-row-top adm-clickable', tabindex: 0, role: 'button', on: rowOpen(() => openFreeze(f, x)) },
-    h(
-      'div',
-      'adm-row-main',
-      h('div', 'adm-row-title', f.label, ' ', badge(`güven: ${f.confidence}`, 'muted')),
-      h('div', 'adm-sub', `${dateTime(f.start)} – ${clock(f.end)} · ${duration((f.end - f.start) / 1000)}${channel ? ` · 🔊 ${channel}` : ''}`),
-      h('div', 'adm-sub', `${num(f.affected)}/${num(f.users.length)} kullanıcı etkilendi: ${names.slice(0, 6).join(', ')}${names.length > 6 ? '…' : ''}`),
-      h(
-        'div',
-        'adm-badges',
-        badge(f.label, FREEZE_TONE[f.cause]),
-        f.freezes > 0 && badge(`${num(f.freezes)} donma · ${dec(f.freezeSec)} sn`),
-        f.probe === 'kayıp' && badge('dış sondalarda kayıp', 'warn'),
-        f.probe === 'temiz' && badge('dış sondalar temiz', 'muted'),
-        srv?.txMbpsMax != null && badge(`sunucu ↑ ${dec(srv.txMbpsMax)} Mbps`, 'muted'),
-        srv && srv.nicDrops > 0 && badge(`NIC düşüşü ${num(srv.nicDrops)}`, 'warn'),
-        f.factors.slice(0, 2).map((t) => badge(t, 'muted')),
-      ),
-    ),
-  );
-}
-
-function freezes(x) {
-  const list = x.freezes ?? [];
-  const s = x.netSampler;
-  const reads = s ? [s.readable.net && 'ağ', s.readable.snmp && 'UDP', s.readable.softnet && 'softnet', s.readable.psi && 'CPU baskısı'].filter(Boolean) : [];
-  return [
-    h(
-      'article',
-      'adm-card adm-wide',
-      h('div', 'adm-label', 'Aynı anda kayıp/donma: en olası neden ve kanıt (sunucu saniyelik ağ kaydı + dış sondalar + istemci özetleri)'),
-      list.length === 0
-        ? h('div', 'adm-sub', 'Bu dönemde yayın donması olayı yok.')
-        : h(
-            'ul',
-            'adm-rows',
-            list.slice(0, 60).map((f) => freezeRow(f, x)),
-          ),
-      h(
-        'div',
-        'adm-sub adm-note',
-        s && reads.length > 0
-          ? `Sunucu saniyelik ölçüm: ${s.iface ?? '?'} · okunan: ${reads.join(', ')} · ağ geçidi ${s.gateway ?? 'bilinmiyor'} · bellekte ${num(s.ring)} sn, diske yazılan ${num(s.persistedRows)} satır.`
-          : 'Sunucu saniyelik ağ ölçümü çalışmıyor (yalnızca Linux sunucuda /proc okunur).',
+        `İstemci özetleri ${num(st.retentionDays)} gün saklanır (${num(st.files)} gün dosyası, ${bytes(st.bytes)}); son 24 saatte ${num(st.reports24h)} özet${st.dropped ? ` · boyut sınırı yüzünden yazılmayan ${num(st.dropped)}` : ''}. ` +
+          (s && reads.length > 0
+            ? `Sunucu saniyelik ölçüm: ${s.iface ?? '?'} · okunan: ${reads.join(', ')}.`
+            : 'Sunucu saniyelik ağ ölçümü çalışmıyor (yalnızca Linux sunucuda /proc okunur).'),
       ),
     ),
   ];
@@ -1196,7 +1703,7 @@ function openFreeze(f, x) {
     try {
       const d = await apiGet(`/api/admin/telemetry/freezes/${encodeURIComponent(f.id)}`);
       if (seq !== sheet.seq) return;
-      $('adm-sheet-body').replaceChildren(...freezeDetail(d, x));
+      $('adm-sheet-body').replaceChildren(...freezeDetail(d, x).flat(Infinity).filter(Boolean));
     } catch (err) {
       if (err instanceof AccessError || seq !== sheet.seq) return;
       $('adm-sheet-body').replaceChildren(h('div', 'adm-sub', `Veri alınamadı: ${err.message}`));
@@ -1204,19 +1711,84 @@ function openFreeze(f, x) {
   })();
 }
 
+/** Kullanıcı başına zaman şeridi: özet pencereleri (kayba göre renkli) ve kesinti bantları */
+function userLanes(f, x) {
+  const users = f.users.filter((u) => (u.w?.length ?? 0) > 0);
+  if (users.length === 0) return null;
+  const from = f.start;
+  const span = Math.max(1_000, f.end - f.start);
+  const W = 1000;
+  const H = 16;
+  const px = (t) => (Math.max(0, Math.min(span, t - from)) / span) * W;
+  const outs = f.server?.outages ?? [];
+  const lanes = users.map((u) => {
+    const name = userName(x.users[u.userId], 'Kullanıcı');
+    const chart = svg('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': `${name}: olay süresince özet pencereleri` });
+    for (const r of u.w) {
+      const a = r.a - Math.max(1, r.s) * 1000;
+      if (r.a <= from || a >= f.end) continue;
+      const worst = Math.max(r.o ?? 0, r.i ?? 0);
+      const rect = svg('rect', {
+        x: px(a) + 1,
+        width: Math.max(3, px(r.a) - px(a) - 2),
+        y: 1,
+        height: H - 2,
+        rx: 2,
+        class: worst >= 10 || r.f >= 2 ? 'adm-bar-bad' : worst >= 3 || r.f > 0 ? 'adm-bar-warn' : 'adm-bar-ok',
+      });
+      const tip = svg('title', {});
+      tip.textContent = `${clock(a, true)} – ${clock(r.a, true)} · kayıp ↑ ${pct(r.o)} ↓ ${pct(r.i)}${r.f ? ` · ${num(r.f)} donma` : ''}${r.r !== null ? ` · ping ${msText(r.r)}` : ''}`;
+      rect.append(tip);
+      chart.append(rect);
+    }
+    for (const o of outs) {
+      chart.append(svg('rect', { x: px(o.at), width: Math.max(4, px(o.at + o.durationMs) - px(o.at)), y: 0, height: H, class: 'adm-lane-mark' }));
+    }
+    return h('div', 'adm-lane', h('span', 'adm-lane-name', name, ' ', h('span', 'adm-muted', u.role)), h('div', 'adm-lane-bar', chart));
+  });
+  return panel(
+    'Kullanıcı şeritleri: her kutu bir istemci özeti penceresi (yeşil temiz, sarı kayıp ≥ %3 ya da donma, kırmızı kayıp ≥ %10); dikey kırmızı bant kesinti',
+    lanes,
+    h('div', 'adm-axis', h('span', null, clock(f.start, true)), h('span', null, clock(f.end, true))),
+  );
+}
+
 function freezeDetail(d, x) {
   const f = d.event;
   const rows = d.rows;
+  const lk = d.lk ?? [];
+  const outs = f.server?.outages ?? [];
+  const marks = outageMarks(outs);
+  const linked = x.incidents.filter((i) => incidentInFreeze(i, f));
+  const tests = (x.lineTests ?? []).filter((t) => t.freezeIds.includes(f.id));
+  const meta = { serverIp: d.serverIp ?? null, iface: x.netSampler?.iface ?? null, burst: f.server?.burst ?? null, rows: rows.length > 0 ? rows : null };
   const out = [];
   out.push(
     h(
       'div',
-      'adm-card',
-      h('div', 'adm-label', `Olası neden: ${f.label} (güven: ${f.confidence})`),
+      `adm-card adm-tone-${SEGMENT_TONE[f.segment] === 'bad' ? 'bad' : 'warn'}`,
+      h('div', 'adm-row-title', freezeSummary(f)),
+      h('div', 'adm-badges', badge(f.label, SEGMENT_TONE[f.segment] ?? 'warn'), badge(`güven: ${f.confidence}`, CONFIDENCE_TONE[f.confidence] ?? 'muted')),
+      h('div', 'adm-label', 'Kanıt'),
       f.evidence.map((t) => h('div', 'adm-sub', `• ${t}`)),
-      f.factors.length > 0 && h('div', 'adm-sub', `Diğer etkenler: ${f.factors.join(' · ')}`),
+      f.factors.length > 0 && [h('div', 'adm-label', 'Diğer etkenler'), f.factors.map((t) => h('div', 'adm-sub', `• ${t}`))],
+      (f.missing?.length ?? 0) > 0 && [h('div', 'adm-label', 'Eksik kanıt (doğrulanamayanlar)'), f.missing.map((t) => h('div', 'adm-sub', `• ${t}`))],
+      outs.length > 0 && h('button', { type: 'button', class: 'adm-more', on: { click: () => openProviderReport(outs, meta) } }, 'Sağlayıcı raporu'),
     ),
   );
+  if (outs.length > 0) {
+    out.push(
+      panel(
+        'Olay penceresindeki kesintiler',
+        h(
+          'ul',
+          'adm-rows',
+          outs.map((o) => outageRow(o, meta)),
+        ),
+      ),
+    );
+  }
+  out.push(userLanes(f, x));
   const userRows = f.users.map((u) => {
     const s = u.screen;
     return h(
@@ -1238,6 +1810,7 @@ function freezeDetail(d, x) {
           s?.encoder && badge(`${s.encoder}${s.hardware ? ' (donanım)' : ''}`, 'muted'),
           s && s.limitation !== 'none' && badge(`kısıtlama: ${s.limitation}`, 'warn'),
           u.watchFpsMin != null && badge(`izleme ${dec(u.watchFpsMin)} fps`, 'muted'),
+          u.route && badge(u.route.replace('·', ' · '), 'muted'),
           badge(`${PLATFORM[u.platform] ?? u.platform}`, 'muted'),
         ),
       ),
@@ -1246,52 +1819,149 @@ function freezeDetail(d, x) {
   out.push(panel('Kullanıcılar (istemci özetleri, olay süresince en kötü değerler)', h('ul', 'adm-rows', userRows)));
   if (rows.length < 2) {
     out.push(h('div', 'adm-card adm-empty', 'Bu olay için sunucu saniyelik kaydı yok (sunucu ölçümü kapalıydı ya da yeni başlamıştı).'));
-    return out;
-  }
-  const chart = (label, pick, format, opts = {}) => {
-    const pts = rows.map((r) => ({ at: r.t, v: pick(r) }));
-    if (!pts.some((p) => p.v !== null && p.v !== undefined)) return null;
-    const last = pts.findLast((p) => p.v !== null && p.v !== undefined)?.v;
-    return h(
-      'div',
-      'adm-card adm-chart',
-      h('div', 'adm-net-head', h('span', 'adm-muted', label), h('b', null, format(last))),
-      sparkline(pts, { format, label, axis: true, ...opts }),
+  } else {
+    const sv = f.server;
+    out.push(
+      h(
+        'div',
+        'adm-sub',
+        `Olay penceresi ${clock(f.start, true)} – ${clock(f.end, true)}; grafikler 30 sn öncesinden başlar, kırmızı bantlar kesinti saniyeleridir. İstemci özetleri 10–30 sn'lik pencerelerdir: hizalama saniyeye değil pencereyedir.` +
+          (sv?.rxPpsMin != null ? ` Gelen paket ${num(sv.rxPpsMin)}–${num(sv.rxPpsMax)}/sn${sv.rxDip ? `, en derin çöküş ${clock(sv.rxDip.at, true)} anında olağanın ${pct(sv.rxDip.pct)}'i` : ''}.` : ''),
+      ),
+      serverCharts(rows, marks),
     );
-  };
-  const external = (r) => Object.entries(r.p ?? {}).filter(([k]) => k !== 'ağ geçidi').map(([, v]) => v);
-  const probeLost = (r) => {
-    const v = external(r);
-    return v.length === 0 ? null : (v.filter((n) => n < 0).length / v.length) * 100;
-  };
-  const probeRtt = (r) => {
-    const v = external(r).filter((n) => n >= 0);
-    return v.length === 0 ? null : Math.max(...v);
-  };
-  out.push(
-    h('div', 'adm-sub', `Olay penceresi ${clock(f.start, true)} – ${clock(f.end, true)}; grafikler 30 sn öncesinden başlar. İstemci özetleri 30 sn'lik pencerelerdir: hizalama saniyeye değil pencereyedir.`),
-    h(
-      'div',
-      'adm-chart-grid',
-      chart('Sunucu giden (NIC)', (r) => r.tx, (v) => `${dec(v)} Mbps`),
-      chart('Sunucu gelen (NIC)', (r) => r.rx, (v) => `${dec(v)} Mbps`, { color: 'ok' }),
-      chart('NIC düşen/hatalı paket', (r) => r.nd, (v) => `${num(v)} paket`, { max: 5, color: 'pink' }),
-      chart('UDP tampon/giriş hatası', (r) => r.ue + r.ur + r.us, (v) => `${num(v)} paket`, { max: 5, color: 'pink' }),
-      chart('Dış sonda kaybı (saniye başına)', probeLost, (v) => pct(v, 0), { max: 100, color: 'pink' }),
-      chart('Dış sonda gecikmesi (en yüksek)', probeRtt, msText, { max: 100 }),
-      chart('LiveKit işlemcisi', (r) => r.lk, (v) => `%${dec(v * 100, 0)} çekirdek`, { max: 1, color: 'ok' }),
-      chart('CPU baskısı (PSI)', (r) => r.psi, (v) => pct(v), { max: 10, color: 'pink' }),
-    ),
-  );
+  }
+  if (lk.length >= 2) {
+    out.push(
+      h('div', 'adm-sub', 'LiveKit ölçümleri (düğüm geneli; LiveKit katılımcı başına ölçüm vermez). Olay açıkken 2 saniyede bir, öncesinde 10 saniyede bir.'),
+      lkCharts(lk, marks),
+    );
+  } else if (f.livekit === undefined || f.livekit === null) {
+    out.push(h('div', 'adm-sub', 'Bu olay için LiveKit ölçümü kaydedilmedi.'));
+  }
+  if (tests.length > 0) {
+    out.push(
+      panel(
+        'Bu olayla çakışan hat testleri (±60 sn); ayrıntısı Testler görünümünde',
+        h(
+          'ul',
+          'adm-rows',
+          tests.map((t) =>
+            h(
+              'li',
+              'adm-row adm-row-top',
+              h(
+                'div',
+                'adm-row-main',
+                h('div', 'adm-row-title', (t.who.userId ? x.users[t.who.userId]?.displayName : null) ?? t.who.name, ' ', h('span', 'adm-muted', `${clock(t.at, true)} – ${clock(t.end, true)}`)),
+                t.findings.map((fd) => h('div', 'adm-sub', `${FINDING_WORD[fd.tone] ?? ''}: ${fd.text}`)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  if (linked.length > 0) {
+    out.push(
+      panel(
+        'Bu olaya bağlı kişisel kalite kayıtları (kişiye dokun: bağlantı kalitesi ayrıntısı)',
+        h(
+          'ul',
+          'adm-rows',
+          linked.map((i) => incidentRow(i, x, x.now)),
+        ),
+      ),
+    );
+  }
   return out;
 }
 
-// ---------- Hat testleri (LiveKit'ten bağımsız UDP/TCP ölçümü; bkz. tools/udp-probe) ----------
+// ---------- Ayrıntı: LiveKit ölçümleri ve dakikalık ağ geçmişi ----------
 
-const LINE_PROFILE = { ramp: 'Hız basamakları', pps: 'Küçük paket (pps)', steady: 'Yayın benzeri', quick: 'Kısa test' };
+function minuteHistory(m) {
+  const rows = m.rows;
+  const pickDay = (day) => {
+    ui.minuteDay = day === m.days[0] ? null : day;
+    delete extra.data.teshis;
+    void loadExtra(true);
+  };
+  const dayChips =
+    m.days.length > 1 &&
+    chips(
+      m.days.slice(0, 14).map((day) => [day, day.slice(5).split('-').reverse().join('.')]),
+      m.day,
+      pickDay,
+      'Gün',
+    );
+  if (rows.length < 2) {
+    return h(
+      'article',
+      'adm-card adm-wide',
+      h('div', 'adm-label', `Dakikalık ağ geçmişi · ${m.day}`),
+      dayChips,
+      h('div', 'adm-sub', 'Bu gün için dakikalık özet yok (ölçüm yeni başladı ya da yalnızca Linux sunucuda çalışır). Özetler 14 gün saklanır.'),
+    );
+  }
+  const chart = (label, pick, format, opts = {}) =>
+    chartBox(
+      label,
+      rows.map((r) => ({ at: r.at, v: pick(r) })),
+      format,
+      { seconds: false, ...opts },
+    );
+  const probeLoss = (r) => {
+    const v = Object.entries(r.p ?? {}).filter(([k]) => k !== 'ağ geçidi');
+    const sent = v.reduce((n, [, x]) => n + x[0], 0);
+    return sent === 0 ? null : (v.reduce((n, [, x]) => n + x[1], 0) / sent) * 100;
+  };
+  const total = (pick) => rows.reduce((n, r) => n + (pick(r) ?? 0), 0);
+  return h(
+    'article',
+    'adm-card adm-wide',
+    h('div', 'adm-label', `Dakikalık ağ geçmişi · ${m.day} (sunucu saat dilimi) · ${num(rows.length)} dakika`),
+    dayChips,
+    h(
+      'div',
+      'adm-badges',
+      badge(`kesinti işaretli ${num(total((r) => r.o))} sn`, total((r) => r.o) > 0 ? 'warn' : 'muted'),
+      badge(`NIC düşen ${num(total((r) => r.nd))}`, total((r) => r.nd) > 0 ? 'warn' : 'muted'),
+      badge(`UDP tampon hatası ${num(total((r) => r.ur + r.us))}`, total((r) => r.ur + r.us) > 0 ? 'warn' : 'muted'),
+      badge(`dinleyensiz porta gelen ${num(total((r) => r.un))}`, 'muted'),
+    ),
+    h(
+      'div',
+      'adm-chart-grid',
+      chart('Gelen (dakikanın en yükseği)', (r) => r.rx?.[1] ?? null, mbpsText, { color: 'ok' }),
+      chart('Giden (dakikanın en yükseği)', (r) => r.tx?.[1] ?? null, mbpsText),
+      chart('Gelen paket (dakikanın en düşüğü)', (r) => r.rxp?.[0] ?? null, ppsText, { color: 'ok' }),
+      chart('Gelen paket (ortalama)', (r) => r.rxp?.[1] ?? null, ppsText, { color: 'ok' }),
+      chart('Kesinti işaretli saniye', (r) => r.o, (v) => `${num(v)} sn`, { max: 5, color: 'pink' }),
+      chart('Dış sonda kaybı', probeLoss, (v) => pct(v), { max: 5, color: 'pink' }),
+      chart('NIC düşen/hatalı paket', (r) => r.nd, (v) => `${num(v)} paket`, { max: 5, color: 'pink' }),
+      chart('UDP tampon/giriş hatası', (r) => r.ue + r.ur + r.us, (v) => `${num(v)} paket`, { max: 5, color: 'pink' }),
+      chart('CPU baskısı (en yüksek)', (r) => r.psi, (v) => pct(v), { max: 10, color: 'pink' }),
+      chart('Bağlantı izleme tablosu (conntrack)', (r) => (r.ct != null && r.ctm ? (r.ct / r.ctm) * 100 : null), (v) => pct(v), { max: 100 }),
+      chart('Sesteki kişi (en çok)', (r) => r.vp, (v) => `${num(v)} kişi`, { max: 1 }),
+      chart('LiveKit işlemcisi (en yüksek)', (r) => r.lk, (v) => `%${dec(v * 100, 0)} çekirdek`, { max: 1, color: 'ok' }),
+    ),
+    h('div', 'adm-sub adm-note', 'Dakikalık özetler tek ağ örnekleyicisinden (saniyelik kayıt) türetilir ve 14 gün saklanır (telemetry/netmin-*.jsonl).'),
+  );
+}
+
+function detailView(x) {
+  return [minuteHistory(x.minutes), h('h3', 'adm-subhead adm-wide', 'Ses sunucusu (LiveKit)'), livekit(x.infra)];
+}
+
+// ---------- Testler: hat testleri (LiveKit'ten bağımsız UDP/TCP ölçümü; bkz. tools/udp-probe) ----------
+
+const LINE_PROFILE = { ramp: 'Hız basamakları', pps: 'Küçük paket (pps)', steady: 'Yayın benzeri', quick: 'Kısa test', burst: 'Patlama' };
 const LINE_MODE = { up: 'yukarı', down: 'aşağı', both: 'iki yön' };
 const LINE_TONE = { bad: 'bad', warn: 'warn', ok: 'ok', info: 'muted' };
-const LINE_SERVER = 'https://diskort.ziroo.net';
+/** Komutlarda gösterilen sunucu adresi: panelin açıldığı köken */
+const LINE_SERVER = location.origin;
+/** Aşamanın sunucu tarafında görülen kesintileri */
+const runOutages = (r) => r.outages ?? [];
 
 /** Aşamanın bir yönündeki toplam kayıp yüzdesi (ölçülmediyse null) */
 function dirLoss(run, dir) {
@@ -1329,7 +1999,7 @@ function lossBars(seconds, steps, label) {
     bar.append(tip);
     chart.append(bar);
   });
-  return h('div', 'adm-bars', chart, h('div', 'adm-axis', h('span', null, `0 – ${n} sn`), h('span', null, `tepe %${nf1.format(top)}`)));
+  return h('div', 'adm-lossbars', chart, h('div', 'adm-axis', h('span', null, `0 – ${n} sn`), h('span', null, `tepe %${nf1.format(top)}`)));
 }
 
 function lineBadges(s) {
@@ -1366,6 +2036,7 @@ function lineRow(s, x) {
         'adm-badges',
         up !== null && badge(`kayıp ↑ ${pct(up)}`, up >= 2 ? 'bad' : up >= 1 ? 'warn' : 'muted'),
         down !== null && badge(`kayıp ↓ ${pct(down)}`, down >= 2 ? 'bad' : down >= 1 ? 'warn' : 'muted'),
+        s.runs.some((r) => runOutages(r).length > 0) && badge('test sırasında sunucu kesinti gördü', 'bad'),
         s.freezeIds.length > 0 && badge('donma olayıyla çakışıyor', 'warn'),
         lineBadges(s),
       ),
@@ -1401,12 +2072,12 @@ function lineGroup(g, x) {
   );
 }
 
-async function newLineCode(msg, btn) {
+async function newLineCode(msg, btn, admin = false) {
   btn.disabled = true;
   msg.textContent = '';
   try {
-    await apiSend('POST', '/api/admin/line-test/codes', { label: '', hours: 12, maxUses: 40 });
-    delete extra.data['hat-testleri'];
+    await apiSend('POST', '/api/admin/line-test/codes', { label: admin ? 'yönetici' : '', hours: 12, maxUses: admin ? 20 : 40, admin });
+    delete extra.data.teshis;
     await loadExtra(true);
   } catch (err) {
     if (err instanceof AccessError) return;
@@ -1415,30 +2086,33 @@ async function newLineCode(msg, btn) {
   }
 }
 
-const lineCommand = (code) => `node probe.mjs --server ${LINE_SERVER} --kod ${code} --ad ADIN`;
+const lineCommand = (code, extraArgs = '') => `node probe.mjs --server ${LINE_SERVER} --kod ${code} --ad ADIN${extraArgs}`;
+
+/** Kopyalanabilir komut satırı */
+const commandLine = (text) => h('div', 'adm-command', h('code', 'adm-pre adm-pre-inline', text), copyButton(text));
 
 function lineTests(x) {
   const msg = h('div', 'adm-sub');
   const btn = h('button', { type: 'button', class: 'adm-more', on: { click: () => void newLineCode(msg, btn) } }, 'Test kodu üret (12 saat)');
+  const adminBtn = h('button', { type: 'button', class: 'adm-more', on: { click: () => void newLineCode(msg, adminBtn, true) } }, 'Yönetici kodu üret (patlama testi)');
   const out = [
     h(
       'article',
       'adm-card adm-wide',
-      h('div', 'adm-label', 'Hat testi: istemci ↔ sunucu UDP yolunu LiveKit olmadan ölçer (yukarı/aşağı kayıp, hız eşiği, paket/sn, TCP karşılaştırması)'),
+      h('div', 'adm-label', 'Hat testi: istemci ↔ sunucu UDP yolunu sese girmeden ölçer (yukarı/aşağı kayıp, hız eşiği, paket/sn, TCP karşılaştırması, patlama)'),
       x.enabled
         ? h(
             'div',
             'adm-badges',
             badge(`UDP port ${x.port}`, 'ok'),
-            badge(`şu an ${num(x.active)} test · ${dec(x.reservedMbps)}/${num(x.maxMbps)} Mbps ayrılmış`, 'muted'),
+            badge(`şu an ${num(x.active)} test · ${dec(x.reservedMbps)} Mbps ayrılmış (sınır ${num(x.maxMbps)}, yönetici ${num(x.adminMaxMbps ?? x.maxMbps)} Mbps)`, 'muted'),
             badge(x.streamLive ? 'şu an canlı yayın var' : 'canlı yayın yok', x.streamLive ? 'live' : 'muted'),
           )
         : h('div', 'adm-sub', 'Hat testi kapalı: UDP portu açılamadı ya da LINE_TEST_PORT=off.'),
       x.enabled &&
         x.stats &&
         h('div', 'adm-sub', `Paketler: ${num(x.stats.rx)} alınan · ${num(x.stats.tx)} giden · ${num(x.stats.dropped)} atılan · ${num(x.stats.rateLimited)} sınırlanan · ${num(x.stats.sendErrors)} gönderim hatası`),
-      h('div', 'adm-sub', 'Arkadaşına tools/udp-probe/probe.mjs dosyasını ve aşağıdaki komutu ver (Node kurulu olmalı). Hesabı olanlar uygulamada Ayarlar > Ses > Hat testi düğmesini kullanabilir.'),
-      btn,
+      h('div', 'adm-actions', btn, adminBtn),
       msg,
       x.codes.length > 0 &&
         h(
@@ -1451,12 +2125,41 @@ function lineTests(x) {
               h(
                 'div',
                 'adm-row-main',
-                h('div', 'adm-row-title', c.code, ' ', badge(`${num(c.uses)}/${num(c.maxUses)} kullanım`, 'muted'), ' ', badge(`${clock(c.expiresAt)} saatine kadar`, 'muted')),
-                h('code', 'adm-pre adm-pre-inline', lineCommand(c.code)),
+                h(
+                  'div',
+                  'adm-row-title',
+                  c.code,
+                  ' ',
+                  c.admin && badge('yönetici kodu', 'warn'),
+                  ' ',
+                  badge(`${num(c.uses)}/${num(c.maxUses)} kullanım`, 'muted'),
+                  ' ',
+                  badge(`${clock(c.expiresAt)} saatine kadar`, 'muted'),
+                ),
+                commandLine(lineCommand(c.code)),
+                c.admin && commandLine(lineCommand(c.code, ' --patlama')),
               ),
             ),
           ),
         ),
+    ),
+    h(
+      'article',
+      'adm-card adm-wide',
+      h('div', 'adm-label', 'Nasıl çalıştırılır (herhangi bir bilgisayardan, sese girmeden)'),
+      h('div', 'adm-sub', '1. Yukarıdan bir test kodu üret ve kişiye ver (12 saat geçerli). Patlama testi için yönetici kodu gerekir.'),
+      h('div', 'adm-sub', '2. Windows: tools/udp-probe/hat-testi.cmd dosyasına çift tıklanır, kod ve ad yazılır (probe.mjs yoksa GitHub\'dan indirip SHA-256 ile doğrular; Node yoksa Diskort uygulamasının Node\'unu kullanır). Bu dosya her zaman asıl sunucuyu ölçer.'),
+      commandLine('hat-testi.cmd'),
+      commandLine('hat-testi.cmd --patlama'),
+      h('div', 'adm-sub', '3. Node kurulu her sistemde (probe.mjs ile aynı klasörde):'),
+      commandLine(lineCommand('KOD')),
+      commandLine(lineCommand('KOD', ' --hizli')),
+      commandLine(lineCommand('YONETICI_KODU', ' --patlama')),
+      h(
+        'div',
+        'adm-sub adm-note',
+        'Tam test ~2,5 dk, kısa test ~12 sn, patlama testi ~45 sn sürer. Patlama testi yayındaki sahne değişimini taklit eder (taban 3 Mbps, 2 sn\'lik patlamalar: aşağı 10-20-30-40, yukarı 6-10-12 Mbps) ve sunucunun o sırada kendi ağında kesinti görüp görmediğini sonuca ekler; canlı yayın varken --zorla eklenmedikçe başlamaz. Birkaç kişi aynı anda başlasın diye: --at SS:DD:SN. Hesabı olanlar uygulamada Ayarlar > Ses ve Görüntü > Hat testi düğmesiyle yalnızca kısa testi çalıştırabilir.',
+      ),
     ),
     chips(
       [
@@ -1467,7 +2170,7 @@ function lineTests(x) {
       ui.lineDays,
       (days) => {
         ui.lineDays = days;
-        delete extra.data['hat-testleri'];
+        delete extra.data.teshis;
         void loadExtra(true);
       },
       'Dönem',
@@ -1540,7 +2243,16 @@ function lineRun(r) {
     out.push(h('div', 'adm-sub', `${text}: hedefin %${target ? nf1.format((got / target) * 100) : '—'}'ine ulaştı (${bytes(got)} / ${bytes(target)})`));
   }
   if (r.serverTxMbps != null) out.push(h('div', 'adm-sub', `Sunucu NIC giden: ${dec(r.serverTxMbps)} Mbps (başlangıçta).`));
-  return h('div', 'adm-card', out);
+  // Sunucu tarafı ilişkilendirme: test sürerken dış sondalar / NIC sessizliği kesinti gördü mü
+  for (const o of runOutages(r)) {
+    const where = o.burst ? `"${o.burst}" adımı${o.afterBurstSec ? `ndan ${nf1.format(o.afterBurstSec)} sn sonra` : ' sırasında'}` : o.sec < 0 ? `test başlamadan ${nf1.format(-o.sec)} sn önce başlayan` : `testin ${nf1.format(o.sec)}. saniyesinde${o.step ? ` (${o.step})` : ''}`;
+    out.push(h('div', 'adm-row-title', badge('sunucu kesinti gördü', 'bad'), ' ', `${where}: ${(OUTAGE_KIND[o.kind] ?? [o.kind])[0]}, ${secs1(o.durationMs)} sn`));
+  }
+  if (r.profile === 'burst' && runOutages(r).length === 0) out.push(h('div', 'adm-sub', 'Sunucu tarafı: test sürerken ve hemen sonrasında kesinti görülmedi (dış sondalar ve NIC temiz).'));
+  if (r.loopLag && r.loopLag.maxMs >= 20) {
+    out.push(h('div', 'adm-sub', `Sunucu olay döngüsü gecikmesi en çok ${nf1.format(r.loopLag.maxMs)} ms (${num(r.loopLag.stalls)} takılma): ölçüm sunucu yükünden etkilenmiş olabilir.`));
+  }
+  return h('div', `adm-card${runOutages(r).length > 0 ? ' adm-tone-bad' : ''}`, out);
 }
 
 const FINDING_WORD = { bad: 'sorun', warn: 'dikkat', ok: 'temiz', info: 'bilgi' };
@@ -1556,7 +2268,7 @@ function openLine(s, x) {
       s.findings.map((f) => [h('div', 'adm-row-title', badge(FINDING_WORD[f.tone], LINE_TONE[f.tone]), ' ', f.text), f.evidence && h('div', 'adm-sub', f.evidence)]),
       h('div', 'adm-sub', s.streaming ? `Test sırasında canlı yayın vardı${channels.length ? ` (${channels.join(', ')})` : ''}.` : 'Test sırasında canlı yayın yoktu (boşta ölçüm).'),
       s.freezeIds.length > 0 &&
-        h('div', 'adm-sub', `Çakışan yayın donması olayı: ${s.freezeIds.map((id) => x.freezes.find((f) => f.id === id)?.label ?? id).join(', ')} (Ses sekmesi > Yayın donmaları).`),
+        h('div', 'adm-sub', `Çakışan yayın donması olayı: ${s.freezeIds.map((id) => x.freezes.find((f) => f.id === id)?.label ?? id).join(', ')} (Olaylar görünümünde).`),
     ),
     s.runs.map((r) => lineRun(r)),
   ];
@@ -1602,7 +2314,6 @@ function system(d, now) {
   }
   const mem = s.memory;
   const disk = s.disk;
-  const net = s.network;
   const cards = [
     card({
       label: 'İşlemci',
@@ -1625,23 +2336,6 @@ function system(d, now) {
           meter(used / mem.total, 'Bellek doluluğu'),
           sparkline(series(hist, 'memUsed'), { max: mem.total, format: bytes, label: 'Kullanılan bellek, son dakikalar', color: 'ok' }),
         ],
-      }),
-    );
-  }
-  if (net) {
-    // Gelen ve giden aynı ölçekte (karşılaştırılabilsin)
-    const top = Math.max(1, ...hist.flatMap((x) => [x.rxBps ?? 0, x.txBps ?? 0]));
-    const half = (arrow, name, key, value, color) =>
-      h(
-        'div',
-        'adm-net',
-        h('div', 'adm-net-head', h('span', 'adm-muted', name), h('b', null, `${arrow} ${rate(value)}`)),
-        sparkline(series(hist, key), { max: top, format: rate, label: `${name} trafik, son dakikalar`, color }),
-      );
-    cards.push(
-      card({
-        label: `Ağ (${net.interfaces.join(', ') || '—'})`,
-        children: [half('↓', 'Gelen', 'rxBps', latest(net.rxBps, 'rxBps'), 'brand'), half('↑', 'Giden', 'txBps', latest(net.txBps, 'txBps'), 'pink')],
       }),
     );
   }
@@ -2293,41 +2987,29 @@ function infra(x) {
           value: net.ok ? 'Ölçülüyor…' : 'Bilgi yok',
           compact: true,
           tone: net.ok ? undefined : 'warn',
-          sub: net.ok ? 'İlk hız ölçümü 15 saniye içinde.' : net.error,
+          sub: net.ok ? 'İlk ölçüm birkaç saniye içinde.' : net.error,
         }),
       );
     } else {
       const nh = net.history;
       const last = nh[nh.length - 1];
-      const mbps = (v) => (v === null || v === undefined ? '—' : `${nf1.format(v)} Mb/sn`);
-      const top = Math.max(1, ...nh.flatMap((s) => [s.rxMbps ?? 0, s.txMbps ?? 0]));
+      const top = Math.max(1, ...nh.flatMap((p) => [p.rxMbps ?? 0, p.txMbps ?? 0]));
       const half = (arrow, name, key, color) =>
         h(
           'div',
           'adm-net',
-          h('div', 'adm-net-head', h('span', 'adm-muted', name), h('b', null, `${arrow} ${mbps(last[key])}`)),
-          sparkline(series(nh, key), { max: top, format: mbps, label: `${name} trafik (makine), son 30 dakika`, color }),
+          h('div', 'adm-net-head', h('span', 'adm-muted', name), h('b', null, `${arrow} ${mbpsText(last[key])}`)),
+          sparkline(series(nh, key), { max: top, format: mbpsText, label: `${name} trafik (makine), son 30 dakika`, color }),
         );
-      const peak = (key) => Math.max(0, ...nh.map((s) => s[key] ?? 0));
-      const drops = peak('rxDropPerSec');
+      const peak = (key) => Math.max(0, ...nh.map((p) => p[key] ?? 0));
       cards.push(
         card({
           label: `Makine ağı (${net.iface}, son 30 dk)`,
-          sub: [`En yüksek: ↓ ${mbps(peak('rxMbps'))} · ↑ ${mbps(peak('txMbps'))}`],
-          children: [half('↓', 'Gelen', 'rxMbps', 'brand'), half('↑', 'Giden', 'txMbps', 'pink')],
-        }),
-        card({
-          label: `Düşen paket ve UDP hataları (${net.iface})`,
-          value: perSec(last.rxDropPerSec),
-          unit: 'düşen',
-          tone: drops >= 50 ? 'bad' : drops >= 5 ? 'warn' : undefined,
           sub: [
-            `Paket: ↓ ${dec(last.rxPps, 0)}/sn · ↑ ${dec(last.txPps, 0)}/sn · rx hata ${perSec(last.rxErrPerSec)}`,
-            `UDP: gelen ${dec(last.udpInPerSec, 0)}/sn · giden ${dec(last.udpOutPerSec, 0)}/sn`,
-            `UDP hata: alma tamponu ${perSec(last.udpRcvbufErrPerSec)} · gönderme tamponu ${perSec(last.udpSndbufErrPerSec)} · toplam ${perSec(last.udpInErrPerSec)}`,
-            `30 dk içinde en çok ${perSec(drops)} düşen paket. Dakikalık özetler diskte (telemetry/network-*.jsonl).`,
+            `En yüksek: ↓ ${mbpsText(peak('rxMbps'))} · ↑ ${mbpsText(peak('txMbps'))} · paket ↓ ${ppsText(last.rxPps)} · ↑ ${ppsText(last.txPps)}`,
+            'Saniyelik görünüm, düşen paketler, UDP hataları ve kesintiler: Bağlantı teşhisi sekmesi.',
           ],
-          children: sparkline(series(nh, 'rxDropPerSec'), { max: 5, format: perSec, label: 'Düşen paket/sn (rx_dropped)', color: 'pink', axis: true }),
+          children: [half('↓', 'Gelen', 'rxMbps', 'brand'), half('↑', 'Giden', 'txMbps', 'pink')],
         }),
       );
     }

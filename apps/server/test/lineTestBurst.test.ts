@@ -107,6 +107,15 @@ describe('yorum: patlama testi', () => {
     // İlk patlamadan önceki kesinti patlamaya bağlanmaz
     const early: RunOutage = { at: 1, durationMs: 900, kind: 'sonda', sec: 1.5, step: 'taban 3 Mbps' };
     expect(codes([burstRun('up', () => 0, [early])])).toEqual(['patlama_oncesi_kesinti_up']);
+    // Test başlamadan önce başlamış kesinti testten kaynaklanamaz
+    const before = classify([burstRun('up', () => 0, [{ ...early, sec: -2.9 }])]);
+    expect(before[0]!.text).toContain('test başlamadan önce başlamış bir kesinti sürüyordu');
+    expect(before[0]!.evidence).toBe('test başlamadan 2,9 sn önce başladı');
+    // Öbür profillerde: sunucu kesinti gördüyse kayıp istemci hattına yazılmasın diye not düşülür
+    const plan = buildPlan('quick', 'both');
+    const clean: SecondStat[] = plan.seconds.map((p) => ({ planned: p.pps, recv: p.pps, lost: 0, reord: 0, dup: 0, bytes: p.pps * p.size, jit: 1 }));
+    const quick = classify([{ transport: 'udp', mode: 'both', profile: 'quick', steps: plan.steps, up: clean, down: clean, outages: [{ at: 1, durationMs: 1_800, kind: 'gelen', sec: 4.2, step: '4 Mbps' }] }]);
+    expect(quick.find((x) => x.code === 'sunucu_kesinti')).toMatchObject({ tone: 'warn', evidence: '4,2. sn (4 Mbps)' });
   });
 
   it('üst basamaklarda kayıp ama sunucuda kesinti yok: istemci hattı; patlama sonrası taban hızda kayıp: çöküş', () => {
