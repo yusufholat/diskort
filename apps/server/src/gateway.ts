@@ -3,6 +3,7 @@ import type { WebSocket } from 'ws';
 import {
   CLIENT_FEATURE_DM,
   CLIENT_FEATURE_PRESENCE,
+  CLIENT_FEATURE_VOICE_TRACE,
   OFFLINE_PRESENCE,
   DEFAULT_ATTACHMENT_MAX_BYTES,
   GATEWAY_CLOSE_UPDATE_REQUIRED,
@@ -22,6 +23,7 @@ import {
   type ReadStateUpdate,
   type ServerFeatures,
   type User,
+  type VoiceTraceRequest,
 } from '@diskort/shared';
 import type { GatewayTraffic } from './apiStats.js';
 import type { AuthService } from './auth.js';
@@ -133,6 +135,8 @@ interface Session {
   dm: boolean;
   /** İstemci kozmetik paketlerini tanıyor (IDENTIFY'da bildirdi); tanımayana yalnızca yerleşik set kimlikleri gider */
   packs: boolean;
+  /** İstemci olay kaydı isteğini tanıyor (IDENTIFY'da bildirdi); tanımayana VOICE_TRACE_REQUEST gitmez */
+  trace: boolean;
   /** İstemcinin bildirdiği platform (bildirmeyen eski masaüstü sürümleri 'desktop') */
   platform: ClientPlatform;
   /** İstemcinin bildirdiği uygulama sürümü (yönetim paneli için) */
@@ -374,6 +378,23 @@ export class Gateway {
   }
 
   /**
+   * Olay kaydı isteği (bkz. traceRequests.ts): verilen kullanıcıların yalnızca isteği tanıyan oturumlarına
+   * gider. Seste olmayan cihaz (ör. aynı hesabın telefonu) isteği yok sayar. Dönen: gönderilen oturum sayısı.
+   */
+  sendVoiceTraceRequest(userIds: Iterable<string>, d: VoiceTraceRequest): number {
+    const data = JSON.stringify({ t: 'VOICE_TRACE_REQUEST', d } satisfies GatewayServerMessage);
+    let sent = 0;
+    for (const userId of new Set(userIds)) {
+      for (const s of this.byUser.get(userId) ?? []) {
+        if (!s.trace || s.socket.readyState !== s.socket.OPEN) continue;
+        this.out(s, data);
+        sent++;
+      }
+    }
+    return sent;
+  }
+
+  /**
    * Okunma durumu ilerledi: kullanıcının bütün oturumlarına (onaylayan cihaz dahil; olay tekrarlansa da
    * zararsızdır). Direkt mesaj konuşmasındaysa yalnızca DM'leri tanıyan oturumlara.
    */
@@ -587,6 +608,7 @@ export class Gateway {
       lastTyping: new Map(),
       dm: false,
       packs: false,
+      trace: false,
       platform: 'desktop',
       version: null,
       connectedAt: Date.now(),
@@ -765,6 +787,7 @@ export class Gateway {
     s.dm = features.includes(CLIENT_FEATURE_DM);
     s.reportsIdle = features.includes(CLIENT_FEATURE_PRESENCE);
     s.packs = knowsCosmeticPacks(features);
+    s.trace = features.includes(CLIENT_FEATURE_VOICE_TRACE);
     const platform = d.platform;
     s.platform = platform === 'android' || platform === 'ios' ? platform : 'desktop';
     s.version = typeof d.version === 'string' && d.version ? d.version.slice(0, 32) : null;
