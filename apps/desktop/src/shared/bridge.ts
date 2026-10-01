@@ -151,6 +151,25 @@ export interface ActivityProgram {
   icon: string | null;
 }
 
+/** Çökme anında kullanıcının ses durumu (arayüz ana sürece bildirir) */
+export interface CrashContext {
+  voice: boolean;
+  streaming: boolean;
+  watching: boolean;
+}
+
+/** Sunucuya gönderilmeyi bekleyen süreç çökmesi bildirimi (POST /api/client-errors alanlarıyla) */
+export interface CrashReport {
+  id: string;
+  /** Olay anı (Unix ms) */
+  at: number;
+  /** masaustu-surec (arayüz/GPU/yardımcı süreç), masaustu-ana (ana süreç hatası), masaustu-yanitsiz */
+  where: string;
+  message: string;
+  /** Ortam bilgisi (JSON) ve varsa hata yığını; sunucuya `stack` alanında gider */
+  detail: string;
+}
+
 export interface DiskortBridge {
   platform: 'win32' | 'linux' | 'darwin' | string;
   getVersion(): Promise<string>;
@@ -233,6 +252,20 @@ export interface DiskortBridge {
     /** Yalnızca Diskort penceresinin görüntüsünü alır (masaüstünün değil) */
     capture(): Promise<CapturedImage>;
     systemInfo(): Promise<SystemInfo>;
+  };
+
+  /**
+   * Süreç çökmesi bildirimleri: ana süreç diske yazar, arayüz sunucuya gönderip sildirir. Eski ana süreçte yoktur.
+   */
+  crash?: {
+    /** Çökme anının bağlamı için ses durumu (seste mi, yayında mı, yayın izliyor mu) */
+    setContext(context: CrashContext): void;
+    /** Sunucuya gönderilmeyi bekleyen bildirimler */
+    pending(): Promise<CrashReport[]>;
+    /** Sunucuya ulaşan bildirimler kuyruktan silinir */
+    ack(ids: string[]): Promise<void>;
+    /** Yeni bildirim yazıldı */
+    onPending(cb: () => void): () => void;
   };
 
   lineTest: {

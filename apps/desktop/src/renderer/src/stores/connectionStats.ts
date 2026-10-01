@@ -32,6 +32,8 @@ interface ConnectionStatsStore {
   samples: PingSample[];
   /** Son birkaç ölçümün ping ve kaybından hesaplanan kalite (etiket ve simge rengi) */
   quality: LinkQuality;
+  /** STUN yanıtı ~3 sn'dir gelmiyor: son ping eski bir değerdir (gösterilmez) */
+  pingStale: boolean;
   server: VoiceServerInfo | null;
   /** Ayrıntılı istatistikler; yalnızca bağlantı paneli açıkken toplanır */
   detail: ConnectionDetail | null;
@@ -40,6 +42,7 @@ interface ConnectionStatsStore {
 export const EMPTY_CONNECTION_STATS: ConnectionStatsStore = {
   samples: [],
   quality: 'unknown',
+  pingStale: false,
   server: null,
   detail: null,
 };

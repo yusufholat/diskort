@@ -161,6 +161,12 @@ const reportSchema = z.object({
     })
     .nullable()
     .optional(),
+  // Giden kayıp ses/görüntü ayrı; aralığın bitişi, gönderim anı (istemci saati) ve saat farkı (yeni istemciler)
+  lossOutAudioPct: num(100).optional(),
+  lossOutVideoPct: num(100).optional(),
+  endAt: z.number().finite().min(1e12).max(1e13).optional(),
+  sentAt: z.number().finite().min(1e12).max(1e13).optional(),
+  offsetMs: z.number().finite().nullable().optional(),
 });
 
 /** Kullanıcı başına dakikada en fazla özet (normalde 2; kalite düşünce birkaç erken özet) */

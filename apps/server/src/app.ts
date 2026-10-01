@@ -10,6 +10,10 @@ import { AuthLog } from './authLog.js';
 import { DailyCounters } from './counters.js';
 import { InfraMonitor, LiveKitMetrics } from './infraStats.js';
 import { VoiceTelemetryStore } from './telemetry.js';
+import { ClientTraceStore } from './clientTrace.js';
+import { createTraceRequester } from './traceRequests.js';
+import { registerVoiceTraceRoutes } from './routes/voiceTrace.js';
+import { registerAdminTraceRoutes } from './routes/adminTraces.js';
 import { FreezeCorrelator } from './freezeDiagnosis.js';
 import { DEFAULT_PROBE_TARGETS, parseProbeTargets, ProbeEngine } from './netProbe.js';
 import { SecondSampler } from './netSeconds.js';
@@ -249,6 +253,22 @@ export async function buildApp(
     serverTxMbps: () => netSampler.latest()?.tx ?? null,
     log: app.log,
   });
+  // Olay kayıtları: istemcilerin sorun anındaki saniyelik bağlantı ölçümleri (telemetry/traces-*.jsonl)
+  const traces = new ClientTraceStore({
+    dir: opts.telemetryDir !== undefined ? opts.telemetryDir : statsFile('telemetry'),
+    offsetMin: config.statsUtcOffsetMin,
+    log: app.log,
+  });
+  if (config.systemStats) traces.start();
+  app.addHook('onClose', async () => traces.stop());
+  const requestVoiceTraces = createTraceRequester({
+    gateway,
+    voice,
+    onRequest: (r, reason) => {
+      counters.inc('trace.requests');
+      app.log.info({ channelId: r.channelId, eventId: r.eventId, users: r.users, sessions: r.sessions, reason }, 'olay kaydı istendi');
+    },
+  });
   const ctx: AppContext = {
     config,
     store,
@@ -275,6 +295,8 @@ export async function buildApp(
     authLog,
     apiStats,
     telemetry,
+    traces,
+    requestVoiceTraces,
     freeze,
     netSampler,
     netProbes,
@@ -461,6 +483,8 @@ export async function buildApp(
   );
   registerDashboardRoutes(app, ctx, dashboard);
   registerTelemetryRoutes(app, ctx);
+  registerVoiceTraceRoutes(app, ctx);
+  registerAdminTraceRoutes(app, ctx);
   registerAdminStatsRoutes(app, ctx, { telemetry, livekitMetrics, infra });
   registerAdminNetRoutes(app, ctx, { livekitMetrics });
   registerLineTestRoutes(app, ctx);

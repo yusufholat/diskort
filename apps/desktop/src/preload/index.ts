@@ -69,6 +69,13 @@ const bridge: DiskortBridge = {
     systemInfo: () => ipcRenderer.invoke('feedback:system-info'),
   },
 
+  crash: {
+    setContext: (context) => ipcRenderer.send('crash:context', context),
+    pending: () => ipcRenderer.invoke('crash:pending'),
+    ack: (ids) => ipcRenderer.invoke('crash:ack', ids),
+    onPending: (cb) => listen<void>('crash:pending', () => cb()),
+  },
+
   lineTest: {
     run: (server, token) => ipcRenderer.invoke('linetest:run', server, token),
     onProgress: (cb) => listen<{ sec: number; total: number }>('linetest:progress', cb),

@@ -227,6 +227,15 @@ export interface VoiceTelemetryReport {
   audioIn?: TelemetryAudioIn | null;
   jsLag?: TelemetryJsLag | null;
   settings?: TelemetryVoiceSettings | null;
+  // --- Yeni istemcilerde (eskiler göndermez) ---
+  /** Giden paket kaybı (%), ses ve görüntü ayrı: susan (DTX) mikrofon az paket gönderdiğinden toplam oran yanıltır */
+  lossOutAudioPct?: number | null;
+  lossOutVideoPct?: number | null;
+  /** Aralığın bittiği an ve gönderim anı (istemci saati, Unix ms): geç ulaşan özet doğru zamana yerleştirilir */
+  endAt?: number;
+  sentAt?: number;
+  /** Tahmini saat farkı (sunucu − istemci, ms); ölçülemediyse null (sunucu sentAt'ten tahmin eder) */
+  offsetMs?: number | null;
 }
 
 /** Gönderim aralığı ve "kötü" anındaki erken gönderimler arasındaki en kısa süre */

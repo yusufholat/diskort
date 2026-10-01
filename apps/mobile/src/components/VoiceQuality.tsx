@@ -54,6 +54,8 @@ export function SignalBars({ bars, color, size = 16 }: { bars: number; color: st
 export function ConnectionQualityBadge() {
   const quality = useVoice((s) => s.quality);
   const { bars, color, ping, connected } = useVoiceLevel();
+  // STUN yanıtı gelmiyorsa son ping eski bir değerdir: sayı yerine "—"
+  const pingStale = useConnectionStats((s) => s.pingStale);
   const [open, setOpen] = useState(false);
   const label = !connected
     ? 'Bağlanıyor'
@@ -73,7 +75,7 @@ export function ConnectionQualityBadge() {
         accessibilityLabel={`Bağlantı: ${label}. Bağlantı bilgisini aç`}
       >
         <SignalBars bars={bars} color={color} />
-        {connected && ping !== null && <Text style={[styles.ping, { color }]}>{ping} ms</Text>}
+        {connected && (ping !== null || pingStale) && <Text style={[styles.ping, { color }]}>{pingStale ? '—' : `${ping} ms`}</Text>}
       </Pressable>
       <ConnectionSheet visible={open} onClose={() => setOpen(false)} />
     </>
