@@ -17,6 +17,7 @@ import { registerAdminTraceRoutes } from './routes/adminTraces.js';
 import { FreezeCorrelator } from './freezeDiagnosis.js';
 import { DEFAULT_PROBE_TARGETS, parseProbeTargets, ProbeEngine } from './netProbe.js';
 import { SecondSampler } from './netSeconds.js';
+import type { Outage } from './netOutages.js';
 import { LineTestService } from './lineTest/service.js';
 import { registerLineTestRoutes } from './routes/lineTest.js';
 import { VoiceSessionRecorder } from './voiceHistory.js';
@@ -217,10 +218,14 @@ export async function buildApp(
     dir: netDir,
     offsetMin: config.statsUtcOffsetMin,
     livekitCpu: () => livekitMetrics.process().cpu,
+    // Doğrulanmış kesinti kaydedilince sesteki herkesten olay kaydı istenir (bkz. aşağıda requestTracesFor)
+    onOutage: (o) => requestTracesFor.outage?.(o),
     participants: () => voice.list().length,
     streams: () => voice.list().filter((v) => v.streaming).length,
     log: app.log,
   });
+  // Olay kaydı isteği aşağıda (gateway hazır olunca) kurulur; teşhis bileşenleri bu tutucu üzerinden çağırır
+  const requestTracesFor: { event?: (channelId: string, reason: string, eventId: string) => void; outage?: (o: Outage) => void } = {};
   const netProbes = new ProbeEngine({
     targets: parseProbeTargets(config.netProbeTargets ?? undefined) ?? DEFAULT_PROBE_TARGETS,
     gateway: () => netSampler.gateway,
@@ -231,6 +236,8 @@ export async function buildApp(
     dir: netDir,
     sampler: netSampler,
     livekit: livekitMetrics,
+    traces: { window: (q) => traces.window(q) },
+    requestTraces: (channelId, reason, eventId) => requestTracesFor.event?.(channelId, reason, eventId),
     // Olay kalıcı kayda (telemetry/freeze-events.jsonl) yazılır ve sunucu günlüğüne uyarı olarak düşer
     onEvent: (e) =>
       app.log.warn(
@@ -269,6 +276,16 @@ export async function buildApp(
       app.log.info({ channelId: r.channelId, eventId: r.eventId, users: r.users, sessions: r.sessions, reason }, 'olay kaydı istendi');
     },
   });
+  // Bağlantı teşhisi → olay kaydı: donma olayı açılınca o kanaldan, doğrulanmış bir kesinti kaydedilince içinde
+  // biri bulunan her ses kanalından kayıt istenir (istek kanal başına sınırlıdır; bkz. traceRequests.ts)
+  requestTracesFor.event = (channelId, reason, eventId) => void ctx.requestVoiceTraces(channelId, reason, eventId);
+  const outagesAsked = new Set<string>();
+  requestTracesFor.outage = (o) => {
+    if (outagesAsked.has(o.id)) return;
+    outagesAsked.add(o.id);
+    if (outagesAsked.size > 200) outagesAsked.delete(outagesAsked.values().next().value!);
+    for (const channelId of new Set(voice.list().map((v) => v.channelId))) ctx.requestVoiceTraces(channelId, 'sunucu kesinti gördü', `kesinti-${o.id}`);
+  };
   const ctx: AppContext = {
     config,
     store,

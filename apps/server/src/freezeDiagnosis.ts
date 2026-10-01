@@ -1,10 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
+import type { AlignedTrace } from './clientTrace.js';
 import type { LkRow } from './infraStats.js';
 import type { Outage } from './netOutages.js';
 import { GATEWAY_LABEL, summarizeRows, type SecondRow, type SecondSampler, type ServerSummary } from './netSeconds.js';
 import type { TelemetryEntry } from './telemetry.js';
+import { summarizeTraces, type TraceEvidence } from './traceEvidence.js';
 
 // Bağlantı teşhisi: bir ses kanalında birden çok kullanıcı kayıp/donma bildirirse bunu tek bir olay olarak
 // toplar; sunucunun saniyelik ağ kaydı, kesinti kaydı (dış sondalar + NIC sessizliği) ve LiveKit ölçümleriyle
@@ -259,7 +261,7 @@ export function summarizeLiveKit(rows: LkRow[]): LiveKitSummary | null {
 }
 
 /** Saf sınıflandırıcı: kullanıcı kanıtları + sunucu özeti (+ LiveKit özeti) → en olası neden */
-export function diagnose(users: FreezeUser[], server: ServerSummary | null, lk: LiveKitSummary | null = null): Diagnosis {
+export function diagnose(users: FreezeUser[], server: ServerSummary | null, lk: LiveKitSummary | null = null, trace: TraceEvidence | null = null): Diagnosis {
   const lossyOut = (r: FreezeReport): boolean => (r.o ?? 0) >= LOSS_PCT;
   const lossyIn = (r: FreezeReport): boolean => (r.i ?? 0) >= LOSS_PCT;
   const up = users.filter((u) => (u.lossOut ?? 0) >= LOSS_PCT);
@@ -354,6 +356,48 @@ export function diagnose(users: FreezeUser[], server: ServerSummary | null, lk: 
         ': patlamayla tetiklenen hız sınırı olabilir',
     );
   };
+  /** İstemci olay kayıtlarından (saniyelik ölçümler) kanıt cümleleri; kayıt yoksa boş */
+  const traceLines = (): string[] => {
+    if (!trace) return [];
+    const out: string[] = [];
+    const mbps = (bps: number): string => num(bps / 1e6, 1);
+    if (trace.stun) {
+      out.push(
+        `İstemci kayıtları: ${trace.stun.users.length} kullanıcının STUN yoklamaları aynı anda ${sec(trace.stun.maxMs)} sn yanıtsız kaldı: istemci ↔ sunucu UDP yolu o saniyelerde herkes için kesikti (medyadan bağımsız kanıt).`,
+      );
+    } else if (trace.stunSingle) {
+      out.push(`İstemci kayıtları: yalnızca bir kullanıcının STUN yoklamaları ${sec(trace.stunSingle.maxMs)} sn yanıtsız kaldı (o kullanıcının yolu); öbür kayıtlarda yol canlı.`);
+    }
+    const b = trace.burst;
+    if (b) {
+      out.push(
+        `Yayıncı kaydı: yayın bit hızı ${mbps(b.baseBps)} → ${mbps(b.bps)} Mbps'e sıçradı (${b.keyFrames} anahtar kare, ${b.hugeFrames} dev kare)` +
+          (b.lossAt !== null ? `; ${num(Math.max(0, (b.lossAt - b.at) / 1000), 0)} sn sonra karşı tarafın bildirdiği kayıp %${num(b.lossPct, 0)}'e yükseldi.` : '; ardından kayıp yükselmedi.'),
+      );
+    }
+    if (trace.pliMax >= 2 || trace.nackMax >= 20) {
+      out.push(`İstemci kayıtları: yayıncıya gelen anahtar kare isteği (PLI/FIR) en çok ${num(trace.pliMax, 1)}/sn, yeniden gönderme isteği (NACK) ${num(trace.nackMax, 1)}/sn.`);
+    }
+    if (trace.lossOutAudioPct !== null && trace.lossOutVideoPct !== null) {
+      out.push(`Giden kayıp türe göre (istemci kayıtları): ses %${num(trace.lossOutAudioPct, 1)}, görüntü %${num(trace.lossOutVideoPct, 1)}.`);
+    }
+    if (trace.lossInAudioPct !== null && trace.lossInVideoPct !== null && trace.lossInAudioPct + trace.lossInVideoPct > 0) {
+      out.push(`Gelen kayıp türe göre (istemci kayıtları): ses %${num(trace.lossInAudioPct, 1)}, görüntü %${num(trace.lossInVideoPct, 1)}.`);
+    }
+    if (trace.bwe) out.push(`Bant genişliği tahmini ${mbps(trace.bwe.from)} → ${mbps(trace.bwe.to)} Mbps'e çöktü (kaybın sonucudur, nedeni değil).`);
+    const sr = trace.sentReceived;
+    if (sr) {
+      out.push(
+        `Yayıncı ${sr.sent} görüntü paketi gönderdi, bir izleyici aynı saniyelerde ${sr.received} paket aldı (≈%${num(sr.pct, 0)}); karşılaştırma YAKLAŞIKTIR (saat hizası ±1 sn, SFU'nun katman seçimi ve yeniden gönderimler sayıyı değiştirir).`,
+      );
+    }
+    if (trace.decoderFreezes.length > 0) {
+      const ms = trace.decoderFreezes.reduce((n, d) => n + d.ms, 0);
+      out.push(`${trace.decoderFreezes.length} izleyici taşıması temizken dondu (gelen kayıp yok, STUN canlı; toplam ${sec(ms)} sn): çözücü / işleme tarafı.`);
+    }
+    if (trace.lagMax && trace.lagMax.ms >= 500) out.push(`Bir istemcide JS olay döngüsü ${num(trace.lagMax.ms)} ms takıldı (o saniyelerin ölçümleri gecikmiş olabilir).`);
+    return out;
+  };
   const baseMissing = (providerSide: boolean): void => {
     if (!server) missing.push('Sunucu saniyelik ağ kaydı yok (ölçüm kapalıydı ya da yeni başlamıştı).');
     if (probe.kind === 'yok') missing.push('Dış sonda verisi yok.');
@@ -375,6 +419,13 @@ export function diagnose(users: FreezeUser[], server: ServerSummary | null, lk: 
         `NIC sessizliği adayı: ${clockOf(nicOnly)} anında ${sec(nicOnly.durationMs)} sn sunucuya gelen paket ${num(nicOnly.nic.rxpMin)}/sn'ye düştü; dış sondalarla doğrulanmadı ve birden çok kullanıcının aynı andaki giden kaybıyla desteklenmedi (tek başına sağlayıcıyı göstermez)`,
       );
     }
+    // İstemci olay kayıtları: varsa kanıta eklenir, yoksa (eski istemci) eksik kanıt olarak yazılır
+    evidence.push(...traceLines());
+    if (trace?.burst && trace.burst.lossAt !== null && !factors.some((f) => f.startsWith('patlama_sonrasi'))) {
+      factors.push(`patlama_sonrasi (yayıncı kaydı): yayın bit hızı ${num(trace.burst.baseBps / 1e6, 1)} → ${num(trace.burst.bps / 1e6, 1)} Mbps sıçramasının ardından kayıp`);
+    }
+    if (!trace) missing.push('İstemci olay kaydı yok (eski istemci ya da kayıt ulaşmadı): STUN, kodlayıcı ve çözücünün saniyelik durumu bilinmiyor.');
+    else if (trace.users.length < users.length) missing.push(`${users.length - trace.users.length} kullanıcıdan olay kaydı yok (eski istemci ya da kayıt ulaşmadı).`);
     return finish(cause, segment, summary, confidence);
   };
   const finish = (cause: FreezeCause, segment: FreezeSegment, summary: string, confidence: Diagnosis['confidence']): Diagnosis => ({
@@ -448,6 +499,31 @@ export function diagnose(users: FreezeUser[], server: ServerSummary | null, lk: 
       'saglayici',
       `Sorun: barındırma sağlayıcısının ağı — sunucunun dış bağlantısı ${sec(probeOnly.durationMs)} sn kesildi (dış sondalar yanıtsız)`,
       upSim.users.length >= 2 ? 'yüksek' : 'orta',
+    );
+  }
+
+  // 3b) İstemci kayıtları: ≥2 kullanıcının STUN yoklamaları aynı saniyelerde yanıtsız. Medyadan bağımsızdır:
+  // istemci ↔ sunucu UDP yolu o anda herkes için ölüydü (sunucu tarafında sonda kesintisi kaydedilmemiş olsa da)
+  if (trace?.stun && affected.size > 0) {
+    const st = trace.stun;
+    if (nicOnly?.nic) {
+      evidence.push(`NIC sessizliği: ${clockOf(nicOnly)} anında ${sec(nicOnly.durationMs)} sn sunucuya gelen paket ${num(nicOnly.nic.rxpMin)}/sn'ye düştü (istemcilerin STUN kaydıyla örtüşüyor).`);
+    }
+    userLossLines();
+    evidence.push(probe.text);
+    const dip = nicOnly ? null : dipLine();
+    if (dip) evidence.push(dip);
+    evidence.push(serverLine());
+    evidence.push(...lkLines());
+    burstFactor();
+    if (enc) factors.push(enc);
+    missing.push('Sunucu tarafında dış sonda kesintisi kaydedilmedi: kesinti yalnızca istemci → sunucu UDP yönünde olabilir; ses sunucusunun (LiveKit) o saniyelerde yanıt verip vermediği ayrıca doğrulanamadı.');
+    baseMissing(true);
+    return done(
+      'saglayici_kesinti',
+      'saglayici',
+      `Sorun: istemciler ↔ sunucu UDP yolu (barındırma sağlayıcısı) — ${st.users.length} kullanıcının STUN yoklamaları aynı anda ${sec(st.maxMs)} sn yanıtsız kaldı`,
+      st.users.length >= 3 || nicOnly !== null || upSim.users.length >= 2 ? 'yüksek' : 'orta',
     );
   }
 
@@ -605,6 +681,8 @@ export interface FreezeEvent extends Diagnosis {
   server: ServerSummary | null;
   /** Olay penceresindeki LiveKit ölçümlerinin özeti (eski kayıtlarda yok) */
   livekit?: LiveKitSummary | null;
+  /** Olay penceresindeki istemci olay kayıtları (kaç kayıt, kimlerden) ve onlardan çıkan kanıt; kayıt yoksa null */
+  traces?: { count: number; users: string[]; evidence: TraceEvidence } | null;
 }
 
 interface OpenEvent {
@@ -671,7 +749,8 @@ export function buildUsers(entries: TelemetryEntry[]): FreezeUser[] {
     if (e.candidate) u.route = e.protocol ? `${e.candidate}·${e.protocol}` : e.candidate;
     const w = e.watch;
     if (u.w!.length < REPORTS_PER_USER) {
-      u.w!.push({ a: e.at, s: e.windowSec, o: e.lossOut, i: e.lossIn, f: w?.freezes ?? 0, r: e.rttAvg });
+      // Pencerenin bitişi: istemci bildirmişse sunucu saatine hizalanmış bitiş (endAt), yoksa ulaştığı an
+      u.w!.push({ a: e.endAt ?? e.at, s: e.windowSec, o: e.lossOut, i: e.lossIn, f: w?.freezes ?? 0, r: e.rttAvg });
     }
     if (w) {
       u.freezes += w.freezes ?? 0;
@@ -707,6 +786,11 @@ function isFreezeEvent(v: unknown): v is FreezeEvent {
   return !!e && typeof e.id === 'string' && typeof e.channelId === 'string' && typeof e.start === 'number' && typeof e.cause === 'string';
 }
 
+/** İstemci olay kayıtlarının kaynağı (clientTrace.ts ClientTraceStore) */
+export interface TraceSource {
+  window(q: { from: number; to: number; channelId?: string; limit?: number }): Promise<{ traces: AlignedTrace[] }>;
+}
+
 /** LiveKit ölçüm kaynağı (infraStats.ts LiveKitMetrics) */
 export interface LiveKitSource {
   window(from: number, to: number): LkRow[];
@@ -719,6 +803,10 @@ export interface FreezeOptions {
   dir: string | null;
   sampler: SecondSampler | null;
   livekit?: LiveKitSource | null;
+  /** İstemci olay kayıtlarının kaynağı (clientTrace.ts); verilirse olay kapanırken kayıtlar kanıta katılır */
+  traces?: TraceSource | null;
+  /** Olay açılınca kanaldaki bütün istemcilerden olay kaydı ister (herkesin aynı saniyelere bakışı toplansın) */
+  requestTraces?: (channelId: string, reason: string, eventId: string) => void;
   /** Olay kapanıp sınıflandığında (kalıcı kayıttan sonra) */
   onEvent?: (event: FreezeEvent) => void;
   log?: { warn(obj: object, msg: string): void };
@@ -828,6 +916,12 @@ export class FreezeCorrelator {
         relevantUsers: new Set(),
       };
       this.open.set(e.channelId, ev);
+      // Olay açıldı: kanaldaki herkesten olay kaydı istenir (istek kimliği = olay kimliği; sıklık sınırı karşı tarafta)
+      try {
+        this.opts.requestTraces?.(e.channelId, 'yayın donması olayı', ev.id);
+      } catch (err) {
+        this.opts.log?.warn({ err: String(err) }, 'olay kaydı istenemedi');
+      }
     }
     ev.start = Math.min(ev.start, windowStart);
     ev.end = Math.max(ev.end, e.at);
@@ -892,12 +986,30 @@ export class FreezeCorrelator {
     };
     this.events.push(event);
     if (this.events.length > EVENTS_MAX) this.events.splice(0, this.events.length - EVENTS_MAX);
-    this.persist(event, rows, lkRows);
-    try {
-      this.opts.onEvent?.(event);
-    } catch (err) {
-      this.opts.log?.warn({ err: String(err) }, 'yayın donması bildirimi başarısız');
+    const complete = (): void => {
+      this.persist(event, rows, lkRows);
+      try {
+        this.opts.onEvent?.(event);
+      } catch (err) {
+        this.opts.log?.warn({ err: String(err) }, 'yayın donması bildirimi başarısız');
+      }
+    };
+    const source = this.opts.traces;
+    if (!source) {
+      complete();
+      return event;
     }
+    // İstemci olay kayıtları diskten okunur (eşzamansız): olay önce kayıtsız sınıflanır ve listeye girer, kayıtlar
+    // gelince yeniden sınıflanıp yerinde güncellenir, sonra kalıcı kayda yazılır
+    this.writing = this.writing
+      .then(async () => {
+        const { traces } = await source.window({ from: ev.start - CHART_BEFORE_MS, to: ev.end + CHART_AFTER_MS, channelId: ev.channelId, limit: 60 });
+        const evidence = summarizeTraces(traces, ev.start - CHART_BEFORE_MS, ev.end + CHART_AFTER_MS);
+        if (evidence) Object.assign(event, diagnose(users, server, livekit, evidence), { traces: { count: traces.length, users: evidence.users, evidence } });
+        else event.traces = null;
+      })
+      .catch((err: unknown) => this.opts.log?.warn({ err: String(err) }, 'olay kayıtları okunamadı'))
+      .then(complete);
     return event;
   }
 

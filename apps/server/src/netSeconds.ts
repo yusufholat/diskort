@@ -537,6 +537,8 @@ export interface SamplerOptions {
   offsetMin?: number;
   /** LiveKit süreç CPU'su (çekirdek oranı) */
   livekitCpu?: () => number | null;
+  /** Doğrulanmış bir kesinti (tam / sonda) kaydedildiğinde ya da bir aday doğrulandığında */
+  onOutage?: (o: Outage) => void;
   /** Sesteki kişi ve yayın sayısı (NIC sessizliği dedektörü için) */
   participants?: () => number | null;
   streams?: () => number | null;
@@ -670,7 +672,7 @@ export class SecondSampler {
 
   constructor(private readonly opts: SamplerOptions) {
     this.outages = new OutageLog({ dir: opts.dir, offsetMin: opts.offsetMin ?? 180, ...(opts.log ? { log: opts.log } : {}) });
-    this.silence = new SilenceScanner((s) => void this.outages.addNic(s));
+    this.silence = new SilenceScanner((s) => this.notify(this.outages.addNic(s)));
   }
 
   private get offsetMin(): number {
@@ -780,7 +782,18 @@ export class SecondSampler {
       if (r.t <= o.at) break;
       if (r.t - 1_000 < end) r.o = (r.o ?? 0) | OUTAGE_BIT_PROBE;
     }
-    return this.outages.addProbe(o);
+    return this.notify(this.outages.addProbe(o));
+  }
+
+  private notify(o: Outage): Outage {
+    if (o.kind !== 'aday') {
+      try {
+        this.opts.onOutage?.(o);
+      } catch (err) {
+        this.opts.log?.warn({ err: String(err) }, 'kesinti bildirimi başarısız');
+      }
+    }
+    return o;
   }
 
   /** Süren NIC sessizliği (adayı) */

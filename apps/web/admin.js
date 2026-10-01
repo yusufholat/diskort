@@ -849,6 +849,7 @@ function voice(d, now) {
           h('span', 'adm-channel-name', `🔊 ${c.name}`),
           c.guildName && h('span', 'adm-muted', c.guildName),
           h('span', 'adm-muted adm-push', `${num(c.participants.length)} kişi`),
+          traceRequestButton(c.channelId),
         ),
         h(
           'ul',
@@ -1636,6 +1637,7 @@ function freezeRow(f, x, linked) {
         f.probe === 'temiz' && badge('dış sondalar temiz', 'muted'),
         f.factors.some((t) => t.startsWith('patlama_sonrasi')) && badge('patlama sonrası', 'warn'),
         (f.missing?.length ?? 0) > 0 && badge(`${num(f.missing.length)} eksik kanıt`, 'muted'),
+        f.traces ? badge(`olay kaydı: ${num(f.traces.users.length)}/${num(f.users.length)} kullanıcı`, 'ok') : f.traces === null && badge('olay kaydı yok', 'muted'),
         linked.length > 0 && badge(`${num(linked.length)} kişisel kalite kaydı`, 'muted'),
         tests.length > 0 && badge(`${num(tests.length)} hat testi çakışıyor`, 'muted'),
       ),
@@ -1723,7 +1725,15 @@ function openFreeze(f, x) {
   const seq = ++sheet.seq;
   void (async () => {
     try {
-      const d = await apiGet(`/api/admin/telemetry/freezes/${encodeURIComponent(f.id)}`);
+      // Olayın sunucu kanıtı ve aynı saniyelerin istemci olay kayıtları (kayıtlar alınamazsa ayrıntı onlarsız çizilir)
+      const [d, tw] = await Promise.all([
+        apiGet(`/api/admin/telemetry/freezes/${encodeURIComponent(f.id)}`),
+        apiGet(`/api/admin/voice/traces/window?${new URLSearchParams({ from: String(f.start - 30_000), to: String(f.end + 10_000), channelId: f.channelId, limit: '60' })}`).catch((err) => {
+          if (err instanceof AccessError) throw err;
+          return null;
+        }),
+      ]);
+      d.traces = tw;
       if (seq !== sheet.seq) return;
       $('adm-sheet-body').replaceChildren(...freezeDetail(d, x).flat(Infinity).filter(Boolean));
     } catch (err) {
@@ -1775,6 +1785,165 @@ function userLanes(f, x) {
   );
 }
 
+// ---------- İstemci olay kayıtları (saniyelik bağlantı ölçümleri) ----------
+
+/** Ses kanalındaki bütün istemcilerden olay kaydı ister (son ~2 dakikanın saniyelik ölçümleri) */
+/** Son isteğin sonucu (kanal → metin ve geçerlilik süresi): sekme 5 sn'de bir yeniden çizilse de görünür kalsın */
+const traceRequests = new Map();
+
+function traceRequestButton(channelId) {
+  const label = 'Sesteki herkesten kayıt iste';
+  const state = traceRequests.get(channelId);
+  const busy = state && state.until > Date.now();
+  const btn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'adm-more adm-trace-request',
+      disabled: busy,
+      title: 'Kanaldaki istemciler son ~2 dakikanın saniyelik bağlantı ölçümlerini gönderir (Bağlantı teşhisi > Olaylar ayrıntısında görünür)',
+    },
+    busy ? state.text : label,
+  );
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    btn.disabled = true;
+    let text;
+    try {
+      const r = await apiSend('POST', '/api/admin/voice/traces/request', { channelId, reason: 'yönetici isteği' });
+      text = r.sessions > 0 ? `${num(r.sessions)} istemciden istendi (~20 sn içinde gelir)` : 'Kayıt gönderebilen istemci yok (eski sürüm)';
+    } catch (err) {
+      if (err instanceof AccessError) return;
+      text = err.message;
+    }
+    traceRequests.set(channelId, { text, until: Date.now() + 10_000 });
+    btn.textContent = text;
+  });
+  return btn;
+}
+
+const isVideoKind = (k) => k === 'scr' || k === 'v';
+/** Giden akışlarda karşı tarafın bildirdiği kayıp (%): son alıcı raporu, yoksa kayıp / gönderilen */
+function upLossPct(s, video) {
+  const list = s.up.filter((u) => isVideoKind(u.k) === video);
+  if (list.length === 0) return null;
+  const fl = list.map((u) => u.fl).filter((v) => v !== null && v !== undefined);
+  if (fl.length > 0) return Math.max(...fl);
+  const sent = list.reduce((n, u) => n + u.ps, 0);
+  return sent > 0 ? (list.reduce((n, u) => n + (u.pl ?? 0), 0) / sent) * 100 : null;
+}
+const inLossPct = (pr, pl) => (pr + pl > 0 ? (pl / (pr + pl)) * 100 : null);
+
+/**
+ * Kullanıcı başına saniye saniye şeritler (sunucu saatine hizalı; sunucu grafikleriyle aynı zaman ekseni). Her
+ * hücre bir ölçümdür: renk yoğunluğu değerin büyüklüğü, üzerine gelince saati ve değeri. Dikey kırmızı bant kesinti.
+ */
+function traceLanes(tw, f, x, marks) {
+  const from = f.start - 30_000;
+  const to = f.end + 10_000;
+  const span = Math.max(1_000, to - from);
+  const W = 1000;
+  const H = 10;
+  const px = (t) => (Math.max(0, Math.min(span, t - from)) / span) * W;
+  const byUser = new Map();
+  for (const t of tw.traces) {
+    const u = byUser.get(t.userId) ?? { samples: [], marks: [], meta: t };
+    u.samples.push(...t.samples);
+    u.marks.push(...t.marks);
+    byUser.set(t.userId, u);
+  }
+  const strip = (label, samples, value, { max, cls = 'bad', fmt }) => {
+    const vals = samples.map((s) => ({ s, v: value(s) })).filter((p) => p.v !== null && p.v !== undefined && Number.isFinite(p.v));
+    if (!vals.some((p) => p.v > 0)) return null;
+    const peak = Math.max(...vals.map((p) => p.v));
+    const top = max ?? peak;
+    const chart = svg('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': `${label}: en çok ${fmt(peak)}` });
+    for (const m of marks) chart.append(svg('rect', { x: px(m.from), width: Math.max(3, px(m.to) - px(m.from)), y: 0, height: H, class: 'adm-lane-mark' }));
+    for (const { s, v } of vals) {
+      const a = px(s.ts - s.dt);
+      const rect = svg('rect', { x: a.toFixed(1), width: Math.max(2, px(s.ts) - a).toFixed(1), y: 0, height: H, class: `adm-heat-${cls}`, opacity: (v <= 0 ? 0.07 : Math.min(1, 0.2 + (0.8 * v) / Math.max(top, 1e-9))).toFixed(2) });
+      const tip = svg('title', {});
+      tip.textContent = `${clock(s.ts, true)} · ${fmt(v)}`;
+      rect.append(tip);
+      chart.append(rect);
+    }
+    return h('div', 'adm-lane adm-lane-thin', h('span', 'adm-lane-name adm-muted', label), h('div', 'adm-lane-bar', chart), h('span', 'adm-lane-val', fmt(peak)));
+  };
+  const pctFmt = (v) => pct(v);
+  const blocks = [...byUser.entries()].map(([userId, u]) => {
+    const s = u.samples.sort((a, b) => a.ts - b.ts);
+    const user = x.users[userId] ?? tw.users?.[userId] ?? null;
+    const role = f.users.find((fu) => fu.userId === userId)?.role;
+    const video = (pick) => (smp) => {
+      const v = smp.up.filter((up) => isVideoKind(up.k));
+      return v.length === 0 ? null : pick(v, smp);
+    };
+    const rows = [
+      strip('Giden kayıp · ses', s, (smp) => upLossPct(smp, false), { max: 20, fmt: pctFmt }),
+      strip('Giden kayıp · görüntü', s, (smp) => upLossPct(smp, true), { max: 20, fmt: pctFmt }),
+      strip('STUN yanıtsız', s, (smp) => smp.x?.su ?? null, { max: 3_000, fmt: msText }),
+      strip('RTT', s, (smp) => smp.x?.rtt ?? null, { max: 300, cls: 'brand', fmt: msText }),
+      strip('Yükleme tahmini (BWE)', s, (smp) => smp.x?.ao ?? null, { cls: 'ok', fmt: bits }),
+      strip(
+        'Yayın bit hızı',
+        s,
+        video((v, smp) => (smp.dt > 0 ? (v.reduce((n, up) => n + up.bs, 0) * 8) / (smp.dt / 1000) : null)),
+        { cls: 'brand', fmt: bits },
+      ),
+      strip(
+        'Yayın hedef bit hızı',
+        s,
+        video((v) => {
+          const tb = v.map((up) => up.tb).filter((n) => n !== null && n !== undefined);
+          return tb.length > 0 ? tb.reduce((a, b) => a + b, 0) : null;
+        }),
+        { cls: 'brand', fmt: bits },
+      ),
+      strip(
+        'Anahtar / dev kare',
+        s,
+        video((v) => v.reduce((n, up) => n + (up.kf ?? 0) + (up.hf ?? 0), 0)),
+        { max: 2, cls: 'warn', fmt: (v) => `${num(v)} kare` },
+      ),
+      strip(
+        'Alınan PLI / NACK',
+        s,
+        video((v) => v.reduce((n, up) => n + (up.pli ?? 0) + (up.fir ?? 0) + (up.nk ?? 0), 0)),
+        { max: 20, cls: 'warn', fmt: (v) => `${num(v)}` },
+      ),
+      strip('Gelen kayıp · ses', s, (smp) => (smp.da ? inLossPct(smp.da.pr, smp.da.pl) : null), { max: 20, fmt: pctFmt }),
+      strip(
+        'Gelen kayıp · görüntü',
+        s,
+        (smp) => (smp.dv?.length ? inLossPct(smp.dv.reduce((n, v) => n + v.pr, 0), smp.dv.reduce((n, v) => n + (v.pl ?? 0), 0)) : null),
+        { max: 20, fmt: pctFmt },
+      ),
+      strip('Donma', s, (smp) => (smp.dv?.length ? smp.dv.reduce((n, v) => n + (v.fzd ?? 0) + (v.fz ? 1 : 0), 0) : null), { max: 1_000, fmt: msText }),
+      strip('JS gecikmesi', s, (smp) => smp.lag ?? null, { max: 500, cls: 'warn', fmt: msText }),
+    ].filter(Boolean);
+    const inRange = u.marks.filter((m) => m.ts >= from && m.ts <= to).sort((a, b) => a.ts - b.ts);
+    return h(
+      'div',
+      'adm-trace-user',
+      h('div', 'adm-row-title', userName(user, 'Kullanıcı'), role && [' ', badge(role, role === 'yayıncı' ? 'live' : 'muted')], ' ', h('span', 'adm-muted', `${PLATFORM[u.meta.platform] ?? u.meta.platform} ${u.meta.version} · ${num(s.length)} ölçüm`)),
+      rows.length > 0 ? rows : h('div', 'adm-sub', 'Bu aralıkta kayda değer bir değer yok (kayıp, donma, gecikme sıfır).'),
+      inRange.length > 0 && h('div', 'adm-sub', `İşaretler: ${inRange.slice(0, 12).map((m) => `${clock(m.ts, true)} ${m.l}`).join(' · ')}${inRange.length > 12 ? ' …' : ''}`),
+    );
+  });
+  const missing = f.users.filter((fu) => !byUser.has(fu.userId)).map((fu) => userName(x.users[fu.userId], 'Kullanıcı'));
+  return panel(
+    'İstemci olay kayıtları: kullanıcı başına saniye saniye (sunucu saatine hizalı; renk yoğunluğu değerin büyüklüğü, sağda en yüksek değer)',
+    blocks,
+    h('div', 'adm-axis', h('span', null, clock(from, true)), h('span', null, clock(to, true))),
+    h(
+      'div',
+      'adm-sub adm-note',
+      `${num(tw.traces.length)} kayıt, ${num(byUser.size)} kullanıcı.${missing.length > 0 ? ` Kaydı olmayanlar (eski istemci ya da kayıt ulaşmadı): ${missing.join(', ')}.` : ''}` +
+        `${tw.truncated ? ' Kayıtların bir kısmı gösterilmedi (sınır).' : ''} Saatler istemcinin ölçtüğü saat farkıyla sunucu saatine çevrilir (±1 sn).`,
+    ),
+  );
+}
+
 function freezeDetail(d, x) {
   const f = d.event;
   const rows = d.rows;
@@ -1812,6 +1981,8 @@ function freezeDetail(d, x) {
     );
   }
   out.push(userLanes(f, x));
+  if (d.traces && d.traces.traces.length > 0) out.push(traceLanes(d.traces, f, x, marks));
+  else out.push(h('div', 'adm-sub', d.traces ? 'Bu olayın saniyelerine ait istemci olay kaydı yok (eski istemciler kayıt göndermez).' : 'İstemci olay kayıtları alınamadı.'));
   const userRows = f.users.map((u) => {
     const s = u.screen;
     return h(
