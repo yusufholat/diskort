@@ -2023,3 +2023,59 @@ textarea.adm-input {
     width: 100%;
   }
 }
+
+/* Hat testleri: saniye saniye kayıp çubukları, ortak test sütunları */
+.adm-bars {
+  margin: 4px 0 8px;
+}
+.adm-bars svg {
+  display: block;
+  width: 100%;
+  height: 56px;
+}
+.adm-bar-ok {
+  fill: var(--ok);
+  opacity: 0.55;
+}
+.adm-bar-warn {
+  fill: var(--warn);
+}
+.adm-bar-bad {
+  fill: var(--danger);
+}
+.adm-bars-sep {
+  stroke: rgba(255, 255, 255, 0.14);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.adm-line-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+.adm-line-col {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+}
+.adm-pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 260px;
+  overflow: auto;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  font: 0.78rem/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.adm-pre-inline {
+  display: block;
+}
+.adm-line-col .adm-badge,
+#adm-line .adm-badges .adm-badge {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

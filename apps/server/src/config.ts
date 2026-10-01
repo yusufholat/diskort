@@ -43,6 +43,12 @@ export interface Config {
   systemStats: boolean;
   /** Dış ağ sondaları (NET_PROBE_TARGETS: "udp:1.1.1.1:53,tcp:1.1.1.1:443"; "0" kapatır; boşsa varsayılanlar) */
   netProbeTargets: string | null;
+  /**
+   * Hat testi UDP ucu: denenecek portlar (LINE_TEST_PORT, varsayılan 59999; bağlanamazsa bir altındaki denenir; "off" kapatır,
+   * testlerde varsayılan kapalı) ve bir anda ayrılabilecek toplam bant genişliği (LINE_TEST_MAX_MBPS, varsayılan 24).
+   */
+  lineTestPorts: number[];
+  lineTestMaxBps: number;
   /** Makine bilgilerinin okunduğu /proc kökü (PROC_ROOT, varsayılan /proc) */
   procRoot: string;
   /** Aylık trafik kotası, bayt (TRAFFIC_QUOTA_GB, varsayılan 5000 GB = 5 TB; gelen + giden) */
@@ -125,6 +131,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const giphyLang = (env.GIPHY_LANG || 'tr').toLowerCase();
   if (!/^[a-z]{2}(?:-[a-z]{2})?$/.test(giphyLang)) throw new Error(`Geçersiz GIPHY_LANG: ${env.GIPHY_LANG}`);
 
+  const lineTestRaw = (env.LINE_TEST_PORT || (env.NODE_ENV === 'test' ? 'off' : '59999')).trim().toLowerCase();
+  const lineTestBase = Number(lineTestRaw);
+  if (lineTestRaw !== 'off' && lineTestRaw !== '0' && (!Number.isInteger(lineTestBase) || lineTestBase < 1024 || lineTestBase > 65535)) {
+    throw new Error(`Geçersiz LINE_TEST_PORT: ${env.LINE_TEST_PORT}`);
+  }
+  const lineTestMbps = Number(env.LINE_TEST_MAX_MBPS || 24);
+  if (!Number.isFinite(lineTestMbps) || lineTestMbps <= 0) throw new Error(`Geçersiz LINE_TEST_MAX_MBPS: ${env.LINE_TEST_MAX_MBPS}`);
+
   return {
     host: env.HOST ?? '0.0.0.0',
     port: Number(env.PORT ?? 3000),
@@ -160,6 +174,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     linkPreviews: env.LINK_PREVIEWS ? env.LINK_PREVIEWS !== '0' : env.NODE_ENV !== 'test',
     systemStats: env.SYSTEM_STATS ? env.SYSTEM_STATS !== '0' : env.NODE_ENV !== 'test',
     netProbeTargets: env.NET_PROBE_TARGETS?.trim() || null,
+    lineTestPorts:
+      lineTestRaw === 'off' || lineTestRaw === '0'
+        ? []
+        : Array.from({ length: 20 }, (_, i) => lineTestBase - i).filter((p) => p >= 1024),
+    lineTestMaxBps: Math.round(lineTestMbps * 1e6),
     procRoot: env.PROC_ROOT || '/proc',
     trafficQuotaBytes: Math.round(trafficQuotaGb * 1e9),
     livekitMetricsUrl: optionalUrl(env.LIVEKIT_METRICS_URL, 'http://127.0.0.1:6789/metrics'),

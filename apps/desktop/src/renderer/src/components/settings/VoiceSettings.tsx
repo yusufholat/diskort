@@ -12,6 +12,7 @@ import { useVoice } from '../../stores/voice';
 import { Button, Divider, RadioCards, SectionTitle, Segmented, Select, Toggle } from '../ui/controls';
 import { Slider } from '../ui/Slider';
 import { KeybindInput } from './KeybindInput';
+import { LineTestSection } from './LineTest';
 
 interface Device {
   deviceId: string;
@@ -373,6 +374,8 @@ export function VoiceSettings() {
           { value: 128, label: '128 kbps — müzik' },
         ]}
       />
+
+      <LineTestSection />
     </div>
   );
 }

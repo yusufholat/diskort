@@ -8,7 +8,9 @@ release/
 
 # Yerel veri / araçlar
 data/
-tools/
+tools/*
+# Hat testi aracı depoda (arkadaşlar GitHub'dan indirir)
+!tools/udp-probe/
 apps/server/data/
 
 # Test APK gibi geçici dosyalar (sunucuda elle konur)

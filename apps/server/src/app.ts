@@ -13,6 +13,8 @@ import { VoiceTelemetryStore } from './telemetry.js';
 import { FreezeCorrelator } from './freezeDiagnosis.js';
 import { DEFAULT_PROBE_TARGETS, parseProbeTargets, ProbeRunner } from './netProbe.js';
 import { SecondSampler } from './netSeconds.js';
+import { LineTestService } from './lineTest/service.js';
+import { registerLineTestRoutes } from './routes/lineTest.js';
 import { VoiceSessionRecorder } from './voiceHistory.js';
 import { registerAdminStatsRoutes } from './routes/adminStats.js';
 import { registerTelemetryRoutes } from './routes/telemetry.js';
@@ -97,6 +99,8 @@ export interface BuildOptions {
   systemMonitor?: SystemMonitor;
   /** Ses kalitesi ölçümlerinin klasörü (varsayılan: SYSTEM_STATS açıkken <DATA_DIR>/telemetry; null: yalnızca bellek) */
   telemetryDir?: string | null;
+  /** Testler için hat testi UDP portları (config.lineTestPorts yerine; [0] rastgele boş port) */
+  lineTestPorts?: number[];
   /** Testler için sahte ölçüm uçları (LiveKit ve Caddy Prometheus) */
   metricsFetch?: typeof fetch;
   /** Yönetim paneli: hazır LiveKit ölçümü ve altyapı ölçümü (testler ve ekran görüntüsü düzeneği) */
@@ -225,6 +229,18 @@ export async function buildApp(
       ),
     log: app.log,
   });
+  const lineTest = new LineTestService({
+    secret: config.jwtSecret,
+    dir: netDir,
+    ports: opts.lineTestPorts ?? config.lineTestPorts,
+    maxBps: config.lineTestMaxBps,
+    streamInfo: () => {
+      const channels = [...new Set(voice.list().filter((v) => v.streaming).map((v) => v.channelId))];
+      return { live: channels.length > 0, channels };
+    },
+    serverTxMbps: () => netSampler.latest()?.tx ?? null,
+    log: app.log,
+  });
   const ctx: AppContext = {
     config,
     store,
@@ -253,6 +269,7 @@ export async function buildApp(
     telemetry,
     freeze,
     netSampler,
+    lineTest,
     guild,
   };
 
@@ -439,6 +456,10 @@ export async function buildApp(
   registerDashboardRoutes(app, ctx, dashboard);
   registerTelemetryRoutes(app, ctx);
   registerAdminStatsRoutes(app, ctx, { telemetry, livekitMetrics, infra });
+  registerLineTestRoutes(app, ctx);
+  // UDP ucu dinlemeye hazır olunca açılır (listen'den önce); kapanışta soket kapatılır
+  app.addHook('onReady', async () => void (await lineTest.start()));
+  app.addHook('onClose', async () => lineTest.stop());
 
   return { app, ctx };
 }

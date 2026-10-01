@@ -25,6 +25,7 @@ import type {
 import { ActivityMonitor, registerActivityIpc } from './activity';
 import { inviteCodeFromArgv, inviteCodeFromUrl } from './deepLink';
 import { registerFeedbackIpc } from './feedback';
+import { registerLineTestIpc } from './lineTest';
 import { HotkeyManager } from './hotkeys';
 import { IdleMonitor } from './idle';
 import { Splash } from './splash';
@@ -401,6 +402,7 @@ function registerIpc(): void {
   ipcMain.handle('hotkeys:cancel-record', () => hotkeys.cancelRecord());
 
   registerFeedbackIpc();
+  registerLineTestIpc();
   registerActivityIpc(activityMonitor);
 
   ipcMain.handle('updates:get-state', () => updates.getState());

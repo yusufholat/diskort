@@ -50,7 +50,7 @@ let inflight = false;
 let lastData = null;
 let failures = 0;
 
-const TABS = ['genel', 'ses', 'ses-gecmisi', 'makine', 'api', 'istemciler', 'guvenlik', 'sunucular', 'geri-bildirim', 'iphone', 'hatalar'];
+const TABS = ['genel', 'ses', 'ses-gecmisi', 'makine', 'api', 'istemciler', 'guvenlik', 'sunucular', 'geri-bildirim', 'iphone', 'hat-testleri', 'hatalar'];
 /** Eski bağlantılar (#sunucu) yeni sekmelere */
 const TAB_ALIASES = { sunucu: 'makine' };
 
@@ -77,6 +77,7 @@ const ui = {
   fbStatus: 'yeni',
   fbType: '',
   allEvents: false,
+  lineDays: 7,
 };
 
 const VIEWS = ['adm-login', 'adm-denied', 'adm-loading', 'adm-dashboard'];
@@ -288,6 +289,11 @@ const LOADERS = {
     every: 60_000,
     render: (x) => draw('adm-feedback-list', () => feedbackList(x)),
   },
+  'hat-testleri': {
+    url: () => `/api/admin/line-tests?days=${ui.lineDays}`,
+    every: 10_000,
+    render: (x) => draw('adm-line', () => lineTests(x)),
+  },
   iphone: { url: () => '/api/admin/ios-devices', every: 20_000, render: (x) => draw('adm-iphone', () => iosDevices(x)) },
   hatalar: { url: () => '/api/admin/api-stats', every: 15_000, render: (x) => draw('adm-logs', () => serverLogs(x)) },
 };
@@ -336,6 +342,7 @@ function placeholder(tab, text) {
     sunucular: ['adm-guilds'],
     'geri-bildirim': ['adm-feedback-list'],
     iphone: ['adm-iphone'],
+    'hat-testleri': ['adm-line'],
     hatalar: ['adm-logs'],
   }[tab];
   for (const id of target ?? []) $(id).replaceChildren(h('article', 'adm-card adm-wide adm-empty', text));
@@ -1277,6 +1284,296 @@ function freezeDetail(d, x) {
     ),
   );
   return out;
+}
+
+// ---------- Hat testleri (LiveKit'ten bağımsız UDP/TCP ölçümü; bkz. tools/udp-probe) ----------
+
+const LINE_PROFILE = { ramp: 'Hız basamakları', pps: 'Küçük paket (pps)', steady: 'Yayın benzeri', quick: 'Kısa test' };
+const LINE_MODE = { up: 'yukarı', down: 'aşağı', both: 'iki yön' };
+const LINE_TONE = { bad: 'bad', warn: 'warn', ok: 'ok', info: 'muted' };
+const LINE_SERVER = 'https://diskort.ziroo.net';
+
+/** Aşamanın bir yönündeki toplam kayıp yüzdesi (ölçülmediyse null) */
+function dirLoss(run, dir) {
+  const stats = run.stats?.[dir];
+  if (!stats) return null;
+  const planned = stats.reduce((n, s) => n + s.planned, 0);
+  const lost = stats.reduce((n, s) => n + s.lost, 0);
+  return planned > 0 ? (lost / planned) * 100 : null;
+}
+
+/** Saniye saniye kayıp çubukları: yükseklik kayıp %, renk eşiğe göre; ayrım çizgileri adım başlangıçları */
+function lossBars(seconds, steps, label) {
+  const n = seconds.length;
+  const W = n * 8;
+  const H = 44;
+  const lossOf = (s) => (s.planned > 0 ? (Math.max(0, s.planned - s.recv) / s.planned) * 100 : 0);
+  const top = Math.max(10, ...seconds.map(lossOf));
+  const chart = svg('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': label });
+  for (const st of steps) {
+    if (st.startSec > 0) chart.append(svg('line', { x1: st.startSec * 8, x2: st.startSec * 8, y1: 0, y2: H, class: 'adm-bars-sep' }));
+  }
+  seconds.forEach((s, i) => {
+    const loss = lossOf(s);
+    const step = steps.find((st) => i >= st.startSec && i < st.startSec + st.secs);
+    const height = Math.max(loss > 0 ? 2 : 0.5, (loss / top) * H);
+    const bar = svg('rect', {
+      x: i * 8 + 1,
+      width: 6,
+      y: H - height,
+      height,
+      class: loss >= 2 ? 'adm-bar-bad' : loss >= 1 ? 'adm-bar-warn' : 'adm-bar-ok',
+    });
+    const tip = svg('title', {});
+    tip.textContent = `${step?.label ?? ''} · ${i + 1}. sn · kayıp %${nf1.format(loss)} (${num(s.recv)}/${num(s.planned)})`;
+    bar.append(tip);
+    chart.append(bar);
+  });
+  return h('div', 'adm-bars', chart, h('div', 'adm-axis', h('span', null, `0 – ${n} sn`), h('span', null, `tepe %${nf1.format(top)}`)));
+}
+
+function lineBadges(s) {
+  const out = [];
+  const lossy = s.findings.filter((f) => f.tone === 'bad' || f.tone === 'warn');
+  for (const f of (lossy.length > 0 ? lossy : s.findings).slice(0, 3)) {
+    out.push(badge(f.text.length > 70 ? `${f.text.slice(0, 68)}…` : f.text, LINE_TONE[f.tone]));
+  }
+  return out;
+}
+
+function lineWho(s, x) {
+  const u = s.who.userId ? x.users[s.who.userId] : null;
+  return u?.displayName ?? s.who.name;
+}
+
+function lineRow(s, x) {
+  const overall = (dir) => {
+    const v = s.runs.map((r) => dirLoss(r, dir)).filter((n) => n !== null);
+    return v.length === 0 ? null : v.reduce((a, b) => a + b, 0) / v.length;
+  };
+  const up = overall('up');
+  const down = overall('down');
+  return h(
+    'li',
+    { class: 'adm-row adm-row-top adm-clickable', tabindex: 0, role: 'button', on: rowOpen(() => openLine(s, x)) },
+    h(
+      'div',
+      'adm-row-main',
+      h('div', 'adm-row-title', lineWho(s, x), ' ', badge(s.streaming ? 'yayın açıkken' : 'boşta', s.streaming ? 'live' : 'muted')),
+      h('div', 'adm-sub', `${dateTime(s.at)} · ${duration((s.end - s.at) / 1000)} · ${s.runs.length} aşama${s.ip ? ` · ${s.ip}` : ''}`),
+      h(
+        'div',
+        'adm-badges',
+        up !== null && badge(`kayıp ↑ ${pct(up)}`, up >= 2 ? 'bad' : up >= 1 ? 'warn' : 'muted'),
+        down !== null && badge(`kayıp ↓ ${pct(down)}`, down >= 2 ? 'bad' : down >= 1 ? 'warn' : 'muted'),
+        s.freezeIds.length > 0 && badge('donma olayıyla çakışıyor', 'warn'),
+        lineBadges(s),
+      ),
+    ),
+  );
+}
+
+function lineGroup(g, x) {
+  const byId = new Map(x.suites.map((s) => [s.id, s]));
+  const members = g.suiteIds.map((id) => byId.get(id)).filter(Boolean);
+  const cols = members.map((s) => {
+    const upRun = s.runs.find((r) => r.transport === 'udp' && r.up && r.profile !== 'pps' && r.profile !== 'steady') ?? s.runs.find((r) => r.transport === 'udp' && r.up);
+    const downRun = s.runs.find((r) => r.transport === 'udp' && r.down && r.profile !== 'pps' && r.profile !== 'steady') ?? s.runs.find((r) => r.transport === 'udp' && r.down);
+    const bad = s.findings.find((f) => f.tone === 'bad') ?? s.findings.find((f) => f.tone === 'warn') ?? s.findings[0];
+    return h(
+      'div',
+      'adm-line-col',
+      h('div', 'adm-row-title', lineWho(s, x)),
+      h('div', 'adm-sub', `${clock(s.at, true)}${s.streaming ? ' · yayın açıkken' : ''}`),
+      bad && badge(bad.text.length > 60 ? `${bad.text.slice(0, 58)}…` : bad.text, LINE_TONE[bad.tone]),
+      upRun && h('div', 'adm-sub', `↑ ${LINE_PROFILE[upRun.profile]} · kayıp ${pct(dirLoss(upRun, 'up'))}`),
+      upRun && lossBars(upRun.up, upRun.steps, `${lineWho(s, x)} yukarı yön kaybı`),
+      downRun && h('div', 'adm-sub', `↓ ${LINE_PROFILE[downRun.profile]} · kayıp ${pct(dirLoss(downRun, 'down'))}`),
+      downRun && lossBars(downRun.down, downRun.steps, `${lineWho(s, x)} aşağı yön kaybı`),
+    );
+  });
+  return h(
+    'article',
+    'adm-card adm-wide',
+    h('div', 'adm-label', `Ortak test · ${dateTime(g.at)} · ${num(g.total)} kişi`),
+    h('div', 'adm-sub', g.text),
+    h('div', 'adm-line-cols', cols),
+  );
+}
+
+async function newLineCode(msg, btn) {
+  btn.disabled = true;
+  msg.textContent = '';
+  try {
+    await apiSend('POST', '/api/admin/line-test/codes', { label: '', hours: 12, maxUses: 40 });
+    delete extra.data['hat-testleri'];
+    await loadExtra(true);
+  } catch (err) {
+    if (err instanceof AccessError) return;
+    msg.textContent = `Kod üretilemedi: ${err.message}`;
+    btn.disabled = false;
+  }
+}
+
+const lineCommand = (code) => `node probe.mjs --server ${LINE_SERVER} --kod ${code} --ad ADIN`;
+
+function lineTests(x) {
+  const msg = h('div', 'adm-sub');
+  const btn = h('button', { type: 'button', class: 'adm-more', on: { click: () => void newLineCode(msg, btn) } }, 'Test kodu üret (12 saat)');
+  const out = [
+    h(
+      'article',
+      'adm-card adm-wide',
+      h('div', 'adm-label', 'Hat testi: istemci ↔ sunucu UDP yolunu LiveKit olmadan ölçer (yukarı/aşağı kayıp, hız eşiği, paket/sn, TCP karşılaştırması)'),
+      x.enabled
+        ? h(
+            'div',
+            'adm-badges',
+            badge(`UDP port ${x.port}`, 'ok'),
+            badge(`şu an ${num(x.active)} test · ${dec(x.reservedMbps)}/${num(x.maxMbps)} Mbps ayrılmış`, 'muted'),
+            badge(x.streamLive ? 'şu an canlı yayın var' : 'canlı yayın yok', x.streamLive ? 'live' : 'muted'),
+          )
+        : h('div', 'adm-sub', 'Hat testi kapalı: UDP portu açılamadı ya da LINE_TEST_PORT=off.'),
+      x.enabled &&
+        x.stats &&
+        h('div', 'adm-sub', `Paketler: ${num(x.stats.rx)} alınan · ${num(x.stats.tx)} giden · ${num(x.stats.dropped)} atılan · ${num(x.stats.rateLimited)} sınırlanan · ${num(x.stats.sendErrors)} gönderim hatası`),
+      h('div', 'adm-sub', 'Arkadaşına tools/udp-probe/probe.mjs dosyasını ve aşağıdaki komutu ver (Node kurulu olmalı). Hesabı olanlar uygulamada Ayarlar > Ses > Hat testi düğmesini kullanabilir.'),
+      btn,
+      msg,
+      x.codes.length > 0 &&
+        h(
+          'ul',
+          'adm-rows',
+          x.codes.map((c) =>
+            h(
+              'li',
+              'adm-row',
+              h(
+                'div',
+                'adm-row-main',
+                h('div', 'adm-row-title', c.code, ' ', badge(`${num(c.uses)}/${num(c.maxUses)} kullanım`, 'muted'), ' ', badge(`${clock(c.expiresAt)} saatine kadar`, 'muted')),
+                h('code', 'adm-pre adm-pre-inline', lineCommand(c.code)),
+              ),
+            ),
+          ),
+        ),
+    ),
+    chips(
+      [
+        [1, 'Son 24 saat'],
+        [7, '7 gün'],
+        [30, '30 gün'],
+      ],
+      ui.lineDays,
+      (days) => {
+        ui.lineDays = days;
+        delete extra.data['hat-testleri'];
+        void loadExtra(true);
+      },
+      'Dönem',
+    ),
+  ];
+  for (const g of x.groups.slice(0, 8)) out.push(lineGroup(g, x));
+  out.push(
+    h(
+      'article',
+      'adm-card adm-wide',
+      h('div', 'adm-label', 'Testler: kim, ne zaman, yayın açıkken mi boşta mı, otomatik yorum'),
+      x.suites.length === 0
+        ? h('div', 'adm-sub', 'Bu dönemde hat testi yok.')
+        : h(
+            'ul',
+            'adm-rows',
+            x.suites.map((s) => lineRow(s, x)),
+          ),
+    ),
+  );
+  return out;
+}
+
+function lineRun(r) {
+  const label = `${LINE_PROFILE[r.profile] ?? r.profile} · ${LINE_MODE[r.mode] ?? r.mode}${r.transport === 'tcp' ? ' · TCP' : ''}`;
+  const out = [h('div', 'adm-label', label)];
+  if (r.unreachable) out.push(h('div', 'adm-sub', 'UDP el sıkışması tamamlanamadı: sunucuya hiç ulaşılamadı.'));
+  if (r.partial) out.push(h('div', 'adm-sub', 'İstemci raporu gelmedi; yalnızca sunucunun ölçtüğü yukarı yön var.'));
+  for (const [dir, text, secs] of [
+    ['up', '↑ yukarı (istemci → sunucu, sunucu ölçtü)', r.up],
+    ['down', '↓ aşağı (sunucu → istemci, istemci ölçtü)', r.down],
+  ]) {
+    if (!secs) continue;
+    const stats = r.stats?.[dir] ?? [];
+    out.push(
+      h('div', 'adm-sub', `${text}: toplam kayıp ${pct(dirLoss(r, dir))}`),
+      lossBars(secs, r.steps, `${label} ${text}`),
+      h(
+        'ul',
+        'adm-rows',
+        stats.map((st) =>
+          h(
+            'li',
+            'adm-row',
+            h(
+              'div',
+              'adm-row-main',
+              h(
+                'div',
+                'adm-badges',
+                badge(st.label, 'muted'),
+                badge(`kayıp ${pct(st.lossPct)}`, st.lossPct >= 2 ? 'bad' : st.lossPct >= 1 ? 'warn' : 'ok'),
+                st.reordPct > 0 && badge(`sırasız ${pct(st.reordPct)}`, 'muted'),
+                badge(`sapma ${dec(st.jitMs)} ms`, 'muted'),
+                badge(`${num(st.recv)}/${num(st.planned)} paket`, 'muted'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  for (const [text, secs] of [
+    ['TCP ↑', r.tcpUp],
+    ['TCP ↓', r.tcpDown],
+  ]) {
+    if (!secs) continue;
+    const got = secs.reduce((n, s) => n + Math.min(s.bytes, s.target), 0);
+    const target = secs.reduce((n, s) => n + s.target, 0);
+    out.push(h('div', 'adm-sub', `${text}: hedefin %${target ? nf1.format((got / target) * 100) : '—'}'ine ulaştı (${bytes(got)} / ${bytes(target)})`));
+  }
+  if (r.serverTxMbps != null) out.push(h('div', 'adm-sub', `Sunucu NIC giden: ${dec(r.serverTxMbps)} Mbps (başlangıçta).`));
+  return h('div', 'adm-card', out);
+}
+
+const FINDING_WORD = { bad: 'sorun', warn: 'dikkat', ok: 'temiz', info: 'bilgi' };
+
+function openLine(s, x) {
+  openSheet(`${lineWho(s, x)} · ${dateTime(s.at)}`);
+  const channels = [...new Set(s.runs.flatMap((r) => r.streaming.channels))].map((id) => x.channels[id]).filter(Boolean);
+  const body = [
+    h(
+      'div',
+      'adm-card',
+      h('div', 'adm-label', 'Otomatik yorum'),
+      s.findings.map((f) => [h('div', 'adm-row-title', badge(FINDING_WORD[f.tone], LINE_TONE[f.tone]), ' ', f.text), f.evidence && h('div', 'adm-sub', f.evidence)]),
+      h('div', 'adm-sub', s.streaming ? `Test sırasında canlı yayın vardı${channels.length ? ` (${channels.join(', ')})` : ''}.` : 'Test sırasında canlı yayın yoktu (boşta ölçüm).'),
+      s.freezeIds.length > 0 &&
+        h('div', 'adm-sub', `Çakışan yayın donması olayı: ${s.freezeIds.map((id) => x.freezes.find((f) => f.id === id)?.label ?? id).join(', ')} (Ses sekmesi > Yayın donmaları).`),
+    ),
+    s.runs.map((r) => lineRun(r)),
+  ];
+  const c = s.runs.find((r) => r.client)?.client;
+  if (c) {
+    body.push(
+      h(
+        'div',
+        'adm-card',
+        h('div', 'adm-label', 'İstemci'),
+        h('div', 'adm-sub', [c.os, c.arch, c.node && `node ${c.node}`, c.app && `uygulama ${c.app}`, c.localIp && `yerel IP: ${c.localIp}`, c.rttMs != null && `HTTPS gecikme ${dec(c.rttMs, 0)} ms`].filter(Boolean).join(' · ')),
+        c.note && h('div', 'adm-sub', c.note),
+        c.tracert && h('pre', 'adm-pre', c.tracert),
+      ),
+    );
+  }
+  $('adm-sheet-body').replaceChildren(...body.flat(Infinity).filter(Boolean));
 }
 
 function system(d, now) {
