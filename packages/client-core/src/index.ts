@@ -12,7 +12,7 @@ export {
   useReactionUsers,
   type ReactionUsersEntry,
 } from './reactions';
-export { recentClientErrors, reportClientError } from './errors';
+export { recentClientErrors, reportClientError, sendClientError } from './errors';
 export { parseReleaseNotes, type NoteBlock, type NotePart } from './releaseNotes';
 export {
   baseFeedbackContext,
@@ -102,6 +102,16 @@ export {
   type TelemetryContext,
   type TelemetrySample,
 } from './voiceTelemetry';
+export {
+  PING_STALE_MS,
+  VoiceTraceRecorder,
+  parseTraceTotals,
+  type TraceCapture,
+  type TraceReason,
+  type TraceSampleInput,
+} from './voiceTrace';
+export { voiceTrace, voiceTraceUploader, VoiceTraceUploader } from './voiceTraceUpload';
+export { serverClock, ServerClock } from './serverClock';
 export { gateway } from './gateway';
 export { ensureActivityIcon, setActivities } from './activity';
 export {

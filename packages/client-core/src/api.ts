@@ -42,6 +42,7 @@ import {
   CLIENT_FEATURE_COSMETIC_PACKS,
   CLIENT_FEATURE_DM,
   CLIENT_FEATURE_PRESENCE,
+  CLIENT_FEATURE_VOICE_TRACE,
   CLIENT_FEATURES_HEADER,
 } from '@diskort/shared';
 import { env } from './env';
@@ -63,7 +64,12 @@ export function normalizeServerUrl(url: string): string {
 }
 
 /** İstemcinin tanıdığı ek özellikler: gateway'de IDENTIFY ile, HTTP isteklerinde CLIENT_FEATURES_HEADER ile bildirilir */
-export const CLIENT_FEATURES: readonly string[] = [CLIENT_FEATURE_DM, CLIENT_FEATURE_PRESENCE, CLIENT_FEATURE_COSMETIC_PACKS];
+export const CLIENT_FEATURES: readonly string[] = [
+  CLIENT_FEATURE_DM,
+  CLIENT_FEATURE_PRESENCE,
+  CLIENT_FEATURE_COSMETIC_PACKS,
+  CLIENT_FEATURE_VOICE_TRACE,
+];
 
 /**
  * Kullanıcı döndüren her isteğe eklenen başlık: sunucu, paketleri tanıdığını bildirmeyen istemciye set

@@ -34,7 +34,7 @@ function serverLine(server: VoiceServerInfo | null): string {
 
 /** Hata ayıklama için panoya kopyalanan tanılama bilgisi (hiçbir yere gönderilmez) */
 function diagnostics(): string {
-  const { samples, quality, server, detail } = useConnectionStats.getState();
+  const { samples, quality, pingStale, server, detail } = useConnectionStats.getState();
   const { platform, appVersion } = baseFeedbackContext();
   return JSON.stringify(
     {
@@ -42,6 +42,7 @@ function diagnostics(): string {
       app: { platform, version: appVersion, userAgent: navigator.userAgent },
       server,
       quality,
+      pingStale,
       summary: summarizePings(samples),
       pings: samples.map((s) => ({ at: new Date(s.at).toISOString(), rttMs: s.rttMs, sent: s.sent, lost: s.lost })),
       publisher: detail?.publisher ?? null,
@@ -192,6 +193,8 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 function ConnectionTab({ onDebug }: { onDebug: () => void }) {
   const samples = useConnectionStats((s) => s.samples);
   const server = useConnectionStats((s) => s.server);
+  // STUN yanıtı gelmiyorsa son ping eski bir değerdir: "—" gösterilir
+  const pingStale = useConnectionStats((s) => s.pingStale);
   const summary = useMemo(() => summarizePings(samples), [samples]);
 
   const copy = async (): Promise<void> => {
@@ -213,7 +216,9 @@ function ConnectionTab({ onDebug }: { onDebug: () => void }) {
         <dt className="text-text-muted">Ortalama ping:</dt>
         <dd className="text-right font-semibold text-text-head tabular-nums">{ms(summary.averageMs)}</dd>
         <dt className="text-text-muted">Son ping:</dt>
-        <dd className="text-right font-semibold text-text-head tabular-nums">{ms(summary.lastMs)}</dd>
+        <dd className="text-right font-semibold text-text-head tabular-nums" data-tooltip={pingStale ? 'Ses sunucusundan yanıt gelmiyor' : undefined}>
+          {pingStale ? '—' : ms(summary.lastMs)}
+        </dd>
         <dt className="text-text-muted">Giden paket kayıp oranı:</dt>
         <dd className="text-right font-semibold text-text-head tabular-nums">{formatPercent(summary.lossPercent)}</dd>
       </dl>

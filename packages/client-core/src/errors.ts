@@ -62,6 +62,34 @@ export function reportClientError(error: unknown, where: string): void {
   }
 }
 
+/**
+ * Hazır bir hata kaydını sunucuya gönderir ve ulaşıp ulaşmadığını bildirir (masaüstünün süreç çökmesi
+ * bildirimleri: ana süreç diskte tutar, ulaşana kadar yeniden denenir). reportClientError'dan farkı: aynı
+ * mesaj elemesi ve oturum başına sınır uygulanmaz, sonuç beklenebilir. Sunucunun reddettiği kayıt (geçersiz
+ * gövde) "ulaştı" sayılır: yeniden denemek anlamsızdır.
+ */
+export async function sendClientError(where: string, message: string, stack?: string): Promise<boolean> {
+  try {
+    remember(`${where}: ${message}`);
+    const { platform, version, serverUrl } = env();
+    const token = useSession.getState().token;
+    const res = await fetch(`${normalizeServerUrl(serverUrl())}/api/client-errors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({
+        platform,
+        version,
+        where: where.slice(0, 64),
+        message: message.slice(0, 500),
+        stack: stack?.slice(0, CLIENT_ERROR_STACK_MAX),
+      }),
+    });
+    return res.ok || (res.status >= 400 && res.status < 500 && res.status !== 429);
+  } catch {
+    return false;
+  }
+}
+
 function remember(entry: string): void {
   const text = entry.slice(0, 300);
   // Art arda tekrarlanan aynı hata bir kez tutulur

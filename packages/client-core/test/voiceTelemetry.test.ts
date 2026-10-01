@@ -498,6 +498,42 @@ describe('JS takılması', () => {
   });
 });
 
+describe('özetin ek alanları (yeni istemciler)', () => {
+  it('giden kayıp ses ve görüntü için ayrı; aralığın bitişi ve gönderim anı istemci saatiyle', () => {
+    const t = new VoiceTelemetry();
+    t.setContext(() => ({ channelId: 'ses1', mic: null }));
+    feed(t, 16, { screen: true });
+    const r = sent()[0]!;
+    // Ses: 100 paketin 2'si; görüntü: 500 paketin 0'ı (toplam oran ikisinin karışımı: %0,33)
+    expect(r.lossOutAudioPct).toBe(2);
+    expect(r.lossOutVideoPct).toBe(0);
+    expect(r.lossOutPct).toBe(0.33);
+    expect(r.endAt).toBe(1_000_000 + 14 * 2000);
+    expect(typeof r.sentAt).toBe('number');
+    // Saat farkı henüz ölçülmedi
+    expect(r.offsetMs).toBeNull();
+  });
+
+  it('yayın yokken görüntü kaybı null; takılma tepe değeri özetin ölçümlerinden bağımsız okunur', () => {
+    let now = 0;
+    const lag = new LoopLagMeter(() => now);
+    const t = new VoiceTelemetry(lag);
+    t.setContext(() => ({ channelId: 'ses1', mic: null }));
+    feed(t, 2);
+    now += 800;
+    lag.tick();
+    now += 500;
+    lag.tick();
+    expect(t.lagPeak()).toBe(300);
+    expect(t.lagPeak()).toBeNull();
+    feed(t, 14, { start: 1_004_000 });
+    const r = sent()[0]!;
+    expect(r.lossOutVideoPct).toBeNull();
+    // Tepe değerin okunması özetteki takılma ölçümünü silmez
+    expect(r.jsLag).toEqual({ maxMs: 300, p95Ms: 300, stalls: 1 });
+  });
+});
+
 describe('ses seviyesi özeti', () => {
   it('%100 dışındaki seviyelerin sayısı ve en yükseği; kimlik yok', () => {
     expect(volumeSummary({ u1: 1, u2: 1.8, u3: 0.4, u4: Number.NaN })).toEqual({ userVolumesChanged: 2, userVolumeMax: 1.8 });

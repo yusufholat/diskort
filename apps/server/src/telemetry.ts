@@ -60,6 +60,14 @@ export interface TelemetryEntry {
   audioIn?: TelemetryAudioIn | null;
   jsLag?: TelemetryJsLag | null;
   settings?: TelemetryVoiceSettings | null;
+  /** Giden kayıp (%), ses ve görüntü ayrı (yeni istemciler) */
+  lossOutAudio?: number | null;
+  lossOutVideo?: number | null;
+  /**
+   * Özetin kapsadığı aralığın bittiği an, SUNUCU saatiyle (yeni istemciler): istemcinin bildirdiği bitiş +
+   * saat farkı. `at` ulaşma anıdır; geç ulaşan özet (kesinti, yavaş yükleme) bununla doğru zamana yerleşir.
+   */
+  endAt?: number;
   severity: TelemetrySeverity;
   causes: string[];
 }
@@ -105,6 +113,27 @@ const r = (v: number | null | undefined, digits = 0): number | null => {
   const f = 10 ** digits;
   return Math.round(v * f) / f;
 };
+
+/** İstemcinin ölçtüğü saat farkı, gönderim anından tahminle bu kadardan fazla ayrışıyorsa güvenilmez */
+const OFFSET_TOLERANCE_MS = 30_000;
+/** Bundan eski bitiş anı (ör. bozuk istemci saati) yok sayılır */
+const END_MAX_AGE_MS = 15 * 60_000;
+
+/**
+ * Özetin aralığının bitişi sunucu saatiyle: istemcinin bildirdiği bitiş + saat farkı (istemcinin ölçümü,
+ * yoksa ya da tutarsızsa gönderim anından tahmin). Eski istemci bildirmez: alan eklenmez.
+ */
+export function alignedEnd(
+  report: Pick<VoiceTelemetryReport, 'endAt' | 'sentAt' | 'offsetMs'>,
+  now: number,
+): { endAt?: number } {
+  if (report.endAt === undefined || report.sentAt === undefined) return {};
+  const estimated = now - report.sentAt;
+  const client = report.offsetMs ?? null;
+  const offset = client !== null && Math.abs(client - estimated) <= OFFSET_TOLERANCE_MS ? client : estimated;
+  const endAt = Math.round(Math.min(now, report.endAt + offset));
+  return now - endAt > END_MAX_AGE_MS ? {} : { endAt };
+}
 
 const STALL_CAUSE = 'Uygulama takıldı (JS iş parçacığı)';
 const LOSS_IN_CAUSE = 'Gelen paket kaybı (indirme hattı)';
@@ -342,6 +371,9 @@ export class VoiceTelemetryStore {
         : null,
       jsLag: report.jsLag ? { ...report.jsLag, maxMs: r(report.jsLag.maxMs), p95Ms: r(report.jsLag.p95Ms) } : null,
       settings: report.settings ?? null,
+      ...(report.lossOutAudioPct !== undefined && { lossOutAudio: r(report.lossOutAudioPct, 2) }),
+      ...(report.lossOutVideoPct !== undefined && { lossOutVideo: r(report.lossOutVideoPct, 2) }),
+      ...alignedEnd(report, now),
     };
     const entry: TelemetryEntry = { ...base, ...assessReport(base, this.live.get(userId)) };
     this.received++;

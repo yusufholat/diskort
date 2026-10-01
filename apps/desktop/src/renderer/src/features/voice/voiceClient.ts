@@ -16,7 +16,7 @@ import {
   type RemoteTrackPublication,
   type RemoteVideoTrack,
 } from 'livekit-client';
-import type { TelemetryVoiceSettings, VoiceJoinResponse } from '@diskort/shared';
+import type { TelemetryVoiceSettings, VoiceJoinResponse, VoiceTraceUplinkKind } from '@diskort/shared';
 import {
   api,
   ChannelSoundGate,
@@ -26,14 +26,17 @@ import {
   linkQuality,
   outboundDelta,
   parseTransportStats,
+  PING_STALE_MS,
   pushSample,
   reportClientError,
   reportVoiceLog,
+  serverClock,
   SpuriousDuplicateGuard,
   summarizePings,
   useGuild,
   useSession,
   voiceTelemetry,
+  voiceTrace,
   volumeSummary,
   type TelemetryContext,
   type TransportStats,
@@ -84,7 +87,12 @@ export interface ScreenShareOptions {
   sourceIcon?: string | null;
 }
 
-const STATS_INTERVAL_MS = 2000;
+/**
+ * İstatistik zamanlayıcısı saniyede bir çalışır: her tikte olay kaydının (voiceTrace) ölçümü alınır; ping
+ * grafiği, kalite rengi ve 30 sn'lik özet eskisi gibi iki tikte bir (2 sn) beslenir.
+ */
+const TRACE_INTERVAL_MS = 1000;
+const STATS_EVERY_TICKS = 2;
 /** Etiket/simge rengi son bu kadar sürenin ping ve kaybına göre belirlenir */
 const QUALITY_WINDOW_MS = 10_000;
 const PREFETCH_TTL_MS = 60_000;
@@ -189,6 +197,7 @@ class VoiceClient {
     subscriber: null,
   };
   private statsBusy = false;
+  private statsTick = 0;
   /** Açık bağlantı paneli sayısı; açıkken ayrıntılı istatistikler de toplanır */
   private detailWatchers = 0;
   private pttReleaseTimer: number | null = null;
@@ -363,6 +372,8 @@ class VoiceClient {
     this.clearRestartWait();
     this.micSeq.clearDeferred();
     this.stopStats();
+    // Bekleyen olay kaydı kesiti (tetiklenmiş, süresi dolmamış) o ana kadarki ölçümlerle gönderilir
+    voiceTrace.stop(Date.now());
     // Yarım kalan ses kalitesi özeti (kanal ve mikrofon bilgisi henüz duruyor)
     voiceTelemetry.reset();
     this.statsPrev = { publisher: null, subscriber: null };
@@ -995,6 +1006,7 @@ class VoiceClient {
         this.duplicates.noteReconnect();
         if (room !== this.room) return;
         voiceTelemetry.noteReconnect();
+        voiceTrace.mark(Date.now(), 'reconnecting', 'reconnect');
         setVoice({ status: 'reconnecting' });
         // Kısa kopmalar sessiz geçer; bağlantı birkaç saniyede gelmezse "koptu" sesi
         this.clearReconnectTimer();
@@ -1005,10 +1017,14 @@ class VoiceClient {
           playSound('disconnect');
         }, RECONNECT_SOUND_DELAY_MS);
       })
-      .on(RoomEvent.SignalReconnecting, () => this.duplicates.noteReconnect())
+      .on(RoomEvent.SignalReconnecting, () => {
+        this.duplicates.noteReconnect();
+        if (room === this.room) voiceTrace.mark(Date.now(), 'signal-reconnecting', 'reconnect');
+      })
       .on(RoomEvent.Reconnected, () => {
         this.duplicates.noteReconnect();
         if (room !== this.room) return;
+        voiceTrace.mark(Date.now(), 'reconnected');
         setVoice({ status: 'connected' });
         // Yeniden bağlanınca LiveKit katılımcıları yeniden bildirebilir: ses seli olmasın
         this.channelSounds.quiet();
@@ -1027,6 +1043,9 @@ class VoiceClient {
       .on(RoomEvent.Disconnected, (reason) => {
         if (room !== this.room) return; // kendi başlattığımız ayrılma
         const channelId = useVoice.getState().channelId;
+        if (reason !== DisconnectReason.CLIENT_INITIATED) {
+          voiceTrace.mark(Date.now(), `disconnected:${DisconnectReason[reason ?? 0] ?? reason}`, 'state');
+        }
         // DUPLICATE_IDENTITY beklenen bir durum (başka cihazdan girildi): hata sayılmaz
         if (reason !== DisconnectReason.CLIENT_INITIATED && reason !== DisconnectReason.DUPLICATE_IDENTITY) {
           reportClientError(new Error(`ses bağlantısı kapandı: ${DisconnectReason[reason ?? 0] ?? reason}`), 'ses');
@@ -1292,7 +1311,13 @@ class VoiceClient {
 
   private startStats(): void {
     this.stopStats();
-    this.statsTimer = window.setInterval(() => void this.collectStats(), STATS_INTERVAL_MS);
+    const channelId = useVoice.getState().channelId;
+    if (channelId) voiceTrace.start(channelId);
+    this.statsTick = 0;
+    this.statsTimer = window.setInterval(() => {
+      this.statsTick++;
+      void this.collectStats(this.statsTick % STATS_EVERY_TICKS === 0);
+    }, TRACE_INTERVAL_MS);
     void this.collectStats();
   }
 
@@ -1301,11 +1326,25 @@ class VoiceClient {
     this.statsTimer = null;
   }
 
+  /** Olay kaydı için giden akışların türü: MediaStreamTrack kimliği → mikrofon / ekran / yayın sesi */
+  private traceKinds(): Record<string, VoiceTraceUplinkKind> {
+    const kinds: Record<string, VoiceTraceUplinkKind> = {};
+    const add = (track: LocalAudioTrack | LocalVideoTrack | null | undefined, kind: VoiceTraceUplinkKind): void => {
+      for (const id of [track?.mediaStreamTrack?.id, track?.sender?.track?.id]) if (id) kinds[id] = kind;
+    };
+    add(this.mic, 'mic');
+    add(this.screen?.video, 'scr');
+    add(this.screen?.audio, 'sau');
+    return kinds;
+  }
+
   /**
-   * Ping ve giden paket kaybı her 2 saniyede yayın bağlantısından ölçülür (grafik ve kalite rengi için).
-   * Bağlantı paneli açıkken iki bağlantının ayrıntılı istatistikleri de toplanır.
+   * Saniyede bir: bağlantının getStats() raporu alınır ve olay kaydına (voiceTrace) verilir. `full` tiklerde
+   * (2 saniyede bir ve panel açılınca) ping ve giden paket kaybı da ölçülür (grafik, kalite rengi, 30 sn'lik
+   * özet). Bağlantı paneli açıkken iki bağlantının ayrıntılı istatistikleri de toplanır. Tek bağlantı kipinde
+   * (livekit-client varsayılanı) tik başına tek getStats çağrısı yapılır.
    */
-  private async collectStats(): Promise<void> {
+  private async collectStats(full = true): Promise<void> {
     const room = this.room;
     if (!room || this.statsBusy) return;
     this.statsBusy = true;
@@ -1314,12 +1353,39 @@ class VoiceClient {
       const detail = this.detailWatchers > 0;
       const at = Date.now();
       const pubReport = await pcs?.publisher.getStats()?.catch(() => undefined);
-      const publisher = pubReport ? parseTransportStats(pubReport, at) : null;
-      // Yayın bağlantısında ölçüm yoksa (ör. konuşma izni yok) ping abonelik bağlantısından alınır
-      const needSubscriber = detail || publisher?.rttMs == null || voiceTelemetry.wantsSubscriber(at);
-      const subReport = needSubscriber ? await pcs?.subscriber?.getStats()?.catch(() => undefined) : undefined;
-      const subscriber = subReport ? parseTransportStats(subReport, at) : null;
+      const publisher = full && pubReport ? parseTransportStats(pubReport, at) : null;
+      // Abonelik bağlantısı varsa (çift bağlantı kipi) gelen akışlar oradadır: olay kaydı için her tikte okunur.
+      // Özet ve panel için eskisi gibi yalnızca gerektiğinde ayrıştırılır (yayın bağlantısında ölçüm yoksa,
+      // ör. konuşma izni yok, ping abonelik bağlantısından alınır).
+      const subReport = await pcs?.subscriber?.getStats()?.catch(() => undefined);
+      const needSubscriber = full && (detail || publisher?.rttMs == null || voiceTelemetry.wantsSubscriber(at));
+      const subscriber = needSubscriber && subReport ? parseTransportStats(subReport, at) : null;
       if (room !== this.room) return;
+
+      let ice: string | null = null;
+      let pc: string | null = null;
+      try {
+        ice = pcs?.publisher.getICEConnectionState() ?? null;
+        pc = pcs?.publisher.getConnectionState() ?? null;
+      } catch {
+        // bağlantı kapanırken okunamayabilir
+      }
+      voiceTrace.sample({
+        at,
+        reports: [pubReport, subReport].filter((r): r is RTCStatsReport => !!r),
+        kinds: this.traceKinds(),
+        ice,
+        pc,
+        lk: useVoice.getState().quality,
+        lagMs: voiceTelemetry.lagPeak(),
+        micUnderruns: this.processor?.stats?.underruns ?? null,
+      });
+      // Saat farkı (olay kayıtları ve özetler sunucu saatine çevrilir): en çok 10 dakikada bir ölçülür
+      void serverClock.refresh();
+      // STUN yanıtı gelmiyorsa gösterilen ping eski değerdir: arayüz "—" gösterir
+      const pingStale = voiceTrace.pingStaleMs >= PING_STALE_MS;
+      if (pingStale !== useConnectionStats.getState().pingStale) setConnectionStats({ pingStale });
+      if (!full) return;
 
       const prev = this.statsPrev;
       this.statsPrev = { publisher, subscriber };

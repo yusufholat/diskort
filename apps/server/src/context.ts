@@ -24,6 +24,8 @@ import type { PushService } from './push.js';
 import type { ReleaseService } from './releases.js';
 import type { StreamPreviewStore } from './streamPreview.js';
 import type { VoiceTelemetryStore } from './telemetry.js';
+import type { ClientTraceStore } from './clientTrace.js';
+import type { RequestVoiceTraces } from './traceRequests.js';
 import type { FreezeCorrelator } from './freezeDiagnosis.js';
 import type { SecondSampler } from './netSeconds.js';
 import type { LineTestService } from './lineTest/service.js';
@@ -67,6 +69,13 @@ export interface AppContext {
   apiStats: ApiStats;
   /** Yönetim paneli: istemcilerin ses kalitesi özetleri ve kalite sorunları */
   telemetry: VoiceTelemetryStore;
+  /** Olay kayıtları: istemcilerin sorun anındaki saniyelik bağlantı ölçümleri (bkz. clientTrace.ts) */
+  traces: ClientTraceStore;
+  /**
+   * Bir ses kanalındaki bütün istemcilerden olay kaydı ister (VOICE_TRACE_REQUEST); gelen kayıtlar dönen
+   * `eventId` ile bulunur. Ör. bir yayın donması olayı açılınca çağrılır.
+   */
+  requestVoiceTraces: RequestVoiceTraces;
   /** Yönetim paneli: yayın donması olayları (kullanıcı özetleri + sunucu saniyelik ağ kaydı + sondalar) */
   freeze: FreezeCorrelator;
   netSampler: SecondSampler;

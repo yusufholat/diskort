@@ -64,6 +64,8 @@ export function VoiceConnectionPanel() {
   const channelId = useVoice((s) => s.channelId);
   const ping = useVoice((s) => s.pingMs);
   const quality = useConnectionStats((s) => s.quality);
+  // STUN yanıtı gelmiyorsa son ping eski bir değerdir: sağlıklıymış gibi gösterilmez
+  const pingStale = useConnectionStats((s) => s.pingStale);
   const sharing = useVoice((s) => s.sharing);
   const micTesting = useVoice((s) => s.micTesting);
   const selfId = useSession((s) => s.user?.id);
@@ -119,7 +121,7 @@ export function VoiceConnectionPanel() {
               'block max-w-full truncate text-left text-sm font-semibold transition-colors duration-300 hover:underline',
               color,
             )}
-            data-tooltip={infoOpen ? undefined : `${QUALITY_TEXT[shownQuality]}${ping !== null ? ` · ${ping} ms` : ''}`}
+            data-tooltip={infoOpen ? undefined : `${QUALITY_TEXT[shownQuality]}${ping !== null ? ` · ${pingStale ? '—' : `${ping} ms`}` : ''}`}
             aria-expanded={infoOpen}
             aria-haspopup="dialog"
             onClick={() => setInfoOpen((v) => !v)}
