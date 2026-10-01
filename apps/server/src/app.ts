@@ -12,6 +12,7 @@ import { InfraMonitor, LiveKitMetrics } from './infraStats.js';
 import { VoiceTelemetryStore } from './telemetry.js';
 import { FreezeCorrelator } from './freezeDiagnosis.js';
 import { DEFAULT_PROBE_TARGETS, parseProbeTargets, ProbeRunner } from './netProbe.js';
+import { defaultMicroTargets, MicroProbe } from './microProbe.js';
 import { SecondSampler } from './netSeconds.js';
 import { LineTestService } from './lineTest/service.js';
 import { registerLineTestRoutes } from './routes/lineTest.js';
@@ -218,6 +219,12 @@ export async function buildApp(
     gateway: () => netSampler.gateway,
     onResult: (label, sentAt, rtt) => netSampler.addProbe(label, sentAt, rtt),
   });
+  // Saniyede 10 sonda: 100-300 ms'lik kısa kesintileri süreleriyle yakalar (telemetry/micro-*.jsonl)
+  const microProbe = new MicroProbe({
+    targets: defaultMicroTargets(() => netSampler.gateway),
+    dir: netDir,
+    log: app.log,
+  });
   const freeze = new FreezeCorrelator({
     dir: netDir,
     sampler: netSampler,
@@ -322,7 +329,10 @@ export async function buildApp(
     freeze.start();
     netSampler.start();
     // Geliştirme makinesinde dış sonda gönderilmez
-    if (!config.isDev) netProbes.start();
+    if (!config.isDev) {
+      netProbes.start();
+      microProbe.start();
+    }
     livekitMetrics.start();
     infra.start();
     voiceSessions.start();
@@ -334,7 +344,7 @@ export async function buildApp(
     infra.stop();
     apiStats.stop();
     netProbes.stop();
-    await Promise.all([telemetry.stop(), authLog.stop(), freeze.stop(), netSampler.stop()]);
+    await Promise.all([telemetry.stop(), authLog.stop(), freeze.stop(), netSampler.stop(), microProbe.stop()]);
   });
 
   // Yönetim paneli: makine yükü, aylık trafik ve hesapların son görülme anı. Kalıcı sayaçlar ve düzenli
