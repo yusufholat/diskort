@@ -1,22 +1,8 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  HostNetworkLog,
-  hostNetSample,
-  MinuteSummarizer,
-  parseDefaultRouteInterface,
-  parseNetDevDetailed,
-  parseSnmpUdp,
-  readHostNet,
-  summarizeMinute,
-  type HostNetCounters,
-  type HostNetSample,
-} from '../src/hostNetwork.js';
-import { InfraMonitor, LiveKitMetrics } from '../src/infraStats.js';
+import { describe, expect, it } from 'vitest';
+import { hostNetSample, parseDefaultRouteInterface, parseNetDevDetailed, parseSnmpUdp, readHostNet, type HostNetCounters } from '../src/hostNetwork.js';
 
-// Ana makine ağ geçmişi: /proc ayrıştırma, hızlar (sayaç sıfırlanması dahil), dakikalık özet ve dosya.
+// Ana makine ağ sayaçları: /proc ayrıştırma ve hızlar (sayaç sıfırlanması dahil). Dakikalık özet ve 15 sn'lik
+// geçmiş tek örnekleyiciden türetilir (bkz. netDiagnosis.test.ts).
 
 const NET_DEV = `Inter-|   Receive                                                |  Transmit
  face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
@@ -44,7 +30,7 @@ function counters(at: number, over: Partial<HostNetCounters['dev']> = {}, udp: P
     at,
     iface: 'ens192',
     dev: { rxBytes: 0, rxPackets: 0, rxErrs: 0, rxDrop: 0, txBytes: 0, txPackets: 0, txErrs: 0, txDrop: 0, ...over },
-    udp: udp === null ? null : { inDatagrams: 0, inErrors: 0, outDatagrams: 0, rcvbufErrors: 0, sndbufErrors: 0, ...udp },
+    udp: udp === null ? null : { inDatagrams: 0, inErrors: 0, outDatagrams: 0, rcvbufErrors: 0, sndbufErrors: 0, noPorts: 0, inCsumErrors: 0, ...udp },
   };
 }
 
@@ -66,7 +52,9 @@ describe('/proc ayrıştırma', () => {
   });
 
   it('/proc/net/snmp: Udp satırı (UdpLite karışmaz)', () => {
-    expect(parseSnmpUdp(NET_SNMP)).toEqual({ inDatagrams: 1000, outDatagrams: 2000, inErrors: 20, rcvbufErrors: 15, sndbufErrors: 4 });
+    expect(parseSnmpUdp(NET_SNMP)).toEqual({ inDatagrams: 1000, outDatagrams: 2000, inErrors: 20, rcvbufErrors: 15, sndbufErrors: 4, noPorts: 7, inCsumErrors: 0 });
+    // Eski çekirdek: InCsumErrors sütunu yoksa 0
+    expect(parseSnmpUdp('Udp: InDatagrams NoPorts InErrors OutDatagrams RcvbufErrors SndbufErrors\nUdp: 1 2 3 4 5 6\n')).toMatchObject({ noPorts: 2, inCsumErrors: 0 });
     expect(parseSnmpUdp('Ip: a b\nIp: 1 2\n')).toBeNull();
     expect(parseSnmpUdp('')).toBeNull();
   });
@@ -119,135 +107,5 @@ describe('hızlar', () => {
     expect(s.rxMbps).toBe(0);
     expect(hostNetSample({ ...counters(10_000), iface: 'eth1' }, counters(0))).toBeNull();
     expect(hostNetSample(counters(5, {}), counters(5, {}))).toBeNull();
-  });
-});
-
-describe('dakikalık özet', () => {
-  const sample = (at: number, over: Partial<HostNetSample> = {}): HostNetSample => ({ ...base(at), ...over });
-  const base = (at: number): HostNetSample => ({
-    at,
-    iface: 'ens192',
-    rxMbps: 1,
-    txMbps: 2,
-    rxPps: 10,
-    txPps: 10,
-    rxDropPerSec: 0,
-    rxErrPerSec: 0,
-    udpInPerSec: 10,
-    udpOutPerSec: 10,
-    udpInErrPerSec: 0,
-    udpRcvbufErrPerSec: 0,
-    udpSndbufErrPerSec: 0,
-  });
-
-  it('en yüksekler ve UDP hata toplamları', () => {
-    const t0 = Date.UTC(2026, 8, 28, 18, 3, 0);
-    const list = [
-      sample(t0 + 5_000, { rxMbps: 8.126, txMbps: 3, rxDropPerSec: 0.5, udpInErrPerSec: 2, udpRcvbufErrPerSec: 1 }),
-      sample(t0 + 20_000, { rxMbps: 4, txMbps: 16.4, rxDropPerSec: 4, udpInErrPerSec: 2, udpRcvbufErrPerSec: 2, udpSndbufErrPerSec: 1 }),
-      sample(t0 + 35_000, { rxMbps: null, txMbps: null, rxDropPerSec: null, udpInErrPerSec: null }),
-    ];
-    expect(summarizeMinute(t0, list, [15, 15, 15])).toEqual({
-      at: t0,
-      t: '2026-09-28T18:03:00.000Z',
-      iface: 'ens192',
-      n: 3,
-      rxMbpsMax: 8.13,
-      txMbpsMax: 16.4,
-      dropMax: 4,
-      udpInErr: 60,
-      udpRcvbufErr: 45,
-      udpSndbufErr: 15,
-    });
-    expect(summarizeMinute(t0, [sample(t0, { rxMbps: null, txMbps: null, rxDropPerSec: null })], [15])).toMatchObject({ rxMbpsMax: null, dropMax: null });
-  });
-
-  it('MinuteSummarizer: dakika değişince bir önceki dakikanın özetini verir', () => {
-    const t0 = Date.UTC(2026, 8, 28, 18, 3, 0);
-    const sm = new MinuteSummarizer();
-    expect(sm.push(sample(t0 + 10_000, { rxMbps: 5 }))).toBeNull();
-    expect(sm.push(sample(t0 + 25_000, { rxMbps: 9 }))).toBeNull();
-    expect(sm.push(sample(t0 + 55_000, { rxMbps: 7 }))).toBeNull();
-    const done = sm.push(sample(t0 + 70_000, { rxMbps: 1 }));
-    expect(done).toMatchObject({ at: t0, n: 3, rxMbpsMax: 9 });
-    expect(sm.push(sample(t0 + 130_000))).toMatchObject({ at: t0 + 60_000, n: 1, rxMbpsMax: 1 });
-  });
-});
-
-describe('HostNetworkLog ve InfraMonitor', () => {
-  let tmp: string;
-  beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'diskort-ag-'));
-  });
-  afterEach(() => {
-    fs.rmSync(tmp, { recursive: true, force: true });
-  });
-
-  const s = (at: number, rxDropPerSec: number) => ({
-    at,
-    iface: 'ens192',
-    rxMbps: 1,
-    txMbps: 1,
-    rxPps: 1,
-    txPps: 1,
-    rxDropPerSec,
-    rxErrPerSec: 0,
-    udpInPerSec: 1,
-    udpOutPerSec: 1,
-    udpInErrPerSec: 0,
-    udpRcvbufErrPerSec: 0,
-    udpSndbufErrPerSec: 0,
-  });
-
-  it('dakikada bir satır ekler (network-<gün>.jsonl), eski günleri siler, telemetri günlerine dokunmaz', async () => {
-    const dir = path.join(tmp, 'telemetry');
-    fs.mkdirSync(dir);
-    fs.writeFileSync(path.join(dir, 'network-2026-01-01.jsonl'), 'eski\n');
-    fs.writeFileSync(path.join(dir, '2026-01-01.jsonl'), 'telemetri\n');
-    const log = new HostNetworkLog(dir, 0, 14);
-    const t0 = Date.UTC(2026, 8, 28, 18, 3, 0);
-    await log.add(s(t0 + 10_000, 1));
-    await log.add(s(t0 + 40_000, 6));
-    await log.add(s(t0 + 70_000, 0));
-    await log.add(s(t0 + 130_000, 0));
-    const lines = fs.readFileSync(path.join(dir, 'network-2026-09-28.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-    expect(lines).toHaveLength(2);
-    expect(lines[0]).toMatchObject({ at: t0, n: 2, dropMax: 6 });
-    expect(lines[1]).toMatchObject({ at: t0 + 60_000, n: 1, dropMax: 0 });
-    expect(fs.existsSync(path.join(dir, 'network-2026-01-01.jsonl'))).toBe(false);
-    expect(fs.existsSync(path.join(dir, '2026-01-01.jsonl'))).toBe(true);
-  });
-
-  it('klasör yoksa (null) yalnızca bellekte kalır, hata vermez', async () => {
-    const log = new HostNetworkLog(null, 0);
-    await log.add(s(0, 0));
-    await log.add(s(120_000, 0));
-  });
-
-  it('InfraMonitor: sahte /proc ile hızlar geçmişe girer; /proc yoksa ağ bilgisi yok der', async () => {
-    const proc = path.join(tmp, 'proc');
-    fs.mkdirSync(path.join(proc, 'net'), { recursive: true });
-    fs.writeFileSync(path.join(proc, 'net/route'), NET_ROUTE);
-    fs.writeFileSync(path.join(proc, 'net/snmp'), NET_SNMP);
-    const dev = (rx: number, drop: number): string =>
-      `Inter-|   Receive\n face |bytes packets errs drop fifo frame compressed multicast|bytes packets errs drop fifo colls carrier compressed\n ens192: ${rx} 100 0 ${drop} 0 0 0 0 ${rx} 100 0 0 0 0 0 0\n`;
-    fs.writeFileSync(path.join(proc, 'net/dev'), dev(0, 0));
-    const lk = new LiveKitMetrics({ url: null });
-    const opts = { cgroupRoot: path.join(tmp, 'yok'), caddyMetricsUrl: null, backupDir: null, tlsDomains: [], tlsHost: '127.0.0.1' };
-    const infra = new InfraMonitor({ ...opts, procRoot: proc, networkDir: path.join(tmp, 'telemetry'), offsetMin: 0 }, lk);
-    await infra.sample(1_000_000);
-    expect((await infra.snapshot(1_000_000)).network).toMatchObject({ ok: true, iface: 'ens192', history: [] });
-    fs.writeFileSync(path.join(proc, 'net/dev'), dev(12_500_000, 50));
-    await infra.sample(1_010_000);
-    const net = (await infra.snapshot(1_010_000)).network;
-    expect(net.history).toHaveLength(1);
-    expect(net.history[0]).toMatchObject({ rxMbps: 10, txMbps: 10, rxDropPerSec: 5 });
-
-    const missing = new InfraMonitor({ ...opts, procRoot: path.join(tmp, 'yok-proc') }, lk);
-    await missing.sample(1_000_000);
-    expect((await missing.snapshot(1_000_000)).network).toMatchObject({ ok: false, iface: null, history: [] });
-    const off = new InfraMonitor(opts, lk);
-    await off.sample(1_000_000);
-    expect((await off.snapshot(1_000_000)).network).toMatchObject({ ok: false, error: 'ağ ölçümü kapalı' });
   });
 });

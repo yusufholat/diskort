@@ -1,13 +1,7 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { dayKey } from './counters.js';
-
-// Yönetim paneli: sunucu makinesinin ağ geçmişi. API kapsayıcısı host ağında çalıştığından /proc/net/dev
-// ve /proc/net/snmp makinenin gerçek sayaçlarıdır. Amaç: sağlayıcı tarafında bir hız sınırı ya da DDoS
-// süzgeci varsa (birden çok kullanıcıda aynı anda paket kaybı) bunu sonradan ilişkilendirebilmek.
-// - Her ölçümde (15 sn) varsayılan yoldaki arayüzün ve UDP'nin sayaç farklarından hızlar (bellekte, 30 dk).
-// - Her dakikanın özeti <dataDir>/telemetry/network-YYYY-AA-GG.jsonl dosyasına eklenir (yeniden başlatmadan
-//   sonra da görülebilsin; 14 gün saklanır).
+// Sunucu makinesinin ağ sayaçları: /proc ayrıştırıcıları ve iki okuma arasındaki hızlar. API kapsayıcısı host
+// ağında çalıştığından /proc/net/dev ve /proc/net/snmp makinenin gerçek sayaçlarıdır. Sayaçları tek bir
+// örnekleyici okur (netSeconds.ts SecondSampler, saniyede bir); panelin 15 sn'lik geçmişi ve dakikalık özetler
+// de oradan türetilir.
 
 /** /proc/net/dev: bir arayüzün sayaçları */
 export interface NetDevCounters {
@@ -28,6 +22,9 @@ export interface UdpCounters {
   outDatagrams: number;
   rcvbufErrors: number;
   sndbufErrors: number;
+  /** Dinleyeni olmayan porta gelen datagram (NoPorts) ve sağlama toplamı hatası; çekirdek vermiyorsa 0 */
+  noPorts: number;
+  inCsumErrors: number;
 }
 
 /** Bir anda okunan ham sayaçlar */
@@ -142,6 +139,8 @@ export function parseSnmpUdp(text: string): UdpCounters | null {
     inErrors: get('InErrors') ?? 0,
     rcvbufErrors: get('RcvbufErrors') ?? 0,
     sndbufErrors: get('SndbufErrors') ?? 0,
+    noPorts: get('NoPorts') ?? 0,
+    inCsumErrors: get('InCsumErrors') ?? 0,
   };
 }
 
@@ -181,124 +180,4 @@ export function hostNetSample(cur: HostNetCounters, prev: HostNetCounters): Host
     udpRcvbufErrPerSec: rate(cur.udp?.rcvbufErrors, prev.udp?.rcvbufErrors),
     udpSndbufErrPerSec: rate(cur.udp?.sndbufErrors, prev.udp?.sndbufErrors),
   };
-}
-
-// ---------- Dakikalık özet ----------
-
-/** Dosyaya eklenen satır: bir dakikanın özeti */
-export interface HostNetMinute {
-  /** Dakikanın başı (ms) ve okunaklı karşılığı (UTC) */
-  at: number;
-  t: string;
-  iface: string;
-  /** Dakikadaki ölçüm sayısı */
-  n: number;
-  rxMbpsMax: number | null;
-  txMbpsMax: number | null;
-  /** En yüksek düşen paket hızı (rx_dropped/sn) */
-  dropMax: number | null;
-  /** UDP hata sayıları (dakikadaki toplam paket): InErrors (RcvbufErrors dahil), RcvbufErrors, SndbufErrors */
-  udpInErr: number;
-  udpRcvbufErr: number;
-  udpSndbufErr: number;
-}
-
-const MINUTE = 60_000;
-const round = (v: number | null, digits = 2): number | null => (v === null ? null : Number(v.toFixed(digits)));
-const maxOf = (values: (number | null)[]): number | null => {
-  const v = values.filter((x): x is number => x !== null);
-  return v.length === 0 ? null : Math.max(...v);
-};
-
-/** Bir dakikaya düşen hız ölçümlerinden özet. Hata sayısı: hız × ölçüm aralığı toplamı */
-export function summarizeMinute(minuteStart: number, samples: HostNetSample[], intervalsSec: number[]): HostNetMinute {
-  const total = (pick: (s: HostNetSample) => number | null): number =>
-    Math.round(samples.reduce((sum, s, i) => sum + (pick(s) ?? 0) * (intervalsSec[i] ?? 0), 0));
-  return {
-    at: minuteStart,
-    t: new Date(minuteStart).toISOString(),
-    iface: samples[samples.length - 1]?.iface ?? '',
-    n: samples.length,
-    rxMbpsMax: round(maxOf(samples.map((s) => s.rxMbps))),
-    txMbpsMax: round(maxOf(samples.map((s) => s.txMbps))),
-    dropMax: round(maxOf(samples.map((s) => s.rxDropPerSec))),
-    udpInErr: total((s) => s.udpInErrPerSec),
-    udpRcvbufErr: total((s) => s.udpRcvbufErrPerSec),
-    udpSndbufErr: total((s) => s.udpSndbufErrPerSec),
-  };
-}
-
-/** Ölçümleri dakikalara böler; bir dakika bitince özetini verir */
-export class MinuteSummarizer {
-  private minute: number | null = null;
-  private samples: HostNetSample[] = [];
-  private intervals: number[] = [];
-  private lastAt: number | null = null;
-
-  /** Yeni ölçüm; önceki dakika bittiyse onun özeti döner */
-  push(sample: HostNetSample): HostNetMinute | null {
-    const minute = Math.floor(sample.at / MINUTE) * MINUTE;
-    let done: HostNetMinute | null = null;
-    if (this.minute !== null && minute !== this.minute) {
-      done = summarizeMinute(this.minute, this.samples, this.intervals);
-      this.samples = [];
-      this.intervals = [];
-    }
-    this.minute = minute;
-    this.samples.push(sample);
-    // Ölçümün kapsadığı süre (bir önceki ölçümden bu yana); ilk ölçümde 15 sn varsayılır
-    this.intervals.push(this.lastAt === null ? 15 : Math.max(0, Math.min(120, (sample.at - this.lastAt) / 1000)));
-    this.lastAt = sample.at;
-    return done;
-  }
-}
-
-// ---------- Dosya ----------
-
-const FILE = /^network-(\d{4}-\d{2}-\d{2})\.jsonl$/;
-
-/** Dakikalık özetleri günlük dosyalara ekler; eski günleri siler */
-export class HostNetworkLog {
-  private readonly summarizer = new MinuteSummarizer();
-  private warned = false;
-  private lastCleanup = 0;
-  private queue: Promise<void> = Promise.resolve();
-
-  constructor(
-    private readonly dir: string | null,
-    private readonly offsetMin: number,
-    private readonly retentionDays = 14,
-    private readonly log?: { warn(obj: object, msg: string): void },
-  ) {}
-
-  /** Yeni ölçüm; dakika dolduysa özetini dosyaya ekler. Testler için bittiğinde çözülen söz döner. */
-  add(sample: HostNetSample, now = sample.at): Promise<void> {
-    const minute = this.summarizer.push(sample);
-    if (!minute || !this.dir) return this.queue;
-    const dir = this.dir;
-    const file = path.join(dir, `network-${dayKey(minute.at, this.offsetMin)}.jsonl`);
-    const cleanup = now - this.lastCleanup > 6 * 3_600_000;
-    if (cleanup) this.lastCleanup = now;
-    this.queue = this.queue
-      .then(async () => {
-        await fs.promises.mkdir(dir, { recursive: true });
-        await fs.promises.appendFile(file, JSON.stringify(minute) + '\n');
-        if (cleanup) await this.removeOldFiles(now);
-      })
-      .catch((err: unknown) => {
-        if (!this.warned) this.log?.warn({ err: String(err) }, 'ağ dakikalık özeti kaydedilemedi');
-        this.warned = true;
-      });
-    return this.queue;
-  }
-
-  async removeOldFiles(now = Date.now()): Promise<void> {
-    if (!this.dir) return;
-    const oldest = dayKey(now - (this.retentionDays - 1) * 86_400_000, this.offsetMin);
-    const names = await fs.promises.readdir(this.dir).catch(() => [] as string[]);
-    for (const name of names) {
-      const m = FILE.exec(name);
-      if (m && m[1]! < oldest) await fs.promises.rm(path.join(this.dir, name), { force: true }).catch(() => undefined);
-    }
-  }
 }

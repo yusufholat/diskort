@@ -165,16 +165,32 @@ uçlarından gelir (hepsi yalnızca hesap yöneticilerine, `Cache-Control: no-st
 
 - **Genel:** hesaplar, bağlı kişiler, son 24 saat / 7 günde etkin hesaplar (bağlananlar + mesaj yazanlar), API
   özeti, son 14 günün günlük mesaj sayıları, depolama (veritabanı, dosya ekleri, resim klasörleri).
-- **Ses:** sesteki kişiler (kanal, süre, susturma, yayın ve LiveKit'teki izleri), **bağlantı kalitesi** (istemci
-  ölçümleri, aşağıda) ve **kalite sorunları** (`GET /api/admin/telemetry/incidents?days=`). Kişiye dokununca son bir
-  saatin grafikleri ya da geçmiş bir gün (`GET /api/admin/telemetry?user=&minutes=` / `&date=YYYY-AA-GG`).
+- **Ses:** sesteki kişiler (kanal, süre, susturma, yayın ve LiveKit'teki izleri) ve **bağlantı kalitesi** (istemci
+  ölçümleri, aşağıda). Kişiye dokununca son bir saatin grafikleri ya da geçmiş bir gün
+  (`GET /api/admin/telemetry?user=&minutes=` / `&date=YYYY-AA-GG`).
+- **Bağlantı teşhisi:** "donma/kesilme nerede oluyor" sorusunun tek yeri; dört görünüm:
+  - *Canlı durum* (`GET /api/admin/net/live`, 2 sn'de bir): bölüm bölüm durum (dış sondalar, sunucuya gelen,
+    ses sunucusu, sunucudan giden, sunucu kaynağı), son 5 dakikanın saniyelik grafikleri (kesinti saniyeleri
+    işaretli) ve son kesintiler (tam kesinti / yalnız sonda / doğrulanmamış NIC adayı). Kesintiden **sağlayıcı raporu**
+    (Türkçe + İngilizce, kopyalanabilir) üretilir.
+  - *Olaylar* (`GET /api/admin/telemetry/incidents?days=`): yayın donması olayları ve tek kullanıcılık kalite
+    sorunları tek zaman çizelgesinde. Her olayda arızalı bölümü söyleyen özet cümlesi, güven, kanıt ve **eksik
+    kanıt** listesi; ayrıntıda kullanıcı şeritleri, saniyelik sunucu grafikleri (paket hızı ve kesinti işaretleri),
+    LiveKit hızları ve çakışan hat testleri (`GET /api/admin/telemetry/freezes/:id`).
+  - *Testler* (`GET /api/admin/line-tests?days=`): hat testi kodları, sonuçlar, ortak testler, patlama testi ve
+    çalıştırma komutları ([tools/udp-probe/README.md](tools/udp-probe/README.md)).
+  - *Ayrıntı:* dakikalık ağ geçmişi (`GET /api/admin/net/minutes?day=`, 14 gün) ve **LiveKit ölçümleri** (bit
+    hızı, paket, kayıp, NACK/PLI, RTT/titreşim, oda/katılımcı/iz; `livekit.yaml`'da `prometheus.port: 6789`
+    açıkken, yoksa "metrikler kapalı").
+  Ayrıca `GET /api/admin/net/seconds?from=&to=` (en çok 15 dk; halkadan ya da diskteki kayıttan saniyelik satırlar)
+  ve `GET /api/admin/net/outages?days=` (kesinti kaydı).
 - **Ses geçmişi** (`GET /api/admin/voice-history?days=&tz=`): kim ne kadar seste/yayında, günlük süreler, aynı anda
   en çok kişi, haftanın günü × saat ısı haritası, en çok kullanılan kanallar, son oturumlar (şema 20).
-- **Makine** (`GET /api/admin/infra`): CPU, bellek, disk, ağ, aylık trafik; kapsayıcılar (API: kendi cgroup'u,
-  LiveKit: kendi Prometheus ölçümleri, Caddy: `127.0.0.1:2019/metrics`; Docker soketi kullanılmaz), TURN/TLS
-  bağlantıları, son veritabanı yedeği, TLS sertifikalarının bitişi; **LiveKit ölçümleri** (bit hızı, paket, kayıp,
-  NACK/PLI, RTT/titreşim, oda/katılımcı/iz; `livekit.yaml`'da `prometheus.port: 6789` açıkken, yoksa "metrikler
-  kapalı"); telefon bildirimi gönderim/başarısızlık, indirme sayfası ve indirmeler, güncelleme/OTA denetimleri.
+- **Makine** (`GET /api/admin/infra`): CPU, bellek, disk, makine ağı (tek ağ örnekleyicisinden 15 sn'lik
+  ortalamalar), aylık trafik; kapsayıcılar (API: kendi cgroup'u, LiveKit: kendi Prometheus ölçümleri, Caddy:
+  `127.0.0.1:2019/metrics`; Docker soketi kullanılmaz), TURN/TLS bağlantıları, son veritabanı yedeği, TLS
+  sertifikalarının bitişi; telefon bildirimi gönderim/başarısızlık, indirme sayfası ve indirmeler, güncelleme/OTA
+  denetimleri.
 - **API** (`GET /api/admin/api-stats`): dakikadaki istekler, durum kodları, yol başına p50/p95 gecikme (son 15 dk),
   olay döngüsü gecikmesi, gateway (açık WebSocket, mesaj hızı, yeniden bağlanma, kapanış kodları), 429'lar.
 - **İstemciler:** platform ve sürüme göre bağlantılar, hesapların son görülme anı ve cihazı.
@@ -202,10 +218,17 @@ Kalıcı küçük dosyalar `<DATA_DIR>`'da: `traffic.json` (aylık trafik sayac�
 ilk çalışmada makine bu ay açıldıysa açılıştan beri olan trafik de sayılır; makine yeniden açılınca sayaç sıfırlansa
 da toplam sürer, en çok dakikada bir yazılır), `activity.json` (hesapların son görülme anı), `counters.json` (gün
 başına sayaçlar, 30 gün), `auth-log.jsonl` (giriş kayıtları, 30 gün; şifre ve hesabı olmayan kullanıcı adı yazılmaz),
-`client-errors.jsonl` / `server-errors.jsonl` (son hatalar, 14 gün), `telemetry/network-YYYY-AA-GG.jsonl` (makine
-ağının dakikalık özetleri, 14 gün), `udids.jsonl` ve `udid-status.json` (iPhone cihaz kayıtları ve onay durumları).
+`client-errors.jsonl` / `server-errors.jsonl` (son hatalar, 14 gün), `udids.jsonl` ve `udid-status.json` (iPhone
+cihaz kayıtları ve onay durumları). Bağlantı teşhisi dosyaları `telemetry/` altında: `netmin-YYYY-AA-GG.jsonl`
+(makine ağının dakikalık özetleri, 14 gün), `netsec-YYYY-AA-GG.jsonl` (yalnızca anormal saniyelerin ±30 sn çevresi,
+7 gün, gün başına 40 MB), `outages.jsonl` (kesinti kaydı, 14 gün), `freeze-events.jsonl` / `freeze-rows.jsonl`
+(yayın donması olayları ve saniyelik kanıtları), `line-tests.jsonl` ve `line-codes.json` (hat testi sonuçları ve
+kodları). Eski `network-*.jsonl` ve `micro-*.jsonl` dosyaları artık yazılmaz; süreleri dolunca kendiliğinden silinir.
 Ayarlar (isteğe bağlı, compose'da `api` ortamına eklenir): `TRAFFIC_QUOTA_GB` (aylık kota, varsayılan 5000 = 5 TB,
-gelen + giden), `SYSTEM_STATS=0` (düzenli ölçümü kapatır), `PROC_ROOT` (varsayılan `/proc`), `LIVEKIT_METRICS_URL` /
+gelen + giden), `SYSTEM_STATS=0` (düzenli ölçümü kapatır), `PROC_ROOT` (varsayılan `/proc`), `NET_PROBE_TARGETS`
+(dış sonda hedefleri, ör. `udp:1.1.1.1:53,tcp:8.8.8.8:443`; `0` kapatır; varsayılan 5 hedef, toplam saniyede ~4
+sonda), `LINE_TEST_MAX_MBPS` / `LINE_TEST_ADMIN_MAX_MBPS` (hat testi toplam bant sınırı: olağan 24, yönetici/patlama
+testi 48), `LIVEKIT_METRICS_URL` /
 `CADDY_METRICS_URL` (üretimde varsayılan `http://127.0.0.1:6789/metrics` / `http://127.0.0.1:2019/metrics`; `0`
 kapatır), `BACKUP_DIR` (salt okunur bağlanan yedek klasörü), `TLS_CHECK_DOMAINS` (virgülle), `TLS_CHECK_HOST`
 (varsayılan `127.0.0.1`), `CGROUP_ROOT` (varsayılan `/sys/fs/cgroup`), `STATS_UTC_OFFSET_MIN` (gün sayaçlarının

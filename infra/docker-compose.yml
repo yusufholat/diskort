@@ -77,9 +77,11 @@ services:
       TLS_CHECK_DOMAINS: ${DISKORT_DOMAIN},${LIVEKIT_DOMAIN},${TURN_DOMAIN}
       BACKUP_DIR: /backups
       # Hat testi UDP ucu (LiveKit medya aralığında, ufw'de zaten açık: 50000-60000/udp). Boşsa 59999'dan başlar,
-      # doluysa bir altını dener; "off" kapatır. Toplam bant sınırı Mbps (tools/udp-probe/README.md)
+      # doluysa bir altını dener; "off" kapatır. Toplam bant sınırı Mbps (tools/udp-probe/README.md): olağan
+      # (varsayılan 24) ve yönetici oturumları / patlama testi için (varsayılan 48)
       LINE_TEST_PORT: ${LINE_TEST_PORT:-}
       LINE_TEST_MAX_MBPS: ${LINE_TEST_MAX_MBPS:-}
+      LINE_TEST_ADMIN_MAX_MBPS: ${LINE_TEST_ADMIN_MAX_MBPS:-}
     volumes:
       - diskort-data:/data
       - ./secrets:/run/secrets:ro

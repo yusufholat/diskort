@@ -37,18 +37,25 @@ export interface Config {
   /** Mesajlardaki bağlantıların önizlemesi (LINK_PREVIEWS=0 kapatır; testlerde varsayılan kapalı) */
   linkPreviews: boolean;
   /**
-   * Yönetim paneli için düzenli sistem ölçümü (CPU, bellek, ağ; 5 sn) ve kalıcı sayaçlar (<DATA_DIR>/traffic.json,
-   * activity.json). SYSTEM_STATS=0 kapatır; testlerde varsayılan kapalı (panel yine istek anında ölçer).
+   * Yönetim paneli için düzenli sistem ölçümü (CPU, bellek; 5 sn), saniyelik ağ kaydı ve dış sondalar (bağlantı
+   * teşhisi) ile kalıcı sayaçlar (<DATA_DIR>/traffic.json, activity.json). SYSTEM_STATS=0 kapatır; testlerde
+   * varsayılan kapalı (panel yine istek anında ölçer).
    */
   systemStats: boolean;
-  /** Dış ağ sondaları (NET_PROBE_TARGETS: "udp:1.1.1.1:53,tcp:1.1.1.1:443"; "0" kapatır; boşsa varsayılanlar) */
+  /**
+   * Dış ağ sondaları (NET_PROBE_TARGETS: "udp:1.1.1.1:53,tcp:1.1.1.1:443"; "0" kapatır; boşsa varsayılanlar).
+   * Hedefler sırayla, toplam saniyede ~4 sonda; kesinti yargısı için en az iki farklı hedef gerekir.
+   */
   netProbeTargets: string | null;
   /**
    * Hat testi UDP ucu: denenecek portlar (LINE_TEST_PORT, varsayılan 59999; bağlanamazsa bir altındaki denenir; "off" kapatır,
    * testlerde varsayılan kapalı) ve bir anda ayrılabilecek toplam bant genişliği (LINE_TEST_MAX_MBPS, varsayılan 24).
+   * Yönetici oturumları (hesap yöneticisi, yönetici kodu; patlama profili) için ayrı, daha yüksek sınır:
+   * LINE_TEST_ADMIN_MAX_MBPS (varsayılan 48; LINE_TEST_MAX_MBPS'ten küçük olamaz).
    */
   lineTestPorts: number[];
   lineTestMaxBps: number;
+  lineTestAdminMaxBps: number;
   /** Makine bilgilerinin okunduğu /proc kökü (PROC_ROOT, varsayılan /proc) */
   procRoot: string;
   /** Aylık trafik kotası, bayt (TRAFFIC_QUOTA_GB, varsayılan 5000 GB = 5 TB; gelen + giden) */
@@ -138,6 +145,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   const lineTestMbps = Number(env.LINE_TEST_MAX_MBPS || 24);
   if (!Number.isFinite(lineTestMbps) || lineTestMbps <= 0) throw new Error(`Geçersiz LINE_TEST_MAX_MBPS: ${env.LINE_TEST_MAX_MBPS}`);
+  const lineTestAdminMbps = Number(env.LINE_TEST_ADMIN_MAX_MBPS || 48);
+  if (!Number.isFinite(lineTestAdminMbps) || lineTestAdminMbps <= 0) {
+    throw new Error(`Geçersiz LINE_TEST_ADMIN_MAX_MBPS: ${env.LINE_TEST_ADMIN_MAX_MBPS}`);
+  }
 
   return {
     host: env.HOST ?? '0.0.0.0',
@@ -179,6 +190,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         ? []
         : Array.from({ length: 20 }, (_, i) => lineTestBase - i).filter((p) => p >= 1024),
     lineTestMaxBps: Math.round(lineTestMbps * 1e6),
+    lineTestAdminMaxBps: Math.round(Math.max(lineTestMbps, lineTestAdminMbps) * 1e6),
     procRoot: env.PROC_ROOT || '/proc',
     trafficQuotaBytes: Math.round(trafficQuotaGb * 1e9),
     livekitMetricsUrl: optionalUrl(env.LIVEKIT_METRICS_URL, 'http://127.0.0.1:6789/metrics'),

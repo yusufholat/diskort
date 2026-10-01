@@ -10,6 +10,20 @@ export interface TcpSecond {
   target: number;
 }
 
+/** Test sürerken sunucunun gördüğü kesinti (dış sondalar / NIC sessizliği), plan saniyesiyle */
+export interface RunOutage {
+  at: number;
+  durationMs: number;
+  /** tam: sondalar + NIC · sonda: yalnızca dış sondalar · aday: yalnızca NIC sessizliği (doğrulanmamış; yargıya katılmaz) */
+  kind: 'tam' | 'sonda' | 'aday';
+  /** Testin başından kesintiye kadar geçen süre (sn) ve o andaki adım */
+  sec: number;
+  step: string | null;
+  /** Kesintiden önceki son patlama adımı ve bitiminden kesintiye kadar geçen süre (sn); patlama profilinde */
+  burst?: string;
+  afterBurstSec?: number;
+}
+
 export interface VerdictRun {
   transport: LineTransport;
   mode: LineMode;
@@ -24,6 +38,8 @@ export interface VerdictRun {
   streaming?: boolean;
   /** UDP el sıkışması tamamlanamadı */
   unreachable?: boolean;
+  /** Test sırasında sunucu tarafında görülen kesintiler */
+  outages?: RunOutage[];
 }
 
 export type Tone = 'bad' | 'warn' | 'ok' | 'info';
@@ -103,7 +119,8 @@ interface DirData {
 function collect(runs: VerdictRun[], dir: Dir): DirData {
   const d: DirData = { rate: [], pps: [], steady: [], both: [], single: [], all: [] };
   for (const r of runs) {
-    if (r.transport !== 'udp' || r.unreachable) continue;
+    // Patlama profili ayrı yorumlanır (burstFindings): basamakları hız eşiği aramasına katılmaz
+    if (r.transport !== 'udp' || r.unreachable || r.profile === 'burst') continue;
     const secs = dir === 'up' ? r.up : r.down;
     if (!secs) continue;
     const stats = stepStats(r.steps, secs, dir === 'down' ? r.downSent : null);
@@ -153,6 +170,95 @@ function tcpShortfall(runs: VerdictRun[], dir: Dir): { pct: number; secs: number
   return target > 0 ? { pct: round1(((target - got) / target) * 100), secs } : null;
 }
 
+const OUTAGE_TEXT: Record<RunOutage['kind'], string> = {
+  tam: 'tam kesinti (dış sondalar yanıtsız + sunucuya paket gelmedi)',
+  aday: 'sunucuya gelen paketler kısa süre kesildi (yalnızca NIC; dış sondalarla doğrulanmadı)',
+  sonda: 'dış sondalar yanıtsız kaldı',
+};
+const secText = (ms: number): string => `${round1(ms / 1000)}`.replace('.', ',');
+
+/**
+ * Patlama profili: şüphelenilen tetikleyiciyi (yayında sahne değişimi gibi ani hız artışı) sese girmeden yeniden
+ * üretir. Asıl soru kayıp yüzdesi değil, patlamanın sunucu ağında KESİNTİ tetikleyip tetiklemediğidir.
+ */
+function burstFindings(runs: VerdictRun[]): Finding[] {
+  const out: Finding[] = [];
+  for (const r of runs) {
+    if (r.profile !== 'burst' || r.transport !== 'udp' || r.unreachable) continue;
+    const dir: Dir = r.mode === 'up' ? 'up' : 'down';
+    const secs = dir === 'up' ? r.up : r.down;
+    const stats = secs ? stepStats(r.steps, secs, dir === 'down' ? r.downSent : null) : [];
+    const kindOf = (st: StepStat): string | undefined => r.steps[st.step]?.kind;
+    const bursts = stats.filter((st) => kindOf(st) === 'burst');
+    const peak = Math.max(0, ...r.steps.filter((st) => st.kind === 'burst').map((st) => st.rateBps));
+    // Yalnızca doğrulanmış kesintiler (dış sondalarla) yargıya girer; NIC adayları ayrıca not edilir
+    const outages = (r.outages ?? []).filter((o) => o.kind !== 'aday');
+    for (const o of (r.outages ?? []).filter((x) => x.kind === 'aday')) {
+      out.push({
+        code: `patlama_aday_${dir}`,
+        tone: 'info',
+        text: `Patlama testi (${DIR_TEXT[dir]}): ${OUTAGE_TEXT.aday}, ${secText(o.durationMs)} sn → kesinti sayılmadı (test trafiğinin kendisi de gelen paket hızını değiştirir).`,
+        evidence: `testin ${String(o.sec).replace('.', ',')}. saniyesi${o.step ? ` · adım: ${o.step}` : ''}`,
+      });
+    }
+    for (const o of outages) {
+      if (o.burst) {
+        out.push({
+          code: `patlama_kesinti_${dir}`,
+          tone: 'bad',
+          text:
+            `Patlama testi (${DIR_TEXT[dir]}): "${o.burst}" adımı${o.afterBurstSec ? `ndan ${String(o.afterBurstSec).replace('.', ',')} sn sonra` : ' sırasında'} sunucu ağında kesinti görüldü: ` +
+            `${OUTAGE_TEXT[o.kind]}, ${secText(o.durationMs)} sn → ani hız artışı kesintiyi tetikliyor (sağlayıcı hız sınırı/süzgeci şüphesi yeniden üretildi).`,
+          evidence: `testin ${String(o.sec).replace('.', ',')}. saniyesi · adım: ${o.step ?? '?'}`,
+        });
+      } else {
+        // Test başlamadan önce başlamış kesinti testten kaynaklanamaz; ilk patlamadan önceki de patlamaya bağlanamaz
+        const before = o.sec < 0;
+        out.push({
+          code: `patlama_oncesi_kesinti_${dir}`,
+          tone: 'warn',
+          text:
+            `Patlama testi (${DIR_TEXT[dir]}): ${before ? 'test başlamadan önce başlamış bir kesinti sürüyordu' : 'ilk patlamadan önce (taban hızda) sunucu ağında kesinti görüldü'}: ` +
+            `${OUTAGE_TEXT[o.kind]}, ${secText(o.durationMs)} sn → patlamayla ilgisiz${before ? '' : ' olabilir'}; ölçüm etkilenmiş olabilir, testi tekrarla.`,
+          evidence: before ? `test başlamadan ${String(-o.sec).replace('.', ',')} sn önce başladı` : `testin ${String(o.sec).replace('.', ',')}. saniyesi`,
+        });
+      }
+    }
+    if (!secs) {
+      if (outages.length === 0) out.push({ code: `patlama_eksik_${dir}`, tone: 'info', text: `Patlama testi (${DIR_TEXT[dir]}): istemci ölçümü yok; sunucu tarafında kesinti görülmedi.`, evidence: '' });
+      continue;
+    }
+    const lossy = bursts.filter((st) => st.lossPct >= LOSSY_PCT);
+    // Patlamadan sonraki taban adımında kayıp: patlama sonrası çöküş (yayındaki donmanın imzası)
+    const after = stats.filter((st, i) => kindOf(st) === 'base' && i > 0 && st.lossPct >= LOSSY_PCT);
+    if (after.length > 0) {
+      out.push({
+        code: `patlama_sonrasi_kayip_${dir}`,
+        tone: 'bad',
+        text: `Patlama testi (${DIR_TEXT[dir]}): patlamadan sonraki taban hızda (3 Mbps) da kayıp var → patlama sonrası çöküş${outages.length === 0 ? '; sunucu tarafında kesinti kaydedilmedi (kayıp yolun bu yönünde ya da istemci hattında)' : ''}.`,
+        evidence: curve(stats, (st) => st.label),
+      });
+    } else if (lossy.length > 0) {
+      out.push({
+        code: `patlama_kayip_${dir}`,
+        tone: 'warn',
+        text:
+          `Patlama testi (${DIR_TEXT[dir]}): "${lossy[0]!.label}" ve üstünde kayıp var, taban hız temiz` +
+          (outages.length === 0 ? '; sunucu tarafında kesinti görülmedi → bu hız istemcinin hattını aşıyor olabilir (ev bağlantısının hızıyla karşılaştır), sunucu ağı çökmedi.' : '.'),
+        evidence: curve(stats, (st) => st.label),
+      });
+    } else if (outages.length === 0) {
+      out.push({
+        code: `patlama_temiz_${dir}`,
+        tone: 'ok',
+        text: `Patlama testi (${DIR_TEXT[dir]}, ${mbps(peak)} hızına kadar): kayıp yok ve sunucu ağında kesinti tetiklenmedi.`,
+        evidence: curve(bursts, (st) => st.label),
+      });
+    }
+  }
+  return out;
+}
+
 /** Aşamaların birleşik yorumu */
 export function classify(runs: VerdictRun[]): Finding[] {
   const out: Finding[] = [];
@@ -167,7 +273,24 @@ export function classify(runs: VerdictRun[]): Finding[] {
     });
   }
   const measured = dirs.filter((d) => data[d].all.length > 0);
-  if (measured.length === 0) {
+  const burst = burstFindings(runs);
+  out.push(...burst);
+  // Öbür profillerde test sürerken sunucu kesinti gördüyse: o saniyelerdeki kayıp istemci hattına yazılmamalı
+  // (yalnızca dış sondalarla doğrulanmış kesintiler: NIC adayları kayıp yorumunu değiştirmez)
+  const seen = runs
+    .filter((r) => r.profile !== 'burst')
+    .flatMap((r) => r.outages ?? [])
+    .filter((o) => o.kind !== 'aday');
+  if (seen.length > 0) {
+    const longest = seen.reduce((a, b) => (b.durationMs > a.durationMs ? b : a));
+    out.push({
+      code: 'sunucu_kesinti',
+      tone: 'warn',
+      text: `Test sürerken sunucu kendi ağında ${seen.length} kesinti gördü (en uzunu ${OUTAGE_TEXT[longest.kind]}, ${secText(longest.durationMs)} sn): o saniyelerdeki kayıp istemci hattından değil, sunucu/sağlayıcı tarafındandır.`,
+      evidence: seen.map((o) => `${String(o.sec).replace('.', ',')}. sn${o.step ? ` (${o.step})` : ''}`).join(' · '),
+    });
+  }
+  if (measured.length === 0 && burst.length === 0) {
     out.push({ code: 'veri_yok', tone: 'info', text: 'UDP ölçümü yok (yalnızca TCP ya da rapor eksik).', evidence: '' });
   }
 
@@ -315,7 +438,7 @@ export function classify(runs: VerdictRun[]): Finding[] {
       });
     }
   }
-  if (!runs.some((r) => r.transport === 'tcp') && out.some((f) => f.tone === 'bad' || f.tone === 'warn')) {
+  if (measured.length > 0 && !runs.some((r) => r.transport === 'tcp') && out.some((f) => f.tone === 'bad' || f.tone === 'warn')) {
     out.push({ code: 'tcp_yok', tone: 'info', text: 'TCP karşılaştırması yok (--tcp ile tekrar çalıştır): UDP\'ye özgü filtreleme ayrımı yapılamadı.', evidence: '' });
   }
 

@@ -1,10 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Sunucu makinesinin yükü (yönetim paneli): CPU, bellek, disk, ağ ve aylık trafik. Linux'ta /proc'tan okunur
+// Sunucu makinesinin yükü (yönetim paneli): CPU, bellek, disk ve aylık trafik sayacı. Linux'ta /proc'tan okunur
 // (API kapsayıcısı host ağında çalıştığından /proc/net/dev makinenin gerçek arayüzlerini gösterir; /proc/stat,
 // /proc/meminfo ve /proc/loadavg kapsayıcıda da makinenin değerleridir). /proc yoksa (Windows'ta geliştirme)
 // yalnızca `available: false` döner. Testler sahte bir /proc klasörü verir (procRoot).
+// Anlık ağ hızı burada ölçülmez (tek ağ örnekleyicisi netSeconds.ts'tedir); /proc/net/dev yalnızca aylık kota
+// sayacı için okunur.
 
 /** /proc/stat ilk satırından: toplam ve boşta geçen CPU süresi (jiffy) */
 export interface CpuTimes {
@@ -216,9 +218,6 @@ export interface SystemSample {
   cpu: number | null;
   /** Kullanılan bellek (bayt) */
   memUsed: number | null;
-  /** Dış arayüzlerin gelen/giden trafiği (bayt/sn) */
-  rxBps: number | null;
-  txBps: number | null;
   /** Bağlı hesaplar ve sesteki kişiler */
   online: number;
   voice: number;
@@ -232,7 +231,8 @@ export interface SystemSnapshot {
   memory: { total: number; available: number } | null;
   /** Veri klasörünün (veritabanı, dosyalar) bulunduğu disk */
   disk: { total: number; used: number; free: number } | null;
-  network: { interfaces: string[]; rxBps: number | null; txBps: number | null } | null;
+  /** Aylık trafiği sayılan (dış) arayüzler */
+  network: { interfaces: string[] } | null;
   traffic: {
     month: string;
     rx: number;
@@ -265,8 +265,7 @@ const PERSIST_INTERVAL_MS = 60_000;
 
 export class SystemMonitor {
   private readonly history: SystemSample[] = [];
-  private prev: { at: number; cpu: CpuTimes | null; net: { rx: number; tx: number } | null; bootId: string | null } | null =
-    null;
+  private prev: { at: number; cpu: CpuTimes | null } | null = null;
   private latest: SystemSnapshot = {
     available: false,
     sampledAt: null,
@@ -324,20 +323,10 @@ export class SystemMonitor {
     const interfaces = counters ? pickInterfaces(counters, route) : [];
     const picked: NetCounters = {};
     for (const name of interfaces) picked[name] = counters![name]!;
-    const net = counters
-      ? Object.values(picked).reduce((sum, c) => ({ rx: sum.rx + c.rx, tx: sum.tx + c.tx }), { rx: 0, tx: 0 })
-      : null;
 
     const prev = this.prev;
-    const dt = prev ? (now - prev.at) / 1000 : 0;
     const usage = prev?.cpu && cpu ? cpuUsage(prev.cpu, cpu.times) : null;
-    // Hız: aynı açılışta, sayaçlar geriye gitmediyse
-    const sameBoot = !prev || bootId === null || prev.bootId === null || prev.bootId === bootId;
-    const rate = (cur: number | undefined, old: number | undefined): number | null =>
-      cur !== undefined && old !== undefined && dt > 0 && sameBoot && cur >= old ? (cur - old) / dt : null;
-    const rxBps = rate(net?.rx, prev?.net?.rx);
-    const txBps = rate(net?.tx, prev?.net?.tx);
-    this.prev = { at: now, cpu: cpu?.times ?? null, net, bootId };
+    this.prev = { at: now, cpu: cpu?.times ?? null };
 
     if (counters) {
       this.traffic = updateTraffic(this.traffic, bootId, picked, now, uptimeSec !== null ? now - uptimeSec * 1000 : null);
@@ -353,7 +342,7 @@ export class SystemMonitor {
       disk: disk
         ? { total: disk.blocks * disk.bsize, used: (disk.blocks - disk.bfree) * disk.bsize, free: disk.bavail * disk.bsize }
         : null,
-      network: counters ? { interfaces, rxBps, txBps } : null,
+      network: counters ? { interfaces } : null,
       traffic: this.traffic
         ? {
             month: this.traffic.month,
@@ -370,8 +359,6 @@ export class SystemMonitor {
       at: now,
       cpu: usage,
       memUsed: memory ? memory.total - memory.available : null,
-      rxBps,
-      txBps,
       online: counts.online,
       voice: counts.voice,
     });

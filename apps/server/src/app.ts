@@ -11,16 +11,17 @@ import { DailyCounters } from './counters.js';
 import { InfraMonitor, LiveKitMetrics } from './infraStats.js';
 import { VoiceTelemetryStore } from './telemetry.js';
 import { ClientTraceStore } from './clientTrace.js';
-import { createTraceRequester } from './traceRequests.js';
+import { createOutageTraceRequester, createTraceRequester } from './traceRequests.js';
 import { registerVoiceTraceRoutes } from './routes/voiceTrace.js';
 import { registerAdminTraceRoutes } from './routes/adminTraces.js';
 import { FreezeCorrelator } from './freezeDiagnosis.js';
-import { DEFAULT_PROBE_TARGETS, parseProbeTargets, ProbeRunner } from './netProbe.js';
-import { defaultMicroTargets, MicroProbe } from './microProbe.js';
+import { DEFAULT_PROBE_TARGETS, parseProbeTargets, ProbeEngine } from './netProbe.js';
 import { SecondSampler } from './netSeconds.js';
+import type { Outage } from './netOutages.js';
 import { LineTestService } from './lineTest/service.js';
 import { registerLineTestRoutes } from './routes/lineTest.js';
 import { VoiceSessionRecorder } from './voiceHistory.js';
+import { registerAdminNetRoutes } from './routes/adminNet.js';
 import { registerAdminStatsRoutes } from './routes/adminStats.js';
 import { registerTelemetryRoutes } from './routes/telemetry.js';
 import { AttachmentService } from './attachments.js';
@@ -209,30 +210,35 @@ export async function buildApp(
   });
   const livekitMetrics =
     opts.livekitMetrics ?? new LiveKitMetrics({ url: config.livekitMetricsUrl, fetchImpl: opts.metricsFetch, log: app.log });
-  // Yayın donması tanısı: saniyelik sunucu ağı kaydı, dış sondalar, olay toplayıcı (bkz. freezeDiagnosis.ts)
+  // Bağlantı teşhisi: saniyelik sunucu ağı kaydı (tek NIC örnekleyicisi), dış sondalar ve kesinti kaydı,
+  // olay toplayıcı (bkz. netSeconds.ts, netProbe.ts, netOutages.ts, freezeDiagnosis.ts)
   const netDir = opts.telemetryDir !== undefined ? opts.telemetryDir : statsFile('telemetry');
   const netSampler = new SecondSampler({
     procRoot: config.procRoot,
     dir: netDir,
     offsetMin: config.statsUtcOffsetMin,
     livekitCpu: () => livekitMetrics.process().cpu,
+    // Doğrulanmış kesinti kaydedilince sesteki herkesten olay kaydı istenir (bkz. aşağıda requestTracesFor)
+    onOutage: (o) => requestTracesFor.outage?.(o),
+    participants: () => voice.list().length,
+    streams: () => voice.list().filter((v) => v.streaming).length,
     log: app.log,
   });
-  const netProbes = new ProbeRunner({
+  // Olay kaydı isteği aşağıda (gateway hazır olunca) kurulur; teşhis bileşenleri bu tutucu üzerinden çağırır
+  const requestTracesFor: { event?: (channelId: string, reason: string, eventId: string) => void; outage?: (o: Outage) => void } = {};
+  const netProbes = new ProbeEngine({
     targets: parseProbeTargets(config.netProbeTargets ?? undefined) ?? DEFAULT_PROBE_TARGETS,
     gateway: () => netSampler.gateway,
     onResult: (label, sentAt, rtt) => netSampler.addProbe(label, sentAt, rtt),
-  });
-  // Saniyede 10 sonda: 100-300 ms'lik kısa kesintileri süreleriyle yakalar (telemetry/micro-*.jsonl)
-  const microProbe = new MicroProbe({
-    targets: defaultMicroTargets(() => netSampler.gateway),
-    dir: netDir,
-    log: app.log,
+    onOutage: (o) => void netSampler.addProbeOutage(o),
   });
   const freeze = new FreezeCorrelator({
     dir: netDir,
     sampler: netSampler,
-    // Uyarı yolu: olay kalıcı kayda (telemetry/freeze-events.jsonl) yazılır; gözcü rutini bunu incidents.jsonl ile birlikte okur
+    livekit: livekitMetrics,
+    traces: { window: (q) => traces.window(q) },
+    requestTraces: (channelId, reason, eventId) => requestTracesFor.event?.(channelId, reason, eventId),
+    // Olay kalıcı kayda (telemetry/freeze-events.jsonl) yazılır ve sunucu günlüğüne uyarı olarak düşer
     onEvent: (e) =>
       app.log.warn(
         { cause: e.cause, channelId: e.channelId, affected: e.affected, freezes: e.freezes, probe: e.probe },
@@ -245,6 +251,8 @@ export async function buildApp(
     dir: netDir,
     ports: opts.lineTestPorts ?? config.lineTestPorts,
     maxBps: config.lineTestMaxBps,
+    adminMaxBps: config.lineTestAdminMaxBps,
+    outagesBetween: (from, to) => netSampler.outages.between(from, to),
     streamInfo: () => {
       const channels = [...new Set(voice.list().filter((v) => v.streaming).map((v) => v.channelId))];
       return { live: channels.length > 0, channels };
@@ -268,6 +276,15 @@ export async function buildApp(
       app.log.info({ channelId: r.channelId, eventId: r.eventId, users: r.users, sessions: r.sessions, reason }, 'olay kaydı istendi');
     },
   });
+  // Bağlantı teşhisi → olay kaydı: donma olayı açılınca o kanaldan, doğrulanmış bir kesinti kaydedilince içinde
+  // biri bulunan her ses kanalından kayıt istenir. Kesinti kaynaklı istekler ayrıca sınırlıdır (kanal başına 2 dk,
+  // toplam saatte 20): bağlantının gidip geldiği dönemde istemcilerin günlük kayıt payı tükenmesin (traceRequests.ts)
+  requestTracesFor.event = (channelId, reason, eventId) => void ctx.requestVoiceTraces(channelId, reason, eventId);
+  const requestForOutage = createOutageTraceRequester({
+    request: (channelId, reason, eventId) => ctx.requestVoiceTraces(channelId, reason, eventId),
+    channels: () => voice.list().map((v) => v.channelId),
+  });
+  requestTracesFor.outage = (o) => void requestForOutage(o.id);
   const ctx: AppContext = {
     config,
     store,
@@ -298,6 +315,7 @@ export async function buildApp(
     requestVoiceTraces,
     freeze,
     netSampler,
+    netProbes,
     lineTest,
     guild,
   };
@@ -336,9 +354,6 @@ export async function buildApp(
         backupDir: config.backupDir,
         tlsDomains: config.tlsCheckDomains,
         tlsHost: config.tlsCheckHost,
-        procRoot: config.procRoot,
-        networkDir: opts.telemetryDir !== undefined ? opts.telemetryDir : statsFile('telemetry'),
-        offsetMin: config.statsUtcOffsetMin,
         fetchImpl: opts.metricsFetch,
         log: app.log,
       },
@@ -351,10 +366,7 @@ export async function buildApp(
     freeze.start();
     netSampler.start();
     // Geliştirme makinesinde dış sonda gönderilmez
-    if (!config.isDev) {
-      netProbes.start();
-      microProbe.start();
-    }
+    if (!config.isDev) netProbes.start();
     livekitMetrics.start();
     infra.start();
     voiceSessions.start();
@@ -366,7 +378,7 @@ export async function buildApp(
     infra.stop();
     apiStats.stop();
     netProbes.stop();
-    await Promise.all([telemetry.stop(), authLog.stop(), freeze.stop(), netSampler.stop(), microProbe.stop()]);
+    await Promise.all([telemetry.stop(), authLog.stop(), freeze.stop(), netSampler.stop()]);
   });
 
   // Yönetim paneli: makine yükü, aylık trafik ve hesapların son görülme anı. Kalıcı sayaçlar ve düzenli
@@ -490,6 +502,7 @@ export async function buildApp(
   registerVoiceTraceRoutes(app, ctx);
   registerAdminTraceRoutes(app, ctx);
   registerAdminStatsRoutes(app, ctx, { telemetry, livekitMetrics, infra });
+  registerAdminNetRoutes(app, ctx, { livekitMetrics });
   registerLineTestRoutes(app, ctx);
   // UDP ucu dinlemeye hazır olunca açılır (listen'den önce); kapanışta soket kapatılır
   app.addHook('onReady', async () => void (await lineTest.start()));

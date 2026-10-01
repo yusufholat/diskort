@@ -4,6 +4,7 @@ import type { User } from '@diskort/shared';
 import type { AuthEvent } from '../authLog.js';
 import { sendError, type AppContext } from '../context.js';
 import { computeGuildStats, type GuildStats } from '../guildStats.js';
+import { groupSuites } from '../lineTest/service.js';
 import type { InfraMonitor, LiveKitMetrics } from '../infraStats.js';
 import type { VoiceTelemetryStore } from '../telemetry.js';
 import { voiceHistory } from '../voiceHistory.js';
@@ -101,21 +102,30 @@ export function registerAdminStatsRoutes(app: FastifyInstance, ctx: AppContext, 
     const days = await telemetry.days();
     const freezes = ctx.freeze.list(now - q.data.days * DAY).slice(0, 100);
     const sampler = ctx.netSampler;
+    // Olaylarla çakışan hat testleri (özet; ayrıntı hat testleri ucundan)
+    const suites = groupSuites(ctx.lineTest.list(now - q.data.days * DAY), freezes)
+      .filter((s) => s.freezeIds.length > 0)
+      .map((s) => ({ id: s.id, at: s.at, end: s.end, who: s.who, freezeIds: s.freezeIds, findings: s.findings.slice(0, 4) }));
     return {
       now,
       days: q.data.days,
       incidents,
-      // Yayın donmaları (ortak yol / yayıncı / kodlayıcı ayrımı); saniyelik satırlar ayrıntı ucundan
+      // Yayın donmaları (arızalı bölüm, kanıt, eksik kanıt); saniyelik satırlar ayrıntı ucundan
       freezes,
+      lineTests: suites,
       netSampler: {
         readable: sampler.readable,
         iface: sampler.iface,
         gateway: sampler.gateway,
         persistedRows: sampler.persistedRows,
         latest: sampler.latest(),
-        ring: sampler.recent(30 * 60).length,
+        ring: sampler.size,
       },
-      users: usersOf([...incidents.map((i) => i.userId), ...freezes.flatMap((f) => f.users.map((u) => u.userId))]),
+      users: usersOf([
+        ...incidents.map((i) => i.userId),
+        ...freezes.flatMap((f) => f.users.map((u) => u.userId)),
+        ...suites.map((s) => s.who.userId),
+      ]),
       channels: channelNames([...incidents.map((i) => i.channelId), ...freezes.map((f) => f.channelId)]),
       storage: {
         retentionDays: telemetry.retentionDays,
@@ -128,13 +138,14 @@ export function registerAdminStatsRoutes(app: FastifyInstance, ctx: AppContext, 
     };
   });
 
-  // ---------- Yayın donması olayının saniyelik kanıtı (sunucu ağı + sondalar) ----------
+  // ---------- Yayın donması olayının saniyelik kanıtı (sunucu ağı + sondalar + LiveKit ölçümleri) ----------
   app.get('/api/admin/telemetry/freezes/:id', guard, async (req, reply) => {
     const id = (req.params as { id: string }).id;
     const event = ctx.freeze.list(0).find((e) => e.id === id);
     if (!event) return sendError(reply, 404, 'not_found', 'Olay bulunamadı.');
     noStore(reply);
-    return { event, rows: await ctx.freeze.rowsOf(id) };
+    const detail = await ctx.freeze.detailOf(id);
+    return { event, rows: detail.rows, lk: detail.lk, serverIp: ctx.netSampler.serverIp() };
   });
 
   // ---------- Ses geçmişi ----------
@@ -171,8 +182,16 @@ export function registerAdminStatsRoutes(app: FastifyInstance, ctx: AppContext, 
     });
     return {
       now,
-      livekit: { ...metrics, history: livekitMetrics.historySince(now - HOUR) },
+      // Olay sırasında 2 sn'de bir ölçülür; panel grafikleri için 10 sn'ye seyreltilir
+      livekit: { ...metrics, history: livekitMetrics.historySince(now - HOUR, 9_000) },
       ...snapshot,
+      // Makine ağı: tek örnekleyiciden (saniyelik kayıt) 15 sn'lik ortalamalar
+      network: {
+        ok: ctx.netSampler.readable.net,
+        iface: ctx.netSampler.iface,
+        error: ctx.netSampler.readable.net ? null : ctx.config.systemStats ? '/proc/net okunamadı (yalnızca Linux)' : 'ağ ölçümü kapalı',
+        history: ctx.netSampler.history15(),
+      },
       push: {
         enabled: ctx.push.enabled,
         tokens: pushTokens,

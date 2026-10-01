@@ -2025,10 +2025,10 @@ textarea.adm-input {
 }
 
 /* Hat testleri: saniye saniye kayıp çubukları, ortak test sütunları */
-.adm-bars {
+.adm-lossbars {
   margin: 4px 0 8px;
 }
-.adm-bars svg {
+.adm-lossbars svg {
   display: block;
   width: 100%;
   height: 56px;
@@ -2075,7 +2075,109 @@ textarea.adm-input {
   display: block;
 }
 .adm-line-col .adm-badge,
-#adm-line .adm-badges .adm-badge {
+#adm-diag .adm-badges .adm-badge,
+.adm-sheet-body .adm-badges .adm-badge {
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+/* Bağlantı teşhisi: görünüm seçimi, kesinti bantları, kullanıcı şeritleri, kopyalanabilir komutlar */
+#adm-diag-nav .adm-chips {
+  margin: 0 0 12px;
+}
+.adm-subhead {
+  margin: 8px 0 0;
+  color: var(--head);
+  font-size: 1rem;
+}
+.adm-spark-mark,
+.adm-lane-mark {
+  fill: var(--danger);
+  opacity: 0.3;
+}
+.adm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.adm-command {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.adm-command .adm-pre {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.adm-command .adm-more {
+  margin-top: 6px;
+}
+.adm-lane {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.adm-lane-name {
+  flex: 0 0 32%;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.85rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.adm-lane-bar {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 16px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+.adm-lane-bar svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* İstemci olay kayıtları: kullanıcı başına ince ısı şeritleri */
+.adm-trace-user {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.adm-trace-user:first-of-type {
+  border-top: 0;
+}
+.adm-lane-thin {
+  margin-top: 3px;
+}
+.adm-lane-thin .adm-lane-name {
+  font-size: 0.75rem;
+}
+.adm-lane-thin .adm-lane-bar {
+  height: 10px;
+}
+.adm-lane-val {
+  flex: 0 0 4.6rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.adm-heat-bad {
+  fill: var(--danger);
+}
+.adm-heat-warn {
+  fill: var(--warn);
+}
+.adm-heat-ok {
+  fill: var(--ok);
+}
+.adm-heat-brand {
+  fill: var(--brand);
+}
+.adm-trace-request {
+  margin-top: 0;
 }

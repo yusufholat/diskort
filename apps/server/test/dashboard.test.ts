@@ -214,11 +214,11 @@ describe('yönetim paneli verisi', () => {
     expect(d.feedback.total).toBe(1);
     expect(d.feedback.counts.yeni).toBe(1);
 
-    // Makine (sahte /proc): ilk ölçümde hız yok, ikinci ölçümde var
+    // Makine (sahte /proc); anlık ağ hızı burada yok (tek ağ örnekleyicisi: netSeconds.ts)
     expect(d.system).toMatchObject({ available: true, hostUptimeSec: 3600.25 });
     expect(d.system.cpu).toMatchObject({ cores: 2, usage: null, load: [0.5, 0.4, 0.3] });
     expect(d.system.memory).toEqual({ total: 4000000 * 1024, available: 3000000 * 1024 });
-    expect(d.system.network).toMatchObject({ interfaces: ['ens192'], rxBps: null, txBps: null });
+    expect(d.system.network).toEqual({ interfaces: ['ens192'] });
     expect(d.system.history).toHaveLength(1);
     expect(d.system.history[0]).toMatchObject({ online: 2, voice: 2 });
 
@@ -286,7 +286,7 @@ describe('sunucu hataları', () => {
 });
 
 describe('makine ölçümü (sahte /proc)', () => {
-  it('CPU kullanımı, ağ hızı ve aylık trafik; sayaç dosyası yeniden başlatmada ve makine açılışında sürer', async () => {
+  it('CPU kullanımı ve aylık trafik; sayaç dosyası yeniden başlatmada ve makine açılışında sürer', async () => {
     const proc = path.join(tmp, 'proc');
     const stateFile = path.join(tmp, 'data', 'traffic.json');
     const t0 = Date.UTC(2026, 8, 28, 12, 0, 0);
@@ -308,7 +308,7 @@ describe('makine ölçümü (sahte /proc)', () => {
     await monitor.sample({ online: 2, voice: 1 }, t0 + 5_000);
     const { system, history } = monitor.snapshot();
     expect(system.cpu?.usage).toBeCloseTo(0.25, 5);
-    expect(system.network).toMatchObject({ interfaces: ['ens192'], rxBps: 100_000, txBps: 200_000 });
+    expect(system.network).toEqual({ interfaces: ['ens192'] });
     expect(system.traffic).toMatchObject({ rx: 1_500_000, tx: 3_000_000 });
     expect(system.disk?.total).toBeGreaterThan(0);
     expect(history.map((h) => h.cpu)).toEqual([null, 0.25]);
@@ -326,8 +326,8 @@ describe('makine ölçümü (sahte /proc)', () => {
     await restarted.sample({ online: 0, voice: 0 }, t0 + 120_000);
     const after = restarted.snapshot().system;
     expect(after.traffic).toMatchObject({ rx: 1_650_000, tx: 3_070_000 });
-    // Açılış değiştiğinde hız ve CPU kullanımı hesaplanmaz (sayaçlar geriye gitti)
-    expect(after.network?.rxBps).toBeNull();
+    // Açılış değiştiğinde CPU kullanımı hesaplanmaz (sayaçlar geriye gitti)
+    expect(after.cpu?.usage).toBeNull();
   });
 });
 

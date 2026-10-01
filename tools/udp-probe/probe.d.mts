@@ -21,6 +21,19 @@ export interface LineFinding {
   evidence: string;
 }
 
+/** Test sürerken sunucunun kendi ağında gördüğü kesinti */
+export interface LineOutage {
+  at: number;
+  durationMs: number;
+  kind: 'tam' | 'sonda' | 'aday';
+  /** Testin başından kesintiye kadar geçen süre (sn) ve o andaki adım */
+  sec: number;
+  step: string | null;
+  /** Kesintiden önceki son patlama adımı ve bitiminden kesintiye kadar geçen süre (sn) */
+  burst?: string;
+  afterBurstSec?: number;
+}
+
 export interface LinePhaseResult {
   runId: string;
   suite: string;
@@ -28,6 +41,9 @@ export interface LinePhaseResult {
   findings: LineFinding[];
   streaming: boolean;
   unreachable: boolean;
+  /** Eski sunucularda yok */
+  outages?: LineOutage[];
+  loopLag?: { maxMs: number; stalls: number } | null;
   note?: string;
 }
 
@@ -53,9 +69,11 @@ export interface RunSuiteOptions {
   client?: Record<string, unknown>;
   onEvent?: (event: LineEvent) => void;
   signal?: AbortSignal;
+  /** Canlı yayın varken patlama testini yine de başlat */
+  force?: boolean;
 }
 
-export const SUITES: Record<'tam' | 'hizli', LineSuitePhase[]>;
+export const SUITES: Record<'tam' | 'hizli' | 'patlama', LineSuitePhase[]>;
 export const DEFAULT_SERVER: string;
 export function runSuite(options: RunSuiteOptions): Promise<{
   suite: string;

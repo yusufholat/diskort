@@ -63,6 +63,7 @@
           <nav class="adm-tabs" id="adm-tabs" role="tablist" aria-label="Bölümler">
             <button type="button" role="tab" data-tab="genel">Genel</button>
             <button type="button" role="tab" data-tab="ses">Ses</button>
+            <button type="button" role="tab" data-tab="teshis">Bağlantı teşhisi</button>
             <button type="button" role="tab" data-tab="ses-gecmisi">Ses geçmişi</button>
             <button type="button" role="tab" data-tab="makine">Makine</button>
             <button type="button" role="tab" data-tab="api">API</button>
@@ -70,7 +71,6 @@
             <button type="button" role="tab" data-tab="guvenlik">Güvenlik</button>
             <button type="button" role="tab" data-tab="sunucular">Sunucular</button>
             <button type="button" role="tab" data-tab="geri-bildirim">Geri bildirim <span class="adm-tab-count" id="adm-fb-count" hidden></span></button>
-            <button type="button" role="tab" data-tab="hat-testleri">Hat testleri</button>
             <button type="button" role="tab" data-tab="iphone">iPhone cihazları <span class="adm-tab-count" id="adm-ios-count" hidden></span></button>
             <button type="button" role="tab" data-tab="hatalar">Hatalar <span class="adm-tab-count" id="adm-err-count" hidden></span></button>
           </nav>
@@ -85,10 +85,13 @@
             <div class="adm-grid" id="adm-voice"></div>
             <h2>Bağlantı kalitesi <span class="adm-badge adm-badge-live">canlı</span></h2>
             <div class="adm-grid" id="adm-quality"></div>
-            <h2>Kalite sorunları</h2>
-            <div class="adm-grid" id="adm-incidents"></div>
-            <h2>Yayın donmaları</h2>
-            <div class="adm-grid" id="adm-freezes"></div>
+          </section>
+
+          <!-- Bağlantı teşhisi: canlı durum, olaylar (donmalar + kalite sorunları), testler, ayrıntı (bkz. admin.js) -->
+          <section class="adm-section" id="teshis" role="tabpanel">
+            <h2>Bağlantı teşhisi</h2>
+            <div id="adm-diag-nav"></div>
+            <div class="adm-grid" id="adm-diag"></div>
           </section>
 
           <section class="adm-section" id="ses-gecmisi" role="tabpanel">
@@ -101,8 +104,6 @@
             <div class="adm-grid" id="adm-system"></div>
             <h2>Kapsayıcılar ve hizmetler</h2>
             <div class="adm-grid" id="adm-infra"></div>
-            <h2>Ses sunucusu (LiveKit)</h2>
-            <div class="adm-grid" id="adm-livekit"></div>
             <h2>Bildirimler, indirmeler ve güncellemeler</h2>
             <div class="adm-grid" id="adm-usage"></div>
           </section>
@@ -136,11 +137,6 @@
           <section class="adm-section" id="iphone" role="tabpanel">
             <h2>iPhone cihazları</h2>
             <div class="adm-grid" id="adm-iphone"></div>
-          </section>
-
-          <section class="adm-section" id="hat-testleri" role="tabpanel">
-            <h2>Hat testleri</h2>
-            <div class="adm-grid" id="adm-line"></div>
           </section>
 
           <section class="adm-section" id="hatalar" role="tabpanel">

@@ -27,7 +27,9 @@ const MAX_DATAGRAM = 1400;
 const FINISH_GRACE_MS = 20_000;
 const PACE_TICK_MS = 2;
 const MAX_BURST_PER_TICK = 400;
-/** Bir kaynak adresten saniyede kabul edilen el sıkışma paketi (HELLO/START); fazlası sessizce düşer */
+/** Gönderim zamanlayıcısı bu kadar gecikirse (ms) olay döngüsü takılması sayılır */
+const LAG_STALL_MS = 20;
+/** Bir kaynak adresten 10 saniyelik pencerede kabul edilen el sıkışma paketi (HELLO/START); fazlası sessizce düşer */
 const HANDSHAKE_PER_IP = 12;
 const HANDSHAKE_WINDOW_MS = 10_000;
 const HANDSHAKE_MAP_MAX = 4_000;
@@ -58,6 +60,9 @@ export interface LineSession {
   holdUntil: number;
   closed: boolean;
   reservedPps: number;
+  /** Test sürerken API olay döngüsünün gecikmesi: en yüksek (ms) ve 20 ms'yi aşan tur sayısı */
+  lagMaxMs: number;
+  lagStalls: number;
 }
 
 export interface LineFinish {
@@ -66,6 +71,7 @@ export interface LineFinish {
   downSent: number[] | null;
   downErrors: number[] | null;
   startedAt: number | null;
+  loopLag: { maxMs: number; stalls: number };
 }
 
 export interface LineServerOptions {
@@ -92,6 +98,8 @@ export class LineTestServer {
   private readonly sessions = new Map<number, LineSession>();
   private readonly byIdentity = new Map<string, number>();
   private readonly handshakes = new Map<string, { at: number; n: number }>();
+  private lastPaceAt = 0;
+  private timerErrors = 0;
   port: number | null = null;
   reservedTotal = 0;
   reservedPpsTotal = 0;
@@ -126,9 +134,8 @@ export class LineTestServer {
       socket.on('message', (msg, rinfo) => this.onMessage(msg, rinfo.address, rinfo.port));
       this.socket = socket;
       this.port = socket.address().port;
-      this.timer = setInterval(() => this.pace(), PACE_TICK_MS);
-      this.sweepTimer = setInterval(() => this.sweep(), 1000);
-      this.timer.unref();
+      // Gönderim zamanlayıcısı (2 ms) yalnızca oturum varken çalışır (bkz. open/release)
+      this.sweepTimer = setInterval(() => this.guarded(() => this.sweep()), 1000);
       this.sweepTimer.unref();
       return this.port;
     }
@@ -136,9 +143,9 @@ export class LineTestServer {
   }
 
   stop(): void {
-    if (this.timer) clearInterval(this.timer);
+    this.stopPace();
     if (this.sweepTimer) clearInterval(this.sweepTimer);
-    this.timer = this.sweepTimer = null;
+    this.sweepTimer = null;
     try {
       this.socket?.close();
     } catch {
@@ -152,8 +159,37 @@ export class LineTestServer {
     this.reservedPpsTotal = 0;
   }
 
-  /** HTTP'de oturum açılırken: kimlik/adres başına tek test ve toplam bant sınırı burada uygulanır */
-  open(token: LineToken, plan: LinePlan, ip: string): LineSession | OpenError {
+  /** Zamanlayıcı geri çağrısındaki beklenmeyen hata süreci düşürmemeli: yakalanır, seyrek günlüğe yazılır */
+  private guarded(fn: () => void): void {
+    try {
+      fn();
+    } catch (err) {
+      if (this.timerErrors++ % 1000 === 0) this.opts.log?.warn({ err: String(err), count: this.timerErrors }, 'hat testi zamanlayıcısı hata verdi');
+    }
+  }
+
+  private startPace(): void {
+    if (this.timer || !this.socket) return;
+    this.lastPaceAt = 0;
+    this.timer = setInterval(() => this.guarded(() => this.pace()), PACE_TICK_MS);
+    this.timer.unref();
+  }
+
+  private stopPace(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  /** Gönderim zamanlayıcısı çalışıyor mu (testler) */
+  get pacing(): boolean {
+    return this.timer !== null;
+  }
+
+  /**
+   * HTTP'de oturum açılırken: kimlik/adres başına tek test ve toplam bant sınırı burada uygulanır. `maxBps`
+   * verilirse (yönetici oturumu) toplam sınır olarak o kullanılır.
+   */
+  open(token: LineToken, plan: LinePlan, ip: string, maxBps = this.opts.maxBps): LineSession | OpenError {
     if (!this.socket) return 'disabled';
     this.sweep();
     if (this.byIdentity.has(token.i)) return 'busy_user';
@@ -161,7 +197,7 @@ export class LineTestServer {
     for (const s of this.sessions.values()) if (s.ip === ip) perIp++;
     if (perIp >= (this.opts.perIpSessions ?? 2)) return 'busy_ip';
     const reserved = reservedBps(plan);
-    if (this.reservedTotal + reserved > this.opts.maxBps) return 'capacity';
+    if (this.reservedTotal + reserved > maxBps) return 'capacity';
     const reservedPps = Math.max(0, ...plan.seconds.map((x) => x.pps)) * (plan.mode === 'both' ? 2 : 1);
     if (this.reservedPpsTotal + reservedPps > (this.opts.maxPps ?? 12_000)) return 'capacity';
     const session: LineSession = {
@@ -184,12 +220,15 @@ export class LineTestServer {
       holdUntil: 0,
       closed: false,
       reservedPps,
+      lagMaxMs: 0,
+      lagStalls: 0,
     };
     if (this.sessions.has(session.sid)) return 'busy_user';
     this.sessions.set(session.sid, session);
     this.byIdentity.set(token.i, session.sid);
     this.reservedTotal += reserved;
     this.reservedPpsTotal += reservedPps;
+    this.startPace();
     return session;
   }
 
@@ -217,6 +256,7 @@ export class LineTestServer {
       downSent: s.downSent ? [...s.downSent] : null,
       downErrors: s.downErrors ? [...s.downErrors] : null,
       startedAt: s.startedAt,
+      loopLag: { maxMs: Math.round(s.lagMaxMs * 10) / 10, stalls: s.lagStalls },
     };
   }
 
@@ -226,6 +266,7 @@ export class LineTestServer {
       this.reservedPpsTotal = Math.max(0, this.reservedPpsTotal - s.reservedPps);
       this.opts.onRelease?.(s.sid);
       if (this.byIdentity.get(s.token.i) === s.sid) this.byIdentity.delete(s.token.i);
+      if (this.sessions.size === 0) this.stopPace();
     }
   }
 
@@ -347,7 +388,15 @@ export class LineTestServer {
   private pace(): void {
     if (!this.socket || this.sessions.size === 0) return;
     const now = this.now();
+    // Olay döngüsü gecikmesi: iki tur arasındaki süre, beklenen aralığı ne kadar aştı (gerçek saatle)
+    const tick = performance.now();
+    const lag = this.lastPaceAt === 0 ? 0 : Math.max(0, tick - this.lastPaceAt - PACE_TICK_MS);
+    this.lastPaceAt = tick;
     for (const s of this.sessions.values()) {
+      if (s.startedAt !== null && !s.closed && now <= s.endsAt) {
+        if (lag > s.lagMaxMs) s.lagMaxMs = lag;
+        if (lag >= LAG_STALL_MS) s.lagStalls++;
+      }
       if (!s.downSent || !s.addr || s.startedAt === null || now < s.downT0) continue;
       const t = now - s.downT0;
       const due = dueCount(s.plan.seconds, s.cum, t);

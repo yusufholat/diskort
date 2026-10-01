@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import tls from 'node:tls';
-import { HostNetworkLog, hostNetSample, readHostNet, type HostNetCounters, type HostNetSample } from './hostNetwork.js';
 import { counterRate, PromSnapshot } from './promText.js';
 
 // Yönetim paneli: altyapı ölçümleri.
@@ -10,7 +9,7 @@ import { counterRate, PromSnapshot } from './promText.js';
 // - Kapsayıcılar: API kendi cgroup'undan (kapsayıcının kendi görünümü; bağlama gerekmez), Caddy yönetim
 //   ucunun ölçümlerinden (127.0.0.1:2019/metrics), LiveKit kendi ölçümlerinden. Docker soketi kullanılmaz.
 // - Veritabanı yedekleri (salt okunur bağlanan yedek klasörü), TLS sertifikalarının bitiş tarihleri.
-// - Ana makinenin ağı: varsayılan yoldaki arayüzün ve UDP'nin hızları (hostNetwork.ts; host ağı sayesinde /proc).
+// Ana makinenin ağı burada ölçülmez: tek ağ örnekleyicisi netSeconds.ts'tedir (SecondSampler).
 
 type Log = { warn(obj: object, msg: string): void };
 
@@ -119,6 +118,42 @@ export function liveKitSample(cur: PromSnapshot, prev: PromSnapshot | null): Liv
   };
 }
 
+/** Olay kanıtı için küçültülmüş LiveKit ölçümü (düğüm geneli toplamlar; LiveKit katılımcı başına ölçüm vermez) */
+export interface LkRow {
+  t: number;
+  /** Paket/sn: yayıncılardan gelen, izleyicilere giden */
+  pin: number | null;
+  pout: number | null;
+  /** Saniyede NACK, PLI, FIR */
+  nack: number | null;
+  pli: number | null;
+  fir: number | null;
+  /** Kayıp yüzdesi: gelen, giden */
+  lin: number | null;
+  lout: number | null;
+  parts: number | null;
+  cpu: number | null;
+}
+
+const r2 = (v: number | null): number | null => (v === null ? null : Number(v.toFixed(2)));
+
+export const lkRow = (s: LiveKitMetricSample): LkRow => ({
+  t: s.at,
+  pin: r2(s.packetsIn),
+  pout: r2(s.packetsOut),
+  nack: r2(s.nack),
+  pli: r2(s.pli),
+  fir: r2(s.fir),
+  lin: r2(s.lossInPct),
+  lout: r2(s.lossOutPct),
+  parts: s.participants,
+  cpu: r2(s.cpu),
+});
+
+/** Olağan ölçüm aralığı ve bir olay açıkken (boost) kullanılan sık aralık */
+const SCRAPE_MS = 10_000;
+const SCRAPE_FAST_MS = 2_000;
+
 export interface ScrapeOptions {
   url: string | null;
   fetchImpl?: typeof fetch;
@@ -126,7 +161,10 @@ export interface ScrapeOptions {
   log?: Log;
 }
 
-/** LiveKit'in Prometheus ucunu düzenli okur (açıkken 10 sn, kapalıyken dakikada bir dener) */
+/**
+ * LiveKit'in Prometheus ucunu düzenli okur (açıkken 10 sn, kapalıyken dakikada bir dener). Bir yayın donması
+ * olayı açıkken (boost) 2 sn'de bir okur: olay penceresinin NACK/PLI/kayıp oranları daha ince görülür.
+ */
 export class LiveKitMetrics {
   private prev: PromSnapshot | null = null;
   private latest: LiveKitMetricSample | null = null;
@@ -137,6 +175,9 @@ export class LiveKitMetrics {
   private lastTryAt = 0;
   private inflight: Promise<void> | null = null;
   private timer: NodeJS.Timeout | null = null;
+  private fastUntil = 0;
+  private stopped = false;
+  private looping = false;
   private readonly fetchImpl: typeof fetch;
 
   constructor(private readonly opts: ScrapeOptions) {
@@ -147,20 +188,39 @@ export class LiveKitMetrics {
     return this.opts.url !== null;
   }
 
+  private readonly loop = (): void => {
+    // Zamanlayıcı ateşlendi: ölçüm sürerken yeni bir zamanlayıcı kurulmaz (bkz. boost)
+    this.timer = null;
+    this.looping = true;
+    void this.scrape().finally(() => {
+      this.looping = false;
+      if (this.stopped) return;
+      this.timer = setTimeout(this.loop, this.error ? 60_000 : Date.now() < this.fastUntil ? SCRAPE_FAST_MS : SCRAPE_MS);
+      this.timer.unref();
+    });
+  };
+
   start(): void {
-    if (!this.configured || this.timer) return;
-    const loop = (): void => {
-      void this.scrape().finally(() => {
-        this.timer = setTimeout(loop, this.error ? 60_000 : 10_000);
-        this.timer.unref();
-      });
-    };
-    loop();
+    if (!this.configured || this.timer || this.looping) return;
+    this.stopped = false;
+    this.loop();
   }
 
   stop(): void {
+    this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+  }
+
+  /** Verilen ana kadar sık ölç (olay açıkken); bekleyen bir sonraki ölçüm de öne alınır */
+  boost(until: number, now = Date.now()): void {
+    const wasFast = now < this.fastUntil;
+    this.fastUntil = Math.max(this.fastUntil, until);
+    // Döngünün ölçümü sürüyorsa bir sonraki aralığı zaten o belirler: ikinci bir döngü başlatılmaz
+    if (wasFast || this.looping || !this.timer || this.stopped || this.error) return;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(this.loop, SCRAPE_FAST_MS);
+    this.timer.unref();
   }
 
   /** Bir ölçüm alır (aynı anda gelenler aynı ölçümü bekler) */
@@ -184,7 +244,9 @@ export class LiveKitMetrics {
       this.latest = sample;
       if (prev) {
         this.history.push(sample);
-        const max = this.opts.historySize ?? 180;
+        // 30 dk: olağan aralıkta 180 ölçüm; sık ölçümde daha çok yer gerekir
+        const max = this.opts.historySize ?? 900;
+        while (this.history.length > 0 && this.history[0]!.at < now - 30 * 60_000) this.history.shift();
         if (this.history.length > max) this.history.splice(0, this.history.length - max);
       }
       this.raw = snap
@@ -201,7 +263,7 @@ export class LiveKitMetrics {
 
   /** Paneldeki durum: son ölçüm eskiyse (ölçüm döngüsü çalışmıyorsa, ör. testler) şimdi ölçer */
   async status(now = Date.now()): Promise<LiveKitMetricsStatus> {
-    if (this.configured && this.timer === null && now - this.lastTryAt > 15_000) await this.scrape(now);
+    if (this.configured && this.timer === null && !this.looping && now - this.lastTryAt > 15_000) await this.scrape(now);
     const ok = this.configured && this.error === null && this.lastOkAt !== null;
     return {
       configured: this.configured,
@@ -213,8 +275,19 @@ export class LiveKitMetrics {
     };
   }
 
-  historySince(since: number): LiveKitMetricSample[] {
-    return this.history.filter((s) => s.at >= since);
+  /** Geçmiş; en az aralık (minGapMs) verilirse sık ölçümler seyreltilir (panel grafikleri için) */
+  historySince(since: number, minGapMs = 0): LiveKitMetricSample[] {
+    let last = -Infinity;
+    return this.history.filter((s) => {
+      if (s.at < since || s.at - last < minGapMs) return false;
+      last = s.at;
+      return true;
+    });
+  }
+
+  /** [from, to] aralığındaki ölçümler, olay kanıtı biçiminde */
+  window(from: number, to: number): LkRow[] {
+    return this.history.filter((s) => s.at >= from && s.at <= to).map(lkRow);
   }
 
   /** Kapsayıcı tablosu için LiveKit sürecinin son CPU/bellek ölçümü */
@@ -289,23 +362,8 @@ export interface InfraOptions {
   /** TLS el sıkışmasının yapılacağı adres (host ağında Caddy: 127.0.0.1) */
   tlsHost: string;
   tlsPort?: number;
-  /** /proc kökü (ana makine ağı için); verilmezse ağ geçmişi tutulmaz (testler) */
-  procRoot?: string;
-  /** Ağ dakikalık özetlerinin klasörü (network-YYYY-AA-GG.jsonl); null: dosyaya yazılmaz */
-  networkDir?: string | null;
-  /** Günlerin saat dilimi (dk) */
-  offsetMin?: number;
   fetchImpl?: typeof fetch;
   log?: Log;
-}
-
-/** Panelin ağ bölümü */
-export interface HostNetworkStatus {
-  /** /proc okunabiliyor ve varsayılan yol arayüzü bulundu mu */
-  ok: boolean;
-  iface: string | null;
-  error: string | null;
-  history: HostNetSample[];
 }
 
 const TLS_CHECK_MS = 6 * 3_600_000;
@@ -360,11 +418,6 @@ export class InfraMonitor {
   private tlsInfo: TlsInfo[] = [];
   private tlsAt = 0;
   private readonly history: ContainerSample[] = [];
-  private readonly netHistory: HostNetSample[] = [];
-  private prevNet: HostNetCounters | null = null;
-  private netError: string | null = null;
-  private netIface: string | null = null;
-  private readonly netLog: HostNetworkLog | null;
   private timer: NodeJS.Timeout | null = null;
   private inflight: Promise<void> | null = null;
   private lastSample = 0;
@@ -374,7 +427,6 @@ export class InfraMonitor {
     private readonly livekit: LiveKitMetrics,
   ) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
-    this.netLog = opts.procRoot ? new HostNetworkLog(opts.networkDir ?? null, opts.offsetMin ?? 180, 14, opts.log) : null;
   }
 
   start(intervalMs = 15_000): void {
@@ -398,7 +450,7 @@ export class InfraMonitor {
 
   private async doSample(now: number): Promise<void> {
     this.lastSample = now;
-    await Promise.all([this.sampleApi(now), this.sampleCaddy(now), this.sampleHostNet(now)]);
+    await Promise.all([this.sampleApi(now), this.sampleCaddy(now)]);
     const lk = this.livekit.process();
     this.history.push({ at: now, api: this.api.cpu, livekit: lk.cpu, caddy: this.caddyProc.cpu });
     if (this.history.length > 120) this.history.splice(0, this.history.length - 120);
@@ -454,31 +506,6 @@ export class InfraMonitor {
       ok: true,
       error: null,
     };
-  }
-
-  /** Ana makinenin ağı: /proc/net/dev (varsayılan yolun arayüzü) ve /proc/net/snmp (UDP); okunamazsa boş */
-  private async sampleHostNet(now: number): Promise<void> {
-    const root = this.opts.procRoot;
-    if (!root || !this.netLog) return;
-    const read = (file: string): Promise<string | null> => fs.promises.readFile(path.join(root, file), 'utf8').catch(() => null);
-    const [dev, route, snmp] = await Promise.all([read('net/dev'), read('net/route'), read('net/snmp')]);
-    const cur = readHostNet({ dev, route, snmp }, now);
-    if (!cur) {
-      this.prevNet = null;
-      this.netIface = null;
-      this.netError = dev === null || route === null ? '/proc/net okunamadı (yalnızca Linux)' : 'varsayılan yol arayüzü bulunamadı';
-      return;
-    }
-    this.netError = null;
-    this.netIface = cur.iface;
-    // Aradan çok zaman geçtiyse oranlar anlamsız: yeni başlangıç
-    const prev = this.prevNet && now - this.prevNet.at <= 120_000 ? this.prevNet : null;
-    this.prevNet = cur;
-    const sample = prev ? hostNetSample(cur, prev) : null;
-    if (!sample) return;
-    this.netHistory.push(sample);
-    if (this.netHistory.length > 120) this.netHistory.splice(0, this.netHistory.length - 120);
-    void this.netLog.add(sample, now);
   }
 
   private async sampleCaddy(now: number): Promise<void> {
@@ -570,7 +597,6 @@ export class InfraMonitor {
     caddy: CaddyStats;
     backups: BackupInfo | null;
     tls: TlsInfo[];
-    network: HostNetworkStatus;
   }> {
     if (now - this.lastSample > 20_000) await this.sample(now);
     const lk = this.livekit.process();
@@ -589,12 +615,6 @@ export class InfraMonitor {
       caddy: this.caddy,
       backups: this.backups,
       tls: this.tlsInfo,
-      network: {
-        ok: this.netIface !== null && this.netError === null,
-        iface: this.netIface,
-        error: this.opts.procRoot ? this.netError : 'ağ ölçümü kapalı',
-        history: [...this.netHistory],
-      },
     };
   }
 }

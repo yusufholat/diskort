@@ -459,11 +459,14 @@ export class ClientTraceStore {
     for (const day of [...days].sort()) {
       const file = this.file(day);
       if (!fs.existsSync(file)) continue;
-      const rl = readline.createInterface({ input: fs.createReadStream(file, 'utf8'), crlfDelay: Infinity });
+      const stream = fs.createReadStream(file, 'utf8');
+      const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
       try {
         for await (const line of rl) if (line) yield line;
       } finally {
+        // Tüketici erken çıkarsa (sınır doldu, kayıt bulundu) readline akışı kapatmaz: dosya tanıtıcısı sızmasın
         rl.close();
+        stream.destroy();
       }
     }
   }

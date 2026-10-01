@@ -5,13 +5,19 @@ import { z } from 'zod';
 import type { User } from '@diskort/shared';
 import { parseBody, sendError, type AppContext } from '../context.js';
 import { groupSuites, syncGroups, type ClientContext, type LineRun } from '../lineTest/service.js';
-import { LINE_MODES, LINE_PROFILES } from '../lineTest/plan.js';
+import { ADMIN_PROFILES, LINE_MODES, LINE_PROFILES, USER_PROFILES, type LineProfile } from '../lineTest/plan.js';
 import { stepStats } from '../lineTest/verdict.js';
 import type { SecondStat } from '../lineTest/protocol.js';
 import { createRateLimiter } from './messages.js';
 
 // Hat testi uçları (bkz. lineTest/). Oturumu açmak kimlik ister (hesap jetonu ya da yönetici kodu); sonrasındaki
 // her çağrı yalnızca oturum jetonuyla (X-Line-Token) yapılır.
+// Kim neyi açabilir:
+//  - Sıradan hesap: yalnızca kısa test (quick), 10 dakikada birkaç kez. (Tam paket 12-16 Mbps yük bindirir; bunu
+//    her giriş yapmış kullanıcının yayın sırasında başlatabilmesi, incelenen donmanın kendisine yol açabilir.)
+//  - Test kodu (yöneticinin verdiği): tam paket (ramp/pps/steady/quick), olağan bant sınırıyla.
+//  - Hesap yöneticisi ve "yönetici kodu": ayrıca patlama profili (burst), yönetici bant sınırıyla. Patlama testi
+//    canlı yayın varken açıkça zorlanmadıkça (force) başlamaz.
 
 const DAY = 86_400_000;
 const TOKEN_HEADER = 'x-line-token';
@@ -22,6 +28,8 @@ const openSchema = z.object({
   transport: z.enum(['udp', 'tcp']).default('udp'),
   code: z.string().max(32).optional(),
   name: z.string().trim().min(1).max(32).optional(),
+  /** Canlı yayın varken patlama testini yine de başlat */
+  force: z.boolean().optional(),
 });
 
 const secSchema = z.object({
@@ -61,6 +69,8 @@ const adminCodeSchema = z.object({
   label: z.string().trim().max(40).default(''),
   hours: z.number().min(0.5).max(72).default(12),
   maxUses: z.number().int().min(1).max(200).default(30),
+  /** Yönetici kodu: patlama profilini (olağan bant sınırının üstü) de açabilir */
+  admin: z.boolean().default(false),
 });
 
 const daysQuery = z.object({ days: z.coerce.number().int().min(1).max(30).optional().default(7) });
@@ -71,7 +81,9 @@ export function registerLineTestRoutes(app: FastifyInstance, ctx: AppContext): v
   const { lineTest } = ctx;
   const allowTime = createRateLimiter(30, 10_000);
   const allowOpenByIp = createRateLimiter(40, 600_000);
-  const allowOpenByUser = createRateLimiter(30, 600_000);
+  // Sıradan hesap: 10 dakikada 6 kısa test; yöneticiler tam paketi art arda çalıştırabilsin diye daha geniş
+  const allowOpenByUser = createRateLimiter(6, 600_000);
+  const allowOpenByAdmin = createRateLimiter(40, 600_000);
   // Yanlış kod denemeleri: sınır önce denetlenir, aşılınca doğru kod da reddedilir (kod tahmini yavaşlar)
   const codeFails = new Map<string, { n: number; at: number }>();
   const codeBlocked = (ip: string): boolean => {
@@ -128,20 +140,32 @@ export function registerLineTestRoutes(app: FastifyInstance, ctx: AppContext): v
         return sendError(reply, 401, 'bad_code', 'Test kodu geçersiz ya da süresi dolmuş.');
       }
       if (!body.name) return sendError(reply, 400, 'invalid_body', 'Adını yaz (--ad).');
-    } else if (!allowOpenByUser(user.id)) {
+    } else if (!(user.isAdmin ? allowOpenByAdmin : allowOpenByUser)(user.id)) {
       return sendError(reply, 429, 'rate_limited', 'Çok sık test başlattın, birkaç dakika bekle.');
+    }
+    const profile = body.profile as LineProfile;
+    const privileged = user ? user.isAdmin : code?.admin === true;
+    if (user && !user.isAdmin && !USER_PROFILES.includes(profile)) {
+      return sendError(reply, 403, 'forbidden_profile', 'Hesabınla yalnızca kısa hat testi çalıştırılabilir; tam test için yöneticiden test kodu iste.');
+    }
+    if (ADMIN_PROFILES.includes(profile) && !privileged) {
+      return sendError(reply, 403, 'forbidden_profile', 'Patlama testi yalnızca yönetici koduyla ya da yönetici hesabıyla çalıştırılabilir.');
+    }
+    // Patlama testi 40 Mbps'e kadar yük bindirir: yayın varken yayını dondurabilir (ve teşhisi bulandırır)
+    if (ADMIN_PROFILES.includes(profile) && lineTest.streamLive() && body.force !== true) {
+      return sendError(reply, 409, 'stream_live', 'Şu an canlı yayın var: patlama testi yayını dondurabilir. Yayın bitince dene ya da bilerek çalıştırmak için --zorla ekle.');
     }
     const who = user
       ? { kind: 'user' as const, userId: user.id, name: user.displayName }
       : { kind: 'code' as const, userId: null, name: body.name! };
-    const r = lineTest.mint(who, code, body.profile as never, body.mode as never, body.transport, req.ip);
+    const r = lineTest.mint(who, code, profile, body.mode as never, body.transport, req.ip, privileged);
     if (!r.ok) {
       const map: Record<string, [number, string]> = {
         busy_user: [409, 'Devam eden bir testin var, bitmesini bekle.'],
         busy_ip: [429, 'Bu bağlantıdan çok fazla test çalışıyor.'],
         capacity: [503, 'Sunucu şu an başka testlerle meşgul (bant sınırı); biraz sonra tekrar dene.'],
         disabled: [503, 'Hat testi bu sunucuda kapalı.'],
-        bad_profile: [400, 'Geçersiz profil.'],
+        bad_profile: [400, 'Geçersiz profil (patlama testi tek yönlüdür: yukarı ya da aşağı).'],
       };
       const [status, message] = map[r.error] ?? [400, 'Test başlatılamadı.'];
       return sendError(reply, status, r.error, message);
@@ -297,6 +321,9 @@ export function registerLineTestRoutes(app: FastifyInstance, ctx: AppContext): v
       unreachable: run.unreachable ?? false,
       findings: suite?.findings ?? [],
       streaming: run.streaming.start || run.streaming.end,
+      // Test sürerken sunucunun gördüğü kesintiler ve API olay döngüsü gecikmesi
+      outages: run.outages ?? [],
+      loopLag: run.loopLag ?? null,
     };
   });
 
@@ -305,7 +332,7 @@ export function registerLineTestRoutes(app: FastifyInstance, ctx: AppContext): v
     const body = parseBody(adminCodeSchema, req.body, reply);
     if (!body) return reply;
     noStore(reply);
-    return lineTest.createCode(body.label, body.hours, body.maxUses);
+    return lineTest.createCode(body.label, body.hours, body.maxUses, body.admin);
   });
 
   app.get('/api/admin/line-tests', admin, async (req, reply) => {
@@ -315,7 +342,8 @@ export function registerLineTestRoutes(app: FastifyInstance, ctx: AppContext): v
     const now = Date.now();
     const since = now - q.data.days * DAY;
     const freezes = ctx.freeze.list(since).map((e) => ({ id: e.id, start: e.start, end: e.end, label: e.label }));
-    const suites = groupSuites(lineTest.list(since), freezes).slice(0, 80);
+    // Kesinti ilişkisi kesinti kaydından tazelenir (testin bitişinden sonra kayda geçenler de görünsün)
+    const suites = groupSuites(lineTest.list(since).map((r) => lineTest.refreshOutages(r)), freezes).slice(0, 80);
     const userIds = [...new Set(suites.map((s) => s.who.userId).filter((id): id is string => !!id))];
     const users: Record<string, { id: string; displayName: string }> = {};
     for (const u of ctx.store.usersByIds(userIds)) users[u.id] = { id: u.id, displayName: u.displayName };
@@ -332,6 +360,7 @@ export function registerLineTestRoutes(app: FastifyInstance, ctx: AppContext): v
       enabled: lineTest.port !== null,
       port: lineTest.port,
       maxMbps: Math.round(ctx.config.lineTestMaxBps / 1e6),
+      adminMaxMbps: Math.round(ctx.config.lineTestAdminMaxBps / 1e6),
       active: s.active,
       reservedMbps: Math.round(s.reservedTotal / 1e5) / 10,
       stats: s.stats,
