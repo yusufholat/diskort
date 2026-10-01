@@ -69,6 +69,11 @@ const bridge: DiskortBridge = {
     systemInfo: () => ipcRenderer.invoke('feedback:system-info'),
   },
 
+  lineTest: {
+    run: (server, token) => ipcRenderer.invoke('linetest:run', server, token),
+    onProgress: (cb) => listen<{ sec: number; total: number }>('linetest:progress', cb),
+  },
+
   updates: {
     // Ana süreç, pencere oluşturulurken destek türünü komut satırı argümanıyla bildirir
     support: (process.argv.find((a) => a.startsWith('--diskort-update-support='))?.split('=')[1] ??

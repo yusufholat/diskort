@@ -450,6 +450,17 @@ describe('yorum sınıflandırıcısı', () => {
     expect(g).not.toContain('yalniz_udp_down');
   });
 
+  it('yayın benzeri testte kayıp, 8 Mbps düz testte yok: patlama/eş zamanlı yük; bitrate testi olmadan pps kaybı ayrılamaz', () => {
+    const ramp = fixture('ramp', 'down', { down: () => 0 });
+    const steady = fixture('steady', 'both', { down: () => 9, up: () => 0 });
+    const c = codes([ramp, steady]);
+    expect(c).toContain('patlama_down');
+    expect(c).not.toContain('hiz_siniri_down');
+    const onlyPps = codes([fixture('pps', 'both', { up: (s) => (s.pps >= 2000 ? 10 : 0) })]);
+    expect(onlyPps).toContain('pps_kayip_up');
+    expect(onlyPps).not.toContain('pps_siniri_up');
+  });
+
   it('her hızda rastgele kayıp: sıkışıklık/hat', () => {
     const run = fixture('ramp', 'down', { down: (_s, i) => 4 + (i % 3) });
     const c = codes([run]);

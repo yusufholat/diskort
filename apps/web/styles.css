@@ -2074,3 +2074,8 @@ textarea.adm-input {
 .adm-pre-inline {
   display: block;
 }
+.adm-line-col .adm-badge,
+#adm-line .adm-badges .adm-badge {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

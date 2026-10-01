@@ -146,6 +146,9 @@ export function registerLineTestRoutes(app: FastifyInstance, ctx: AppContext): v
     if (!s || s.token.t !== 'tcp' || s.plan.mode === 'up') return sendError(reply, 401, 'unauthorized', 'Oturum jetonu geçersiz.');
     const st = lineTest.tcpState(s.sid);
     if (!st) return sendError(reply, 404, 'not_found', 'Oturum yok.');
+    // Her yön oturum başına bir kez: aynı jetonla paralel bağlantı açıp bant sınırını aşmak engellenir
+    if (st.downStarted) return sendError(reply, 409, 'busy', 'Bu yön zaten başlatıldı.');
+    st.downStarted = true;
     const raw = reply.raw;
     reply.hijack();
     raw.writeHead(200, { 'content-type': 'application/octet-stream', 'cache-control': 'no-store, no-transform' });
@@ -185,10 +188,22 @@ export function registerLineTestRoutes(app: FastifyInstance, ctx: AppContext): v
       if (!s || s.token.t !== 'tcp' || s.plan.mode === 'down') return sendError(reply, 401, 'unauthorized', 'Oturum jetonu geçersiz.');
       const st = lineTest.tcpState(s.sid);
       if (!st) return sendError(reply, 404, 'not_found', 'Oturum yok.');
+      if (st.upStarted) return sendError(reply, 409, 'busy', 'Bu yön zaten başlatıldı.');
+      st.upStarted = true;
       const stream = (req.body as Readable | undefined) ?? req.raw;
       const t0 = Date.now();
       const limit = s.plan.durationMs + 3000;
       st.up = new Array<number>(s.plan.seconds.length).fill(0);
+      // Plan hızını aşan gönderim duraklatılır (TCP geri basıncı): istemci daha hızlı yollasa da sunucu o hızda okur
+      const cum: number[] = [0];
+      for (const p of s.plan.seconds) cum.push((cum[cum.length - 1] ?? 0) + p.pps * p.size);
+      const allowedAt = (t: number): number => {
+        const sec = Math.floor(t / 1000);
+        if (sec >= s.plan.seconds.length) return cum[s.plan.seconds.length] ?? 0;
+        const p = s.plan.seconds[sec]!;
+        return (cum[sec] ?? 0) + Math.floor((p.pps * p.size * (t - sec * 1000)) / 1000);
+      };
+      let total = 0;
       await new Promise<void>((resolve) => {
         const stop = setTimeout(() => {
           stream.destroy();
@@ -197,6 +212,16 @@ export function registerLineTestRoutes(app: FastifyInstance, ctx: AppContext): v
         stream.on('data', (chunk: Buffer) => {
           const sec = Math.floor((Date.now() - t0) / 1000);
           if (sec < st.up.length) st.up[sec] = (st.up[sec] ?? 0) + chunk.length;
+          total += chunk.length;
+          if (total > allowedAt(Date.now() - t0) + 256 * 1024) {
+            stream.pause();
+            const wake = (): void => {
+              if (stream.destroyed) return;
+              if (total <= allowedAt(Date.now() - t0) + 128 * 1024) stream.resume();
+              else setTimeout(wake, 40);
+            };
+            setTimeout(wake, 40);
+          }
         });
         const done = (): void => {
           clearTimeout(stop);

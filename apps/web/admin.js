@@ -1377,7 +1377,8 @@ function lineGroup(g, x) {
   const byId = new Map(x.suites.map((s) => [s.id, s]));
   const members = g.suiteIds.map((id) => byId.get(id)).filter(Boolean);
   const cols = members.map((s) => {
-    const run = s.runs.find((r) => r.mode === 'both' && r.transport === 'udp') ?? s.runs.find((r) => r.transport === 'udp') ?? s.runs[0];
+    const upRun = s.runs.find((r) => r.transport === 'udp' && r.up && r.profile !== 'pps' && r.profile !== 'steady') ?? s.runs.find((r) => r.transport === 'udp' && r.up);
+    const downRun = s.runs.find((r) => r.transport === 'udp' && r.down && r.profile !== 'pps' && r.profile !== 'steady') ?? s.runs.find((r) => r.transport === 'udp' && r.down);
     const bad = s.findings.find((f) => f.tone === 'bad') ?? s.findings.find((f) => f.tone === 'warn') ?? s.findings[0];
     return h(
       'div',
@@ -1385,10 +1386,10 @@ function lineGroup(g, x) {
       h('div', 'adm-row-title', lineWho(s, x)),
       h('div', 'adm-sub', `${clock(s.at, true)}${s.streaming ? ' · yayın açıkken' : ''}`),
       bad && badge(bad.text.length > 60 ? `${bad.text.slice(0, 58)}…` : bad.text, LINE_TONE[bad.tone]),
-      run?.up && h('div', 'adm-sub', `↑ ${LINE_PROFILE[run.profile]} · kayıp ${pct(dirLoss(run, 'up'))}`),
-      run?.up && lossBars(run.up, run.steps, `${lineWho(s, x)} yukarı yön kaybı`),
-      run?.down && h('div', 'adm-sub', `↓ kayıp ${pct(dirLoss(run, 'down'))}`),
-      run?.down && lossBars(run.down, run.steps, `${lineWho(s, x)} aşağı yön kaybı`),
+      upRun && h('div', 'adm-sub', `↑ ${LINE_PROFILE[upRun.profile]} · kayıp ${pct(dirLoss(upRun, 'up'))}`),
+      upRun && lossBars(upRun.up, upRun.steps, `${lineWho(s, x)} yukarı yön kaybı`),
+      downRun && h('div', 'adm-sub', `↓ ${LINE_PROFILE[downRun.profile]} · kayıp ${pct(dirLoss(downRun, 'down'))}`),
+      downRun && lossBars(downRun.down, downRun.steps, `${lineWho(s, x)} aşağı yön kaybı`),
     );
   });
   return h(

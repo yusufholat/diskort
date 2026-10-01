@@ -224,6 +224,14 @@ export function classify(runs: VerdictRun[]): Finding[] {
         });
         explained = true;
       }
+    } else if (ppsLossy.length > 0 && ramp.length === 0) {
+      out.push({
+        code: `pps_kayip_${d}`,
+        tone: 'warn',
+        text: `${DIR_TEXT[d]} yönde pps testinde kayıp (≈${ppsLossy[0]!.pps} pk/sn ve üstü); bu yönde bitrate testi olmadığından paket/sn mi hız mı ayırt edilemedi.`,
+        evidence: curve(x.pps, (st) => `${st.pps} pk/sn`),
+      });
+      explained = true;
     }
 
     // 3) Her hızda rastgele kayıp (en düşük adım dahil)
@@ -240,16 +248,19 @@ export function classify(runs: VerdictRun[]): Finding[] {
       }
     }
 
-    // 4) Yalnızca yayın benzeri (kare patlamalı) testte kayıp
+    // 4) Yayın benzeri (kare patlamalı, iki yön aynı anda) testte kayıp, aynı hızdaki düz tek yönlü adımda yok
     const steady = total(x.steady);
-    if (x.steady.length > 0 && steady.pct >= LOSSY_PCT && !explained) {
-      out.push({
-        code: `patlama_${d}`,
-        tone: 'warn',
-        text: `${DIR_TEXT[d]} yönde yayın benzeri (kare patlamalı) testte kayıp %${steady.pct}; düz hız testinde belirgin değil → kısa patlamalara duyarlı kuyruk/sınır şüphesi.`,
-        evidence: `kararlı test %${steady.pct}; bitrate testi %${total(ramp).pct}`,
-      });
-      explained = true;
+    if (x.steady.length > 0 && steady.pct >= LOSSY_PCT) {
+      const at8 = ramp.find((st) => Math.abs(st.rateBps - 8e6) < 0.6e6);
+      if (at8 && at8.lossPct < CLEAN_PCT) {
+        out.push({
+          code: `patlama_${d}`,
+          tone: 'warn',
+          text: `${DIR_TEXT[d]} yönde yayın benzeri testte kayıp %${steady.pct}, aynı hızdaki (8 Mbps) düz testte yok → kare patlamalarına ya da iki yönün aynı anda yüklenmesine duyarlı (bu test ikisini ayıramaz; yalnız-${d === 'up' ? 'yukarı' : 'aşağı'} tekrar testi gerekir).`,
+          evidence: `yayın benzeri %${steady.pct}; 8 Mbps düz %${at8.lossPct}`,
+        });
+        explained = true;
+      }
     }
 
     // 5) Kararsız: kayıp var ama desene uymuyor
@@ -279,22 +290,6 @@ export function classify(runs: VerdictRun[]): Finding[] {
         tone: 'warn',
         text: `Yön farkı: yalnızca ${DIR_TEXT[bad]} yönde kayıp (%${overall[bad]}); diğer yön temiz (%${overall[bad === 'up' ? 'down' : 'up']}).`,
         evidence: `yukarı %${u} · aşağı %${dn}`,
-      });
-    }
-  }
-
-  // Eş zamanlı (both) ve tekil aşama karşılaştırması
-  for (const d of measured) {
-    const x = data[d];
-    if (x.both.length === 0 || x.single.length === 0) continue;
-    const b = total(x.both).pct;
-    const s = total(x.single).pct;
-    if (b >= LOSSY_PCT && b >= s * 2 + 1) {
-      out.push({
-        code: `es_zamanli_${d}`,
-        tone: 'warn',
-        text: `${DIR_TEXT[d]} yönde kayıp, iki yön aynı anda yüklenirken daha yüksek (%${b} ve tek yönlüde %${s}) → toplam hat/paket yükü duyarlılığı.`,
-        evidence: '',
       });
     }
   }

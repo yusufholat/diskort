@@ -131,7 +131,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const giphyLang = (env.GIPHY_LANG || 'tr').toLowerCase();
   if (!/^[a-z]{2}(?:-[a-z]{2})?$/.test(giphyLang)) throw new Error(`Geçersiz GIPHY_LANG: ${env.GIPHY_LANG}`);
 
-  const lineTestRaw = (env.LINE_TEST_PORT ?? (env.NODE_ENV === 'test' ? 'off' : '59999')).trim().toLowerCase();
+  const lineTestRaw = (env.LINE_TEST_PORT || (env.NODE_ENV === 'test' ? 'off' : '59999')).trim().toLowerCase();
   const lineTestBase = Number(lineTestRaw);
   if (lineTestRaw !== 'off' && lineTestRaw !== '0' && (!Number.isInteger(lineTestBase) || lineTestBase < 1024 || lineTestBase > 65535)) {
     throw new Error(`Geçersiz LINE_TEST_PORT: ${env.LINE_TEST_PORT}`);

@@ -81,6 +81,15 @@ const FILE_MAX_LINES = 1_000;
 const KEEP_MS = 30 * 86_400_000;
 const START_WINDOW_MS = 120_000;
 
+/** TCP oturumunun saniye başına bayt sayaçları; her yön oturum başına yalnızca bir kez açılabilir */
+export interface TcpState {
+  t0: number;
+  up: number[];
+  down: number[];
+  upStarted: boolean;
+  downStarted: boolean;
+}
+
 export type MintResult =
   | { ok: true; token: string; session: LineSession; plan: LinePlan; port: number | null; expiresAt: number }
   | { ok: false; error: OpenError | 'bad_profile' };
@@ -95,7 +104,7 @@ export class LineTestService {
   private readonly codes = new Map<string, LineCode>();
   private runs: LineRun[] = [];
   /** TCP oturumlarının saniye başına bayt sayaçları (sid -> yön -> dizi) */
-  private readonly tcp = new Map<number, { t0: number; up: number[]; down: number[] }>();
+  private readonly tcp = new Map<number, TcpState>();
   private readonly now: () => number;
 
   constructor(private readonly opts: LineServiceOptions) {
@@ -204,7 +213,7 @@ export class LineTestService {
     if (typeof session === 'string') return { ok: false, error: session };
     session.expiresAt = now + START_WINDOW_MS;
     if (code) code.uses++;
-    if (transport === 'tcp') this.tcp.set(sid, { t0: 0, up: [], down: [] });
+    if (transport === 'tcp') this.tcp.set(sid, { t0: 0, up: [], down: [], upStarted: false, downStarted: false });
     return { ok: true, token: this.tokens.sign(token), session, plan, port: this.server.port, expiresAt };
   }
 
@@ -218,7 +227,7 @@ export class LineTestService {
 
   // ---------- TCP ölçümü ----------
 
-  tcpState(sid: number): { t0: number; up: number[]; down: number[] } | undefined {
+  tcpState(sid: number): TcpState | undefined {
     const s = this.tcp.get(sid);
     if (s && s.t0 === 0) s.t0 = this.now();
     return s;

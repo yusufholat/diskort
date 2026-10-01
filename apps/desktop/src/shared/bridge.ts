@@ -89,6 +89,28 @@ export interface SystemInfo {
   electron: string;
 }
 
+/** Hat testi (UDP, LiveKit'siz): adım adım kayıp ve otomatik yorum */
+export interface LineTestStep {
+  label: string;
+  lossPct: number;
+  reordPct: number;
+  jitMs: number;
+  recv: number;
+  planned: number;
+}
+
+export type LineTestResult =
+  | {
+      ok: true;
+      suite: string;
+      findings: { tone: 'bad' | 'warn' | 'ok' | 'info'; text: string; evidence: string }[];
+      up: LineTestStep[] | null;
+      down: LineTestStep[] | null;
+      streaming: boolean;
+      unreachable: boolean;
+    }
+  | { ok: false; error: string };
+
 /** Algılanan, şu an açık olan oyun */
 export interface ActivityGame {
   /** Oyunun exe'si */
@@ -211,6 +233,12 @@ export interface DiskortBridge {
     /** Yalnızca Diskort penceresinin görüntüsünü alır (masaüstünün değil) */
     capture(): Promise<CapturedImage>;
     systemInfo(): Promise<SystemInfo>;
+  };
+
+  lineTest: {
+    /** Kısa hat testini çalıştırır (sonuç sunucuya da yüklenir); aynı anda tek test */
+    run(server: string, token: string): Promise<LineTestResult>;
+    onProgress(cb: (p: { sec: number; total: number }) => void): () => void;
   };
 
   updates: {
