@@ -5,15 +5,22 @@ import { nanoid } from 'nanoid';
 import { buildPlan, type LineMode, type LinePlan, type LineProfile, type LineTransport, type PlanStep } from './plan.js';
 import { LineTokens, type LineToken, type SecondStat } from './protocol.js';
 import { LineTestServer, type LineFinish, type LineSession, type OpenError } from './udpServer.js';
-import { classify, type Finding, type TcpSecond, type VerdictRun } from './verdict.js';
+import { classify, type Finding, type RunOutage, type TcpSecond, type VerdictRun } from './verdict.js';
+import type { Outage } from '../netOutages.js';
 
-/** Sunucuda saklanan kısa süreli "test kodu": yönetici arkadaşlarına verir, parolasız hat testi çalıştırılır */
+/**
+ * Sunucuda saklanan kısa süreli "test kodu": yönetici arkadaşlarına verir, parolasız hat testi çalıştırılır.
+ * Kodlar yeniden başlatmada kaybolmasın diye <dir>/line-codes.json dosyasında da tutulur (panelde zaten açık
+ * gösterilen, kısa ömürlü ve yalnızca test başlatmaya yarayan kodlar; bellekteki gibi düz metin, dosya 0600).
+ */
 export interface LineCode {
   code: string;
   label: string;
   expiresAt: number;
   uses: number;
   maxUses: number;
+  /** Yönetici kodu: olağan bant sınırını aşan profilleri (patlama) de açabilir */
+  admin?: boolean;
 }
 
 export interface LineWho {
@@ -61,6 +68,10 @@ export interface LineRun {
   partial: boolean;
   /** UDP el sıkışması tamamlanamadı: sunucuya hiç ulaşılamadı (kayıp sayılmaz) */
   unreachable?: boolean;
+  /** Test sürerken (ve hemen sonrasında) sunucunun gördüğü kesintiler: dış sondalar / NIC sessizliği */
+  outages?: RunOutage[];
+  /** Test sürerken API olay döngüsünün gecikmesi (en yüksek ms, 20 ms'yi aşan tur sayısı) */
+  loopLag?: { maxMs: number; stalls: number };
 }
 
 export interface LineServiceOptions {
@@ -68,6 +79,10 @@ export interface LineServiceOptions {
   dir: string | null;
   ports: number[];
   maxBps: number;
+  /** Yönetici oturumları (hesap yöneticisi ya da yönetici kodu) için toplam bant sınırı; verilmezse maxBps */
+  adminMaxBps?: number;
+  /** Verilen aralıkla kesişen sunucu kesintileri (netOutages.ts); verilmezse ilişkilendirme yapılmaz */
+  outagesBetween?: (from: number, to: number) => Outage[];
   now?: () => number;
   /** O an yayın var mı ve hangi kanallarda */
   streamInfo: () => { live: boolean; channels: string[] };
@@ -82,6 +97,8 @@ const RUNS_MAX = 400;
 const FILE_MAX_LINES = 1_000;
 const KEEP_MS = 30 * 86_400_000;
 const START_WINDOW_MS = 120_000;
+/** Kesinti, testin bitiminden bu kadar sonrasına kadar testle ilişkilendirilir (patlamanın hemen ardı) */
+const OUTAGE_AFTER_MS = 8_000;
 
 /** TCP oturumunun saniye başına bayt sayaçları; her yön oturum başına yalnızca bir kez açılabilir */
 export interface TcpState {
@@ -95,6 +112,11 @@ export interface TcpState {
 export type MintResult =
   | { ok: true; token: string; session: LineSession; plan: LinePlan; port: number | null; expiresAt: number }
   | { ok: false; error: OpenError | 'bad_profile' };
+
+function isLineCode(v: unknown): v is LineCode {
+  const c = v as Partial<LineCode> | null;
+  return !!c && typeof c.code === 'string' && typeof c.expiresAt === 'number' && typeof c.uses === 'number' && typeof c.maxUses === 'number';
+}
 
 function tcpSeconds(bytes: readonly number[], plan: LinePlan): TcpSecond[] {
   return plan.seconds.map((p, i) => ({ bytes: bytes[i] ?? 0, target: Math.round((p.pps * p.size) ) }));
@@ -127,6 +149,7 @@ export class LineTestService {
       onAbandon: (s, f) => this.record(s, f, null, null, null, null, true),
     });
     this.load();
+    this.loadCodes();
   }
 
   private get file(): string | null {
@@ -186,12 +209,44 @@ export class LineTestService {
 
   // ---------- Test kodları ----------
 
-  createCode(label: string, hours: number, maxUses: number): LineCode {
+  private get codesFile(): string | null {
+    return this.opts.dir ? path.join(this.opts.dir, 'line-codes.json') : null;
+  }
+
+  private loadCodes(): void {
+    const file = this.codesFile;
+    if (!file) return;
+    try {
+      const list = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
+      if (!Array.isArray(list)) return;
+      for (const c of list) if (isLineCode(c) && c.expiresAt > this.now()) this.codes.set(c.code, c);
+    } catch {
+      // dosya yok ya da bozuk: kodsuz başlanır
+    }
+  }
+
+  /** Kodları dosyaya yazar (üretimde ve her kullanımda); yazmalar sıraya girer */
+  private saveCodes(): void {
+    const file = this.codesFile;
+    if (!file) return;
+    const text = JSON.stringify(this.listCodes());
+    const tmp = `${file}.${process.pid}.tmp`;
+    this.writing = this.writing
+      .then(async () => {
+        await fs.promises.mkdir(path.dirname(file), { recursive: true });
+        await fs.promises.writeFile(tmp, text, { mode: 0o600 });
+        await fs.promises.rename(tmp, file);
+      })
+      .catch((err: unknown) => this.opts.log?.warn({ err: String(err) }, 'hat testi kodları yazılamadı'));
+  }
+
+  createCode(label: string, hours: number, maxUses: number, admin = false): LineCode {
     let code = '';
     for (let i = 0; i < 8; i++) code += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
-    const entry: LineCode = { code, label: label.slice(0, 40), expiresAt: this.now() + hours * 3_600_000, uses: 0, maxUses };
+    const entry: LineCode = { code, label: label.slice(0, 40), expiresAt: this.now() + hours * 3_600_000, uses: 0, maxUses, ...(admin ? { admin: true } : {}) };
     this.codes.set(code, entry);
     for (const [k, c] of this.codes) if (c.expiresAt < this.now()) this.codes.delete(k);
+    this.saveCodes();
     return entry;
   }
 
@@ -207,7 +262,8 @@ export class LineTestService {
 
   // ---------- Oturum açma ----------
 
-  mint(who: LineWho, code: LineCode | null, profile: LineProfile, mode: LineMode, transport: LineTransport, ip: string): MintResult {
+  /** `privileged`: hesap yöneticisi ya da yönetici kodu (yönetici bant sınırı uygulanır) */
+  mint(who: LineWho, code: LineCode | null, profile: LineProfile, mode: LineMode, transport: LineTransport, ip: string, privileged = false): MintResult {
     let plan: LinePlan;
     try {
       plan = buildPlan(profile, profile === 'quick' ? 'both' : mode);
@@ -219,10 +275,13 @@ export class LineTestService {
     const identity = who.kind === 'user' ? `u:${who.userId}` : `c:${code?.code}:${who.name.toLowerCase()}`;
     const expiresAt = now + START_WINDOW_MS + plan.durationMs + 30_000;
     const token: LineToken = { s: sid, i: identity, n: who.name, t: transport, p: profile, m: plan.mode, x: expiresAt };
-    const session = this.server.open(token, plan, ip);
+    const session = this.server.open(token, plan, ip, privileged ? (this.opts.adminMaxBps ?? this.opts.maxBps) : this.opts.maxBps);
     if (typeof session === 'string') return { ok: false, error: session };
     session.expiresAt = now + START_WINDOW_MS;
-    if (code) code.uses++;
+    if (code) {
+      code.uses++;
+      this.saveCodes();
+    }
     if (transport === 'tcp') this.tcp.set(sid, { t0: 0, up: [], down: [], upStarted: false, downStarted: false });
     return { ok: true, token: this.tokens.sign(token), session, plan, port: this.server.port, expiresAt };
   }
@@ -300,7 +359,10 @@ export class LineTestService {
       client,
       partial,
       ...(unreachable ? { unreachable: true } : {}),
+      loopLag: f.loopLag,
     };
+    const outages = this.outagesOf(run);
+    if (outages.length > 0) run.outages = outages;
     // TCP'de yukarı yönü sunucu, aşağı yönü istemci ölçer
     if (transport === 'tcp' && run.tcpUp && s.plan.mode === 'down') run.tcpUp = null;
     this.runs.push(run);
@@ -317,6 +379,36 @@ export class LineTestService {
         .catch((err: unknown) => this.opts.log?.warn({ err: String(err) }, 'hat testi kaydı yazılamadı'));
     }
     return run;
+  }
+
+  /** Test penceresiyle (ve hemen sonrasıyla) kesişen sunucu kesintileri; plan saniyesi ve adımıyla */
+  outagesOf(run: Pick<LineRun, 'at' | 'end' | 'steps'>): RunOutage[] {
+    const list = this.opts.outagesBetween?.(run.at, run.end + OUTAGE_AFTER_MS) ?? [];
+    return list.map((o) => {
+      const sec = Math.round((o.at - run.at) / 100) / 10;
+      const step = run.steps.findLast((st) => st.startSec <= sec) ?? null;
+      return {
+        at: o.at,
+        durationMs: o.durationMs,
+        kind: o.kind,
+        sec,
+        step: step?.label ?? null,
+        // Kesintiden önceki son patlama adımı (patlama profili) ve bitiminden kesintiye kadar geçen süre (sn)
+        ...burstBefore(run.steps, sec),
+      };
+    });
+  }
+
+  /** Kayıttaki kesinti ilişkisini kesinti kaydından tazeler (kesinti testin bitişinden sonra kayda geçmiş olabilir) */
+  refreshOutages(run: LineRun): LineRun {
+    if (!this.opts.outagesBetween) return run;
+    const outages = this.outagesOf(run);
+    return outages.length === 0 && !run.outages ? run : { ...run, outages };
+  }
+
+  /** Bekleyen dosya yazımları bitince çözülür (testler) */
+  flushed(): Promise<void> {
+    return this.writing;
   }
 
   /** Yayın durumunu bitişte yeniden okuyup ilk okumayla birleştirir */
@@ -362,7 +454,14 @@ export const toVerdictRun = (r: LineRun): VerdictRun => ({
   tcpDown: r.tcpDown,
   streaming: r.streaming.start || r.streaming.end,
   ...(r.unreachable ? { unreachable: true } : {}),
+  ...(r.outages ? { outages: r.outages } : {}),
 });
+
+function burstBefore(steps: PlanStep[], sec: number): { burst?: string; afterBurstSec?: number } {
+  const b = steps.findLast((st) => st.kind === 'burst' && st.startSec <= sec);
+  if (!b) return {};
+  return { burst: b.label, afterBurstSec: Math.max(0, Math.round((sec - (b.startSec + b.secs)) * 10) / 10) };
+}
 
 export function groupSuites(runs: LineRun[], freezes: { id: string; start: number; end: number }[] = []): LineSuite[] {
   const map = new Map<string, LineRun[]>();

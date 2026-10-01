@@ -1,11 +1,15 @@
 // Hat testi: hız profilleri ve saniye saniye gönderim planı. Plan yalnızca sunucuda üretilir; istemci (araç ve
 // uygulama) planı oturum yanıtından alıp olduğu gibi uygular, böylece yeni profiller eski istemcilerle de çalışır.
 
-export type LineProfile = 'ramp' | 'pps' | 'steady' | 'quick';
+export type LineProfile = 'ramp' | 'pps' | 'steady' | 'quick' | 'burst';
 export type LineMode = 'up' | 'down' | 'both';
 export type LineTransport = 'udp' | 'tcp';
 
-export const LINE_PROFILES: readonly LineProfile[] = ['ramp', 'pps', 'steady', 'quick'];
+export const LINE_PROFILES: readonly LineProfile[] = ['ramp', 'pps', 'steady', 'quick', 'burst'];
+/** Giriş yapmış sıradan kullanıcıların (yönetici olmayan hesap) açabildiği profiller */
+export const USER_PROFILES: readonly LineProfile[] = ['quick'];
+/** Yalnızca hesap yöneticilerinin ve yönetici kodlarının açabildiği (olağan bant sınırını aşan) profiller */
+export const ADMIN_PROFILES: readonly LineProfile[] = ['burst'];
 export const LINE_MODES: readonly LineMode[] = ['up', 'down', 'both'];
 
 /** Planın bir saniyesi: o saniyede gönderilecek paket sayısı ve boyutu */
@@ -28,6 +32,8 @@ export interface PlanStep {
   fps: number;
   secs: number;
   startSec: number;
+  /** Patlama profili: taban hız mı, patlama mı (öbür profillerde yok) */
+  kind?: 'base' | 'burst';
 }
 
 export interface LinePlan {
@@ -49,6 +55,14 @@ export const MAX_PACKET = 1300;
 /** Tek yönde en yüksek hız (bit/sn) ve iki yönlü (both) testte yön başına tavan */
 export const MAX_RATE_BPS = 12_000_000;
 export const MAX_BOTH_RATE_BPS = 8_000_000;
+/**
+ * Patlama profili: ekran paylaşımında sahne değişimini taklit eder (taban hız, ardından 2 sn'lik basamaklı
+ * patlamalar). Aşağı yön sunucunun çıkışını, yukarı yön yayıncının sunucuya girişini sınar. Olağan sınırları
+ * aştığı için yalnızca yöneticilere açıktır (bkz. ADMIN_PROFILES).
+ */
+export const BURST_BASE_MBPS = 3;
+export const BURST_DOWN_MBPS: readonly number[] = [10, 20, 30, 40];
+export const BURST_UP_MBPS: readonly number[] = [6, 10, 12];
 /** En yüksek paket/sn */
 export const MAX_PPS = 6_000;
 
@@ -61,10 +75,21 @@ interface StepSpec {
   size: number;
   fps?: number;
   secs: number;
+  kind?: 'base' | 'burst';
 }
 
 function specs(profile: LineProfile, mode: LineMode): StepSpec[] {
   const both = mode === 'both';
+  if (profile === 'burst') {
+    // İki yön ayrı ayrı sınanır (hangi yönün kesinti tetiklediği ayrılabilsin)
+    if (both) throw new Error('Patlama profili tek yönlüdür.');
+    const base: StepSpec = { label: `taban ${BURST_BASE_MBPS} Mbps`, rateBps: BURST_BASE_MBPS * MBPS, size: 1200, fps: 30, secs: 3, kind: 'base' };
+    const out: StepSpec[] = [base];
+    for (const r of mode === 'down' ? BURST_DOWN_MBPS : BURST_UP_MBPS) {
+      out.push({ label: `patlama ${r} Mbps`, rateBps: r * MBPS, size: 1200, secs: 2, kind: 'burst' }, base);
+    }
+    return out;
+  }
   if (profile === 'pps') {
     return [250, 500, 1000, 2000, 4000, 6000].map((pps) => ({ label: `${pps} pk/sn`, pps, size: 200, secs: 4 }));
   }
@@ -87,7 +112,7 @@ export function buildPlan(profile: LineProfile, mode: LineMode): LinePlan {
     const fps = spec.fps ?? 0;
     const rateBps = pps * size * 8;
     peak = Math.max(peak, rateBps);
-    steps.push({ step: steps.length, label: spec.label, rateBps, size, pps, fps, secs: spec.secs, startSec: seconds.length });
+    steps.push({ step: steps.length, label: spec.label, rateBps, size, pps, fps, secs: spec.secs, startSec: seconds.length, ...(spec.kind ? { kind: spec.kind } : {}) });
     for (let i = 0; i < spec.secs; i++) seconds.push({ step: steps.length - 1, size, pps, fps });
   }
   if (seconds.length > MAX_PLAN_SECONDS) throw new Error('Plan çok uzun.');

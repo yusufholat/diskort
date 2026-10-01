@@ -11,12 +11,12 @@ import { DailyCounters } from './counters.js';
 import { InfraMonitor, LiveKitMetrics } from './infraStats.js';
 import { VoiceTelemetryStore } from './telemetry.js';
 import { FreezeCorrelator } from './freezeDiagnosis.js';
-import { DEFAULT_PROBE_TARGETS, parseProbeTargets, ProbeRunner } from './netProbe.js';
-import { defaultMicroTargets, MicroProbe } from './microProbe.js';
+import { DEFAULT_PROBE_TARGETS, parseProbeTargets, ProbeEngine } from './netProbe.js';
 import { SecondSampler } from './netSeconds.js';
 import { LineTestService } from './lineTest/service.js';
 import { registerLineTestRoutes } from './routes/lineTest.js';
 import { VoiceSessionRecorder } from './voiceHistory.js';
+import { registerAdminNetRoutes } from './routes/adminNet.js';
 import { registerAdminStatsRoutes } from './routes/adminStats.js';
 import { registerTelemetryRoutes } from './routes/telemetry.js';
 import { AttachmentService } from './attachments.js';
@@ -205,30 +205,29 @@ export async function buildApp(
   });
   const livekitMetrics =
     opts.livekitMetrics ?? new LiveKitMetrics({ url: config.livekitMetricsUrl, fetchImpl: opts.metricsFetch, log: app.log });
-  // Yayın donması tanısı: saniyelik sunucu ağı kaydı, dış sondalar, olay toplayıcı (bkz. freezeDiagnosis.ts)
+  // Bağlantı teşhisi: saniyelik sunucu ağı kaydı (tek NIC örnekleyicisi), dış sondalar ve kesinti kaydı,
+  // olay toplayıcı (bkz. netSeconds.ts, netProbe.ts, netOutages.ts, freezeDiagnosis.ts)
   const netDir = opts.telemetryDir !== undefined ? opts.telemetryDir : statsFile('telemetry');
   const netSampler = new SecondSampler({
     procRoot: config.procRoot,
     dir: netDir,
     offsetMin: config.statsUtcOffsetMin,
     livekitCpu: () => livekitMetrics.process().cpu,
+    participants: () => voice.list().length,
+    streams: () => voice.list().filter((v) => v.streaming).length,
     log: app.log,
   });
-  const netProbes = new ProbeRunner({
+  const netProbes = new ProbeEngine({
     targets: parseProbeTargets(config.netProbeTargets ?? undefined) ?? DEFAULT_PROBE_TARGETS,
     gateway: () => netSampler.gateway,
     onResult: (label, sentAt, rtt) => netSampler.addProbe(label, sentAt, rtt),
-  });
-  // Saniyede 10 sonda: 100-300 ms'lik kısa kesintileri süreleriyle yakalar (telemetry/micro-*.jsonl)
-  const microProbe = new MicroProbe({
-    targets: defaultMicroTargets(() => netSampler.gateway),
-    dir: netDir,
-    log: app.log,
+    onOutage: (o) => void netSampler.addProbeOutage(o),
   });
   const freeze = new FreezeCorrelator({
     dir: netDir,
     sampler: netSampler,
-    // Uyarı yolu: olay kalıcı kayda (telemetry/freeze-events.jsonl) yazılır; gözcü rutini bunu incidents.jsonl ile birlikte okur
+    livekit: livekitMetrics,
+    // Olay kalıcı kayda (telemetry/freeze-events.jsonl) yazılır ve sunucu günlüğüne uyarı olarak düşer
     onEvent: (e) =>
       app.log.warn(
         { cause: e.cause, channelId: e.channelId, affected: e.affected, freezes: e.freezes, probe: e.probe },
@@ -241,6 +240,8 @@ export async function buildApp(
     dir: netDir,
     ports: opts.lineTestPorts ?? config.lineTestPorts,
     maxBps: config.lineTestMaxBps,
+    adminMaxBps: config.lineTestAdminMaxBps,
+    outagesBetween: (from, to) => netSampler.outages.between(from, to),
     streamInfo: () => {
       const channels = [...new Set(voice.list().filter((v) => v.streaming).map((v) => v.channelId))];
       return { live: channels.length > 0, channels };
@@ -276,6 +277,7 @@ export async function buildApp(
     telemetry,
     freeze,
     netSampler,
+    netProbes,
     lineTest,
     guild,
   };
@@ -314,9 +316,6 @@ export async function buildApp(
         backupDir: config.backupDir,
         tlsDomains: config.tlsCheckDomains,
         tlsHost: config.tlsCheckHost,
-        procRoot: config.procRoot,
-        networkDir: opts.telemetryDir !== undefined ? opts.telemetryDir : statsFile('telemetry'),
-        offsetMin: config.statsUtcOffsetMin,
         fetchImpl: opts.metricsFetch,
         log: app.log,
       },
@@ -329,10 +328,7 @@ export async function buildApp(
     freeze.start();
     netSampler.start();
     // Geliştirme makinesinde dış sonda gönderilmez
-    if (!config.isDev) {
-      netProbes.start();
-      microProbe.start();
-    }
+    if (!config.isDev) netProbes.start();
     livekitMetrics.start();
     infra.start();
     voiceSessions.start();
@@ -344,7 +340,7 @@ export async function buildApp(
     infra.stop();
     apiStats.stop();
     netProbes.stop();
-    await Promise.all([telemetry.stop(), authLog.stop(), freeze.stop(), netSampler.stop(), microProbe.stop()]);
+    await Promise.all([telemetry.stop(), authLog.stop(), freeze.stop(), netSampler.stop()]);
   });
 
   // Yönetim paneli: makine yükü, aylık trafik ve hesapların son görülme anı. Kalıcı sayaçlar ve düzenli
@@ -466,6 +462,7 @@ export async function buildApp(
   registerDashboardRoutes(app, ctx, dashboard);
   registerTelemetryRoutes(app, ctx);
   registerAdminStatsRoutes(app, ctx, { telemetry, livekitMetrics, infra });
+  registerAdminNetRoutes(app, ctx, { livekitMetrics });
   registerLineTestRoutes(app, ctx);
   // UDP ucu dinlemeye hazır olunca açılır (listen'den önce); kapanışta soket kapatılır
   app.addHook('onReady', async () => void (await lineTest.start()));

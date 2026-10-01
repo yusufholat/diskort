@@ -25,6 +25,7 @@ import type { ReleaseService } from './releases.js';
 import type { StreamPreviewStore } from './streamPreview.js';
 import type { VoiceTelemetryStore } from './telemetry.js';
 import type { FreezeCorrelator } from './freezeDiagnosis.js';
+import type { ProbeEngine } from './netProbe.js';
 import type { SecondSampler } from './netSeconds.js';
 import type { LineTestService } from './lineTest/service.js';
 import type { VoiceModeration } from './voiceModeration.js';
@@ -69,7 +70,9 @@ export interface AppContext {
   telemetry: VoiceTelemetryStore;
   /** Yönetim paneli: yayın donması olayları (kullanıcı özetleri + sunucu saniyelik ağ kaydı + sondalar) */
   freeze: FreezeCorrelator;
+  /** Bağlantı teşhisi: tek NIC örnekleyicisi (saniyelik kayıt, kesinti kaydı) ve dış sonda motoru */
   netSampler: SecondSampler;
+  netProbes: ProbeEngine;
   /** Hat testi (UDP/TCP ölçüm ucu ve kayıtlar); UDP portu açılamadıysa ucu kapalı (service.port === null) */
   lineTest: LineTestService;
   /**

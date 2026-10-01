@@ -93,7 +93,7 @@ const HISTORY_MAX = 400;
 /** Olay bu kadar süre yeni "kötü" özet gelmezse kapanır */
 const INCIDENT_GAP_MS = 75_000;
 const INCIDENTS_MAX = 500;
-/** Olay dosyası bu kadar satırı geçince açılışta kısaltılır */
+/** Olay dosyası bu kadar satırı geçince (açılışta ve çalışırken) bellekteki son olaylarla yeniden yazılır */
 const INCIDENT_FILE_MAX_LINES = 2_000;
 /** Eski gün dosyalarının silinme aralığı */
 const CLEANUP_INTERVAL_MS = 6 * 3_600_000;
@@ -204,6 +204,7 @@ export class VoiceTelemetryStore {
   private warned = false;
   private seq = 0;
   private lastCleanup = 0;
+  private incidentFileLines = 0;
   /** Sunucu açıldığından beri alınan / boyut sınırı yüzünden dosyaya yazılmayan özetler */
   received = 0;
   dropped = 0;
@@ -246,9 +247,11 @@ export class VoiceTelemetryStore {
       }
     }
     this.incidents = loaded.slice(-INCIDENTS_MAX);
+    this.incidentFileLines = lines.length;
     if (lines.length > INCIDENT_FILE_MAX_LINES) {
       try {
         fs.writeFileSync(this.incidentFile, this.incidents.map((i) => JSON.stringify(i)).join('\n') + '\n');
+        this.incidentFileLines = this.incidents.length;
       } catch {
         // kısaltılamazsa bir sonraki açılışta
       }
@@ -483,7 +486,14 @@ export class VoiceTelemetryStore {
         this.dayBytes.set(day, size);
         if (kept.length > 0) await fs.promises.appendFile(this.file(day), kept.join('\n') + '\n');
       }
-      if (incidents.length > 0) await fs.promises.appendFile(this.incidentFile, incidents.join('\n') + '\n');
+      if (incidents.length > 0) {
+        this.incidentFileLines += incidents.length;
+        if (this.incidentFileLines > INCIDENT_FILE_MAX_LINES) {
+          // Çalışırken kırpma: kapanan olaylar zaten bellekte (en yeni INCIDENTS_MAX)
+          await fs.promises.writeFile(this.incidentFile, this.incidents.map((i) => JSON.stringify(i)).join('\n') + '\n');
+          this.incidentFileLines = this.incidents.length;
+        } else await fs.promises.appendFile(this.incidentFile, incidents.join('\n') + '\n');
+      }
     } catch (err) {
       if (!this.warned) this.opts.log?.warn({ err: String(err) }, 'ses kalitesi ölçümleri kaydedilemedi');
       this.warned = true;
