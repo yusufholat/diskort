@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { EyeOff, Maximize, Minimize, MonitorPause, Volume2, VolumeX, X } from 'lucide-react';
+import { EyeOff, Maximize, Minimize, MonitorPause, Volume2, VolumeX } from 'lucide-react';
 import { voice } from '../../features/voice/voiceClient';
 import { cn } from '../../lib/utils';
 import { useGuild, useSession } from '@diskort/client-core';
@@ -140,11 +140,6 @@ export function StreamView({ userId, large, onClick }: Props) {
             {fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
           </SwapIcon>
         </IconButton>
-        {!isSelf && (
-          <IconButton title="İzlemeyi bırak" onClick={() => voice.stopWatching(userId)}>
-            <X size={18} className="ico-rotate" />
-          </IconButton>
-        )}
       </div>
     </div>
   );

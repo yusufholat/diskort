@@ -135,7 +135,9 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
           closing ? 'anim-settings-out pointer-events-none' : 'anim-settings-in',
         )}
       >
-        <nav className="flex w-[35%] min-w-[240px] justify-end overflow-y-auto border-r border-divider bg-bg-side py-14 pr-2">
+        {/* Ortalama: sol bölme 50% - 241px. Gezinme (210) + sağ boşluk (8) = 218 solda biter; içerik 40px girintiyle
+            başlar ve 660px'e kadar uzar. Blok (210 + 8 + 40 + 660 = 918px) pencere ortasında durur. */}
+        <nav className="flex w-[calc(50%-241px)] min-w-[240px] shrink-0 justify-end overflow-y-auto border-r border-divider bg-bg-side py-14 pr-2">
           <div className="w-[210px]">
             <label className="mb-3 flex h-8 items-center gap-2 rounded bg-bg-rail px-2 text-sm text-text-muted focus-within:ring-2 focus-within:ring-brand/60">
               <Search size={14} className="shrink-0" aria-hidden />
@@ -185,7 +187,7 @@ export function SettingsModal({ initial }: { initial?: SettingsSection }) {
             <AppInfo />
           </div>
         </nav>
-        <main className="relative flex-1 overflow-y-auto py-14 pr-10 pl-10">
+        <main className="relative min-w-0 flex-1 overflow-y-auto py-14 pr-24 pl-10">
           {/* Bölüm değişince içerik hafifçe yükselerek belirir */}
           <div key={section} className="anim-rise-in max-w-[660px]">
             <SectionContent id={section} />

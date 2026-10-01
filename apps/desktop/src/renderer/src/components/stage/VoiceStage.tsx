@@ -2,8 +2,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, 
 import {
   ChevronDown,
   Eye,
+  EyeOff,
   HeadphoneOff,
   Headphones,
+  LayoutGrid,
   Mic,
   MicOff,
   Monitor,
@@ -15,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Permission, type VoiceState } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
+import { useEscapeLayer } from '../../lib/escape';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { animate, usePresence, usePresenceList, type PresenceEntry, type PresencePhase } from '../../lib/motion';
 import { cn } from '../../lib/utils';
@@ -28,6 +31,7 @@ import { SwapIcon } from '../ui/SwapIcon';
 import { LiveBadge, openVoiceProfile, voiceMemberContext, VoiceStateIcons, WatchLiveBadge } from '../sidebar/VoiceMemberRow';
 import { StreamView } from './StreamView';
 import { StreamViewers } from './StreamViewers';
+import { fitGrid } from './gridFit';
 import { orderStrip } from './stripOrder';
 
 type Tile = { kind: 'user'; state: VoiceState } | { kind: 'stream'; userId: string };
@@ -66,6 +70,11 @@ export function VoiceStage() {
   const chromeIdle = useStageChrome(rootRef, videoShown && status === 'connected');
   // Kanalda yalnızken davet kutucuğu
   const alone = members.length === 1 && members[0]?.userId === selfId && tiles.length === 1;
+  // Büyütülmüş yayından Esc ile ızgaraya dönülür; tam ekrandaysa Esc önce tam ekrandan çıkar
+  useEscapeLayer(() => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    else voice.focusStream(null);
+  }, focusedVisible !== null);
 
   return (
     <div
@@ -83,6 +92,16 @@ export function VoiceStage() {
             {status === 'reconnecting' ? 'Yeniden bağlanıyor…' : 'Bağlanıyor…'}
           </span>
         )}
+        {focusedVisible && (
+          <button
+            type="button"
+            data-tooltip="Izgaraya dön (Esc)"
+            onClick={() => voice.focusStream(null)}
+            className="press ml-auto flex h-8 items-center gap-1.5 rounded px-2.5 text-sm font-medium text-text-muted transition-colors hover:bg-bg-raised hover:text-text-head"
+          >
+            <LayoutGrid size={16} aria-hidden className="ico-pop" /> Izgaraya dön
+          </button>
+        )}
       </header>
 
       <div className="min-h-0 flex-1 p-4">
@@ -94,7 +113,7 @@ export function VoiceStage() {
       </div>
 
       <div data-stage-chrome className={CHROME}>
-        <CallControls />
+        <CallControls focused={focusedVisible} />
       </div>
     </div>
   );
@@ -124,8 +143,8 @@ function useStageChrome(rootRef: RefObject<HTMLDivElement | null>, enabled: bool
       return (
         ui.contextMenu !== null ||
         ui.modal !== null ||
-        root.querySelector('[data-stage-chrome] :hover') !== null ||
-        root.querySelector('[data-stage-chrome] :focus-visible') !== null ||
+        root.querySelector('[data-stage-chrome]:hover, [data-stage-chrome] :hover') !== null ||
+        root.querySelector('[data-stage-chrome]:focus-visible, [data-stage-chrome] :focus-visible') !== null ||
         root.querySelector('[data-stage-chrome] [aria-haspopup][aria-expanded="true"]') !== null
       );
     };
@@ -197,6 +216,8 @@ function InviteTile({ channelId }: { channelId: string }) {
   );
 }
 
+/** Izgara kutucukları arası boşluk (px, gap-3) */
+const TILE_GAP = 12;
 /** Şeridin yüksekliği (px, h-28) */
 const STRIP_HEIGHT = 112;
 /** Şerit en çok bu sıklıkta yeniden sıralanır (kutucuklar sıçramasın) */
@@ -405,20 +426,44 @@ function tileAnimation(phase: PresencePhase): string | undefined {
 }
 
 function TileGrid({ entries, extra }: { entries: PresenceEntry<Tile>[]; extra?: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = (): void => {
+      const r = el.getBoundingClientRect();
+      setSize((old) => (old && old.w === r.width && old.h === r.height ? old : { w: r.width, h: r.height }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   // Kapanmakta olanlar sütun sayısını etkilemesin
   const count = entries.filter((e) => e.phase !== 'exit').length + (extra ? 1 : 0);
-  const cols = count <= 1 ? 1 : count <= 4 ? 2 : count <= 9 ? 3 : 4;
+  const { cols, tileW } = size ? fitGrid(count, size.w, size.h, TILE_GAP) : { cols: 1, tileW: 0 };
+  const tileStyle = { width: tileW };
   return (
-    <div
-      className="grid h-full content-center gap-3"
-      style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
-    >
-      {entries.map(({ key, item: t, phase }) => (
-        <div key={key} className={cn('mx-auto aspect-video w-full max-w-[720px]', tileAnimation(phase))}>
-          <TileView tile={t} />
+    // Kutucuklar birbirine yaslanır, ızgara iki yönde ortalanır; eksik son satır da ortada kalır
+    <div ref={ref} className="flex h-full w-full items-center justify-center overflow-hidden">
+      {size && (
+        <div
+          className="flex flex-wrap content-center justify-center gap-3"
+          style={{ width: cols * tileW + (cols - 1) * TILE_GAP }}
+        >
+          {entries.map(({ key, item: t, phase }) => (
+            <div key={key} className={cn('aspect-video shrink-0', tileAnimation(phase))} style={tileStyle}>
+              <TileView tile={t} />
+            </div>
+          ))}
+          {extra && (
+            <div className="anim-tile-in aspect-video shrink-0" style={tileStyle}>
+              {extra}
+            </div>
+          )}
         </div>
-      ))}
-      {extra && <div className="anim-tile-in mx-auto aspect-video w-full max-w-[720px]">{extra}</div>}
+      )}
     </div>
   );
 }
@@ -499,7 +544,31 @@ function StreamTile({ userId, compact }: { userId: string; compact?: boolean }) 
   const isSelf = userId === selfId;
 
   if (isSelf || isWatching) {
-    return <StreamView userId={userId} onClick={() => voice.focusStream(userId)} />;
+    return (
+      <div className="group/tile relative h-full w-full">
+        <StreamView userId={userId} onClick={() => voice.focusStream(userId)} />
+        {!isSelf && (
+          // Üstüne gelince: izlemeyi bırak (tıklama kutucuğu büyütmez)
+          <button
+            type="button"
+            data-stage-chrome
+            data-tooltip="İzlemeyi bırak"
+            aria-label="İzlemeyi bırak"
+            onClick={(e) => {
+              e.stopPropagation();
+              voice.stopWatching(userId);
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            className={cn(
+              'press-icon absolute right-2 bottom-2 flex items-center justify-center rounded bg-black/50 text-white opacity-0 transition-opacity hover:bg-black/80 group-focus-within/tile:opacity-100 group-hover/tile:opacity-100 group-data-[idle]/stage:pointer-events-none group-data-[idle]/stage:opacity-0! motion-reduce:transition-none',
+              compact ? 'h-7 w-7' : 'h-8 w-8',
+            )}
+          >
+            <EyeOff size={compact ? 16 : 18} className="ico-blink" />
+          </button>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -511,7 +580,8 @@ function StreamTile({ userId, compact }: { userId: string; compact?: boolean }) 
       {!compact && <div className="text-sm text-text-muted">{user?.displayName} ekranını paylaşıyor</div>}
       <button
         className="press flex items-center gap-2 rounded bg-control px-4 py-2 text-sm font-medium text-on-control hover:bg-control-hover"
-        onClick={() => voice.watchStream(userId)}
+        // Sahneden izlemek büyütmez: yayın kutucuğunda oynar, tıklayınca büyür
+        onClick={() => voice.watchStream(userId, false)}
       >
         <Eye size={16} className="ico-blink" /> Yayını İzle
       </button>
@@ -519,7 +589,8 @@ function StreamTile({ userId, compact }: { userId: string; compact?: boolean }) 
   );
 }
 
-function CallControls() {
+/** `focused`: büyütülmüş yayının sahibi (uzak yayınsa "İzlemeyi bırak" düğmesi çıkar) */
+function CallControls({ focused }: { focused: string | null }) {
   const selfMute = useSettings((s) => s.selfMute);
   const selfDeaf = useSettings((s) => s.selfDeaf);
   const sharing = useVoice((s) => s.sharing);
@@ -528,7 +599,9 @@ function CallControls() {
   const channelId = useVoice((s) => s.channelId);
   const canStream = useCan(Permission.STREAM, channelId ?? undefined);
   const openModal = useUi((s) => s.openModal);
+  const selfId = useSession((s) => s.user?.id);
   const muted = selfMute || selfDeaf || !micAllowed;
+  const watchedFocus = focused && focused !== selfId ? focused : null;
 
   return (
     <div className="flex h-20 shrink-0 items-center justify-center gap-3">
@@ -557,6 +630,11 @@ function CallControls() {
       >
         {sharing ? <MonitorOff size={22} /> : <Monitor size={22} />}
       </RoundButton>
+      {watchedFocus && (
+        <RoundButton title="İzlemeyi bırak" motion="ico-blink" onClick={() => voice.stopWatching(watchedFocus)}>
+          <EyeOff size={22} />
+        </RoundButton>
+      )}
       <RoundButton title="Bağlantıyı Kes" hangup motion="ico-hangup" onClick={() => void voice.leave()}>
         <PhoneOff size={22} />
       </RoundButton>

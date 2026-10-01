@@ -1103,7 +1103,8 @@ class VoiceClient {
       } else {
         delete streams[id];
         delete watching[id];
-        if (focusedStream === id) focusedStream = Object.keys(watching)[0] ?? null;
+        // Büyütülen yayın bittiyse ızgaraya dönülür
+        if (focusedStream === id) focusedStream = null;
       }
       return { streams, watching, focusedStream };
     });
@@ -1123,8 +1124,9 @@ class VoiceClient {
 
   // ---------- Yayın izleme ----------
 
-  watchStream(userId: string): void {
-    setVoice((s) => ({ watching: { ...s.watching, [userId]: true }, focusedStream: userId }));
+  /** `focus` false ise yayın ızgaradaki kutucuğunda oynar, büyütülmez (sahne ızgarasından izlemek) */
+  watchStream(userId: string, focus = true): void {
+    setVoice((s) => ({ watching: { ...s.watching, [userId]: true }, focusedStream: focus ? userId : s.focusedStream }));
     const p = this.room?.remoteParticipants.get(userId);
     p?.getTrackPublication(Track.Source.ScreenShare)?.setSubscribed(true);
     p?.getTrackPublication(Track.Source.ScreenShareAudio)?.setSubscribed(true);
@@ -1136,7 +1138,8 @@ class VoiceClient {
     p?.getTrackPublication(Track.Source.ScreenShareAudio)?.setSubscribed(false);
     setVoice((s) => {
       const { [userId]: _removed, ...watching } = s.watching;
-      const focusedStream = s.focusedStream === userId ? (Object.keys(watching)[0] ?? null) : s.focusedStream;
+      // Büyütülen yayın bırakılınca başka yayına geçilmez, ızgaraya dönülür
+      const focusedStream = s.focusedStream === userId ? null : s.focusedStream;
       return { watching, focusedStream };
     });
   }
@@ -1258,7 +1261,14 @@ class VoiceClient {
     } catch (err) {
       await abandon();
       if (room !== this.room) return null;
-      setVoice({ sharing: false, shareHasAudio: false, shareQuality: null, shareIcon: null });
+      setVoice((s) => ({
+        sharing: false,
+        shareHasAudio: false,
+        shareQuality: null,
+        shareIcon: null,
+        // Kendi yayınına odaklıysan ızgaraya dön
+        focusedStream: s.focusedStream === useSession.getState().user?.id ? null : s.focusedStream,
+      }));
       this.bumpTracks();
       throw err;
     }
@@ -1302,7 +1312,14 @@ class VoiceClient {
       if (room && published) await room.localParticipant.unpublishTrack(track, true).catch(() => undefined);
       track.stop();
     }
-    setVoice({ sharing: false, shareHasAudio: false, shareQuality: null, shareIcon: null });
+    setVoice((s) => ({
+      sharing: false,
+      shareHasAudio: false,
+      shareQuality: null,
+      shareIcon: null,
+      // Kendi yayınına odaklıysan ızgaraya dön
+      focusedStream: s.focusedStream === useSession.getState().user?.id ? null : s.focusedStream,
+    }));
     this.bumpTracks();
     if (withSound) playSound('streamStop');
   }
