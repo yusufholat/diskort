@@ -13,7 +13,9 @@ import type { ClientVersionPolicy } from './clientVersion.js';
 import type { Config } from './config.js';
 import type { CosmeticPackStore } from './cosmeticPacks.js';
 import type { Store } from './db.js';
+import type { DmCallService } from './dmCalls.js';
 import type { EmbedMediaService } from './embedMedia.js';
+import type { PrivateCallIds } from './privateCalls.js';
 import type { Gateway, Visibility } from './gateway.js';
 import type { GifService } from './gifs.js';
 import type { LinkPreviewService } from './linkPreviews.js';
@@ -58,6 +60,10 @@ export interface AppContext {
   embedMedia: EmbedMediaService;
   permissions: PermissionService;
   moderation: VoiceModeration;
+  /** Direkt mesaj aramaları (çalma, arama kaydı) */
+  calls: DmCallService;
+  /** Yönetim paneli gizliliği: DM aramalarının ölçümlerinde takma kimlikler (bkz. privateCalls.ts) */
+  privacy: PrivateCallIds;
   /** Yayın önizlemeleri (yalnızca bellekte) */
   streamPreviews: StreamPreviewStore;
   /** Son istemci ve sunucu hataları (yönetim paneli; SYSTEM_STATS açıkken <DATA_DIR>/*-errors.jsonl dosyalarında da, 14 gün) */

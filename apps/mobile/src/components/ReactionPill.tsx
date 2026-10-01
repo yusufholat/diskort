@@ -19,7 +19,8 @@ export function ReactionPill({
   count: number;
   me: boolean;
   animateIn: boolean;
-  onPress: () => void;
+  /** Yoksa dokunmak bir şey yapmaz (ör. salt okunur konuşmada başkasının tepkisi); uzun basma yine açılır */
+  onPress?: () => void;
   onLongPress: () => void;
 }) {
   // İlk çizimdeki değer: geçmişle gelen tepkiler animasyonsuz görünür
@@ -42,12 +43,12 @@ export function ReactionPill({
         onPress={onPress}
         onLongPress={onLongPress}
         delayLongPress={300}
-        onPressIn={() => Animated.spring(press, { toValue: 0.9, useNativeDriver: true, speed: 40, bounciness: 0 }).start()}
+        onPressIn={() => onPress && Animated.spring(press, { toValue: 0.9, useNativeDriver: true, speed: 40, bounciness: 0 }).start()}
         onPressOut={() => Animated.spring(press, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 10 }).start()}
         style={[styles.pill, me && styles.pillMine]}
         accessibilityLabel={`${emoji} ${count}`}
         accessibilityHint="Tepki verenleri görmek için uzun bas"
-        accessibilityState={{ selected: me }}
+        accessibilityState={{ selected: me, disabled: !onPress }}
       >
         <Text style={styles.emoji}>{emoji}</Text>
         <Text style={[styles.count, me && styles.countMine]}>{count}</Text>

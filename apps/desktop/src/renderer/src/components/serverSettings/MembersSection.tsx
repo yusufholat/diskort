@@ -5,6 +5,7 @@ import {
   activeGuildContext,
   canAssignRole,
   effectivePermissions,
+  guildVoiceStateOf,
   memberColorOf,
   moderation,
   PERMISSION_GROUPS,
@@ -67,7 +68,8 @@ function MemberRow({ user }: { user: MemberUser }) {
   const roles = useGuild((s) => s.roles);
   const ownerId = useGuild((s) => s.guild?.ownerId);
   const voiceChannel = useGuild((s) => {
-    const state = s.voiceStates[user.id];
+    // DM aramasındaki kişi sunucuda seste görünmez
+    const state = guildVoiceStateOf(s, user.id);
     return state ? s.channels.find((c) => c.id === state.channelId)?.name : undefined;
   });
   const openContextMenu = useUi((s) => s.openContextMenu);

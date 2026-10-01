@@ -16,7 +16,15 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { DM_GROUP_MAX_PARTICIPANTS, isImageAttachment, Permission, STATUS_LABELS, type DmChannel, type User } from '@diskort/shared';
+import {
+  DM_GROUP_MAX_PARTICIPANTS,
+  isCallMessage,
+  isImageAttachment,
+  Permission,
+  STATUS_LABELS,
+  type DmChannel,
+  type User,
+} from '@diskort/shared';
 import {
   ackChannel,
   clearJump,
@@ -32,6 +40,7 @@ import {
   startReply,
   suppressEmbeds,
   toggleReaction,
+  unblockUser,
   useCan,
   useChannelContext,
   useCustomStatus,
@@ -53,6 +62,7 @@ import { pinIcon, unpinIcon } from './icons';
 import { Composer } from './Composer';
 import { ConnectionBanner } from './ConnectionBanner';
 import { DmAvatar } from './DmAvatar';
+import { CallRecordRow, DmCallButton, DmCallStrip } from './DmCall';
 import { EmojiGrid } from './EmojiGrid';
 import { HeaderButton } from './HeaderButton';
 import type { MarkdownContext } from './Markdown';
@@ -105,8 +115,11 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
   const dm = useGuild((s) => (id ? s.dms[id] : undefined));
   const dmName = useGuild((s) => (dm ? dmTitle(dm, s.users, self?.id) : ''));
   const partner = useGuild((s) => (dm ? dmPartner(dm, s.users, self?.id) : undefined));
-  // Bire bir konuşmada karşı taraf ayrıldıysa yazma kutusu yerine neden gösterilir
-  const blocked = useGuild((s) => (dm ? dmBlockedReason(dm, s.users, self?.id, s.reachable) : null));
+  // Bire bir konuşmada karşı taraf ayrıldıysa ya da engel varsa yazma kutusu yerine neden gösterilir (karşı
+  // tarafı sen engellediysen açıkça, seni engellediyse yalnızca genel metin: bkz. dmBlockedReason)
+  const blocked = useGuild((s) => (dm ? dmBlockedReason(dm, s.users, self?.id, s.reachable, s.blockedIds) : null));
+  // Karşı tarafı sen engelledin: kilitli yazma kutusunda "Engeli kaldır"
+  const blockedByMe = useGuild((s) => Boolean(partner && s.blockedIds[partner.id]));
   const target = useMemo(
     () => channel ?? (dm ? { id: dm.id, name: dmName } : undefined),
     [channel, dm, dmName],
@@ -229,6 +242,7 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
         !dayBreak &&
         !newDivider &&
         !item.replyToId &&
+        !isCallMessage(older) &&
         older.authorId === item.authorId &&
         older.status !== 'failed' &&
         item.createdAt - older.createdAt < GROUP_WINDOW_MS;
@@ -332,30 +346,38 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
   const typingNames = useTypingNames(id, self?.id);
   // Kaydırarak yanıtlama: kanala yazabiliyorsa ve (direkt mesajda) konuşma kapanmamışsa
   const canReply = canSend && !blocked;
+  // Salt okunur direkt mesaj: başkasının tepkisine katılma ve düzenleme yok (sunucu 403); kanallarda geçerli değil
+  const readOnlyDm = Boolean(dm) && !canReply;
 
   const renderItem: ListRenderItem<Row> = useCallback(
     ({ item }) => (
       // Bozuk veri tek satırı düşürür, sohbetin tamamını değil
       <MessageErrorBoundary resetKey={item.message}>
-        <MessageRow
-          message={item.message}
-          authorId={item.message.authorId}
-          compact={item.compact}
-          dayBreak={item.dayBreak}
-          newDivider={item.newDivider}
-          self={self!}
-          md={md}
-          onLongPress={setMenuFor}
-          animateIn={fresh.has(keyOf(item.message))}
-          flash={flash?.id === item.message.id ? flash.seq : 0}
-          onReply={canReply ? startReply : undefined}
-          onAvatarPress={setProfileOf}
-        />
+        {isCallMessage(item.message) ? (
+          // Arama kaydı: kısa sistem satırı (yanıt, düzenleme, menü yok)
+          <CallRecordRow message={item.message} dayBreak={item.dayBreak} newDivider={item.newDivider} />
+        ) : (
+          <MessageRow
+            message={item.message}
+            authorId={item.message.authorId}
+            compact={item.compact}
+            dayBreak={item.dayBreak}
+            newDivider={item.newDivider}
+            self={self!}
+            md={md}
+            onLongPress={setMenuFor}
+            animateIn={fresh.has(keyOf(item.message))}
+            flash={flash?.id === item.message.id ? flash.seq : 0}
+            onReply={canReply ? startReply : undefined}
+            onAvatarPress={setProfileOf}
+            lockReactions={readOnlyDm}
+          />
+        )}
       </MessageErrorBoundary>
     ),
     // `md` yalnızca bahsetmeyle ilgili alanlar değişince yeni nesne olur (bkz. yukarısı); yazar artık
     // satırın kendisinde (useRowAuthor) okunuyor, `users`in tamamına burada gerek yok.
-    [self, md, fresh, flash, canReply],
+    [self, md, fresh, flash, canReply, readOnlyDm],
   );
 
   const canAddPeople = dm?.group === true && dm.participantIds.length < DM_GROUP_MAX_PARTICIPANTS;
@@ -383,6 +405,7 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
       <HeaderButton icon={pinIcon} label="Sabitlenmiş mesajlar" size={22} onPress={() => openPinsSheet(id)}>
         <UnseenPins channelId={id} />
       </HeaderButton>
+      {dm ? <DmCallButton dmId={dm.id} /> : null}
       {dm ? (
         canAddPeople ? (
           <HeaderButton
@@ -420,6 +443,7 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
     >
       {header}
       <ConnectionBanner />
+      {dm ? <DmCallStrip dmId={dm.id} /> : null}
       <View style={styles.listArea}>
         {failed && !loaded && !loading ? (
           <ErrorState text="Mesajlar yüklenemedi. Bağlantını denetleyip yeniden dene." onRetry={load} />
@@ -486,6 +510,9 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
         channel={target}
         placeholder={dm ? `${label} ${dm.group ? 'grubuna' : 'kişisine'} mesaj gönder` : undefined}
         lockedText={blocked ?? undefined}
+        lockedAction={
+          blockedByMe && partner ? { title: 'Engeli kaldır', onPress: () => void unblockUser(partner.id) } : undefined
+        }
         mentionable={dm?.participantIds}
         editing={editing}
         onDoneEditing={() => setEditing(null)}
@@ -503,7 +530,8 @@ export function ChannelChat({ id, onOpenPanel }: { id: string; onOpenPanel: () =
         self={self}
         canManageMessages={canManageMessages}
         canReact={canReact}
-        canReply={canSend}
+        canReply={canReply}
+        inDirect={Boolean(dm)}
         canPin={canPin}
         onClose={() => setMenuFor(null)}
         onEdit={(m) => setEditing(m)}
@@ -776,6 +804,7 @@ function MessageMenu({
   canManageMessages,
   canReact,
   canReply,
+  inDirect,
   canPin,
   onClose,
   onEdit,
@@ -788,6 +817,8 @@ function MessageMenu({
   canReact: boolean;
   /** Kanala yazabiliyor mu (yanıt da bir mesajdır) */
   canReply: boolean;
+  /** Direkt mesaj konuşması (salt okunurken düzenleme ve başkasının tepkisine katılma yok) */
+  inDirect: boolean;
   /** Mesaj sabitleyebilir mi */
   canPin: boolean;
   onClose: () => void;
@@ -798,7 +829,10 @@ function MessageMenu({
   const last = useRef(message);
   if (message) last.current = message;
   const shown = message ?? last.current;
-  const canEdit = shown?.authorId === self.id;
+  // Arama kaydı düzenlenemez (sunucu 400 not_editable)
+  const canEdit = shown?.authorId === self.id && !isCallMessage(shown) && (!inDirect || canReply);
+  // Salt okunur direkt mesajda yalnızca kendi tepkini kaldırabilirsin (sunucu kanallarında yazma izni aranmaz)
+  const reactLocked = inDirect && !canReply;
   const canDelete = shown?.authorId === self.id || canManageMessages;
   // Yazara mesaj (masaüstündeki "Yazara Mesaj Gönder"): başkasının mesajı ve ortak sunucusu var
   const canMessageAuthor = useGuild((s) =>
@@ -828,7 +862,7 @@ function MessageMenu({
   const images = shown && !shown.status && canSaveToGallery() ? shown.attachments.filter(isImageAttachment) : [];
   const existing = (emoji: string): boolean => reactions.some((r) => r.emoji === emoji);
   // Yetki yoksa yalnızca mesajdaki tepkiler gösterilir
-  const quick = canReact ? MENU_REACTIONS : MENU_REACTIONS.filter(existing);
+  const quick = reactLocked ? MENU_REACTIONS.filter(mine) : canReact ? MENU_REACTIONS : MENU_REACTIONS.filter(existing);
   const close = onClose;
   return (
     <BottomSheet visible={message !== null} onClose={onClose}>

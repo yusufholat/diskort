@@ -5,12 +5,23 @@ const RECONCILE_INTERVAL_MS = 30_000;
 
 const config = loadConfig();
 const { app, ctx } = await buildApp(config);
+// İlk eşitlemeye kadar gelen katılma bildirimleri süren DM aramalarının kaydını kapatmasın (bkz. expectFirstSync)
+ctx.calls.expectFirstSync();
 
 // LiveKit ile ses durumunu periyodik eşitle (sunucu yeniden başlarsa / webhook kaçarsa).
+let staleCallsClosed = false;
 async function reconcile(): Promise<void> {
   try {
     const takenAt = Date.now();
-    ctx.voice.reconcile(await ctx.livekit.snapshot(), takenAt);
+    const snapshot = await ctx.livekit.snapshot();
+    // Eşitlemeyle geri gelen DM aramaları bitmemiş kayıtlarını sürdürür (bkz. DmCallService.duringReconcile)
+    ctx.calls.duringReconcile(() => ctx.voice.reconcile(snapshot, takenAt));
+    // İlk başarılı eşitlemeden sonra: sunucu kapalıyken biten DM aramalarının kayıtları kapanır (sürenler
+    // eşitlemeyle geri gelip kayıtlarını sürdürdü)
+    if (!staleCallsClosed) {
+      staleCallsClosed = true;
+      ctx.calls.closeStaleRecords();
+    }
     // Eşitlemeyle eklenenlerin (ör. kaçan katılma bildirimi) izinleri de güncel olsun
     await ctx.moderation.enforceAll();
   } catch (err) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
-import { Hash, Upload, UserPlus, Users } from 'lucide-react';
+import { Hash, Phone, PhoneCall, Upload, UserPlus, Users } from 'lucide-react';
 import { DM_GROUP_MAX_PARTICIPANTS, Permission, type Channel, type DmChannel } from '@diskort/shared';
 import {
   ackChannel,
@@ -8,6 +8,9 @@ import {
   dmPartner,
   loadInitial,
   useCan,
+  useCanCallDm,
+  useDmCall,
+  useIsBlocked,
   useMessages,
   useGuild,
   useSession,
@@ -15,7 +18,11 @@ import {
 import { cn } from '../../lib/utils';
 import { toast, useUi } from '../../stores/ui';
 import { DmAvatar } from '../dms/DmAvatar';
+import { DmCallPanel } from '../dms/DmCallPanel';
 import { DmMembers } from '../dms/DmMembers';
+import { unblock } from '../../lib/blocks';
+import { joinDmCall } from '../../lib/calls';
+import { useVoice } from '../../stores/voice';
 import { MemberList } from '../members/MemberList';
 import { toLocalFiles } from '../../features/messages/files';
 import { Composer, type ComposerHandle } from './Composer';
@@ -45,9 +52,18 @@ export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' |
   const guildName = useGuild((s) => s.guild?.name ?? '');
   const searchScope = useMemo(() => (dm ? { dmId: dm.id } : { guildId }), [dm, guildId]);
   const searchOpen = useSearchOpen(searchScope);
-  // Bire bir konuşmada karşı taraf ayrıldıysa yazma kutusu yerine neden gösterilir
-  const blocked = useGuild((s) => (dm ? dmBlockedReason(dm, s.users, self.id, s.reachable) : null));
+  // Bire bir konuşmada karşı taraf ayrıldıysa ya da engel varsa yazma kutusu yerine neden gösterilir (karşı
+  // tarafı sen engellediysen açıkça, seni engellediyse yalnızca genel bir metin)
+  const blocked = useGuild((s) => (dm ? dmBlockedReason(dm, s.users, self.id, s.reachable, s.blockedIds) : null));
   const partner = useGuild((s) => (dm ? dmPartner(dm, s.users, self.id) : undefined));
+  const partnerBlocked = useIsBlocked(dm && !dm.group ? partner?.id : null);
+  // Arama alanı konuşmanın tamamını kaplıyor mu (mesajlar gizli)
+  const [callExpanded, setCallExpanded] = useState(false);
+  const inThisCall = useVoice((s) => Boolean(dm) && s.channelId === dm?.id && s.status !== 'idle');
+  useEffect(() => {
+    if (!inThisCall) setCallExpanded(false);
+  }, [inThisCall]);
+  const callShown = Boolean(dm) && inThisCall && callExpanded;
   // Adı kanal gibi "#ad", bire bir konuşmada "@ad" olarak geçer
   const label = dm ? (dm.group ? channel.name : `@${channel.name}`) : `#${channel.name}`;
 
@@ -153,6 +169,7 @@ export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' |
         <span className="min-w-0 truncate font-semibold text-text-head">{channel.name}</span>
         {partner && <span className="min-w-0 truncate text-sm text-text-muted">@{partner.username}</span>}
         <span className="flex-1" />
+        {dm && <CallButton dmId={dm.id} />}
         {dm?.group && dm.participantIds.length < DM_GROUP_MAX_PARTICIPANTS && (
           <button
             data-tooltip="Kişi ekle"
@@ -178,7 +195,8 @@ export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' |
         </button>
         <SearchBox scope={searchScope} placeholder={dm ? 'Ara' : guildName ? `${guildName} sunucusunu ara` : 'Sunucuda ara'} />
       </header>
-      <div className="flex min-h-0 flex-1">
+      {dm && <DmCallPanel dm={dm} expanded={callExpanded} onToggleExpand={() => setCallExpanded((v) => !v)} />}
+      <div className={cn('flex min-h-0 flex-1', callShown && 'hidden')}>
         <div className="anim-fade-in relative flex min-h-0 min-w-0 flex-1 flex-col bg-bg-main" {...dropHandlers}>
           {dragging && (
             <div className="anim-fade-in pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/60">
@@ -216,6 +234,11 @@ export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' |
             self={self}
             placeholder={dm ? `${label} ${dm.group ? 'grubuna' : 'kişisine'} mesaj gönder` : undefined}
             lockedText={blocked ?? undefined}
+            lockedAction={
+              partnerBlocked && partner
+                ? { label: 'Engeli kaldır', onClick: () => void unblock(partner.id) }
+                : undefined
+            }
             mentionable={dm?.participantIds}
             onSend={() => {
               setDividerId(null);
@@ -227,6 +250,44 @@ export function TextChannelView({ channel, dm }: { channel: Pick<Channel, 'id' |
         {searchOpen ? <SearchPanel /> : memberListOpen && (dm ? <DmMembers dm={dm} /> : <MemberList />)}
       </div>
     </div>
+  );
+}
+
+/**
+ * Konuşma başlığındaki arama düğmesi: arama yoksa "Ara" (başlatır, diğerleri çalınır), süren aramada değilsen
+ * "Aramaya katıl"; zaten aramadaysan gösterilmez. Salt okunur konuşmada devre dışı.
+ */
+function CallButton({ dmId }: { dmId: string }) {
+  const canCall = useCanCallDm(dmId);
+  const call = useDmCall(dmId);
+  const inCall = useVoice((s) => s.channelId === dmId && s.status !== 'idle');
+  if (inCall) return null;
+  if (call) {
+    return (
+      <button
+        data-tooltip={canCall ? 'Aramaya katıl' : 'Bu konuşmada arama yapılamaz'}
+        aria-label="Aramaya katıl"
+        disabled={!canCall}
+        className="press flex h-7 items-center gap-1.5 rounded-full bg-ok px-3 text-sm font-semibold text-white transition-colors hover:bg-ok-hover disabled:opacity-40"
+        onClick={() => void joinDmCall(dmId)}
+      >
+        <PhoneCall size={16} aria-hidden /> Aramaya katıl
+      </button>
+    );
+  }
+  return (
+    <button
+      data-tooltip={canCall ? 'Sesli arama başlat' : 'Bu konuşmada arama yapılamaz'}
+      aria-label="Ara"
+      aria-disabled={!canCall || undefined}
+      className={cn(
+        'press-icon rounded p-1',
+        canCall ? 'text-text-muted hover:text-text-normal' : 'cursor-not-allowed text-text-muted opacity-40',
+      )}
+      onClick={canCall ? () => void joinDmCall(dmId) : undefined}
+    >
+      <Phone size={22} className="ico-nod" />
+    </button>
   );
 }
 

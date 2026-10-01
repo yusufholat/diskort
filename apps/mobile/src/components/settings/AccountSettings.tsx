@@ -10,6 +10,7 @@ import { voice } from '../../voice/voice';
 import { PresenceAvatar } from '../Avatar';
 import { confirmDialog } from '../Dialog';
 import { Button, Card, FadeIn, Field, NavRow, SectionTitle, ui } from '../ui';
+import { BlockedUsers } from './BlockedUsers';
 
 /** Oturumu kapatır: bildirim kaydı silinir, sesten çıkılır, bağlantı kapanır */
 export async function logout(): Promise<void> {
@@ -31,7 +32,10 @@ export async function confirmLogout(): Promise<void> {
   if (ok) await logout();
 }
 
-/** Ayarlar → Hesabım (masaüstündeki Hesabım): görünen ad, kullanıcı adı, şifre değiştirme, hesabı silme */
+/**
+ * Ayarlar → Hesabım (masaüstündeki Hesabım): görünen ad, kullanıcı adı, şifre değiştirme, engellenenler,
+ * hesabı silme
+ */
 export function AccountSettings() {
   const user = useSession((s) => s.user);
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
@@ -80,6 +84,7 @@ export function AccountSettings() {
       </Card>
 
       <ChangePassword />
+      <BlockedUsers />
       <DeleteAccount />
     </View>
   );

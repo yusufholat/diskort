@@ -1,7 +1,7 @@
 import { Permission, type Channel, type Role, type User, type VoiceState } from '@diskort/shared';
 import { api, errorMessage } from './api';
 import { env } from './env';
-import { useGuild } from './guild';
+import { guildVoiceStateOf, useGuild } from './guild';
 import { can, canAssignRole, outranksUser } from './permissions';
 import { useSession } from './session';
 
@@ -27,7 +27,7 @@ const activeGuild = (): string => useGuild.getState().activeGuildId ?? '';
  */
 const voiceGuild = (userId: string): string => {
   const s = useGuild.getState();
-  const channelId = s.voiceStates[userId]?.channelId;
+  const channelId = guildVoiceStateOf(s, userId)?.channelId;
   return (channelId && s.channelGuild[channelId]) || activeGuild();
 };
 
@@ -66,7 +66,8 @@ export function memberActions(targetId: string): MemberActions {
   const selfId = useSession.getState().user?.id;
   const self = targetId === selfId;
   const above = self || outranksUser(s, selfId, targetId);
-  const voice: VoiceState | undefined = s.voiceStates[targetId];
+  // DM aramasındaki kişi sunucuda seste sayılmaz (sesteki yönetim yalnızca sunucu kanallarında)
+  const voice: VoiceState | undefined = guildVoiceStateOf(s, targetId);
   const inChannel = (flag: number): boolean =>
     voice ? can(s, selfId, flag, voice.channelId) : can(s, selfId, flag);
   return {
@@ -85,7 +86,7 @@ export function memberActions(targetId: string): MemberActions {
 export function moveTargets(target: Pick<User, 'id'>): Channel[] {
   const s = useGuild.getState();
   const selfId = useSession.getState().user?.id;
-  const current = s.voiceStates[target.id]?.channelId;
+  const current = guildVoiceStateOf(s, target.id)?.channelId;
   return s.channels.filter(
     (c) =>
       c.type === 'voice' &&
@@ -103,7 +104,7 @@ export function moveTargets(target: Pick<User, 'id'>): Channel[] {
 export function voiceDropTargets(userId: string): Set<string> {
   const s = useGuild.getState();
   const selfId = useSession.getState().user?.id;
-  const current = s.voiceStates[userId]?.channelId;
+  const current = guildVoiceStateOf(s, userId)?.channelId;
   if (!current) return new Set();
   if (userId === selfId) {
     return new Set(

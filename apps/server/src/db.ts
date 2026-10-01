@@ -28,6 +28,9 @@ import {
   type Invite,
   type LinkEmbed,
   type Message,
+  type MessageCall,
+  callMessageText,
+  type UserBlock,
   type PermissionContext,
   type PermissionOverwrite,
   type PinnedMessage,
@@ -444,6 +447,22 @@ export const MIGRATIONS: string[] = [
   `
   CREATE INDEX IF NOT EXISTS attachments_by_channel_message ON attachments(channel_id, message_id, position);
   `,
+  // 25: engelleme ve DM aramaları. user_blocks: blocker_id, blocked_id'yi engelledi (hesap silinince satır da
+  // gider). messages.type: NULL sıradan mesaj, 'call' arama kaydı; call_data: aramanın bilgisi (JSON:
+  // katılanlar, bitiş). Yalnızca ekleme yapar; eski sürüme dönülürse yeni sütunlar ve tablo yok sayılır
+  // (arama kayıtları düz metin mesajı olarak görünür).
+  `
+  CREATE TABLE IF NOT EXISTS user_blocks (
+    blocker_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    blocked_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (blocker_id, blocked_id)
+  ) WITHOUT ROWID;
+  CREATE INDEX IF NOT EXISTS user_blocks_by_blocked ON user_blocks(blocked_id);
+  ALTER TABLE messages ADD COLUMN type TEXT;
+  ALTER TABLE messages ADD COLUMN call_data TEXT;
+  CREATE INDEX IF NOT EXISTS messages_calls ON messages(channel_id, id) WHERE type = 'call';
+  `,
 ];
 
 type Param = string | number | null;
@@ -559,6 +578,8 @@ export interface PermissionData {
   userGuilds: ReadonlyMap<string, ReadonlySet<string>>;
   /** Direkt mesaj konuşmaları: kimlik → katılımcılar */
   dms: ReadonlyMap<string, DmAccess>;
+  /** Engeller: blockKey(engelleyen, engellenen) */
+  blocks: ReadonlySet<string>;
   /** Ana sunucu: ilk kurulan (hesap açtıran ilk kişi ve yönetici davetleri buraya katılır) */
   primaryGuildId: string | null;
 }
@@ -601,6 +622,9 @@ interface DmRow {
   last_at: number | null;
 }
 
+/** Engelin anahtarı (PermissionData.blocks): yönlüdür */
+export const blockKey = (blocker: string, blocked: string): string => `${blocker}>${blocked}`;
+
 /** Bire bir konuşmanın anahtarı: iki kimliğin sıralı birleşimi */
 const pairKey = (a: string, b: string): string => (a < b ? `${a}:${b}` : `${b}:${a}`);
 
@@ -634,6 +658,21 @@ interface MessageRow {
   reply_mention_user_id: string | null;
   embeds: string | null;
   suppress_embeds: number;
+  type: string | null;
+  call_data: string | null;
+}
+
+/** Saklanan arama bilgisi (sunucunun kendi yazdığı JSON); okunamazsa sürmüyor ve katılan yok sayılır */
+function parseCall(raw: string | null): MessageCall {
+  try {
+    const value = raw ? (JSON.parse(raw) as Partial<MessageCall>) : null;
+    return {
+      participantIds: Array.isArray(value?.participantIds) ? value.participantIds.filter((id) => typeof id === 'string') : [],
+      endedAt: typeof value?.endedAt === 'number' ? value.endedAt : null,
+    };
+  } catch {
+    return { participantIds: [], endedAt: null };
+  }
 }
 
 /** Saklanan gömülü içerik (sunucunun kendi yazdığı JSON); okunamazsa boş */
@@ -663,6 +702,8 @@ const toMessage = (r: MessageRow): Message => ({
   replyToId: r.reply_to_id === null ? null : String(r.reply_to_id),
   referencedMessage: null,
   replyMentionUserId: r.reply_mention_user_id,
+  // Tür yalnızca sıradan olmayan mesajda gelir (sıradan mesajların biçimi değişmez)
+  ...(r.type === 'call' ? { type: 'call' as const, call: parseCall(r.call_data) } : {}),
 });
 
 /** Yanıt verilecek mesaj: aynı kanalda ve hâlâ duruyorsa */
@@ -1378,11 +1419,16 @@ export class Store {
     )) {
       dms.get(r.channel_id)?.participantIds.push(r.user_id);
     }
+    const blocks = new Set<string>();
+    for (const r of this.all<{ blocker_id: string; blocked_id: string }>('SELECT blocker_id, blocked_id FROM user_blocks')) {
+      blocks.add(blockKey(r.blocker_id, r.blocked_id));
+    }
     const data: PermissionData = {
       guilds,
       channelGuild,
       userGuilds,
       dms,
+      blocks,
       primaryGuildId: guilds.keys().next().value ?? null,
     };
     this.permissionCache = data;
@@ -1785,7 +1831,7 @@ export class Store {
 
   private toDm(r: DmRow, participantIds: string[]): DmChannel {
     const group = r.pair_key === null;
-    return {
+    const dm: DmChannel = {
       id: r.id,
       participantIds,
       group,
@@ -1795,6 +1841,11 @@ export class Store {
       lastMessageId: r.last_id === null ? null : String(r.last_id),
       lastActivityAt: r.last_at ?? r.created_at,
     };
+    // Bire bir konuşmada iki yönden biri engellediyse salt okunur (yön söylenmez); alan yalnızca true iken
+    if (!group && participantIds.length === 2 && this.blockedEither(participantIds[0]!, participantIds[1]!)) {
+      dm.readOnly = true;
+    }
+    return dm;
   }
 
   /** Konuşmaların katılımcıları, katılma sırasıyla */
@@ -1982,6 +2033,70 @@ export class Store {
       this.run("DELETE FROM channels WHERE id = ? AND type = 'dm'", id);
     }
     return files;
+  }
+
+  /** Konuşmayı listesinde açık tutan katılımcılar (bire bir konuşmayı kapatan, yeni mesaja kadar görmez) */
+  openDmParticipants(channelId: string): string[] {
+    return this.all<{ user_id: string }>(
+      'SELECT user_id FROM dm_participants WHERE channel_id = ? AND open = 1 ORDER BY joined_at, user_id',
+      channelId,
+    ).map((r) => r.user_id);
+  }
+
+  // ---------- Engellemeler ----------
+  // Engel tek yönlüdür (blocker → blocked) ama etkisi iki yönlüdür: bire bir konuşma iki taraf için de salt
+  // okunur olur, yeni bire bir konuşma açılamaz, arama yapılamaz (bkz. dmPermissions). Kimin kimi engellediğini
+  // yalnızca engelleyen görür.
+
+  /** `blocker`, `blocked`'ı engelledi mi */
+  hasBlocked(blocker: string, blocked: string): boolean {
+    return this.one('SELECT 1 FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?', blocker, blocked) !== undefined;
+  }
+
+  /** İki kişiden biri diğerini engelledi mi (yönü fark etmez) */
+  blockedEither(a: string, b: string): boolean {
+    return (
+      this.one(
+        'SELECT 1 FROM user_blocks WHERE (blocker_id = ?1 AND blocked_id = ?2) OR (blocker_id = ?2 AND blocked_id = ?1)',
+        a,
+        b,
+      ) !== undefined
+    );
+  }
+
+  /** Kullanıcının engelledikleri, en son engellenen önce */
+  listBlocks(userId: string): UserBlock[] {
+    const rows = this.all<{ blocked_id: string; created_at: number }>(
+      'SELECT blocked_id, created_at FROM user_blocks WHERE blocker_id = ? ORDER BY created_at DESC, blocked_id',
+      userId,
+    );
+    const users = new Map(this.usersByIds(rows.map((r) => r.blocked_id)).map((u) => [u.id, u]));
+    return rows.map((r) => ({ userId: r.blocked_id, createdAt: r.created_at, user: users.get(r.blocked_id) ?? null }));
+  }
+
+  /** Kullanıcının engellediklerinin kimlikleri */
+  blockedUserIds(userId: string): string[] {
+    return this.all<{ id: string }>(
+      'SELECT blocked_id AS id FROM user_blocks WHERE blocker_id = ? ORDER BY created_at DESC, blocked_id',
+      userId,
+    ).map((r) => r.id);
+  }
+
+  /** Engeller; zaten engelliyse false (tekrarlanabilir) */
+  block(blocker: string, blocked: string, now = Date.now()): boolean {
+    return (
+      this.run(
+        'INSERT OR IGNORE INTO user_blocks (blocker_id, blocked_id, created_at) VALUES (?, ?, ?)',
+        blocker,
+        blocked,
+        now,
+      ) > 0
+    );
+  }
+
+  /** Engeli kaldırır; engelli değilse false */
+  unblock(blocker: string, blocked: string): boolean {
+    return this.run('DELETE FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?', blocker, blocked) > 0;
   }
 
   // ---------- Kullanıcı durumu ----------
@@ -2539,6 +2654,64 @@ export class Store {
     });
   }
 
+  // ---------- Arama kayıtları (DM) ----------
+
+  /**
+   * Konuşmaya arama kaydı yazar (type 'call'; yazarı aramayı başlatan, sürüyor). `notify`: okunmamış sayısı
+   * artacak diğer katılımcılar (DM'deki her mesaj gibi).
+   */
+  createCallMessage(channelId: string, authorId: string, notify: string[], now = Date.now()): Message {
+    return this.tx(() => {
+      const call: MessageCall = { participantIds: [authorId], endedAt: null };
+      const id = Number(
+        this.db
+          .prepare(
+            `INSERT INTO messages (channel_id, author_id, content, created_at, type, call_data)
+             VALUES (?, ?, ?, ?, 'call', ?)`,
+          )
+          .run(channelId, authorId, callMessageText(call, now), now, JSON.stringify(call)).lastInsertRowid,
+      );
+      for (const userId of notify) {
+        this.run(
+          `INSERT INTO read_states (user_id, channel_id, last_read_id, mention_count) VALUES (?, ?, 0, 1)
+           ON CONFLICT (user_id, channel_id) DO UPDATE SET mention_count = mention_count + 1`,
+          userId,
+          channelId,
+        );
+      }
+      return this.getMessage(id)!;
+    });
+  }
+
+  /** Arama kaydının bilgisini (ve metnini) günceller; kayıt yoksa (silindi) null. Düzenlenmiş sayılmaz. */
+  updateCallMessage(id: number, call: MessageCall): Message | null {
+    const row = this.one<{ created_at: number }>("SELECT created_at FROM messages WHERE id = ? AND type = 'call'", id);
+    if (!row) return null;
+    this.run(
+      'UPDATE messages SET content = ?, call_data = ? WHERE id = ?',
+      callMessageText(call, row.created_at),
+      JSON.stringify(call),
+      id,
+    );
+    return this.getMessage(id);
+  }
+
+  /** Konuşmanın en son arama kaydı, hâlâ bitmemiş görünüyorsa (sunucu yeniden başladı, arama sürüyor) */
+  openCallMessage(channelId: string): Message | null {
+    const row = this.one<MessageRow>(
+      "SELECT * FROM messages WHERE channel_id = ? AND type = 'call' ORDER BY id DESC LIMIT 1",
+      channelId,
+    );
+    if (!row || parseCall(row.call_data).endedAt !== null) return null;
+    return this.getMessage(row.id);
+  }
+
+  /** Bitmemiş görünen arama kayıtları (sunucu yeniden başlarken süren aramalar bellekten gitmiş olabilir) */
+  openCallMessages(): Message[] {
+    return this.all<MessageRow>("SELECT * FROM messages WHERE type = 'call' AND json_extract(call_data, '$.endedAt') IS NULL")
+      .map(toMessage);
+  }
+
   /**
    * Metinde bahsedilen kullanıcıların kimlikleri; yazar hariç. `guildId` verilirse yalnızca o sunucunun
    * şu anki üyeleri (kanalı görüp görmedikleri ayrıca denetlenir).
@@ -2688,6 +2861,17 @@ export class Store {
         'SELECT channel_id, MAX(id) AS id FROM messages GROUP BY channel_id',
       ).map((r) => [r.channel_id, String(r.id)]),
     );
+  }
+
+  /** Kullanıcı kanalın son mesajına kadar okumuş mu (mesaj yoksa da evet) */
+  readUpToDate(userId: string, channelId: string): boolean {
+    const row = this.one<{ last: number | null; read: number | null }>(
+      `SELECT (SELECT MAX(id) FROM messages WHERE channel_id = ?1) AS last,
+              (SELECT last_read_id FROM read_states WHERE user_id = ?2 AND channel_id = ?1) AS read`,
+      channelId,
+      userId,
+    )!;
+    return row.last === null || (row.read ?? 0) >= row.last;
   }
 
   readStates(userId: string): Record<string, string> {

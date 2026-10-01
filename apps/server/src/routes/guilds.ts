@@ -150,6 +150,8 @@ export function registerGuildRoutes(app: FastifyInstance, ctx: AppContext): void
       }
       await moderation.disconnectFromGuild(guildId, req.user.id);
       store.removeMember(guildId, req.user.id);
+      // Ortak sunucusu kalmayanla bire bir DM araması da biter (konuşma salt okunur oldu)
+      void moderation.enforceDmCalls();
       gateway.announceLeave(guildId, req.user.id);
       return reply.code(204).send();
     },
@@ -326,6 +328,7 @@ export function registerGuildRoutes(app: FastifyInstance, ctx: AppContext): void
     }
     await moderation.disconnectFromGuild(guildId, targetId);
     store.removeMember(guildId, targetId, ban);
+    void moderation.enforceDmCalls();
     if (status === 'member') {
       const guildName = store.getGuild(guildId)?.name ?? 'sunucu';
       gateway.announceLeave(

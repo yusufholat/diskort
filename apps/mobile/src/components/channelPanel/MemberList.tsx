@@ -7,6 +7,7 @@ import {
   memberGroups,
   useActivity,
   useCustomStatus,
+  guildVoiceStateOf,
   useGuild,
   useMemberColor,
   useSession,
@@ -162,7 +163,8 @@ const MemberRow = memo(function MemberRow({
 }) {
   const roleColor = useMemberColor(user.id);
   const color = guildInfo ? roleColor : null;
-  const inVoice = useGuild((s) => guildInfo && Boolean(s.voiceStates[user.id]));
+  // DM aramasındaki ses durumu sunucunun üye listesinde görünmez
+  const inVoice = useGuild((s) => guildInfo && guildVoiceStateOf(s, user.id) !== undefined);
   const self = useSession((s) => s.user?.id === user.id);
   const status = useStatus(user.id);
   const custom = useCustomStatus(user.id);

@@ -11,6 +11,7 @@ import {
   isUnread,
   useActivity,
   useCustomStatus,
+  useDmCall,
   useDmList,
   useDmUnreadCount,
   useGuild,
@@ -165,6 +166,8 @@ const DmRow = memo(function DmRow({
   const unread = useGuild((s) => isUnread(s, dm.id));
   const count = useDmUnreadCount(dm.id);
   const typing = useSomeoneTyping(dm.id, selfId);
+  // Konuşmada arama sürüyor: zamanın yerinde küçük yeşil telefon
+  const calling = useDmCall(dm.id) !== undefined;
   return (
     <View style={styles.rowWrap}>
       {unread && <UnreadMarker left={0} />}
@@ -176,7 +179,7 @@ const DmRow = memo(function DmRow({
         style={[styles.row, selected && styles.rowSelected]}
         accessibilityRole="button"
         accessibilityState={{ selected }}
-        accessibilityLabel={`${title}${count ? `, ${count} okunmamış mesaj` : ''}`}
+        accessibilityLabel={`${title}${calling ? ', arama sürüyor' : ''}${count ? `, ${count} okunmamış mesaj` : ''}`}
         accessibilityHint="Seçenekler için uzun bas"
       >
         <DmAvatar dm={dm} size={44} status decorated />
@@ -204,7 +207,11 @@ const DmRow = memo(function DmRow({
           )}
         </View>
         <View style={styles.meta}>
-          <Text style={[styles.time, count > 0 && { color: colors.head }]}>{formatAgo(dm.lastActivityAt)}</Text>
+          {calling ? (
+            <Ionicons name="call" size={14} color={colors.okText} />
+          ) : (
+            <Text style={[styles.time, count > 0 && { color: colors.head }]}>{formatAgo(dm.lastActivityAt)}</Text>
+          )}
           <CountBadge count={count} />
         </View>
       </Pressable>

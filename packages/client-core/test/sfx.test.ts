@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  CALL_SOUND_LABELS,
+  CALL_SOUND_NAMES,
+  CALL_SOUND_REPEAT_MS,
   ChannelSoundGate,
   encodeWav,
   OTHERS_QUIET_MS,
@@ -186,7 +189,7 @@ describe('arayüz sesleri', () => {
 
   it('telefondaki hazır sesler güncel (değişince: node apps/mobile/scripts/generate-sounds.mjs)', () => {
     const dir = join(__dirname, '..', '..', '..', 'apps', 'mobile', 'assets', 'sounds');
-    for (const name of PREVIEW_SOUND_NAMES) {
+    for (const name of [...PREVIEW_SOUND_NAMES, ...CALL_SOUND_NAMES]) {
       const file = readFileSync(join(dir, `${name}.wav`));
       const expected = encodeWav(renderSound(name));
       expect(file.length, name).toBe(expected.length);
@@ -196,5 +199,25 @@ describe('arayüz sesleri', () => {
       for (let i = 0; i < a.length; i++) diff = Math.max(diff, Math.abs(a[i]! - b[i]!));
       expect(diff, name).toBeLessThanOrEqual(1);
     }
+  });
+
+  it('arama sesleri: zil ve bekleme sesi ayrı listede; tıksız, tepe sınırında, aralarına sessizlik kalacak kadar kısa', () => {
+    expect(CALL_SOUND_NAMES).toEqual(['ring', 'ringback']);
+    for (const name of CALL_SOUND_NAMES) {
+      expect(CALL_SOUND_LABELS[name], name).toBeTruthy();
+      expect((SOUND_NAMES as readonly string[]).includes(name), name).toBe(false);
+      const b = renderSound(name);
+      expect(b.every((v) => Number.isFinite(v) && Math.abs(v) < 1), name).toBe(true);
+      expect(dbfs(peak(b)), name).toBeLessThanOrEqual(SFX_PEAK_DBFS + 0.01);
+      expect(loudness(b), name).toBeLessThanOrEqual(SFX_TARGET_RMS_DBFS + 0.01);
+      expect(Math.abs(b[0]!), name).toBeLessThan(1e-3);
+      expect(Math.abs(b[b.length - 1]!), name).toBeLessThan(1e-3);
+      expect(maxJump(b), name).toBeLessThan(0.225 * Math.pow(10, SFX_PEAK_DBFS / 20));
+      // Yinelenirken arada en az ~1 sn sessizlik kalır
+      expect(ms(b), name).toBeLessThanOrEqual(CALL_SOUND_REPEAT_MS[name] - 1000);
+      expect(ms(b), name).toBeGreaterThanOrEqual(400);
+    }
+    // Bekleme sesi zilden sakin (kısık)
+    expect(loudness(renderSound('ringback'))).toBeLessThan(loudness(renderSound('ring')) - 2);
   });
 });

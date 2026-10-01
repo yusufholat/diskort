@@ -182,28 +182,40 @@ export function channelPermissions(
 
 /**
  * Direkt mesaj katılımcılarının yetkileri (başkalarının mesajlarını silmek ve @everyone yok). Her katılımcı
- * mesaj sabitleyebilir (Discord gibi).
+ * mesaj sabitleyebilir (Discord gibi). Sesli arama ve ekran paylaşımı da her katılımcıya açıktır (sunucuda
+ * susturma DM'de yoktur); salt okunur konuşmada (bkz. dmPermissions) arama da yapılamaz.
  */
 export const DM_PERMISSIONS =
   Permission.VIEW_CHANNEL |
   Permission.SEND_MESSAGES |
   Permission.ATTACH_FILES |
   Permission.ADD_REACTIONS |
-  Permission.PIN_MESSAGES;
+  Permission.PIN_MESSAGES |
+  Permission.CONNECT |
+  Permission.SPEAK |
+  Permission.STREAM;
 
 /**
  * Direkt mesaj konuşmasındaki yetkiler. Roller, kanal izinleri, sahiplik ve ADMINISTRATOR uygulanmaz:
  * katılımcı olmayan (yönetici de olsa) hiçbir şey göremez. Üye olmayan (atılan/yasaklanan) katılımcının
- * yetkisi yoktur. Bire bir konuşmada karşı taraf artık üye değilse (ya da hesabı silindiyse) geçmiş
- * okunabilir ama mesaj gönderilemez.
+ * yetkisi yoktur. Bire bir konuşma salt okunur olur (geçmiş okunur; mesaj, tepki, arama yok): karşı taraf
+ * artık üye değilse (ya da hesabı silindiyse), iki taraftan biri diğerini engellediyse (`isBlocked`: iki
+ * yönden biri) ya da sunucu konuşmayı salt okunur bildirdiyse (`readOnly`; engelin yönü söylenmez). Engel
+ * grup konuşmalarını etkilemez.
  */
 export function dmPermissions(
-  dm: { participantIds: readonly string[]; group: boolean },
+  dm: { participantIds: readonly string[]; group: boolean; readOnly?: boolean },
   userId: string,
   isMember: (userId: string) => boolean,
+  isBlocked?: (otherId: string) => boolean,
 ): number {
   if (!dm.participantIds.includes(userId) || !isMember(userId)) return 0;
-  if (!dm.group && !dm.participantIds.some((id) => id !== userId && isMember(id))) return Permission.VIEW_CHANNEL;
+  if (!dm.group) {
+    const others = dm.participantIds.filter((id) => id !== userId);
+    if (dm.readOnly === true || !others.some((id) => isMember(id)) || (isBlocked && others.some((id) => isBlocked(id)))) {
+      return Permission.VIEW_CHANNEL;
+    }
+  }
   return DM_PERMISSIONS;
 }
 

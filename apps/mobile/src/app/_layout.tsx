@@ -11,6 +11,7 @@ import { UpdateBanner } from '../components/UpdateBanner';
 import { DialogHost } from '../components/Dialog';
 import { initSkia } from '../components/cosmetics/skia';
 import { GuildMenuHost } from '../components/GuildMenu';
+import { CallSounds, IncomingCallHost } from '../components/IncomingCall';
 import { StatusPickerHost } from '../components/StatusPicker';
 import { Toast } from '../components/Toast';
 import { Button } from '../components/ui';
@@ -252,6 +253,9 @@ export default function RootLayout() {
               </Stack.Protected>
             </Stack>
             <UpdateBanner key={`u${themeVersion}`} />
+            {/* Gelen DM araması: her ekranın üstünde kart; zil ve bekleme sesi */}
+            {token ? <IncomingCallHost key={`c${themeVersion}`} /> : null}
+            {token ? <CallSounds /> : null}
             <Toast key={themeVersion} />
             <StatusPickerHost />
             <GuildMenuHost />

@@ -1,4 +1,5 @@
-import { useGuild, type GuildStore } from './guild';
+import type { VoiceState } from '@diskort/shared';
+import { guildVoiceStateOf, useGuild, type GuildStore } from './guild';
 import { memberColorOf } from './permissions';
 
 /**
@@ -45,6 +46,32 @@ export function showsGuildInfo(s: Pick<GuildStore, 'activeGuildId'>, context: Pr
  */
 export function showsStreamInfo(context: ProfileContext): boolean {
   return context.kind === 'guild';
+}
+
+/**
+ * Bağlamda gösterilecek ses durumu ("Sesli sohbette", "Yayını izle"): sunucu bağlamında yalnızca bir sunucu
+ * kanalındaki durum (DM aramasındaki kişi sunucuda "seste" görünmez); DM bağlamında yalnızca o konuşmanın
+ * aramasındaysa. Profil kartı ve üye listesi s.voiceStates yerine bunu kullanmalı.
+ */
+export function voiceStateIn(
+  s: Pick<GuildStore, 'voiceStates' | 'channelGuild'>,
+  context: ProfileContext,
+  userId: string | null | undefined,
+): VoiceState | undefined {
+  if (!userId) return undefined;
+  if (context.kind === 'guild') return guildVoiceStateOf(s, userId);
+  const state = s.voiceStates[userId];
+  return context.channelId && state?.channelId === context.channelId ? state : undefined;
+}
+
+/** Bağlamdaki ses durumu (bkz. voiceStateIn) */
+export function useVoiceStateIn(context: ProfileContext, userId: string | null | undefined): VoiceState | undefined {
+  return useGuild((s) => voiceStateIn(s, context, userId));
+}
+
+/** Kişinin sunucu kanalındaki ses durumu (DM araması sayılmaz; bkz. guildVoiceStateOf) */
+export function useGuildVoiceState(userId: string | null | undefined): VoiceState | undefined {
+  return useGuild((s) => guildVoiceStateOf(s, userId));
 }
 
 /** Bağlamda bir kişiye (kendisi değilse, ortak sunucusu varsa) "Mesaj gönder" gösterilir mi */

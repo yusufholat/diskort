@@ -112,6 +112,10 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
   // Yazar artık burada değil: kanalda sunucunun üyesi değil, DM'de ortak sunucu yok
   const authorGone = !author || (inDm ? !reachable : author.removed);
   const canMessageAuthor = !own && !inDirect && !authorGone && reachable;
+  // Salt okunur bire bir konuşmada (engel, ortak sunucu yok) düzenleme ve yeni tepki yok; sunucu kanalında
+  // düzenleme yazma iznine bağlı değildir
+  const readOnlyDirect = inDirect && !canReply;
+  const ownEditable = own && !readOnlyDirect;
   /**
    * Yazarın adına ya da resmine sağ tıklayınca: kişi menüsü (mesaj gönder, ses seviyesi, yönetim).
    * Sol tık: ad yazma kutusuna bahsetme ekler, resim profil kartını açar.
@@ -180,7 +184,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
               },
             ]
           : []),
-        ...(own ? [{ label: 'Mesajı Düzenle', onClick: () => setEditing(message.id) }] : []),
+        ...(ownEditable ? [{ label: 'Mesajı Düzenle', onClick: () => setEditing(message.id) }] : []),
         ...(canPin
           ? [
               message.pinned
@@ -335,6 +339,8 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
                 count={r.count}
                 me={r.me}
                 animateIn={mounted.current}
+                // Salt okunur konuşmada yalnızca kendi tepkini geri alabilirsin
+                disabled={readOnlyDirect && !r.me}
                 onToggle={() => react(r.emoji)}
                 onShowAll={() => showReactions(r.emoji)}
               />
@@ -353,7 +359,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
         )}
       </div>
 
-      {confirmed && !editing && (canReact || canReply || own || canDelete) && (
+      {confirmed && !editing && (canReact || canReply || ownEditable || canDelete) && (
         // Üstüne gelince hafifçe belirip yükselen düğme şeridi
         <div className="pointer-events-none absolute -top-4 right-4 flex translate-y-1 overflow-hidden rounded-md border border-edge bg-bg-main opacity-0 shadow transition-[opacity,translate] duration-150 ease-out group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
           {canReact &&
@@ -388,7 +394,7 @@ export const MessageItem = memo(function MessageItem({ message, author, compact,
               <Reply size={18} className="ico-nudge-l" />
             </button>
           )}
-          {own && (
+          {ownEditable && (
             <button
               className="p-1.5 text-text-muted transition-colors hover:bg-bg-hover hover:text-text-head"
               data-tooltip="Düzenle"

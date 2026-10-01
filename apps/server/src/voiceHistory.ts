@@ -59,6 +59,8 @@ export class VoiceSessionRecorder {
     private readonly db: DatabaseSync,
     private readonly guildOf: (channelId: string) => string | null,
     private readonly log?: Log,
+    /** Kaydedilmeyen kanallar (DM aramaları): oraya geçen kişinin açık oturumu "move" olarak kapanır */
+    private readonly excluded: (channelId: string) => boolean = () => false,
   ) {}
 
   /**
@@ -102,6 +104,11 @@ export class VoiceSessionRecorder {
   }
 
   onUpdate(state: VoiceState, now = Date.now()): void {
+    if (this.excluded(state.channelId)) {
+      this.close('stream', state.userId, now, 'move');
+      this.close('voice', state.userId, now, 'move');
+      return;
+    }
     const voice = this.open.voice.get(state.userId);
     if (!voice || voice.channelId !== state.channelId) {
       if (voice) this.close('voice', state.userId, now, 'move');

@@ -1,7 +1,8 @@
 // Arayüz sesleri (katıl, ayrıl, sustur, sağırlaştır, yayın, biri girdi/çıktı, bahsedilme, bağlantı): tek
 // tanımdan (packages/client-core/src/sfx.ts) üretilmiş WAV dosyaları (scripts/generate-sounds.mjs); masaüstü
 // aynı sesleri çalar. expo-audio ile çalınır, haptics.ts'e takılır; çağıran yerler feedback('mute') /
-// soundCue('userJoin') kullanır. Ayarlar → Bildirimler ve Sesler: aç/kapat ve dinleme listesi.
+// soundCue('userJoin') kullanır. Ayarlar → Bildirimler ve Sesler: aç/kapat ve dinleme listesi. DM arama
+// sesleri (zil, bekleme) döngüyle çalar: startCallSound / stopCallSound (IncomingCall.tsx yönetir).
 //
 // Görüşme sesiyle birlikte çalmalı: expo-audio'nun "mixWithOthers" kipinde ses odağı (audio focus)
 // istenmez, LiveKit'in görüşmesi kısılmaz ya da duraklatılmaz. Dikkat: setAudioModeAsync Android'de ses
@@ -14,7 +15,15 @@
 //
 // Yerel modül yalnızca yeni APK'larda var: yoksa (ör. eski APK) ses sessizce atlanır, titreşim sürer.
 
-import { OTHERS_SOUNDS, SOUND_ALIASES, useGuild, useSession, type SoundName } from '@diskort/client-core';
+import {
+  CALL_SOUND_REPEAT_MS,
+  OTHERS_SOUNDS,
+  SOUND_ALIASES,
+  useGuild,
+  useSession,
+  type CallSoundName,
+  type SoundName,
+} from '@diskort/client-core';
 import { requireOptionalNativeModule } from 'expo';
 import { Platform } from 'react-native';
 import type * as ExpoAudio from 'expo-audio';
@@ -44,6 +53,15 @@ const FILES: Record<MobileSoundName, number> = {
   reconnected: require('../assets/sounds/reconnected.wav'),
 };
 
+/**
+ * Arama sesleri (DM aramaları): tek seferlik değil, arama sürdükçe CALL_SOUND_REPEAT_MS aralıkla yeniden
+ * çalınır (startCallSound / stopCallSound). Dinleme listesinde yoklar (masaüstündeki gibi ayrı liste).
+ */
+const CALL_FILES: Record<CallSoundName, number> = {
+  ring: require('../assets/sounds/ring.wav'),
+  ringback: require('../assets/sounds/ringback.wav'),
+};
+
 /** Ayarlardaki dinleme listesi */
 export const MOBILE_SOUND_NAMES = (Object.keys(FILES) as MobileSoundName[]).filter((name) => !SOUND_ALIASES[name]);
 
@@ -66,14 +84,15 @@ const EVENT_SOUND: Partial<Record<SoundEvent, MobileSoundName>> = {
   reconnected: 'reconnected',
 };
 
-const players = new Map<MobileSoundName, ExpoAudio.AudioPlayer>();
+const players = new Map<MobileSoundName | CallSoundName, ExpoAudio.AudioPlayer>();
 let audio: typeof ExpoAudio | null = null;
 
-function player(name: MobileSoundName): ExpoAudio.AudioPlayer | null {
+function player(name: MobileSoundName | CallSoundName): ExpoAudio.AudioPlayer | null {
   if (!audio) return null;
   let p = players.get(name);
   if (!p) {
-    p = audio.createAudioPlayer(FILES[name], { keepAudioSessionActive: Platform.OS === 'ios' });
+    const file = name in CALL_FILES ? CALL_FILES[name as CallSoundName] : FILES[name as MobileSoundName];
+    p = audio.createAudioPlayer(file, { keepAudioSessionActive: Platform.OS === 'ios' });
     players.set(name, p);
   }
   return p;
@@ -94,7 +113,7 @@ function allowed(name: MobileSoundName): boolean {
   return !(OTHERS_SOUNDS.has(name) && deafened());
 }
 
-function start(name: MobileSoundName): void {
+function start(name: MobileSoundName | CallSoundName): void {
   const p = player(name);
   if (!p) return;
   // Oynatıcı bir önceki çalışın sonunda durur: başa sarıp yeniden çal
@@ -112,6 +131,58 @@ function play(event: SoundEvent): void {
 /** Ayarlardaki dinleme düğmesi: açık/kapalı ayarlarına bakılmaz */
 export function previewSound(name: MobileSoundName): void {
   start(name);
+}
+
+/** Döngüdeki arama sesi (aynı anda tek bir tane) */
+let looping: { name: CallSoundName; timer: ReturnType<typeof setInterval> } | null = null;
+
+/**
+ * Arama sesinin ayarı: zil bir bildirim gibidir (bildirim sesi ayarı), bekleme sesi arayüz sesidir (sesler
+ * ayarı). Sağırken ikisi de çalmaz. Telefon sessizdeyken/titreşimdeyken expo-audio'nun kipi gereği zaten
+ * duyulmaz (setupSounds: playsInSilentMode false).
+ */
+function callSoundAllowed(name: CallSoundName): boolean {
+  const s = getSettings();
+  if (deafened()) return false;
+  return name === 'ring' ? s.notificationSound : s.sounds;
+}
+
+/**
+ * Arama sesini döngüyle çalar (sesin başından bir sonrakinin başına CALL_SOUND_REPEAT_MS). Aynı ses zaten
+ * çalıyorsa bir şey yapmaz; başka arama sesi çalıyorsa onun yerini alır. Her turda ayarlara yeniden bakılır.
+ */
+export function startCallSound(name: CallSoundName): void {
+  if (looping?.name === name) return;
+  stopCallSound();
+  const tick = (): void => {
+    const p = callSoundAllowed(name) ? player(name) : null;
+    if (!p) return;
+    // Başa sarma bitmeden durdurulduysa (kabul/ret) çalınmaz
+    void p
+      .seekTo(0)
+      .then(() => {
+        if (looping?.name === name) p.play();
+      })
+      .catch(() => undefined);
+  };
+  looping = { name, timer: setInterval(tick, CALL_SOUND_REPEAT_MS[name]) };
+  tick();
+}
+
+/** Döngüdeki arama sesini durdurur (çalan turu da keser) */
+export function stopCallSound(): void {
+  if (!looping) return;
+  const { name, timer } = looping;
+  looping = null;
+  clearInterval(timer);
+  const p = players.get(name);
+  if (p) {
+    try {
+      p.pause();
+    } catch {
+      // oynatıcı kapatılmış olabilir: önemli değil
+    }
+  }
 }
 
 /** Bu APK'da ses çalınabiliyor mu (eski APK'larda expo-audio yok) */

@@ -186,8 +186,10 @@ export function registerTelemetryRoutes(app: FastifyInstance, ctx: AppContext): 
     if (!body) return reply;
     const state = ctx.voice.get(req.user.id);
     const channelId = state?.channelId ?? null;
-    const entry = telemetry.ingest(req.user.id, body as VoiceTelemetryReport, {
-      channelId,
+    // DM aramasının ölçümü tutulur ama kişi ve konuşma takma kimlikle (yönetim paneli kimin kiminle
+    // konuştuğunu göremez; bkz. privateCalls.ts)
+    const entry = telemetry.ingest(ctx.privacy.user(req.user.id, channelId), body as VoiceTelemetryReport, {
+      channelId: ctx.privacy.channel(channelId),
       guildId: channelId ? (ctx.store.getChannel(channelId)?.guildId ?? null) : null,
     });
     try {

@@ -133,6 +133,15 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
   const allowMessage = createRateLimiter();
   const allowReaction = createRateLimiter(30);
 
+  /**
+   * Salt okunur DM'de yazılamadığının iletisi: engelleyene kendi engeli hatırlatılır; engellenene (ve ortak
+   * sunucusu kalmayana) yalnızca genel ileti (engel söylenmez).
+   */
+  const dmReadOnlyMessage = (userId: string, channelId: string): string =>
+    permissions.blockedPartnerOf(userId, channelId) === 'self'
+      ? 'Bu kişiyi engelledin; mesaj göndermek için önce engeli kaldır.'
+      : 'Bu konuşmaya artık mesaj gönderemezsin.';
+
   /** Yeni mesaja gömülü içeriği (GIF) yazar */
   const withEmbeds = (message: Message, embeds: Embed[]): Message => {
     store.setMessageEmbeds(Number(message.id), embeds);
@@ -223,12 +232,9 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
       const { channel } = target;
       const perms = permissions.inChannel(req.user.id, channel ?? target.id);
       if (!hasPermission(perms, Permission.SEND_MESSAGES)) {
-        return forbidden(
-          reply,
-          channel
-            ? 'Bu kanala mesaj gönderme iznin yok.'
-            : 'Bu kişiyle artık ortak bir sunucunuz olmadığı için mesaj gönderemezsin.',
-        );
+        // DM salt okunur: ortak sunucu kalmadı ya da engel var. Engellenen kişiye neden söylenmez (genel ileti);
+        // engelleyene kendi engeli hatırlatılır.
+        return forbidden(reply, channel ? 'Bu kanala mesaj gönderme iznin yok.' : dmReadOnlyMessage(req.user.id, target.id));
       }
       if (!allowMessage(req.user.id)) {
         return sendError(reply, 429, 'rate_limited', 'Çok hızlı mesaj gönderiyorsun, biraz yavaşla.');
@@ -316,6 +322,13 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
     if (!existing) return reply;
     if (existing.authorId !== req.user.id) {
       return sendError(reply, 403, 'forbidden', 'Yalnızca kendi mesajını düzenleyebilirsin.');
+    }
+    // Arama kaydını sunucu yazar ve günceller
+    if (existing.type === 'call') return sendError(reply, 400, 'not_editable', 'Arama kaydı düzenlenemez.');
+    // Salt okunur DM'de (ortak sunucu yok ya da engel) eski mesajlar da düzenlenemez; ileti göndermedeki gibi
+    // (engellenene neden söylenmez). Silmek serbest kalır.
+    if (permissions.isDm(existing.channelId) && !permissions.can(req.user.id, Permission.SEND_MESSAGES, existing.channelId)) {
+      return forbidden(reply, dmReadOnlyMessage(req.user.id, existing.channelId));
     }
     const body = parseBody(editSchema, req.body, reply);
     if (!body) return reply;
@@ -555,6 +568,10 @@ export function registerMessageRoutes(app: FastifyInstance, ctx: AppContext): vo
       // Yeni tepki eklemek yetki ister; var olan tepkiye katılmak serbest (Discord gibi)
       if (!target.exists && !permissions.can(req.user.id, Permission.ADD_REACTIONS, target.channelId)) {
         return forbidden(reply, 'Bu kanalda yeni tepki ekleme iznin yok.');
+      }
+      // Salt okunur DM'de (ortak sunucu yok ya da engel) var olan tepkiye de katılınamaz
+      if (permissions.isDm(target.channelId) && !permissions.can(req.user.id, Permission.SEND_MESSAGES, target.channelId)) {
+        return forbidden(reply, 'Bu konuşmada artık tepki verilemez.');
       }
       const result = store.addReaction(target.messageId, req.user.id, target.emoji);
       if (result === 'limit') {

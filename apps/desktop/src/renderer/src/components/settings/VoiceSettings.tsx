@@ -1,11 +1,11 @@
 import { Play } from 'lucide-react';
-import { PREVIEW_SOUND_NAMES, SOUND_LABELS } from '@diskort/client-core';
+import { CALL_SOUND_LABELS, CALL_SOUND_NAMES, PREVIEW_SOUND_NAMES, SOUND_LABELS } from '@diskort/client-core';
 import { useEffect, useRef, useState } from 'react';
 import { voice } from '../../features/voice/voiceClient';
 import { MIC_TEST_RECORD_MS, type MicTest, type MicTestPhase } from '../../features/voice/micTest';
 import { fallbackLabel } from '../../features/voice/noiseFallback';
 import { bridge } from '../../lib/bridge';
-import { playSound } from '../../lib/sfx';
+import { playSound, previewCallSound } from '../../lib/sfx';
 import { cn, clamp } from '../../lib/utils';
 import { MAX_VOLUME, useSettings, type NoiseMode, type NoiseStrengthDb } from '../../stores/settings';
 import { useVoice } from '../../stores/voice';
@@ -421,6 +421,18 @@ export function SoundSettings() {
           >
             <Play size={14} className="ico-nudge-r shrink-0 text-text-faint" aria-hidden />
             <span className="truncate">{SOUND_LABELS[name]}</span>
+          </button>
+        ))}
+        {/* Arama sesleri (aramada döngüyle çalar; burada bir kez) */}
+        {CALL_SOUND_NAMES.map((name) => (
+          <button
+            key={name}
+            type="button"
+            onClick={() => previewCallSound(name)}
+            className="press flex items-center gap-2 rounded-[3px] px-2 py-1.5 text-left text-sm text-text-muted hover:bg-bg-hover hover:text-text-normal"
+          >
+            <Play size={14} className="ico-nudge-r shrink-0 text-text-faint" aria-hidden />
+            <span className="truncate">{CALL_SOUND_LABELS[name]}</span>
           </button>
         ))}
       </div>

@@ -48,6 +48,7 @@ import { Avatar } from '../ui/Avatar';
 import { CosmeticsCover } from '../cosmetics/Cosmetics';
 import { Button, Divider, Field, SectionTitle, Select, TextInput, Toggle } from '../ui/controls';
 import { ActivitySettings } from './ActivitySettings';
+import { BlockedUsers } from './BlockedUsers';
 import { ChangePassword } from './ChangePassword';
 import { DeleteAccount } from './DeleteAccount';
 import { KeybindInput } from './KeybindInput';
@@ -280,7 +281,7 @@ function NavItem({
   );
 }
 
-/** Hesabım: görünen ad, kullanıcı adı, şifre değiştirme ve hesabı silme */
+/** Hesabım: görünen ad, kullanıcı adı, engellenenler, şifre değiştirme ve hesabı silme */
 function AccountSection() {
   // Hesap düzeyi: hiçbir sunucunun rolü ya da rengi burada gösterilmez
   const user = useSession((s) => s.user);
@@ -329,6 +330,8 @@ function AccountSection() {
       <Field label="Kullanıcı adı">
         <TextInput value={user.username} disabled readOnly />
       </Field>
+      <Divider />
+      <BlockedUsers />
       <Divider />
       <ChangePassword />
       <Divider />

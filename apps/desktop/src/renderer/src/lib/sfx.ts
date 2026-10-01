@@ -5,11 +5,13 @@
 // (setSinkId) bitmeden çalınan ses eskiden kayboluyordu (ilk ses genelde "katıldın" sesiydi); artık
 // aygıt hazır olana dek beklenir.
 import {
+  CALL_SOUND_REPEAT_MS,
   OTHERS_SOUNDS,
   renderSound,
   SFX_SAMPLE_RATE,
   useGuild,
   useSession,
+  type CallSoundName,
   type SoundName,
 } from '@diskort/client-core';
 import { getSettings, useSettings } from '../stores/settings';
@@ -22,7 +24,7 @@ let ctx: SinkContext | null = null;
 /** Bağlama uygulanmış çıkış aygıtı ('' = sistemin varsayılanı) */
 let appliedSink = '';
 let sinkChange: Promise<void> | null = null;
-const buffers = new Map<SoundName, AudioBuffer>();
+const buffers = new Map<SoundName | CallSoundName, AudioBuffer>();
 const lastPlayed = new Map<SoundName, number>();
 
 /** Aynı ses bu süreden sık çalınmaz (ör. kısayola art arda basınca üst üste binmesin) */
@@ -61,7 +63,7 @@ async function ready(): Promise<AudioContext> {
   return ac;
 }
 
-function buffer(ac: AudioContext, name: SoundName): AudioBuffer {
+function buffer(ac: AudioContext, name: SoundName | CallSoundName): AudioBuffer {
   let b = buffers.get(name);
   if (!b) {
     const samples = renderSound(name, SFX_SAMPLE_RATE);
@@ -124,3 +126,77 @@ export function playSound(name: SoundName, opts: { preview?: boolean } = {}): vo
     })
     .catch(() => undefined);
 }
+
+// ---------- Arama sesleri (döngülü) ----------
+
+/** Çalan arama sesleri: ad → yeniden çalma zamanlayıcısı ve son çalınan kaynak */
+const loops = new Map<CallSoundName, { timer: number; source: AudioBufferSourceNode | null }>();
+
+/**
+ * Arama sesinin ayarı (telefondakiyle aynı): zil bir bildirim gibidir (bildirim sesi ayarı), bekleme sesi
+ * arayüz sesidir (sesler ayarı). Sağırken ikisi de çalmaz. Her turda yeniden bakılır.
+ */
+function callSoundAllowed(name: CallSoundName): boolean {
+  if (selfDeafened()) return false;
+  const s = getSettings();
+  return name === 'ring' ? s.notificationSound : s.sounds;
+}
+
+function playLoopOnce(name: CallSoundName): void {
+  if (!callSoundAllowed(name)) return;
+  void ready()
+    .then((ac) => {
+      const loop = loops.get(name);
+      if (!loop) return; // bu arada durduruldu
+      const src = ac.createBufferSource();
+      src.buffer = buffer(ac, name);
+      src.connect(ac.destination);
+      src.onended = () => {
+        src.disconnect();
+        if (loop.source === src) loop.source = null;
+      };
+      loop.source = src;
+      src.start(ac.currentTime + 0.005);
+    })
+    .catch(() => undefined);
+}
+
+/**
+ * Arama sesini (gelen arama 'ring', aranıyor 'ringback') açar ya da kapatır: açıkken CALL_SOUND_REPEAT_MS
+ * aralıkla yeniden çalar. Tekrarlanan açma/kapama zararsızdır. Kapatınca çalmakta olan ses de hemen susar.
+ */
+export function setCallSound(name: CallSoundName, on: boolean): void {
+  const current = loops.get(name);
+  if (on) {
+    if (current) return;
+    const loop = { timer: 0, source: null as AudioBufferSourceNode | null };
+    loops.set(name, loop);
+    loop.timer = window.setInterval(() => playLoopOnce(name), CALL_SOUND_REPEAT_MS[name]);
+    playLoopOnce(name);
+    return;
+  }
+  if (!current) return;
+  loops.delete(name);
+  window.clearInterval(current.timer);
+  try {
+    current.source?.stop();
+  } catch {
+    // zaten bitmiş
+  }
+}
+
+/** Arama sesini ayarlardaki dinleme düğmesi için bir kez çalar */
+export function previewCallSound(name: CallSoundName): void {
+  void ready()
+    .then((ac) => {
+      const src = ac.createBufferSource();
+      src.buffer = buffer(ac, name);
+      src.connect(ac.destination);
+      src.onended = () => src.disconnect();
+      src.start(ac.currentTime + 0.005);
+    })
+    .catch(() => undefined);
+}
+
+/** Şu an döngüde çalan arama sesleri (hata ayıklama ve test için) */
+export const activeCallSounds = (): CallSoundName[] => [...loops.keys()];

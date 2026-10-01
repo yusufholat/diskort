@@ -35,6 +35,7 @@ import type {
   UpdateMeRequest,
   UpdateRoleRequest,
   User,
+  UserBlock,
   VoiceJoinResponse,
   VoiceModerationRequest,
 } from '@diskort/shared';
@@ -261,6 +262,19 @@ export const api = {
   closeDm: (id: string) => request<void>('DELETE', `/api/dms/${id}`),
   addDmParticipant: (id: string, userId: string) =>
     request<DmChannel>('PUT', `/api/dms/${id}/participants/${userId}`),
+  /**
+   * DM araması: arama, konuşmanın ses odasına bağlanınca (joinVoice(dmId)) başlar; bunlar yalnızca çalmayı
+   * yönetir. Reddet: yalnızca senin için çalma biter (tekrarlanabilir).
+   */
+  declineDmCall: (id: string) => request<void>('POST', `/api/dms/${id}/call/decline`),
+  /** Aramadaki biri, aramada olmayan bir katılımcıyı (userId yoksa hepsini) yeniden çalar; aramada değilsen 409 */
+  ringDmCall: (id: string, userId?: string) =>
+    request<void>('POST', `/api/dms/${id}/call/ring`, userId ? { userId } : {}),
+
+  // Engellemeler (yalnızca kendi listen)
+  listBlocks: () => request<UserBlock[]>('GET', '/api/me/blocks'),
+  blockUser: (userId: string) => request<void>('PUT', `/api/me/blocks/${userId}`),
+  unblockUser: (userId: string) => request<void>('DELETE', `/api/me/blocks/${userId}`),
 };
 
 export function errorMessage(err: unknown): string {

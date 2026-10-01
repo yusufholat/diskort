@@ -9,7 +9,7 @@ import {
   type Channel,
   type Role,
 } from '@diskort/shared';
-import type { GuildPermissionData, Store } from './db.js';
+import { blockKey, type GuildPermissionData, type Store } from './db.js';
 
 /**
  * Sunucudaki yetki denetimleri. Hesaplama istemcilerle ortak koddur (@diskort/shared); veriler
@@ -52,6 +52,31 @@ export class PermissionService {
     const mine = this.guildsOf(a);
     for (const id of this.guildsOf(b)) if (mine.has(id)) return true;
     return false;
+  }
+
+  /** `blocker`, `blocked`'ı engelledi mi */
+  hasBlocked(blocker: string, blocked: string): boolean {
+    return this.data.blocks.has(blockKey(blocker, blocked));
+  }
+
+  /** İki kişiden biri diğerini engelledi mi (yönü fark etmez) */
+  blockedEither(a: string, b: string): boolean {
+    const blocks = this.data.blocks;
+    return blocks.size > 0 && (blocks.has(blockKey(a, b)) || blocks.has(blockKey(b, a)));
+  }
+
+  /**
+   * Bire bir konuşmada engel: 'self' kullanıcı karşı tarafı engelledi (ona açıkça söylenebilir), 'other'
+   * yalnızca karşı taraf onu engelledi (kullanıcıya söylenmez, yalnızca genel "yapılamıyor" gösterilir),
+   * engel yoksa (ya da grup/DM değilse) null.
+   */
+  blockedPartnerOf(userId: string, channelId: string): 'self' | 'other' | null {
+    const dm = this.data.dms.get(channelId);
+    if (!dm || dm.group) return null;
+    const partner = dm.participantIds.find((id) => id !== userId);
+    if (!partner) return null;
+    if (this.hasBlocked(userId, partner)) return 'self';
+    return this.hasBlocked(partner, userId) ? 'other' : null;
   }
 
   /** Kullanıcıyla ortak sunucusu olan herkes (kendisi dahil) */
@@ -100,7 +125,14 @@ export class PermissionService {
     const data = this.data;
     if (typeof channel === 'string') {
       const dm = data.dms.get(channel);
-      if (dm) return dmPermissions(dm, userId, (id) => id === userId || this.sharesGuild(userId, id));
+      if (dm) {
+        return dmPermissions(
+          dm,
+          userId,
+          (id) => id === userId || this.sharesGuild(userId, id),
+          (id) => this.blockedEither(userId, id),
+        );
+      }
     }
     const c = typeof channel === 'string' ? this.channel(channel) : channel;
     if (!c) return 0;

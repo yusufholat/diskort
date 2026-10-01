@@ -164,6 +164,55 @@ export interface DmChannel {
   lastMessageId: string | null;
   /** Son mesajın zamanı, mesaj yoksa oluşturulma zamanı (liste buna göre sıralanır) */
   lastActivityAt: number;
+  /**
+   * Bire bir konuşma salt okunur: iki taraftan biri diğerini engelledi. Geçmiş okunur; mesaj, tepki ve arama
+   * yok. Yalnızca true iken gelir (eski sunucularda hiç gelmez). Engelin yönü bilerek söylenmez: engellenen
+   * kişi yalnızca konuşmanın salt okunur olduğunu görür (engelleyen kendi listesinden bilir, bkz.
+   * ReadyPayload.blockedUserIds). Ortak sunucu kalmaması bu alanı değiştirmez (istemci onu kendisi bilir).
+   */
+  readOnly?: boolean;
+}
+
+/**
+ * Direkt mesajda süren sesli arama (bire bir ya da grup). Arama, konuşmanın ses odasında (ch_<konuşma>) en
+ * az bir kişi olduğu sürece vardır; oda boşalınca biter (DM_CALL_DELETE). İlk kişi bağlanınca diğer
+ * katılımcılar çalınır (`ringing`): katılınca, reddedince (POST /api/dms/:id/call/decline) ya da
+ * DM_CALL_RING_MS dolunca listeden çıkar. Kimin seste olduğu her zamanki gibi VOICE_STATE_* olaylarından
+ * okunur. Rahatsız Etmeyin'deki ve aramayı başlatanı engellemiş kişi çalınmaz (yine de aramaya katılabilir).
+ */
+export interface DmCall {
+  /** Konuşmanın kimliği (ses odası voiceRoomName(channelId)) */
+  channelId: string;
+  /** Aramayı başlatan (odaya ilk bağlanan) */
+  startedBy: string;
+  /** Başladığı an (ms, sunucu saati) */
+  startedAt: number;
+  /** Şu an çalınanlar: aranan ama henüz katılmamış, reddetmemiş ve süresi dolmamış katılımcılar */
+  ringing: string[];
+  /**
+   * Çalınan → çalmanın (son) başladığı an (ms, sunucu saati). Yeniden çalınınca değişir: istemci kendi çalma
+   * süresini (bağlantı koptuğunda da biten) bununla yeniler. Eski sunucularda yok.
+   */
+  ringStartedAt?: Record<string, number>;
+  /** Aramanın konuşmadaki kaydı (type 'call' mesajı); yoksa null */
+  messageId: string | null;
+}
+
+/** Çalan aramanın her kişi için en uzun süresi (ms): sonra o kişi için çalma durur */
+export const DM_CALL_RING_MS = 30_000;
+
+/** POST /api/dms/:id/call/ring: aramadaki biri, aramada olmayan bir katılımcıyı (yoksa hepsini) yeniden çalar */
+export interface DmCallRingRequest {
+  userId?: string;
+}
+
+/** Engellenen bir kişi (GET /api/me/blocks); yalnızca engelleyen kendi listesini görür */
+export interface UserBlock {
+  userId: string;
+  /** Engellendiği an */
+  createdAt: number;
+  /** Profili (hesap silindiyse ya da artık tanınmıyorsa null) */
+  user: User | null;
 }
 
 export interface VoiceState {
@@ -392,6 +441,61 @@ export interface Message {
    * gelir. Bunu bilmeyen eski sunucularda hiç gelmez.
    */
   pinned?: boolean;
+  /**
+   * Mesajın türü: yoksa sıradan mesaj. 'call': sunucunun DM'ye yazdığı arama kaydı (`call` alanıyla; yazarı
+   * aramayı başlatandır, düzenlenemez). Bunu bilmeyen eski istemciler `content`'i (callMessageText) yazarın
+   * düz metni olarak gösterir. İstemci tanımadığı türü düz mesaj gibi göstermelidir.
+   */
+  type?: MessageType;
+  /** type 'call' ise aramanın bilgisi */
+  call?: MessageCall | null;
+}
+
+/** Mesajın türü (bkz. Message.type) */
+export type MessageType = 'default' | 'call';
+
+/**
+ * Arama kaydı (type 'call'): mesajın createdAt'i aramanın başladığı andır. Arama sürerken endedAt null;
+ * bitince MESSAGE_UPDATE ile endedAt ve aramaya katılanların tamamı gelir.
+ */
+export interface MessageCall {
+  /** Aramaya katılanlar (başlatan dahil), ilk katılma sırasıyla */
+  participantIds: string[];
+  /** Bittiği an (ms); sürüyorsa null */
+  endedAt: number | null;
+}
+
+export const isCallMessage = (m: Pick<Message, 'type'>): boolean => m.type === 'call';
+
+/** Cevapsız arama: bitti ve başlatandan başka kimse katılmadı */
+export const isMissedCall = (m: Pick<Message, 'type' | 'call'>): boolean =>
+  m.type === 'call' && !!m.call && m.call.endedAt !== null && m.call.participantIds.length <= 1;
+
+/** Aramanın süresi (ms): bittiyse başlangıçtan bitişe, sürüyorsa `now`a kadar; arama kaydı değilse null */
+export function callDurationMs(m: Pick<Message, 'type' | 'call' | 'createdAt'>, now: number = Date.now()): number | null {
+  if (m.type !== 'call' || !m.call) return null;
+  return Math.max(0, (m.call.endedAt ?? now) - m.createdAt);
+}
+
+/** Arama süresi okunur biçimde: "45 sn", "5 dk", "1 sa 5 dk" */
+export function formatCallDuration(ms: number): string {
+  const sec = Math.max(0, Math.round(ms / 1000));
+  if (sec < 60) return `${sec} sn`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min} dk`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h} sa ${m} dk` : `${h} sa`;
+}
+
+/**
+ * Arama kaydının metni (mesajın `content`'i; eski istemciler bunu gösterir, aramada bunu bilen istemciler
+ * kendi görünümünü çizebilir): sürerken "Arama başlattı.", cevapsızsa "Cevapsız arama.", bitince süresiyle.
+ */
+export function callMessageText(call: MessageCall, createdAt: number): string {
+  if (call.endedAt === null) return '📞 Arama başlattı.';
+  if (call.participantIds.length <= 1) return '📞 Cevapsız arama.';
+  return `📞 Arama başlattı · ${formatCallDuration(call.endedAt - createdAt)} sürdü.`;
 }
 
 /** Sabitlenmiş mesajlar listesindeki mesaj (GET /api/channels/:id/pins): ne zaman ve kimin sabitlediği */
@@ -822,6 +926,13 @@ export interface ReadyPayload {
    * her mesajı bahsetme gibi sayılır.
    */
   dms?: DmChannel[];
+  /**
+   * Katıldığın konuşmalarda süren sesli aramalar (çalınıyor olabilirsin: ringing). Yalnızca 'dm' özelliğini
+   * bildiren istemcilere; eski sunucularda hiç gelmez.
+   */
+  dmCalls?: DmCall[];
+  /** Engellediğin kişiler (yalnızca senin listen; seni engelleyenler hiçbir yerde söylenmez). Eski sunucularda yok. */
+  blockedUserIds?: string[];
 }
 
 export type GatewayServerMessage =
@@ -886,6 +997,15 @@ export type GatewayServerMessage =
   | { t: 'DM_CHANNEL_CREATE'; d: DmChannel }
   | { t: 'DM_CHANNEL_UPDATE'; d: DmChannel }
   | { t: 'DM_CHANNEL_DELETE'; d: { id: string } }
+  /**
+   * Konuşmada sesli arama başladı ya da değişti (çalınanlar listesi). Yalnızca 'dm' özelliğini bildiren
+   * istemcilere, konuşmanın katılımcılarına. Eski istemciler tanımadığı olayı yok sayar.
+   */
+  | { t: 'DM_CALL_UPDATE'; d: DmCall }
+  /** Arama bitti (ses odası boşaldı) */
+  | { t: 'DM_CALL_DELETE'; d: { channelId: string } }
+  /** Engellediklerin değişti (yalnızca engelleyenin kendi oturumlarına): listenin tamamı */
+  | { t: 'USER_BLOCKS_UPDATE'; d: { userIds: string[] } }
   | { t: 'INVALID_SESSION'; d: { reason: string } }
   /** İstemci sürümü eski: bağlantı kapatılır, güncellemeden yeniden bağlanılamaz */
   | { t: 'UPDATE_REQUIRED'; d: { version: string } }
@@ -1037,6 +1157,23 @@ export function voiceRoomName(channelId: string): string {
 export function channelIdFromRoom(roomName: string): string | null {
   return roomName.startsWith(VOICE_ROOM_PREFIX) ? roomName.slice(VOICE_ROOM_PREFIX.length) : null;
 }
+
+/** Android bildirim kanalları (kimlikler kalıcıdır: telefon kanalı bu kimlikle oluşturur, sunucu bununla gönderir) */
+export const PUSH_CHANNEL_MENTIONS = 'diskort-mentions';
+export const PUSH_CHANNEL_DM = 'diskort-dm';
+/**
+ * Gelen arama ve cevapsız arama bildirimleri: yüksek öncelikli ayrı kanal (telefon uygulaması oluşturur;
+ * oluşturmamış eski sürümde Android bildirimi varsayılan kanalda gösterir).
+ */
+export const PUSH_CHANNEL_CALL = 'diskort-call';
+
+/**
+ * Telefon bildiriminin verisi (`data`; iOS'ta ayrıca `body` altında): her türde `type` ve (test hariç)
+ * `channelId` vardır; dokununca o kanal ya da konuşma açılır. 'call': biri seni arıyor; 'missed_call':
+ * aynı aramanın cevapsız kaldığı (aynı etiketle öncekinin yerini alır). Aramalarda `messageId` arama kaydının
+ * kimliğidir (konuşma okununca bildirim kalkar, bkz. pushTag).
+ */
+export type PushDataType = 'mention' | 'dm' | 'call' | 'missed_call' | 'test';
 
 const PUSH_TAG_PREFIX = 'diskort:';
 

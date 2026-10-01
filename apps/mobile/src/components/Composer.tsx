@@ -81,11 +81,22 @@ interface Props {
   placeholder?: string;
   /** Yazılamıyorsa kutu yerine gösterilecek açıklama (verilmezse izin yok mesajı) */
   lockedText?: string;
+  /** Kilitli kutunun sağında işlem (ör. engellediğin kişide "Engeli kaldır") */
+  lockedAction?: { title: string; onPress: () => void };
   /** Bahsetme önerilerinde yalnızca bu kişiler (ör. konuşmanın katılımcıları) */
   mentionable?: readonly string[];
 }
 
-export function Composer({ channel, editing, onDoneEditing, onSent, placeholder, lockedText, mentionable }: Props) {
+export function Composer({
+  channel,
+  editing,
+  onDoneEditing,
+  onSent,
+  placeholder,
+  lockedText,
+  lockedAction,
+  mentionable,
+}: Props) {
   const [value, setValue] = useState(() => drafts.get(channel.id) ?? '');
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   // İmleç yalnızca bahsetme seçilince bir kez ayarlanır (sürekli kontrol Android'de imleci zıplatır)
@@ -222,6 +233,16 @@ export function Composer({ channel, editing, onDoneEditing, onSent, placeholder,
       <View style={styles.locked}>
         <Ionicons name="lock-closed" size={16} color={colors.muted} />
         <Text style={styles.lockedText}>{lockedText ?? 'Bu kanala mesaj gönderme iznin yok.'}</Text>
+        {lockedAction ? (
+          <Pressable
+            onPress={lockedAction.onPress}
+            hitSlop={8}
+            accessibilityRole="button"
+            style={styles.lockedAction}
+          >
+            <Text style={styles.lockedActionText}>{lockedAction.title}</Text>
+          </Pressable>
+        ) : null}
       </View>
     );
   }
@@ -541,6 +562,8 @@ const styles = createStyles(() => ({
     backgroundColor: colors.side,
   },
   lockedText: { color: colors.muted, fontSize: 15, flexShrink: 1 },
+  lockedAction: { marginLeft: 'auto', paddingVertical: 6, paddingLeft: space.xs },
+  lockedActionText: { color: colors.link, fontSize: 15, fontWeight: '700' },
   tray: { flexGrow: 0 },
   trayContent: { gap: 10, paddingHorizontal: space.md, paddingTop: space.md, paddingBottom: 4 },
   trayItem: { width: 88 },

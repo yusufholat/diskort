@@ -67,6 +67,19 @@ export class VoiceModeration {
     await Promise.all(this.voice.list().map((s) => this.enforce(s.userId, s.channelId)));
   }
 
+  /**
+   * Yalnızca DM aramalarındakiler: bire bir konuşma salt okunur olduysa (ortak sunucu kalmadı) aramadan
+   * çıkarılır. Sunucu kanallarındaki susturma/izinler DM'ye uygulanmaz (flagsIn DM'de hep boştur).
+   */
+  async enforceDmCalls(): Promise<void> {
+    await Promise.all(
+      this.voice
+        .list()
+        .filter((s) => this.permissions.isDm(s.channelId))
+        .map((s) => this.enforce(s.userId, s.channelId)),
+    );
+  }
+
   private async enforce(userId: string, channelId: string): Promise<void> {
     if (!this.canConnect(userId, channelId)) {
       await this.disconnect(userId);

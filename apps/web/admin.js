@@ -849,13 +849,14 @@ function voice(d, now) {
           h('span', 'adm-channel-name', `🔊 ${c.name}`),
           c.guildName && h('span', 'adm-muted', c.guildName),
           h('span', 'adm-muted adm-push', `${num(c.participants.length)} kişi`),
-          traceRequestButton(c.channelId),
+          // Özel arama (DM): kimliksiz gösterilir, yönetici olay kaydı isteyemez
+          !c.private && traceRequestButton(c.channelId),
         ),
         h(
           'ul',
           'adm-rows',
           c.participants.map((p) => {
-            const name = p.user?.displayName ?? 'Silinmiş kullanıcı';
+            const name = p.user?.displayName ?? (c.private ? 'Gizli katılımcı' : 'Silinmiş kullanıcı');
             const screen = p.tracks?.find((t) => t.source === 'screen');
             const mic = p.tracks?.find((t) => t.source === 'microphone');
             const q = qualityOf(d, p.userId);

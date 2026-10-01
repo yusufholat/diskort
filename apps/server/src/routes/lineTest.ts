@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { User } from '@diskort/shared';
 import { parseBody, sendError, type AppContext } from '../context.js';
+import { isPrivateId, PRIVATE_CALL_NAME } from '../privateCalls.js';
 import { groupSuites, syncGroups, type ClientContext, type LineRun } from '../lineTest/service.js';
 import { ADMIN_PROFILES, LINE_MODES, LINE_PROFILES, USER_PROFILES, type LineProfile } from '../lineTest/plan.js';
 import { stepStats } from '../lineTest/verdict.js';
@@ -350,6 +351,11 @@ export function registerLineTestRoutes(app: FastifyInstance, ctx: AppContext): v
     const channelIds = [...new Set(suites.flatMap((s) => s.runs.flatMap((r: LineRun) => r.streaming.channels)))];
     const channels: Record<string, string> = {};
     for (const id of channelIds) {
+      // DM aramasındaki yayın takma kimlikle kaydedilir (bkz. privateCalls.ts)
+      if (isPrivateId(id)) {
+        channels[id] = PRIVATE_CALL_NAME;
+        continue;
+      }
       const c = ctx.store.getChannel(id);
       if (c) channels[id] = c.name;
     }

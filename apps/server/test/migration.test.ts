@@ -718,7 +718,7 @@ describe('göç 23: eski kozmetikler kaldırıldı', () => {
     const store = new Store(file);
     try {
       expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
-      expect(MIGRATIONS.length).toBe(24);
+      expect(MIGRATIONS.length).toBe(25);
       expect(
         store.db.prepare('SELECT id, profile_effect, avatar_decoration, profile_frame, nameplate FROM users ORDER BY id').all(),
       ).toEqual(
@@ -776,6 +776,64 @@ describe('göç 24: kanal medyası dizini', () => {
       expect(() => store.db.exec(MIGRATIONS[23]!)).not.toThrow();
     } finally {
       store.close();
+    }
+  });
+});
+
+describe('göç 25: engellemeler ve arama kayıtları', () => {
+  it('şema 24 veritabanına yalnızca ekleme yapar: eski mesajlar sıradan kalır, engel ve arama kaydı yazılır', () => {
+    const file = schema19Database();
+    const db = new DatabaseSync(file);
+    for (let v = 19; v < 24; v++) db.exec(MIGRATIONS[v]!);
+    db.exec('PRAGMA user_version = 24');
+    const before = db.prepare('SELECT id, channel_id, author_id, content, created_at FROM messages ORDER BY id').all();
+    const userIds = (db.prepare('SELECT id FROM users ORDER BY id').all() as { id: string }[]).map((u) => u.id);
+    db.close();
+    expect(before.length).toBeGreaterThan(0);
+
+    const store = new Store(file);
+    try {
+      expect(store.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: MIGRATIONS.length });
+      expect(MIGRATIONS.length).toBe(25);
+      // Var olan mesajlar olduğu gibi; türleri yok (sıradan mesaj biçimi değişmez)
+      expect(store.db.prepare('SELECT id, channel_id, author_id, content, created_at FROM messages ORDER BY id').all()).toEqual(before);
+      const old = store.getMessage(Number((before[0] as { id: number }).id))!;
+      expect(old.type).toBeUndefined();
+      expect('call' in old).toBe(false);
+
+      // Engel tablosu boş başlar, yazılır ve hesap silinince satır gider
+      const [a, b] = userIds as [string, string];
+      expect(store.blockedUserIds(a)).toEqual([]);
+      expect(store.block(a, b, 5)).toBe(true);
+      expect(store.block(a, b, 6)).toBe(false);
+      expect(store.hasBlocked(a, b)).toBe(true);
+      expect(store.hasBlocked(b, a)).toBe(false);
+      expect(store.blockedEither(b, a)).toBe(true);
+      expect(store.listBlocks(a)).toMatchObject([{ userId: b, createdAt: 5 }]);
+      store.deleteUser(b);
+      expect(store.blockedUserIds(a)).toEqual([]);
+
+      // Arama kaydı: tür ve bilgisi okunur, güncellenir (düzenlenmiş sayılmaz)
+      const channel = (store.db.prepare("SELECT id FROM channels WHERE type = 'text' LIMIT 1").get() as { id: string }).id;
+      const call = store.createCallMessage(channel, a, [], 1000);
+      expect(call).toMatchObject({ type: 'call', call: { participantIds: [a], endedAt: null }, content: '📞 Arama başlattı.' });
+      expect(store.openCallMessage(channel)?.id).toBe(call.id);
+      const ended = store.updateCallMessage(Number(call.id), { participantIds: [a, 'x'], endedAt: 1000 + 5 * 60_000 })!;
+      expect(ended).toMatchObject({ editedAt: null, call: { endedAt: 301_000 }, content: '📞 Arama başlattı · 5 dk sürdü.' });
+      expect(store.openCallMessage(channel)).toBeNull();
+      expect(store.openCallMessages()).toEqual([]);
+
+      // Göç tekrar çalıştırılamaz (sütun ekler) ama açılışta tekrar çalışmaz
+      store.close();
+      const again = new Store(file);
+      expect(again.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 25 });
+      again.close();
+    } finally {
+      try {
+        store.close();
+      } catch {
+        // zaten kapalı
+      }
     }
   });
 });

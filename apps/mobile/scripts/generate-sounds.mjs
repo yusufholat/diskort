@@ -14,17 +14,19 @@ const sfx = await import(pathToFileURL(join(here, '..', '..', '..', 'packages', 
 
 const assets = join(here, '..', 'assets', 'sounds');
 const dirs = [assets, ...process.argv.slice(2)];
+// Arayüz sesleri ve arama sesleri (zil, bekleme; arama sürdükçe yinelenir)
+const names = [...sfx.PREVIEW_SOUND_NAMES, ...sfx.CALL_SOUND_NAMES];
 for (const dir of dirs) {
   mkdirSync(dir, { recursive: true });
   // Artık tanımlı olmayan eski sesler silinir
   for (const file of readdirSync(dir)) {
-    if (file.endsWith('.wav') && !sfx.PREVIEW_SOUND_NAMES.includes(file.slice(0, -4))) rmSync(join(dir, file));
+    if (file.endsWith('.wav') && !names.includes(file.slice(0, -4))) rmSync(join(dir, file));
   }
   // Başkalarının sesleri kendininkiyle aynı (SOUND_ALIASES): ayrı dosyası yok
-  for (const name of sfx.PREVIEW_SOUND_NAMES) {
+  for (const name of names) {
     writeFileSync(join(dir, `${name}.wav`), sfx.encodeWav(sfx.renderSound(name), sfx.SFX_SAMPLE_RATE));
   }
-  console.log(`${sfx.PREVIEW_SOUND_NAMES.length} ses yazıldı: ${dir}`);
+  console.log(`${names.length} ses yazıldı: ${dir}`);
 }
 // Ses paketleri kaldırıldı: eski paket klasörleri (assets/sounds/soft, assets/sounds/classic) silinir
 for (const pack of ['soft', 'classic']) rmSync(join(assets, pack), { recursive: true, force: true });

@@ -2,11 +2,12 @@ import { useCallback, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { channelById, useFeedback, useGuild, useSession } from '@diskort/client-core';
+import { useFeedback, useGuild, useSession } from '@diskort/client-core';
 import { useAppear } from '../motion';
 import { useSettings } from '../stores/settings';
 import { colors, createStyles, font, radius, ripple, space, tint } from '../theme';
 import { leaveVoice, toggleDeafen, toggleMute } from '../voice/actions';
+import { useVoiceRoomName } from '../voice/roomName';
 import { useVoice } from '../voice/voice';
 import { CountBadge } from './Badge';
 import { PressableScale } from './PressableScale';
@@ -36,7 +37,8 @@ function VoiceBarInner({ bottomInset, onSettings }: { bottomInset: number; onSet
   const router = useRouter();
   const status = useVoice((s) => s.status);
   const channelId = useVoice((s) => s.channelId);
-  const channel = useGuild((s) => channelById(s, channelId));
+  // Ses kanalının adı ya da DM aramasında konuşmanın adı (bire bir konuşmada karşı taraf)
+  const roomName = useVoiceRoomName(channelId);
   const count = useGuild((s) => {
     let n = 0;
     for (const id in s.voiceStates) if (s.voiceStates[id]!.channelId === channelId) n++;
@@ -82,11 +84,11 @@ function VoiceBarInner({ bottomInset, onSettings }: { bottomInset: number; onSet
           android_ripple={ripple.row}
           onPress={() => router.push('/voice')}
           accessibilityRole="button"
-          accessibilityLabel={`${channel?.name ?? 'Ses kanalı'}, ${STATUS[status]}${count > 0 ? `, ${count} kişi` : ''}. Ses ekranını aç`}
+          accessibilityLabel={`${roomName}, ${STATUS[status]}${count > 0 ? `, ${count} kişi` : ''}. Ses ekranını aç`}
         >
           <View style={styles.texts}>
             <Text style={styles.channel} numberOfLines={1}>
-              {channel?.name ?? 'Ses kanalı'}
+              {roomName}
             </Text>
             <Text style={[styles.status, { color: level.color }]} numberOfLines={1}>
               <Text onPress={openInfo} suppressHighlighting>

@@ -3,6 +3,7 @@ import { Crown } from 'lucide-react';
 import { userNameplateId, type User } from '@diskort/shared';
 import {
   activeGuildContext,
+  guildVoiceStateOf,
   memberGroups,
   useGuild,
   useMemberColor,
@@ -47,7 +48,8 @@ const MemberRow = memo(function MemberRow({ user, offline, owner }: { user: User
   const selfId = useSession((s) => s.user?.id);
   // Sesteyse ses simgesinin ipucu (kanalın adıyla); seste değilse null
   const voice = useGuild((s) => {
-    const channelId = s.voiceStates[user.id]?.channelId;
+    // DM araması sunucunun üye listesinde görünmez (konuşma sunucuya ait değil)
+    const channelId = guildVoiceStateOf(s, user.id)?.channelId;
     return channelId ? voiceLabel(s.channels.find((c) => c.id === channelId)?.name) : null;
   });
   const status = useStatus(user.id);

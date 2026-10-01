@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { BackHandler, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { channelById, membersOf, useCan, useChannelContext, useGuild, useSession } from '@diskort/client-core';
+import { Ionicons } from '@expo/vector-icons';
+import { membersOf, ringDmCall, useCan, useChannelContext, useDmCall, useGuild, useSession } from '@diskort/client-core';
 import { Permission } from '@diskort/shared';
+import { absentParticipants } from '../calls';
+import { Avatar } from '../components/Avatar';
 import { MemberSheet } from '../components/MemberSheet';
 import { EmptyState, Notice } from '../components/States';
 import { StreamViewer } from '../components/StreamViewer';
@@ -14,8 +17,10 @@ import { MemberTile, StreamTile, TILE_MIN_HEIGHT } from '../components/VoiceTile
 import { UserVolume } from '../components/VolumeControl';
 import { useLayoutAnimationOn } from '../motion';
 import { useSettings } from '../stores/settings';
+import { toast } from '../stores/ui';
 import { colors, createStyles, font, radius, space } from '../theme';
 import { leaveVoice, toggleDeafen, toggleMute, toggleScreenShare, toggleSpeaker } from '../voice/actions';
+import { useIsDmCall, useVoiceRoomName } from '../voice/roomName';
 import { useVoice, voice, type ScreenShareStats } from '../voice/voice';
 
 const GRID_PADDING = space.md;
@@ -26,8 +31,10 @@ export default function VoiceScreen() {
   const channelId = useVoice((s) => s.channelId);
   const status = useVoice((s) => s.status);
   const listenOnly = useVoice((s) => s.listenOnly);
-  const channel = useGuild((s) => channelById(s, channelId));
-  // Üye menüsü ses kanalının sunucusunun bağlamında
+  // Sunucunun ses kanalı ya da DM araması (konuşmanın adı; DM'de sunucu bilgisi yok)
+  const roomName = useVoiceRoomName(channelId);
+  const dmCall = useIsDmCall(channelId);
+  // Üye menüsü ses kanalının sunucusunun bağlamında (DM aramasında konuşmanın bağlamı)
   const memberContext = useChannelContext(channelId);
   const voiceStates = useGuild((s) => s.voiceStates);
   const members = useMemo(() => (channelId ? membersOf(voiceStates, channelId) : []), [voiceStates, channelId]);
@@ -58,7 +65,7 @@ export default function VoiceScreen() {
   // (yeni kutucuğun kendisi Animated ile büyür; LayoutAnimation yalnızca kaymayı ve çıkışı yapar)
   useLayoutAnimationOn(tiles.map((t) => (t.stream ? 's:' : '') + t.state.userId).join(','), 220, false);
 
-  const title = channel?.name ?? 'Ses';
+  const title = channelId ? roomName : 'Ses';
   const options = useMemo(
     () => ({
       ...screenOptions,
@@ -98,7 +105,11 @@ export default function VoiceScreen() {
       <Stack.Screen options={options} />
       {status !== 'connected' && (
         <Notice icon="sync" tone="warn">
-          {status === 'connecting' ? 'Ses kanalına bağlanılıyor…' : 'Bağlantı koptu, yeniden bağlanılıyor…'}
+          {status === 'connecting'
+            ? dmCall
+              ? 'Aramaya bağlanılıyor…'
+              : 'Ses kanalına bağlanılıyor…'
+            : 'Bağlantı koptu, yeniden bağlanılıyor…'}
         </Notice>
       )}
       {!micAllowed && (
@@ -137,6 +148,7 @@ export default function VoiceScreen() {
             <MemberTile key={state.userId} state={state} width={tileWidth} height={tileHeight} selfId={selfId} onLongPress={openMember} />
           ),
         )}
+        {dmCall && status === 'connected' && <AbsentParticipants dmId={channelId} selfId={selfId} />}
       </ScrollView>
 
       <View style={styles.controls}>
@@ -264,6 +276,57 @@ function useStreamFullscreen(viewing: string | null, watching: string | null) {
   return { fullscreen, setFullscreen, rotate, screenOptions };
 }
 
+/**
+ * DM aramasında olmayan katılımcılar: çalınıyorsa "Çalıyor…", değilse "Tekrar çal" (aramadaki herkes
+ * katılmayan birini yeniden çalabilir; çalma kişi başına 30 sn sürer).
+ */
+function AbsentParticipants({ dmId, selfId }: { dmId: string; selfId: string | undefined }) {
+  const call = useDmCall(dmId);
+  const participantIds = useGuild((s) => s.dms[dmId]?.participantIds);
+  const voiceStates = useGuild((s) => s.voiceStates);
+  const users = useGuild((s) => s.users);
+  const absent = useMemo(
+    () =>
+      participantIds
+        ? absentParticipants(participantIds, membersOf(voiceStates, dmId).map((m) => m.userId), call, selfId)
+        : [],
+    [participantIds, voiceStates, dmId, call, selfId],
+  );
+  if (!call || absent.length === 0) return null;
+  return (
+    <View style={styles.absent}>
+      <Text style={styles.absentTitle}>Aramada değil</Text>
+      {absent.map(({ userId, ringing }) => (
+        <View key={userId} style={styles.absentRow}>
+          <Avatar user={users[userId]} size={32} />
+          <Text style={styles.absentName} numberOfLines={1}>
+            {users[userId]?.displayName ?? 'Silinmiş Kullanıcı'}
+          </Text>
+          {ringing ? (
+            <View style={styles.ringing}>
+              <Ionicons name="call" size={13} color={colors.okText} />
+              <Text style={styles.ringingText}>Çalıyor…</Text>
+            </View>
+          ) : (
+            <Pressable
+              onPress={() =>
+                void ringDmCall(dmId, userId).then((ok) => ok && toast(`${users[userId]?.displayName ?? 'Kişi'} yeniden aranıyor`))
+              }
+              android_ripple={{ color: 'rgba(255,255,255,0.12)', borderless: false }}
+              accessibilityRole="button"
+              accessibilityLabel={`${users[userId]?.displayName ?? 'Kişiyi'} tekrar çal`}
+              style={styles.ringAgain}
+            >
+              <Ionicons name="call" size={14} color="#fff" />
+              <Text style={styles.ringAgainText}>Tekrar çal</Text>
+            </Pressable>
+          )}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 /** Yayının gerçekte nasıl gittiği: çözünürlük, kare hızı, bit hızı, kodlayıcı ve varsa darboğaz */
 function ShareStatsLine() {
   const [stats, setStats] = useState<ScreenShareStats | null>(null);
@@ -318,6 +381,37 @@ const styles = createStyles(() => ({
     padding: GRID_PADDING,
     gap: GRID_GAP,
   },
+  absent: {
+    width: '100%',
+    marginTop: space.sm,
+    backgroundColor: colors.rail,
+    borderRadius: radius.md,
+    paddingVertical: space.xs,
+  },
+  absentTitle: {
+    color: colors.muted,
+    fontSize: font.caption,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    paddingHorizontal: space.md,
+    paddingTop: space.sm,
+    paddingBottom: space.xs,
+  },
+  absentRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.md, paddingVertical: 6 },
+  absentName: { flex: 1, color: colors.text, fontSize: font.body, fontWeight: '600' },
+  ringing: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  ringingText: { color: colors.okText, fontSize: font.small, fontWeight: '700' },
+  ringAgain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.ok,
+    borderRadius: radius.pill,
+    paddingHorizontal: space.md,
+    height: 32,
+    overflow: 'hidden',
+  },
+  ringAgainText: { color: '#fff', fontSize: font.small, fontWeight: '700' },
   controls: {
     flexDirection: 'row',
     justifyContent: 'space-evenly',

@@ -34,14 +34,22 @@ export function registerVoiceTraceRoutes(app: FastifyInstance, ctx: AppContext):
       const body = parseBody(traceUploadSchema, req.body, reply);
       if (!body) return reply;
       const claimed = ctx.store.getChannel(body.channelId);
+      const claimedDm = ctx.permissions.isDm(body.channelId) && ctx.permissions.canView(req.user.id, body.channelId);
       const channelId =
         claimed && claimed.type === 'voice' && ctx.permissions.canView(req.user.id, claimed.id)
           ? claimed.id
-          : (ctx.voice.get(req.user.id)?.channelId ?? null);
-      const meta = ctx.traces.ingest(req.user.id, body as VoiceTraceUpload, {
-        channelId,
-        guildId: channelId ? (ctx.store.getChannel(channelId)?.guildId ?? null) : null,
-      });
+          : claimedDm
+            ? body.channelId
+            : (ctx.voice.get(req.user.id)?.channelId ?? null);
+      // DM aramasının kaydı takma kimliklerle saklanır (bkz. privateCalls.ts)
+      const meta = ctx.traces.ingest(
+        ctx.privacy.user(req.user.id, channelId),
+        { ...(body as VoiceTraceUpload), channelId: ctx.privacy.channel(channelId) ?? '' },
+        {
+          channelId: ctx.privacy.channel(channelId),
+          guildId: channelId ? (ctx.store.getChannel(channelId)?.guildId ?? null) : null,
+        },
+      );
       // Saklanmadıysa: yinelenen kesit ya da kullanıcının günlük payı doldu (istemci yeniden denemesin: 204)
       ctx.counters.inc(meta ? 'trace.uploads' : 'trace.rejected');
       return reply.code(204).send();

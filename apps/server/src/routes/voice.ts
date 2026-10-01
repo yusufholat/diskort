@@ -21,15 +21,34 @@ const streamSourceSchema = z.object({
 const PREVIEW_UPLOADS_PER_MINUTE = 8;
 
 export function registerVoiceRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const { store, auth, voice, livekit, permissions, moderation, streamPreviews } = ctx;
+  const { store, auth, voice, livekit, permissions, moderation, streamPreviews, calls } = ctx;
   const allowPreview = createRateLimiter(PREVIEW_UPLOADS_PER_MINUTE, 60_000);
   const allowSource = createRateLimiter(10, 60_000);
 
-  // Jetonun yayın izinleri kanaldaki yetkilerden gelir (SPEAK → mikrofon, STREAM → ekran)
+  // Jetonun yayın izinleri kanaldaki yetkilerden gelir (SPEAK → mikrofon, STREAM → ekran). Direkt mesaj
+  // konuşmasının da ses odası vardır (DM araması): yalnızca katılımcılar, konuşma salt okunur değilse. Kişi
+  // her zaman tek odadadır: başka bir odaya bağlanınca öncekinden çıkarılır (webhook).
   app.post<{ Params: { channelId: string } }>(
     '/api/voice/:channelId/join',
     { preHandler: auth.requireUser },
     async (req, reply) => {
+      const dmId = req.params.channelId;
+      if (permissions.isDm(dmId) && permissions.canView(req.user.id, dmId)) {
+        if (!moderation.canConnect(req.user.id, dmId)) {
+          return forbidden(
+            reply,
+            permissions.blockedPartnerOf(req.user.id, dmId) === 'self'
+              ? 'Bu kişiyi engelledin; arama yapmak için önce engeli kaldır.'
+              : 'Bu konuşmada arama yapılamıyor.',
+          );
+        }
+        const response: VoiceJoinResponse = {
+          url: livekit.publicUrl,
+          token: await moderation.joinToken(req.user, dmId),
+          roomName: voiceRoomName(dmId),
+        };
+        return response;
+      }
       const channel = store.getChannel(req.params.channelId);
       if (!channel || channel.type !== 'voice' || !permissions.canView(req.user.id, channel)) {
         return sendError(reply, 404, 'not_found', 'Ses kanalı bulunamadı.');
@@ -85,15 +104,18 @@ export function registerVoiceRoutes(app: FastifyInstance, ctx: AppContext): void
     });
   });
 
-  // Önizlemeyi yalnızca o ses kanalını görebilenler alır; yayın yoksa (ya da başka kanaldaysa) 404
+  // Önizlemeyi yalnızca o ses kanalını görebilenler (DM aramasında katılımcılar) alır; yayın yoksa (ya da
+  // başka kanaldaysa) 404
   app.get<{ Params: { channelId: string; userId: string } }>(
     '/api/voice/:channelId/stream-preview/:userId',
     { preHandler: auth.requireUser },
     async (req, reply) => {
-      const channel = store.getChannel(req.params.channelId);
+      const id = req.params.channelId;
+      const dm = permissions.isDm(id) && permissions.canView(req.user.id, id);
+      const channel = dm ? null : store.getChannel(id);
       const preview =
-        channel && channel.type === 'voice' && permissions.canView(req.user.id, channel)
-          ? streamPreviews.get(req.params.userId, channel.id)
+        dm || (channel && channel.type === 'voice' && permissions.canView(req.user.id, channel))
+          ? streamPreviews.get(req.params.userId, id)
           : null;
       if (!preview) return sendError(reply, 404, 'not_found', 'Yayın önizlemesi bulunamadı.');
       return reply
@@ -140,6 +162,8 @@ export function registerVoiceRoutes(app: FastifyInstance, ctx: AppContext): void
           // Aynı hesap başka bir cihazdan farklı kanalda kaldıysa oradan çıkar.
           if (prev && prev.channelId !== channelId) void livekit.removeParticipant(prev.channelId, userId);
           void moderation.onJoined(userId, channelId);
+          // DM araması: odaya ilk bağlanan buysa diğer katılımcılar çalınır
+          calls.webhookJoined(userId, channelId);
           break;
         }
         case 'participant_left':

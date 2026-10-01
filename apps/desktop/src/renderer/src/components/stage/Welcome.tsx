@@ -43,7 +43,7 @@ function VoiceChannelCard({ channel }: { channel: Channel }) {
           return;
         }
         void voice.join(channel.id);
-        useUi.getState().setView({ kind: 'voice' });
+        useUi.getState().setView({ kind: 'voice', channelId: channel.id });
       }}
       className={cn(
         'min-w-40 rounded-lg bg-bg-side px-5 py-4 text-left transition-colors hover:bg-bg-hover',

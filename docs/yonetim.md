@@ -46,6 +46,17 @@ yenilenir, ağır veriler yalnızca ilgili sekme açıkken yüklenir.
 | **iPhone cihazları** | `/udid` sayfasından kaydolan cihazların onayı (bkz. [ios.md](ios.md)) |
 | **Hatalar** | Son istemci hataları, 5xx ile biten istekler, sunucu günlüğündeki hatalar |
 
+### DM aramalarının gizliliği
+
+Direkt mesaj aramaları panelde **"Özel arama"** olarak görünür: konuşmanın kimliği, adı ve katılımcıların adı ya da
+kimliği hiçbir sekmede, dışa aktarımda ya da kalıcı kayıtta yoktur. Kalite ölçümleri, olay kayıtları ve donma
+teşhisi tutulur ama kişi ve konuşma, alınırken süreç başına rastgele anahtarla üretilen takma kimliklere
+(`ozel-…`; kişininki konuşma başına ayrı) çevrilir (sunucu yeniden başlayınca değişir, gerçek kimliğe geri
+bağlanamaz). Sınır: platform/sürüm ve zamanlama tanılama için kalır; çok küçük bir sunucuda yönetici bunlardan
+tahmin yürütebilir. DM aramaları ses
+geçmişine yazılmaz; yönetici özel aramadan elle olay kaydı isteyemez (donma olayında otomatik istek sürer).
+Ayrıntı: [Direkt mesajlar → Aramalar](direkt-mesajlar.md#aramalar).
+
 ### Bağlantı teşhisi
 
 Dört görünümü vardır:

@@ -1,5 +1,6 @@
 import {
   canMessageIn,
+  guildVoiceStateOf,
   memberActions,
   moderation,
   moveTargets,
@@ -9,6 +10,7 @@ import {
   type ProfileContext,
 } from '@diskort/client-core';
 import { toast, useUi, type ContextMenuItem } from '../stores/ui';
+import { blockMenuItem } from './blocks';
 import { startDm } from './dm';
 import { confirmDialog } from './dialog';
 
@@ -40,13 +42,15 @@ export function memberMenuItems(userId: string, context: ProfileContext): Contex
             () => undefined,
           ),
       },
+      ...blockMenuItem(userId, selfId),
     ];
   }
   // Seçili sunucunun üyesi değil: ortak sunucu varsa yalnızca mesaj
-  if (user.removed) return message;
+  if (user.removed) return [...message, ...blockMenuItem(userId, selfId)];
   const name = user.displayName;
   const actions = memberActions(userId);
-  const voice = guild.voiceStates[userId];
+  // Yalnızca sunucu kanalındaki ses (DM aramasındaki kişi burada seste sayılmaz)
+  const voice = guildVoiceStateOf(guild, userId);
   const items: ContextMenuItem[] = [...message];
 
   if (voice && (actions.mute || actions.deafen || actions.move)) {
@@ -105,6 +109,8 @@ export function memberMenuItems(userId: string, context: ProfileContext): Contex
       onClick: () => useUi.getState().setBanUser(user),
     });
   }
+  // Engelleme hesap düzeyidir (yalnızca DM'leri etkiler); sunucuda da menünün sonunda
+  items.push(...blockMenuItem(userId, selfId));
   return items;
 }
 

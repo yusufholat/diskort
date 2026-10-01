@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { MessagesSquare, Plus, X } from 'lucide-react';
+import { MessagesSquare, Plus, Volume2, X } from 'lucide-react';
 import type { DmChannel } from '@diskort/shared';
 import {
   dmTitle,
@@ -72,6 +72,8 @@ const DmRow = memo(function DmRow({ dm, selected }: { dm: DmChannel; selected: b
   const reachable = useGuild((s) => (partnerId ? Boolean(s.reachable[partnerId]) : false));
   const unread = useGuild((s) => isUnread(s, dm.id));
   const count = useDmUnreadCount(dm.id);
+  // Konuşmada süren arama (kısa bir hoparlör simgesi)
+  const inCall = useGuild((s) => Boolean(s.dmCalls[dm.id]));
   const setView = useUi((s) => s.setView);
   const openContextMenu = useUi((s) => s.openContextMenu);
   const highlight = unread && !selected;
@@ -99,7 +101,12 @@ const DmRow = memo(function DmRow({ dm, selected }: { dm: DmChannel; selected: b
       >
         <DmAvatar dm={dm} size={32} status ringClassName="bg-bg-side" decorated />
         <span className="min-w-0 flex-1 leading-tight">
-          <span className={cn('block truncate', highlight ? 'font-semibold' : 'font-medium')}>{title}</span>
+          <span className="flex min-w-0 items-center gap-1">
+            <span className={cn('truncate', highlight ? 'font-semibold' : 'font-medium')}>{title}</span>
+            {inCall && (
+              <Volume2 size={14} aria-label="Arama sürüyor" className="anim-pill-in shrink-0 text-ok" />
+            )}
+          </span>
           {dm.group ? (
             <span className="block truncate text-xs text-text-muted">{dm.participantIds.length} üye</span>
           ) : (

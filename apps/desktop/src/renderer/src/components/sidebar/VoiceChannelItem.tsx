@@ -63,7 +63,7 @@ export function VoiceChannelItem({ channel }: { channel: Channel }) {
             }
             void voice.join(channel.id);
           }
-          setView({ kind: 'voice' });
+          setView({ kind: 'voice', channelId: channel.id });
         }}
         onContextMenu={(e) => {
           e.preventDefault();

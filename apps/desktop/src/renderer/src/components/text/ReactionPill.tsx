@@ -15,6 +15,7 @@ export function ReactionPill({
   count,
   me,
   animateIn,
+  disabled = false,
   onToggle,
   onShowAll,
 }: {
@@ -24,6 +25,8 @@ export function ReactionPill({
   me: boolean;
   /** Mesaj ekrandayken eklendi mi (ilk çizimdeki değer kullanılır) */
   animateIn: boolean;
+  /** Tıklanamaz (ör. salt okunur konuşmada başkasının tepkisi); ipucu ve "Tepkiler" yine çalışır */
+  disabled?: boolean;
   onToggle: () => void;
   onShowAll: () => void;
 }) {
@@ -58,7 +61,8 @@ export function ReactionPill({
     <button
       ref={ref}
       data-tooltip={tooltip}
-      aria-label={`${tooltip}. ${me ? 'Tepkini geri almak' : 'Sen de tepki vermek'} için tıkla.`}
+      aria-label={disabled ? tooltip : `${tooltip}. ${me ? 'Tepkini geri almak' : 'Sen de tepki vermek'} için tıkla.`}
+      aria-disabled={disabled || undefined}
       aria-pressed={me}
       className={cn(
         'group/pill flex h-7 items-center gap-1.5 rounded-lg border px-2 transition-[color,background-color,border-color,scale] duration-150 active:scale-95',
@@ -66,12 +70,13 @@ export function ReactionPill({
         me
           ? 'border-brand bg-brand/20 text-text-head'
           : 'border-transparent bg-bg-side text-text-muted hover:border-line hover:text-text-normal',
+        disabled && 'cursor-default active:scale-100',
       )}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       onFocus={() => setHovered(true)}
       onBlur={() => setHovered(false)}
-      onClick={onToggle}
+      onClick={disabled ? undefined : onToggle}
       onContextMenu={showAll}
     >
       {/* Üstüne gelince emoji hafifçe büyür (yaylı) */}

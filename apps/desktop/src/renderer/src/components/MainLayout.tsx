@@ -6,6 +6,7 @@ import { toast, useUi } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import { isDmSection, useMainView } from '../lib/mainView';
 import { DURATION, PresenceProvider, usePresence } from '../lib/motion';
+import { IncomingCall } from './calls/IncomingCall';
 import { ImageViewer } from './text/ImageViewer';
 import { TextChannelView } from './text/TextChannelView';
 import { UpdateReadyBar } from './UpdateRequired';
@@ -111,6 +112,7 @@ export function MainLayout() {
         )}
       </PresenceProvider>
       <BanModal />
+      <IncomingCall />
     </>
   );
 

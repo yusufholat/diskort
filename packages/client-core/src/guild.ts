@@ -3,6 +3,7 @@ import {
   DEFAULT_ATTACHMENT_MAX_BYTES,
   sameActivities,
   type Channel,
+  type DmCall,
   type DmChannel,
   type GatewayServerMessage,
   type Guild,
@@ -62,6 +63,13 @@ export interface GuildStore {
   /** Listede açık direkt mesaj konuşmaları (kimlik → konuşma); DM'leri tanımayan sunucuda boş */
   dms: Record<string, DmChannel>;
   /**
+   * Konuşmalarda süren sesli aramalar (konuşma kimliği → arama). Kimin seste olduğu voiceStates'tedir
+   * (channelId = konuşmanın kimliği). Aramaları tanımayan eski sunucuda boş.
+   */
+  dmCalls: Record<string, DmCall>;
+  /** Engellediğin kişiler (yalnızca kendi listen; seni engelleyenler bilinmez) */
+  blockedIds: Record<string, true>;
+  /**
    * Tanınan tüm hesaplar, seçili sunucudaki rolleriyle (mesajlarda adları görünsün diye eski üyeler ve
    * başka sunuculardakiler de); üye listesinde `removed` olanlar gösterilmez
    */
@@ -91,6 +99,10 @@ export interface GuildStore {
   /** REST yanıtıyla gelen konuşmayı hemen listeye koyar (gateway olayı da gelir; tekrar zararsız) */
   upsertDm: (dm: DmChannel) => void;
   removeDm: (id: string) => void;
+  /** Engel listesini hemen günceller (REST yanıtından; USER_BLOCKS_UPDATE da gelir) */
+  setBlocked: (userId: string, blocked: boolean) => void;
+  /** Çalan aramayı bu cihazda hemen susturur (reddet; sunucu DM_CALL_UPDATE ile de bildirir) */
+  stopRingingLocally: (channelId: string, userId: string) => void;
   setStatus: (status: GatewayStatus) => void;
   setReady: (payload: ReadyPayload) => void;
   apply: (msg: GatewayServerMessage) => void;
@@ -219,6 +231,8 @@ const initial = {
   guild: null,
   channels: [],
   dms: {},
+  dmCalls: {},
+  blockedIds: {},
   users: {},
   roles: {},
   voiceStates: {},
@@ -277,6 +291,8 @@ export const useGuild = create<GuildStore>()((set) => ({
         status: 'ready',
         primaryGuildId: p.primaryGuildId ?? null,
         dms: byId(p.dms ?? []),
+        dmCalls: Object.fromEntries((p.dmCalls ?? []).map((c) => [c.channelId, c])),
+        blockedIds: Object.fromEntries((p.blockedUserIds ?? []).map((id) => [id, true as const])),
         voiceStates: Object.fromEntries(p.voiceStates.map((v) => [v.userId, v])),
         online: Object.fromEntries(p.online.map((id) => [id, true as const])),
         presences: presencesOf(p.online, p.presences),
@@ -305,6 +321,18 @@ export const useGuild = create<GuildStore>()((set) => ({
       if (!s.dms[id]) return {};
       const { [id]: _removed, ...dms } = s.dms;
       return { dms };
+    }),
+  setBlocked: (userId, blocked) =>
+    set((s) => {
+      if (Boolean(s.blockedIds[userId]) === blocked) return {};
+      const { [userId]: _removed, ...rest } = s.blockedIds;
+      return { blockedIds: blocked ? { ...rest, [userId]: true } : rest };
+    }),
+  stopRingingLocally: (channelId, userId) =>
+    set((s) => {
+      const call = s.dmCalls[channelId];
+      if (!call || !call.ringing.includes(userId)) return {};
+      return { dmCalls: { ...s.dmCalls, [channelId]: { ...call, ringing: call.ringing.filter((id) => id !== userId) } } };
     }),
   apply: (msg) => set((s) => applyEvent(s, msg)),
   reset: () => {
@@ -538,6 +566,15 @@ function applyEvent(s: GuildStore, msg: GatewayServerMessage): Partial<GuildStor
       const { [msg.d.id]: _removed, ...dms } = s.dms;
       return { dms };
     }
+    case 'DM_CALL_UPDATE':
+      return { dmCalls: { ...s.dmCalls, [msg.d.channelId]: msg.d } };
+    case 'DM_CALL_DELETE': {
+      if (!s.dmCalls[msg.d.channelId]) return {};
+      const { [msg.d.channelId]: _ended, ...dmCalls } = s.dmCalls;
+      return { dmCalls };
+    }
+    case 'USER_BLOCKS_UPDATE':
+      return { blockedIds: Object.fromEntries(msg.d.userIds.map((id) => [id, true as const])) };
     default:
       return {};
   }
@@ -555,6 +592,27 @@ export function isGuildUnread(
   guildId: string,
 ): boolean {
   return state.guilds[guildId]?.channels.some((c) => c.type === 'text' && isUnread(state, c.id)) ?? false;
+}
+
+/**
+ * Ses odası bir sunucu kanalının mı. DM aramasının odası (channelId = konuşmanın kimliği) ve bilinmeyen kanal
+ * değildir: DM katılımcıları o odanın ses durumlarını alır, ama bunlar sunucu bağlamında (üye listesi,
+ * profil kartı, "Yayını izle", sunucu ses rozeti) görünmemeli.
+ */
+export const isGuildVoiceChannel = (s: Pick<GuildStore, 'channelGuild'>, channelId: string | null | undefined): boolean =>
+  Boolean(channelId && s.channelGuild[channelId]);
+
+/** Ses odası bir DM aramasının mı (listede açık konuşma ya da süren arama) */
+export const isDmVoiceChannel = (s: Pick<GuildStore, 'dms' | 'dmCalls'>, channelId: string | null | undefined): boolean =>
+  Boolean(channelId && (s.dms[channelId] || s.dmCalls[channelId]));
+
+/** Kişinin sunucu kanalındaki ses durumu; DM aramasındaysa (ya da seste değilse) undefined */
+export function guildVoiceStateOf(
+  s: Pick<GuildStore, 'voiceStates' | 'channelGuild'>,
+  userId: string | null | undefined,
+): VoiceState | undefined {
+  const state = userId ? s.voiceStates[userId] : undefined;
+  return state && isGuildVoiceChannel(s, state.channelId) ? state : undefined;
 }
 
 export function membersOf(voiceStates: Record<string, VoiceState>, channelId: string): VoiceState[] {

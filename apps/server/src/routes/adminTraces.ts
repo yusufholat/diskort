@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { TRACE_TIME_MAX, type TraceMeta } from '../clientTrace.js';
 import { parseBody, sendError, type AppContext } from '../context.js';
+import { isPrivateId, PRIVATE_CALL_NAME, PRIVATE_PARTICIPANT_NAME } from '../privateCalls.js';
 
 // Yönetim paneli: olay kayıtları (istemcilerin sorun anındaki saniyelik bağlantı ölçümleri; bkz. clientTrace.ts).
 // Yalnızca hesap yöneticileri. Zamanlar SUNUCU saatiyledir (istemci saati + saat farkı).
@@ -48,8 +49,14 @@ export function registerAdminTraceRoutes(app: FastifyInstance, ctx: AppContext):
     for (const u of store.usersByIds([...new Set(metas.map((m) => m.userId))])) {
       users[u.id] = { username: u.username, displayName: u.displayName };
     }
+    // DM aramalarının kayıtları takma kimliklidir: adsız (bkz. privateCalls.ts)
+    for (const m of metas) if (isPrivateId(m.userId)) users[m.userId] = { username: '', displayName: PRIVATE_PARTICIPANT_NAME };
     const channels: Record<string, { name: string; guildId: string | null }> = {};
     for (const channelId of new Set(metas.map((m) => m.channelId))) {
+      if (isPrivateId(channelId)) {
+        channels[channelId!] = { name: PRIVATE_CALL_NAME, guildId: null };
+        continue;
+      }
       const c = channelId ? store.getChannel(channelId) : null;
       if (c) channels[c.id] = { name: c.name, guildId: c.guildId };
     }

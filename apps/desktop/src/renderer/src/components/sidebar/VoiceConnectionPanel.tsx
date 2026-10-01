@@ -15,7 +15,7 @@ import type { LinkQuality } from '@diskort/client-core';
 import { voice } from '../../features/voice/voiceClient';
 import { cn } from '../../lib/utils';
 import { Permission } from '@diskort/shared';
-import { channelById, useCan, useGuild, useSession } from '@diskort/client-core';
+import { channelById, dmTitle, useCan, useGuild, useSession } from '@diskort/client-core';
 import { useSettings } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
@@ -73,6 +73,14 @@ export function VoiceConnectionPanel() {
   const canStream = useCan(Permission.STREAM, channelId ?? undefined);
   // Ses kanalının sunucusu (seçili sunucu başka olabilir)
   const guildName = useGuild((s) => (channel ? s.guilds[channel.guildId]?.guild.name : undefined));
+  // DM araması: kanal / sunucu yerine konuşmanın adı (bire bir konuşmada karşı taraf)
+  // Konuşma bu arada listeden kapatıldıysa (sunucu kanalı da değilse) yedek ad
+  const dmName = useGuild((s) => {
+    const dm = channelId ? s.dms[channelId] : undefined;
+    if (dm) return dmTitle(dm, s.users, selfId);
+    return channelId && !s.channelGuild[channelId] ? 'Sesli arama' : null;
+  });
+  const placeLabel = dmName ?? (channel ? `${channel.name} / ${guildName ?? ''}` : '');
   const noise = useSettings((s) => s.noise);
   const noiseStrength = useSettings((s) => s.noiseStrengthDb);
   const noiseFallback = useVoice((s) => s.noiseFallback);
@@ -131,10 +139,10 @@ export function VoiceConnectionPanel() {
           <button
             type="button"
             className="block max-w-full truncate text-left text-xs text-text-muted hover:text-text-normal hover:underline"
-            data-tooltip="Ses kanalına git"
+            data-tooltip={dmName !== null ? 'Aramaya git' : 'Ses kanalına git'}
             onClick={() => setView({ kind: 'voice' })}
           >
-            {channel?.name} / {guildName}
+            {placeLabel}
           </button>
         </div>
         <IconButton
@@ -172,7 +180,7 @@ export function VoiceConnectionPanel() {
             {sharing ? <ScreenShareOff size={20} /> : <ScreenShare size={20} />}
           </SwapIcon>
         </ActionButton>
-        <ActionButton label="Ses Sahnesini Aç" onClick={() => setView({ kind: 'voice' })}>
+        <ActionButton label={dmName !== null ? 'Aramayı Aç' : 'Ses Sahnesini Aç'} onClick={() => setView({ kind: 'voice' })}>
           <LayoutGrid size={20} className="ico-grow" />
         </ActionButton>
         <ActionButton label="Yayın Ayarları" onClick={() => openModal({ type: 'settings', section: 'stream' })}>

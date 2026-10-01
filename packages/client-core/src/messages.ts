@@ -601,10 +601,15 @@ function notifyMention(message: Message): void {
   env().onMention?.(message);
 }
 
-/** Direkt mesajda karşı tarafın her mesajı bahsetme gibi sayılır (sunucudaki sayımla aynı) */
+/**
+ * Direkt mesajda karşı tarafın her mesajı bahsetme gibi sayılır (sunucudaki sayımla aynı). Arama kaydı da
+ * okunmamış sayılır ama mesaj bildirimi olmaz: gelen arama kendi penceresi ve zil sesiyle duyurulur
+ * (DM_CALL_UPDATE), telefona da ayrı arama bildirimi gider.
+ */
 function notifyDirectMessage(message: Message, dm: DmChannel): void {
   if (env().isViewingChannel?.(message.channelId)) return;
   countUnread(message.channelId);
+  if (message.type === 'call') return;
   env().onDirectMessage?.(message, dm);
 }
 

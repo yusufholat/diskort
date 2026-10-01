@@ -1,14 +1,15 @@
 import { api, useGuild } from '@diskort/client-core';
-import { parsePushTag } from '@diskort/shared';
+import { parsePushTag, PUSH_CHANNEL_CALL } from '@diskort/shared';
 import * as Notifications from 'expo-notifications';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 /**
- * Telefon bildirimleri: bahsetmeler ve direkt mesajlar. Sunucu, ilgili kullanıcının kayıtlı cihazlarına
- * Android'de Google'ın bildirim servisi (FCM), iOS'ta doğrudan Apple'ınki (APNs) üzerinden gönderir;
- * uygulama kapalıyken bildirimi işletim sistemi kendisi gösterir. Android'de iki ayrı bildirim kanalı
- * vardır: kullanıcı telefon ayarlarından birini kapatabilir.
+ * Telefon bildirimleri: bahsetmeler, direkt mesajlar ve DM aramaları (gelen/cevapsız). Sunucu, ilgili
+ * kullanıcının kayıtlı cihazlarına Android'de Google'ın bildirim servisi (FCM), iOS'ta doğrudan Apple'ınki
+ * (APNs) üzerinden gönderir; uygulama kapalıyken bildirimi işletim sistemi kendisi gösterir. Android'de üç ayrı
+ * bildirim kanalı vardır (bahsetmeler, direkt mesajlar, aramalar): kullanıcı telefon ayarlarından birini
+ * kapatabilir. Uygulama açıkken gelen arama kendi penceresi ve zil sesiyle duyurulur (IncomingCall.tsx).
  *
  * iOS'ta cihaz jetonu APNs jetonudur (Firebase yok). Sunucuda APNs anahtarı yoksa jeton kaydedilir ama
  * bildirim gitmez; uygulama imzasında "aps-environment" yoksa jeton alınamaz (uygulama bildirimsiz çalışır).
@@ -16,6 +17,8 @@ import { Platform } from 'react-native';
 const CHANNEL_ID = 'diskort-mentions';
 /** Direkt mesajlar (sunucu bu kanalı kullanır; bkz. push.ts notifyDm) */
 const DM_CHANNEL_ID = 'diskort-dm';
+/** Gelen ve cevapsız aramalar (yüksek öncelik; sunucu bu kanalı kullanır: veri type 'call' / 'missed_call') */
+const CALL_CHANNEL_ID = PUSH_CHANNEL_CALL;
 const TOKEN_KEY = 'diskort-push-token';
 
 // Uygulama açıkken bildirim çubuğuna düşürme: aynı bahsetme uygulama içinde zaten gösteriliyor
@@ -79,6 +82,15 @@ async function createChannels(): Promise<void> {
     importance: Notifications.AndroidImportance.HIGH,
     vibrationPattern: [0, 180, 120, 180],
     lightColor: '#5865f2',
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  });
+  // Arama: tam ekran/CallKit yok, normal ama yüksek öncelikli bildirim (Rahatsız Etmeyin'deyken sunucu göndermez)
+  await Notifications.setNotificationChannelAsync(CALL_CHANNEL_ID, {
+    name: 'Aramalar',
+    description: 'Biri seni direkt mesajda aradığında ve cevapsız aramalar',
+    importance: Notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 400, 200, 400],
+    lightColor: '#23a55a',
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 }
@@ -171,8 +183,34 @@ export function dismissChannelNotifications(channelId: string, lastReadId: strin
   }, 300);
 }
 
-/** Bildirime dokunulunca açılacak kanal ya da direkt mesaj konuşması (ikisi de aynı ekranda açılır) */
+/**
+ * Bildirime dokunulunca açılacak kanal ya da direkt mesaj konuşması (ikisi de aynı ekranda açılır). Arama
+ * bildirimi ('call' / 'missed_call') de konuşmayı açar: arama hâlâ seni çalıyorsa gelen arama penceresi,
+ * sürüyorsa sohbetteki "Aramaya katıl" şeridi görünür. Veri okunamazsa bildirimin etiketinden (pushTag) okunur.
+ */
 export function channelFromResponse(response: Notifications.NotificationResponse | null): string | null {
-  const data = response?.notification.request.content.data as { channelId?: unknown } | undefined;
-  return typeof data?.channelId === 'string' ? data.channelId : null;
+  if (!response) return null;
+  const data = response.notification.request.content.data as { channelId?: unknown } | undefined;
+  if (typeof data?.channelId === 'string') return data.channelId;
+  return notificationTarget(response.notification)?.channelId ?? null;
+}
+
+/**
+ * Bir aramanın (arama kaydı `messageId`) bildirimini kaldırır: arama bu telefonda kabul edildi ya da
+ * reddedildi. Konuşmanın diğer mesaj bildirimleri kalır.
+ */
+export function dismissCallNotification(channelId: string, messageId: string | null): void {
+  if (!messageId || (Platform.OS !== 'android' && Platform.OS !== 'ios')) return;
+  void (async () => {
+    try {
+      for (const n of await Notifications.getPresentedNotificationsAsync()) {
+        const target = notificationTarget(n);
+        if (target?.channelId === channelId && target.messageId === messageId) {
+          await Notifications.dismissNotificationAsync(n.request.identifier);
+        }
+      }
+    } catch {
+      // önemli değil: bildirim, konuşma okununca kalkar
+    }
+  })();
 }

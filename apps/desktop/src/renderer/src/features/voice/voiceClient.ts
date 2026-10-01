@@ -153,7 +153,17 @@ const AUTO_REBUILD_RETRY_MS = 2000;
 /** "Katıldın" sesi mikrofonun hazır olmasını en çok bu kadar bekler */
 const JOIN_SOUND_MAX_WAIT_MS = 1500;
 
-function disconnectMessage(reason?: DisconnectReason): string {
+/**
+ * @param dm DM araması: sunucu aramayı bitirdiyse (ör. konuşma salt okunur oldu) yalnızca "Arama sona erdi";
+ * nedeni (engel) söylenmez
+ */
+function disconnectMessage(reason?: DisconnectReason, dm = false): string {
+  if (dm) {
+    if (reason === DisconnectReason.DUPLICATE_IDENTITY) return 'Başka bir cihazdan bu aramaya bağlandın.';
+    if (reason === DisconnectReason.PARTICIPANT_REMOVED || reason === DisconnectReason.ROOM_DELETED) {
+      return 'Arama sona erdi.';
+    }
+  }
   switch (reason) {
     case DisconnectReason.DUPLICATE_IDENTITY:
       return 'Başka bir cihazdan bu kanala bağlandın.';
@@ -1070,7 +1080,12 @@ class VoiceClient {
         }
         this.joinSeq++;
         void this.teardownRoom();
-        setVoice({ ...RESET_ROOM_STATE, channelId: null, status: 'idle', error: disconnectMessage(reason) });
+        setVoice({
+          ...RESET_ROOM_STATE,
+          channelId: null,
+          status: 'idle',
+          error: disconnectMessage(reason, Boolean(channelId && useGuild.getState().dms[channelId])),
+        });
         // Kendin ayrılmadın (bağlantı koptu, çıkarıldın, başka cihazdan girildi): "koptu" sesi
         playSound(reason === DisconnectReason.CLIENT_INITIATED ? 'leave' : 'disconnect');
       });

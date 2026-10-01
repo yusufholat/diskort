@@ -1,6 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { importPKCS8, SignJWT } from 'jose';
-import { GIF_SNIPPET, isGifMessage, pushTag, type DmChannel, type Message } from '@diskort/shared';
+import {
+  GIF_SNIPPET,
+  isGifMessage,
+  PUSH_CHANNEL_CALL,
+  PUSH_CHANNEL_DM,
+  PUSH_CHANNEL_MENTIONS,
+  pushTag,
+  type DmChannel,
+  type Message,
+} from '@diskort/shared';
 import type { ApnsClient } from './apns.js';
 import type { Store } from './db.js';
 
@@ -40,6 +49,8 @@ interface Outgoing {
    * uygulamanın bildirimlerini kendisi gruplar. Telefon, okunan kanalın bildirimlerini bununla bulup kaldırır.
    */
   tag?: string;
+  /** iOS: aynı kimlikli bildirim öncekinin yerini alır (yalnızca aramalarda: cevapsız arama gelen aramanın yerine) */
+  collapseId?: string;
 }
 
 /**
@@ -99,7 +110,7 @@ export class PushService {
           title: `${author?.displayName ?? 'Biri'} · #${channelName}${guild ? ` (${guild.name})` : ''}`,
           body: body.length > BODY_MAX ? `${body.slice(0, BODY_MAX)}…` : body,
           data: { type: 'mention', channelId: message.channelId, messageId: message.id, ...(guildId ? { guildId } : {}) },
-          channelId: 'diskort-mentions',
+          channelId: PUSH_CHANNEL_MENTIONS,
           thread: message.channelId,
           tag: pushTag(message.channelId, message.id),
         }),
@@ -126,9 +137,53 @@ export class PushService {
           title: dm.group ? `${authorName} · ${this.groupTitle(dm, t.userId)}` : authorName,
           body,
           data: { type: 'dm', channelId: message.channelId, messageId: message.id },
-          channelId: 'diskort-dm',
+          channelId: PUSH_CHANNEL_DM,
           thread: message.channelId,
           tag: pushTag(message.channelId, message.id),
+        }),
+      ),
+    );
+  }
+
+  /**
+   * Gelen arama: çalınan katılımcıların telefonlarına (ayrı, yüksek öncelikli Android kanalı). Dokununca
+   * konuşma açılır. Etiket arama kaydına özgüdür: cevapsız kalırsa "cevapsız arama" bildirimi bunun yerini
+   * alır, konuşma okununca kalkar.
+   */
+  async notifyCall(dm: DmChannel, callerId: string, messageId: string | null, recipientIds: string[]): Promise<void> {
+    await this.notifyCallEvent(dm, callerId, messageId, recipientIds, false);
+  }
+
+  /** Arama cevapsız kaldı: çalınan ama katılmayanlara (gelen arama bildiriminin yerini alır) */
+  async notifyMissedCall(dm: DmChannel, callerId: string, messageId: string | null, recipientIds: string[]): Promise<void> {
+    await this.notifyCallEvent(dm, callerId, messageId, recipientIds, true);
+  }
+
+  private async notifyCallEvent(
+    dm: DmChannel,
+    callerId: string,
+    messageId: string | null,
+    recipientIds: string[],
+    missed: boolean,
+  ): Promise<void> {
+    if (!this.enabled || recipientIds.length === 0) return;
+    const tokens = this.store.pushTokens(recipientIds);
+    if (tokens.length === 0) return;
+    const caller = this.store.getUser(callerId)?.displayName ?? 'Biri';
+    const tag = messageId ? pushTag(dm.id, messageId) : undefined;
+    await Promise.all(
+      tokens.map((t) =>
+        this.deliver(t, {
+          title: dm.group ? `${caller} · ${this.groupTitle(dm, t.userId)}` : caller,
+          body: missed ? '📞 Cevapsız arama' : dm.group ? '📞 Grup araması: seni çağırıyor' : '📞 Seni arıyor',
+          data: {
+            type: missed ? 'missed_call' : 'call',
+            channelId: dm.id,
+            ...(messageId ? { messageId } : {}),
+          },
+          channelId: PUSH_CHANNEL_CALL,
+          thread: dm.id,
+          ...(tag ? { tag, collapseId: tag } : {}),
         }),
       ),
     );
@@ -153,7 +208,7 @@ export class PushService {
           title: 'Diskort',
           body: 'Bildirimler çalışıyor ✓',
           data: { type: 'test' },
-          channelId: 'diskort-mentions',
+          channelId: PUSH_CHANNEL_MENTIONS,
         }),
       ),
     );
@@ -186,6 +241,7 @@ export class PushService {
         body: o.body,
         data: o.data,
         threadId: o.thread,
+        ...(o.collapseId ? { collapseId: o.collapseId } : {}),
       });
       // Uygulama silinmiş ya da jeton yenilenmiş: artık geçersiz jetonu unut
       if (result === 'unregistered') this.store.removePushToken(target.token);

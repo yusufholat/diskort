@@ -265,6 +265,21 @@
   animation: dk-indicator-in var(--dur-base) var(--ease-out);
 }
 
+/* Çalan arama: avatarın çevresinden yayılan halka (gelen arama penceresi, aramada çalınan kişi) */
+@keyframes dk-call-ring {
+  from {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  to {
+    transform: scale(1.45);
+    opacity: 0;
+  }
+}
+.anim-call-ring {
+  animation: dk-call-ring 1.6s var(--ease-out) infinite;
+}
+
 /* Açılıp kapanan satır: dış öğe .collapse-*, iç öğe .collapse-inner (yalnızca dikeyde kırpar,
    böylece yana kayan içerik ve gölgeler kesilmez) */
 .collapse-in,

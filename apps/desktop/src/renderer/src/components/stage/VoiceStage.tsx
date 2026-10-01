@@ -6,22 +6,36 @@ import {
   HeadphoneOff,
   Headphones,
   LayoutGrid,
+  Maximize2,
   Mic,
   MicOff,
+  Minimize2,
   Monitor,
   MonitorOff,
+  Phone,
+  PhoneCall,
   PhoneOff,
   UserPlus,
   Users,
   Volume2,
 } from 'lucide-react';
-import { Permission, type VoiceState } from '@diskort/shared';
+import { Permission, type DmChannel, type VoiceState } from '@diskort/shared';
 import { voice } from '../../features/voice/voiceClient';
 import { useEscapeLayer } from '../../lib/escape';
 import { memberMenuItems } from '../../lib/memberMenu';
 import { animate, usePresence, usePresenceList, type PresenceEntry, type PresencePhase } from '../../lib/motion';
 import { cn } from '../../lib/utils';
-import { channelById, membersOf, useCan, useChannelMemberColor, useGuild, useSession } from '@diskort/client-core';
+import {
+  channelById,
+  membersOf,
+  ringDmCall,
+  useCan,
+  useChannelMemberColor,
+  useDmCall,
+  useGuild,
+  useSession,
+} from '@diskort/client-core';
+import { absentParticipants, type AbsentParticipant } from '../../features/calls/callLogic';
 import { useSettings } from '../../stores/settings';
 import { useUi } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
@@ -36,19 +50,48 @@ import { orderStrip } from './stripOrder';
 
 type Tile = { kind: 'user'; state: VoiceState } | { kind: 'stream'; userId: string };
 
-/** Ses kanalına bağlıyken ana alan: katılımcı kutucukları, yayınlar ve arama kontrolleri. */
-export function VoiceStage() {
+/**
+ * Ses kanalına bağlıyken ana alan: katılımcı kutucukları, yayınlar ve arama kontrolleri. `dm` verilirse
+ * DM araması: konuşmanın içinde, mesajların üstünde çizilir; kanal adı yerine arama başlığı, davet kutucuğu
+ * yerine aramada olmayan katılımcılar (çalınıyor / "Tekrar çal"). `expanded`: arama konuşmanın tamamını
+ * kaplıyor (mesajlar gizli); `onToggleExpand` verilirse başlıkta büyüt/küçült düğmesi çıkar.
+ */
+export function VoiceStage({
+  dm,
+  expanded,
+  onToggleExpand,
+}: {
+  dm?: DmChannel;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+} = {}) {
   const channelId = useVoice((s) => s.channelId)!;
   const status = useVoice((s) => s.status);
   const channel = useGuild((s) => channelById(s, channelId));
+  // Sunucu kanalı değil: DM araması (konuşma bu arada listeden kapatılmış olsa da)
+  const isCall = useGuild((s) => Boolean(dm) || !s.channelGuild[channelId]);
   const voiceStates = useGuild((s) => s.voiceStates);
   const streams = useVoice((s) => s.streams);
   const watching = useVoice((s) => s.watching);
   const focused = useVoice((s) => s.focusedStream);
   const sharing = useVoice((s) => s.sharing);
   const selfId = useSession((s) => s.user?.id);
+  const call = useDmCall(dm ? channelId : null);
 
   const members = useMemo(() => membersOf(voiceStates, channelId), [voiceStates, channelId]);
+  // DM aramasında olmayan katılımcılar (çalınıyor ya da "Tekrar çal")
+  const absent = useMemo(
+    () =>
+      dm
+        ? absentParticipants(
+            dm.participantIds,
+            members.map((m) => m.userId),
+            selfId,
+            call?.ringing ?? [],
+          )
+        : [],
+    [dm, members, selfId, call],
+  );
 
   const tiles: Tile[] = useMemo(() => {
     const list: Tile[] = [];
@@ -69,7 +112,7 @@ export function VoiceStage() {
   const videoShown = sharing || Object.keys(watching).length > 0;
   const chromeIdle = useStageChrome(rootRef, videoShown && status === 'connected');
   // Kanalda yalnızken davet kutucuğu
-  const alone = members.length === 1 && members[0]?.userId === selfId && tiles.length === 1;
+  const alone = !isCall && members.length === 1 && members[0]?.userId === selfId && tiles.length === 1;
   // Büyütülmüş yayından Esc ile ızgaraya dönülür; tam ekrandaysa Esc önce tam ekrandan çıkar
   useEscapeLayer(() => {
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
@@ -83,9 +126,21 @@ export function VoiceStage() {
       // Boştayken imleç de gizlenir (fare hareket edince geri gelir)
       className="group/stage flex h-full min-w-0 flex-1 flex-col bg-bg-deep data-[idle]:cursor-none data-[idle]:[&_*]:cursor-none"
     >
-      <header data-stage-chrome className={cn('flex h-12 shrink-0 items-center gap-2 border-b border-edge px-4', CHROME)}>
-        <Volume2 size={22} className="text-text-muted" />
-        <span className="font-semibold text-text-head">{channel?.name}</span>
+      <header
+        data-stage-chrome
+        className={cn('flex shrink-0 items-center gap-2 px-4', isCall ? 'h-10' : 'h-12 border-b border-edge', CHROME)}
+      >
+        {isCall ? (
+          <>
+            <Phone size={18} className="text-text-muted" />
+            <span className="font-semibold text-text-head">Sesli arama</span>
+          </>
+        ) : (
+          <>
+            <Volume2 size={22} className="text-text-muted" />
+            <span className="font-semibold text-text-head">{channel?.name}</span>
+          </>
+        )}
         <span className="text-sm text-text-muted">· {members.length} kişi</span>
         {status !== 'connected' && (
           <span className="ml-2 text-sm text-warn">
@@ -102,18 +157,41 @@ export function VoiceStage() {
             <LayoutGrid size={16} aria-hidden className="ico-pop" /> Izgaraya dön
           </button>
         )}
+        {onToggleExpand && (
+          <button
+            type="button"
+            data-tooltip={expanded ? 'Küçült' : 'Büyüt'}
+            aria-label={expanded ? 'Küçült' : 'Büyüt'}
+            onClick={onToggleExpand}
+            className={cn(
+              'press-icon flex h-8 w-8 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-raised hover:text-text-head',
+              !focusedVisible && 'ml-auto',
+            )}
+          >
+            {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+        )}
       </header>
 
       <div className="min-h-0 flex-1 p-4">
         {focusedVisible ? (
           <FocusedStage focused={focusedVisible} entries={entries} />
         ) : (
-          <TileGrid entries={entries} extra={alone ? <InviteTile channelId={channelId} /> : null} />
+          <TileGrid
+            entries={entries}
+            extras={
+              dm
+                ? absent.map((a) => ({ key: a.userId, node: <AbsentTile dmId={dm.id} person={a} /> }))
+                : alone
+                  ? [{ key: 'invite', node: <InviteTile channelId={channelId} /> }]
+                  : []
+            }
+          />
         )}
       </div>
 
       <div data-stage-chrome className={CHROME}>
-        <CallControls focused={focusedVisible} />
+        <CallControls focused={focusedVisible} dm={isCall} />
       </div>
     </div>
   );
@@ -210,6 +288,38 @@ function InviteTile({ channelId }: { channelId: string }) {
           className="press flex items-center gap-2 rounded bg-bg-raised px-4 py-2 text-sm font-medium text-text-head transition-colors hover:bg-bg-raised-hover"
         >
           <UserPlus size={16} aria-hidden /> Sesli Sohbete Davet Et
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * DM aramasında olmayan katılımcı: soluk avatar; çalınıyorsa çevresinde yayılan halka ve "Çalıyor…",
+ * değilse "Tekrar çal" (yalnızca ona yeniden çalar).
+ */
+function AbsentTile({ dmId, person }: { dmId: string; person: AbsentParticipant }) {
+  const user = useGuild((s) => s.users[person.userId]);
+  return (
+    <div className="relative flex h-full w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-lg bg-bg-rail/60">
+      <div className="relative flex items-center justify-center">
+        {person.ringing && (
+          <span aria-hidden className="anim-call-ring absolute inset-0 rounded-full border-2 border-ok" />
+        )}
+        <Avatar user={user} size={64} className={cn(!person.ringing && 'opacity-50 grayscale')} />
+      </div>
+      <div className="max-w-[85%] truncate text-sm font-medium text-text-normal">{user?.displayName ?? 'Üye'}</div>
+      {person.ringing ? (
+        <div className="flex items-center gap-1.5 text-xs text-text-muted">
+          <PhoneCall size={14} aria-hidden className="text-ok" /> Çalıyor…
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void ringDmCall(dmId, person.userId)}
+          className="press flex items-center gap-1.5 rounded bg-bg-raised px-3 py-1 text-xs font-medium text-text-head transition-colors hover:bg-bg-raised-hover"
+        >
+          <PhoneCall size={14} aria-hidden /> Tekrar çal
         </button>
       )}
     </div>
@@ -425,7 +535,7 @@ function tileAnimation(phase: PresencePhase): string | undefined {
   return phase === 'enter' ? 'anim-tile-in' : phase === 'exit' ? 'anim-tile-out' : undefined;
 }
 
-function TileGrid({ entries, extra }: { entries: PresenceEntry<Tile>[]; extra?: ReactNode }) {
+function TileGrid({ entries, extras }: { entries: PresenceEntry<Tile>[]; extras: { key: string; node: ReactNode }[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   useLayoutEffect(() => {
@@ -441,7 +551,7 @@ function TileGrid({ entries, extra }: { entries: PresenceEntry<Tile>[]; extra?: 
     return () => ro.disconnect();
   }, []);
   // Kapanmakta olanlar sütun sayısını etkilemesin
-  const count = entries.filter((e) => e.phase !== 'exit').length + (extra ? 1 : 0);
+  const count = entries.filter((e) => e.phase !== 'exit').length + extras.length;
   const { cols, tileW } = size ? fitGrid(count, size.w, size.h, TILE_GAP) : { cols: 1, tileW: 0 };
   const tileStyle = { width: tileW };
   return (
@@ -457,11 +567,11 @@ function TileGrid({ entries, extra }: { entries: PresenceEntry<Tile>[]; extra?: 
               <TileView tile={t} />
             </div>
           ))}
-          {extra && (
-            <div className="anim-tile-in aspect-video shrink-0" style={tileStyle}>
-              {extra}
+          {extras.map((x) => (
+            <div key={x.key} className="anim-tile-in aspect-video shrink-0" style={tileStyle}>
+              {x.node}
             </div>
-          )}
+          ))}
         </div>
       )}
     </div>
@@ -590,7 +700,7 @@ function StreamTile({ userId, compact }: { userId: string; compact?: boolean }) 
 }
 
 /** `focused`: büyütülmüş yayının sahibi (uzak yayınsa "İzlemeyi bırak" düğmesi çıkar) */
-function CallControls({ focused }: { focused: string | null }) {
+function CallControls({ focused, dm }: { focused: string | null; dm?: boolean }) {
   const selfMute = useSettings((s) => s.selfMute);
   const selfDeaf = useSettings((s) => s.selfDeaf);
   const sharing = useVoice((s) => s.sharing);
@@ -635,7 +745,7 @@ function CallControls({ focused }: { focused: string | null }) {
           <EyeOff size={22} />
         </RoundButton>
       )}
-      <RoundButton title="Bağlantıyı Kes" hangup motion="ico-hangup" onClick={() => void voice.leave()}>
+      <RoundButton title={dm ? 'Aramadan ayrıl' : 'Bağlantıyı Kes'} hangup motion="ico-hangup" onClick={() => void voice.leave()}>
         <PhoneOff size={22} />
       </RoundButton>
     </div>

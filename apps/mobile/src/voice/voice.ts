@@ -39,6 +39,7 @@ import { soundCue, type SoundEvent } from '../haptics';
 import { getSettings, useSettings } from '../stores/settings';
 import { toast } from '../stores/ui';
 import { MicGate, SILENT_LEVEL, type GateConfig, type MicLevel } from './micGate';
+import { voiceRoomName } from './roomName';
 import {
   noteVideoActivity,
   onNoiseFilterBypass,
@@ -47,7 +48,21 @@ import {
   webrtcNoiseSuppression,
 } from './noiseFilter';
 
-function disconnectMessage(reason?: DisconnectReason): string {
+/** Bildirimdeki (ön plan servisi) oda adı: ses kanalı ya da DM araması (konuşmanın adı) */
+function roomName(channelId: string | null): string {
+  return voiceRoomName(useGuild.getState(), channelId, useSession.getState().user?.id);
+}
+
+function disconnectMessage(reason: DisconnectReason | undefined, channelId: string | null): string {
+  // DM araması: sunucu aramayı bitirdi (oda kapandı, konuşma salt okunur oldu…). Nedeni söylenmez (engel
+  // olabilir; engellenene engellendiği söylenmez).
+  if (channelId && useGuild.getState().dms[channelId]) {
+    return reason === DisconnectReason.DUPLICATE_IDENTITY
+      ? 'Bu hesapla başka bir cihazdan aramaya bağlanıldı.'
+      : reason === DisconnectReason.PARTICIPANT_REMOVED || reason === DisconnectReason.ROOM_DELETED
+        ? 'Arama sona erdi.'
+        : 'Arama bağlantısı koptu.';
+  }
   switch (reason) {
     case DisconnectReason.DUPLICATE_IDENTITY:
       return 'Bu hesapla başka bir cihazdan ses kanalına bağlanıldı.';
@@ -369,7 +384,7 @@ class MobileVoiceClient {
       if (seq !== this.joinSeq) return;
       this.gate.attach(room, gateConfig());
 
-      const name = useGuild.getState().channels.find((c) => c.id === channelId)?.name ?? 'Ses kanalı';
+      const name = roomName(channelId);
       try {
         // Yeniden katılmada servis zaten çalışıyor: yalnızca bildirim yeni kanala güncellenir
         if (this.serviceRunning) VoiceService.update(name, this.notificationText(), this.micMuted());
@@ -640,7 +655,7 @@ class MobileVoiceClient {
     if (!useVoice.getState().listenOnly) {
       await room.localParticipant.setMicrophoneEnabled(!this.micMuted(), captureOptions()).catch(() => undefined);
     }
-    const name = useGuild.getState().channels.find((c) => c.id === useVoice.getState().channelId)?.name ?? 'Ses kanalı';
+    const name = roomName(useVoice.getState().channelId);
     VoiceService.update(name, this.notificationText(), this.micMuted());
   }
 
@@ -794,11 +809,15 @@ class MobileVoiceClient {
         // Kendi başlattığımız ayrılma değilse: sunucu çıkardı, başka cihaza geçildi ya da bağlantı koptu
         if (this.room !== room || room.state !== ConnectionState.Disconnected) return;
         const channelId = useVoice.getState().channelId;
+        // DM araması sunucuda bitti (oda kapandı ya da konuşma salt okunur oldu): beklenen bir durum
+        const callEnded =
+          Boolean(channelId && useGuild.getState().dms[channelId]) &&
+          (reason === DisconnectReason.ROOM_DELETED || reason === DisconnectReason.PARTICIPANT_REMOVED);
         if (reason !== DisconnectReason.CLIENT_INITIATED) {
           voiceTrace.mark(Date.now(), `disconnected:${DisconnectReason[reason ?? 0] ?? reason}`, 'state');
         }
         // DUPLICATE_IDENTITY beklenen bir durum (başka cihazdan girildi): hata sayılmaz
-        if (reason !== DisconnectReason.CLIENT_INITIATED && reason !== DisconnectReason.DUPLICATE_IDENTITY) {
+        if (reason !== DisconnectReason.CLIENT_INITIATED && reason !== DisconnectReason.DUPLICATE_IDENTITY && !callEnded) {
           reportClientError(new Error(`ses bağlantısı kapandı: ${DisconnectReason[reason ?? 0] ?? reason}`), 'ses');
         }
         // Kendi yeniden bağlanmamızın ardından gelen "başka cihaz" uyarısı: sessizce kanala geri dön
@@ -807,10 +826,11 @@ class MobileVoiceClient {
           this.join(channelId, { silent: true, rejoin: true }).catch((err: Error) => toast(err.message, 'error'));
           return;
         }
-        const benign = reason === DisconnectReason.CLIENT_INITIATED || reason === DisconnectReason.DUPLICATE_IDENTITY;
-        toast(disconnectMessage(reason), benign ? 'info' : 'error');
+        const benign =
+          reason === DisconnectReason.CLIENT_INITIATED || reason === DisconnectReason.DUPLICATE_IDENTITY || callEnded;
+        toast(disconnectMessage(reason, channelId), benign ? 'info' : 'error');
         // Kendimiz ayrılmadık (sunucu çıkardı, bağlantı koptu): masaüstündeki gibi "koptu" sesi
-        soundCue(reason === DisconnectReason.CLIENT_INITIATED ? 'leave' : 'disconnect');
+        soundCue(reason === DisconnectReason.CLIENT_INITIATED || callEnded ? 'leave' : 'disconnect');
         void this.leave();
       });
   }

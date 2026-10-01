@@ -3,7 +3,9 @@ import { Image, ScrollView, Text, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import {
+  blockUser,
   canMessageIn,
+  guildVoiceStateOf,
   memberActions,
   memberColorOf,
   moderation,
@@ -13,10 +15,12 @@ import {
   showsStreamInfo,
   streamPreviewHeaders,
   streamPreviewUrl,
+  unblockUser,
   useCustomStatus,
   useGuild,
   useSession,
   useStatus,
+  voiceStateIn,
   type ProfileContext,
 } from '@diskort/client-core';
 import { usePathname, useRouter } from 'expo-router';
@@ -63,10 +67,11 @@ export function MemberSheet({
   // Sunucu bilgisi (roller, taç, ses, yönetim) yalnızca o sunucunun bağlamında
   const guildInfo = useGuild((s) => showsGuildInfo(s, shownContext));
   const user = useGuild((s) => (userId ? s.users[userId] : undefined));
-  // Sesteki yönetim (susturma, taşıma) seçili sunucunun yetkileriyle: yalnızca o sunucunun bağlamında
-  const voice = useGuild((s) => (userId && guildInfo ? s.voiceStates[userId] : undefined));
+  // Sesteki yönetim (susturma, taşıma) seçili sunucunun yetkileriyle: yalnızca o sunucunun bağlamında. DM
+  // aramasındaki ses durumu sunucu bağlamında hiç görünmez (aramada olduğu, yayını sunucuya sızmasın).
+  const voice = useGuild((s) => (guildInfo ? guildVoiceStateOf(s, userId) : undefined));
   // Seste olduğu ve "Yayını izle": her sunucu bağlamında (seçili olmayan sunucunun ses kanalı da), DM'de değil
-  const live = useGuild((s) => (userId && showsStreamInfo(shownContext) ? s.voiceStates[userId] : undefined));
+  const live = useGuild((s) => (showsStreamInfo(shownContext) ? voiceStateIn(s, shownContext, userId) : undefined));
   const status = useStatus(userId);
   const custom = useCustomStatus(userId);
   const color = useGuild((s) => (guildInfo ? memberColorOf(s, userId) : null));
@@ -81,6 +86,9 @@ export function MemberSheet({
   // Başkası ekran paylaşıyorsa "Yayını izle" (o kanalda değilsen önce katılır)
   const streaming = Boolean(live?.streaming && userId !== selfId);
   const watchingThis = useVoice((s) => s.watching !== null && s.watching === userId);
+  // DM bağlamında başkası: engelle / engeli kaldır (yalnızca DM'leri etkiler; sunucuda bir şey değişmez)
+  const canBlock = shownContext.kind === 'dm' && Boolean(user && userId && userId !== selfId);
+  const blockedThis = useGuild((s) => Boolean(userId && s.blockedIds[userId]));
   const router = useRouter();
   const pathname = usePathname();
 
@@ -171,6 +179,24 @@ export function MemberSheet({
       () => toast('Kullanıcı adı kopyalandı'),
       () => undefined,
     );
+  };
+
+  const toggleBlock = async (): Promise<void> => {
+    const id = userId!;
+    close();
+    if (blockedThis) {
+      if (await unblockUser(id)) toast(`${name} kişisinin engeli kaldırıldı.`);
+      return;
+    }
+    const ok = await confirmDialog({
+      title: `${name} engellensin mi?`,
+      message:
+        'Bire bir konuşmanız ikiniz için de salt okunur olur: geçmiş kalır ama mesaj, tepki ve arama yapılamaz. Sana yeni konuşma açamaz, başlattığı grup araması seni çalmaz. Sunucu kanallarında hiçbir şey değişmez ve ona engellendiği söylenmez.',
+      icon: 'ban',
+      confirmLabel: 'Engelle',
+      danger: true,
+    });
+    if (ok && (await blockUser(id))) toast(`${name} engellendi.`);
   };
 
   const watchStream = async (): Promise<void> => {
@@ -305,6 +331,17 @@ export function MemberSheet({
                 )}
                 {/* DM'de hesap düzeyi işlem */}
                 {!guildInfo && <SheetItem key="copy" icon="at" label="Kullanıcı adını kopyala" onPress={copyUsername} />}
+              </SheetGroup>
+            )}
+            {canBlock && (
+              <SheetGroup>
+                <SheetItem
+                  key="block"
+                  icon={blockedThis ? 'lock-open-outline' : 'ban'}
+                  danger={!blockedThis}
+                  label={blockedThis ? 'Engeli kaldır' : 'Engelle'}
+                  onPress={() => void toggleBlock()}
+                />
               </SheetGroup>
             )}
             {voice && voiceActions && (

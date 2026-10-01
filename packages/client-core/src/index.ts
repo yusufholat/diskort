@@ -139,6 +139,9 @@ export {
 } from './pendingInvite';
 export {
   channelById,
+  guildVoiceStateOf,
+  isDmVoiceChannel,
+  isGuildVoiceChannel,
   isGuildUnread,
   isUnread,
   membersOf,
@@ -202,7 +205,10 @@ export {
   useActiveGuildContext,
   useChannelContext,
   useChannelMemberColor,
+  useGuildVoiceState,
   useVoiceMemberColor,
+  useVoiceStateIn,
+  voiceStateIn,
   voiceMemberColorOf,
   type ProfileContext,
 } from './profileContext';
@@ -309,6 +315,26 @@ export {
   useUnreadDms,
 } from './dms';
 export {
+  blockUser,
+  callMembers,
+  canCallDm,
+  declineDmCall,
+  DM_CALL_RING_GRACE_MS,
+  dmCallOf,
+  incomingCalls,
+  isBlocked,
+  isRingingMe,
+  loadBlocks,
+  ringDmCall,
+  unblockUser,
+  useBlockedIds,
+  useCallMembers,
+  useCanCallDm,
+  useDmCall,
+  useIncomingCalls,
+  useIsBlocked,
+} from './dmCalls';
+export {
   attachmentUrl,
   avatarUrl,
   bannerUrl,
@@ -369,6 +395,9 @@ export {
   type SearchSuggestion,
 } from './search';
 export {
+  CALL_SOUND_LABELS,
+  CALL_SOUND_NAMES,
+  CALL_SOUND_REPEAT_MS,
   ChannelSoundGate,
   encodeWav,
   OTHERS_QUIET_MS,
@@ -380,6 +409,7 @@ export {
   SOUND_ALIASES,
   SOUND_LABELS,
   SOUND_NAMES,
+  type CallSoundName,
   type SoundName,
 } from './sfx';
 export { avatarInk, PROFILE_THEME_PRESETS, profileGradient } from './profileLook';

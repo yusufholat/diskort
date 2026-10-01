@@ -41,6 +41,11 @@ export interface ApnsAlert {
    * olarak kalır, yenisi eskisinin yerini almaz (apns-collapse-id kullanılmaz).
    */
   threadId?: string;
+  /**
+   * Aynı kimlikli yeni bildirim öncekinin yerini alır (apns-collapse-id, en çok 64 bayt). Yalnızca aramalarda:
+   * "cevapsız arama" gelen arama bildiriminin yerine geçer.
+   */
+  collapseId?: string;
 }
 
 /** Sunucu ayarında APNs anahtarı varsa istemciyi kurar; yoksa ya da okunamazsa null (iOS bildirimi kapalı). */
@@ -97,6 +102,7 @@ export class ApnsClient {
       'apns-push-type': 'alert',
       'apns-priority': '10',
     };
+    if (alert.collapseId && Buffer.byteLength(alert.collapseId) <= 64) headers['apns-collapse-id'] = alert.collapseId;
     try {
       const res = await (this.transport ?? this.request)(this.origin, `/3/device/${token}`, headers, payload);
       if (res.status === 200) return 'ok';

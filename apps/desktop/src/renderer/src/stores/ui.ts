@@ -84,7 +84,11 @@ export interface Toast {
  */
 export type View =
   | { kind: 'text'; channelId: string }
-  | { kind: 'voice' }
+  /**
+   * Ses sahnesi. `channelId`: katılınmakta olan kanal (katılma sürerken useVoice hâlâ eski kanalı gösterir;
+   * verilmezse bağlı olunan kanal)
+   */
+  | { kind: 'voice'; channelId?: string }
   | { kind: 'home' }
   | { kind: 'dm'; channelId: string }
   | { kind: 'dms' };
@@ -192,8 +196,14 @@ export const useUi = create<UiStore>()((set, get) => ({
       store(LAST_TEXT_BY_GUILD_KEY, JSON.stringify(lastTextByGuild));
       set({ view, lastTextChannelId: view.channelId, lastTextByGuild });
     } else if (view.kind === 'voice') {
+      const channelId = view.channelId ?? voiceChannelId();
+      // DM aramasının sahnesi konuşmanın içindedir: konuşma açılır
+      if (channelId && useGuild.getState().dms[channelId]) {
+        get().setView({ kind: 'dm', channelId });
+        return;
+      }
       // Bağlı olunan ses kanalının sunucusu seçilir
-      selectGuildOf(voiceChannelId());
+      selectGuildOf(channelId);
       set({ view });
     } else if (view.kind === 'dm') {
       store(LAST_DM_KEY, view.channelId);

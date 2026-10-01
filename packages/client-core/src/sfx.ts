@@ -75,6 +75,27 @@ export const SOUND_ALIASES: Partial<Record<SoundName, SoundName>> = {
   userStreamStop: 'streamStop',
 };
 
+/**
+ * Arama sesleri (DM aramaları): ayrı liste, çünkü tek seferlik değil, arama sürdükçe CALL_SOUND_REPEAT_MS
+ * aralıkla yeniden çalınırlar. 'ring': seni biri arıyor (gelen arama; Rahatsız Etmeyin'de sunucu zaten
+ * çalmaz). 'ringback': sen arıyorsun, karşı taraf henüz açmadı (çalınan biri varken). Telefonda da WAV
+ * dosyaları vardır (assets/sounds/ring.wav, ringback.wav).
+ */
+export const CALL_SOUND_NAMES = ['ring', 'ringback'] as const;
+
+export type CallSoundName = (typeof CALL_SOUND_NAMES)[number];
+
+export const CALL_SOUND_LABELS: Record<CallSoundName, string> = {
+  ring: 'Gelen arama',
+  ringback: 'Aranıyor (karşı taraf henüz açmadı)',
+};
+
+/** Arama seslerinin yeniden çalma aralığı (ms; sesin başından bir sonrakinin başına) */
+export const CALL_SOUND_REPEAT_MS: Record<CallSoundName, number> = {
+  ring: 2600,
+  ringback: 3200,
+};
+
 /** Ayrı sesi olanlar (dinleme listesi, telefondaki WAV dosyaları) */
 export const PREVIEW_SOUND_NAMES: readonly SoundName[] = SOUND_NAMES.filter((name) => !SOUND_ALIASES[name]);
 
@@ -146,7 +167,7 @@ const B5 = 83;
 /** Çoğu sesin ortak ayarları */
 const BASE = { attack: 5, decayDb: 28, release: 0.4, h2: 0.06, bar: 1, lowpass: 5500, room: 0.3, trimDb: 0 };
 
-const SPECS: Partial<Record<SoundName, SoundSpec>> = {
+const SPECS: Partial<Record<SoundName | CallSoundName, SoundSpec>> = {
   // Sakin: küçük üçlü yukarı (Si4 → Re5), bağlı (legato), neredeyse kaymasız; üstteki nota biraz kısık
   // (vurgu yok), diğer seslerden az sönen gövde. "İçerdesin" der.
   join: {
@@ -281,6 +302,38 @@ const SPECS: Partial<Record<SoundName, SoundSpec>> = {
     lowpass: 3000,
     room: 0,
     trimDb: -10,
+  },
+  // Gelen arama: iki kısa, yükselen arpej (Re5 → Fa#5 → La5, sonra Re5 → Fa#5 → Si5); ikincisi bir basamak
+  // yukarıda biter ("kim o?"). Bahsedilmedeki hafif çan kısmisi burada da var; arada sessizlikle yinelenir.
+  ring: {
+    ...BASE,
+    tones: [
+      { note: D5, at: 0, dur: 200, from: -1 },
+      { note: Fs5, at: 100, dur: 200, from: -1 },
+      { note: A5, at: 200, dur: 320, from: -1 },
+      { note: D5, at: 600, dur: 200, from: -1 },
+      { note: Fs5, at: 700, dur: 200, from: -1 },
+      { note: B5, at: 800, dur: 420, from: -1 },
+    ],
+    decayDb: 26,
+    h2: 0.05,
+    chime: 0.05,
+    room: 0.35,
+  },
+  // Aranıyor (bekleme sesi): pes, yavaş, yumuşak iki nota (La4 → Re5, dörtlü yukarı); tahta tınısı az, gelen
+  // aramadan belirgin şekilde sakin ve kısık
+  ringback: {
+    ...BASE,
+    tones: [
+      { note: A4, at: 0, dur: 300, from: -0.3, glideMs: 15 },
+      { note: D5, at: 180, dur: 520, from: -0.3, glideMs: 15, gain: 0.85 },
+    ],
+    decayDb: 18,
+    release: 0.5,
+    bar: 0.5,
+    lowpass: 4000,
+    room: 0.3,
+    trimDb: -4,
   },
 };
 
@@ -428,8 +481,9 @@ function finish(buf: Float32Array, rate: number, trimDb: number): Float32Array<A
 /**
  * Sesi üretir: mono, [-1, 1], tepe en çok SFX_PEAK_DBFS. Aynı ad ve hız için her zaman aynı örnekler döner.
  */
-export function renderSound(name: SoundName, rate: number = SFX_SAMPLE_RATE): Float32Array<ArrayBuffer> {
-  const spec = SPECS[SOUND_ALIASES[name] ?? name]!;
+export function renderSound(name: SoundName | CallSoundName, rate: number = SFX_SAMPLE_RATE): Float32Array<ArrayBuffer> {
+  const alias = (SOUND_ALIASES as Partial<Record<string, SoundName>>)[name];
+  const spec = SPECS[alias ?? name]!;
   const endMs = Math.max(...spec.tones.map((t) => t.at + t.dur));
   const lastTap = ROOM_TAPS[ROOM_TAPS.length - 1]?.ms ?? 0;
   const tailMs = spec.room > 0 ? lastTap + 40 : 0;

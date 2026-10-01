@@ -18,6 +18,7 @@ import {
   type GuildCreatePayload,
   type GuildData,
   type ClientPlatform,
+  type DmCall,
   type Presence,
   type PresenceStatus,
   type ReadStateUpdate,
@@ -189,6 +190,8 @@ export class Gateway {
   };
   /** Hesap → son bağlantısının kapandığı an (yeniden bağlanma sayımı) */
   private readonly lastClosed = new Map<string, number>();
+  /** Kullanıcının konuşmalarındaki süren aramalar (READY); arama hizmeti kurulunca bağlanır */
+  callsFor: ((userId: string) => DmCall[]) | null = null;
   /** Bağlantılara verilen sıra numarası (izleme isteklerinin kaynağı) */
   private nextSessionId = 0;
 
@@ -375,6 +378,11 @@ export class Gateway {
         if (s.dm && s.socket.readyState === s.socket.OPEN) this.out(s, data);
       }
     }
+  }
+
+  /** Engellediklerin listesi değişti: yalnızca engelleyenin kendi oturumlarına (tam liste) */
+  sendBlocks(userId: string): void {
+    this.sendToUsers([userId], { t: 'USER_BLOCKS_UPDATE', d: { userIds: this.store.blockedUserIds(userId) } });
   }
 
   /**
@@ -836,7 +844,8 @@ export class Gateway {
         mentionCounts: onlyVisible(this.store.mentionCounts(user.id)),
         attachmentMaxBytes: this.attachmentMaxBytes,
         features: this.features,
-        ...(dms ? { dms } : {}),
+        ...(dms ? { dms, dmCalls: this.callsFor?.(user.id) ?? [] } : {}),
+        blockedUserIds: this.store.blockedUserIds(user.id),
       },
     });
     // Yeni oturum kendi durumunu READY'de aldı

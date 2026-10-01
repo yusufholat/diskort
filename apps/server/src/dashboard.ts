@@ -15,6 +15,7 @@ import type { AppContext } from './context.js';
 import type { FeedbackStore } from './feedbackStore.js';
 import type { LiveRoom, LiveTrack } from './livekit.js';
 import type { LiveKitMetrics, LiveKitMetricsStatus } from './infraStats.js';
+import { PRIVATE_CALL_NAME } from './privateCalls.js';
 import type { SystemMonitor, SystemSample, SystemSnapshot } from './systemStats.js';
 import type { TelemetryEntry, VoiceTelemetryStore } from './telemetry.js';
 
@@ -60,6 +61,11 @@ export interface DashboardVoiceChannel {
   name: string;
   guildId: string | null;
   guildName: string | null;
+  /**
+   * DM araması ("Özel arama"): channelId ve katılımcıların userId'si takma kimliktir, user null (yönetici
+   * kimin kiminle konuştuğunu göremez; bkz. privateCalls.ts). Sunucu kanallarında gelmez.
+   */
+  private?: true;
   participants: DashboardVoiceParticipant[];
 }
 
@@ -312,23 +318,29 @@ export class DashboardService {
     for (const s of sessions) platformsOf.set(s.userId, [...(platformsOf.get(s.userId) ?? []), s.platform]);
     const usersById = new Map(db.users.map((u) => [u.id, u]));
     const byChannel = new Map<string, DashboardVoiceChannel>();
+    const { privacy } = this.ctx;
     for (const state of voice.list()) {
-      let entry = byChannel.get(state.channelId);
+      // DM araması: konuşma, adı ve katılımcıların kimliği gösterilmez (takma kimlikler; bkz. privateCalls.ts)
+      const isPrivate = privacy.isPrivate(state.channelId);
+      const channelId = privacy.channel(state.channelId);
+      let entry = byChannel.get(channelId);
       if (!entry) {
-        const channel = this.ctx.store.getChannel(state.channelId);
+        const channel = isPrivate ? null : this.ctx.store.getChannel(state.channelId);
         const guildId = channel?.guildId ?? null;
         entry = {
-          channelId: state.channelId,
-          name: channel?.name ?? 'Bilinmeyen kanal',
+          channelId,
+          name: isPrivate ? PRIVATE_CALL_NAME : (channel?.name ?? 'Bilinmeyen kanal'),
           guildId,
           guildName: guildId ? (db.guildNames.get(guildId) ?? null) : null,
+          ...(isPrivate ? { private: true } : {}),
           participants: [],
         };
-        byChannel.set(state.channelId, entry);
+        byChannel.set(channelId, entry);
       }
+      const userId = privacy.user(state.userId, state.channelId);
       entry.participants.push({
-        userId: state.userId,
-        user: usersById.get(state.userId) ?? null,
+        userId,
+        user: isPrivate ? null : (usersById.get(state.userId) ?? null),
         joinedAt: state.joinedAt,
         selfMute: state.selfMute,
         selfDeaf: state.selfDeaf,
@@ -337,6 +349,7 @@ export class DashboardService {
         streaming: state.streaming,
         streamStartedAt: state.streamStartedAt ?? null,
         streamSourceKind: state.streamSourceKind ?? null,
+        // Cihazlar ve LiveKit izleri DM aramasında da gösterilir (kimliksiz)
         platforms: [...new Set(platformsOf.get(state.userId) ?? [])],
         tracks: live.rooms ? (liveTracks.get(state.userId) ?? []) : null,
       });

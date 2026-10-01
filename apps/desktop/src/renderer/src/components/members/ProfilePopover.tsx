@@ -10,9 +10,12 @@ import {
   useCustomStatus,
   useGuild,
   useSession,
+  useIsBlocked,
   useStatus,
+  voiceStateIn,
   type ProfileContext,
 } from '@diskort/client-core';
+import { confirmBlock, unblock } from '../../lib/blocks';
 import { startDm } from '../../lib/dm';
 import { useEscapeLayer } from '../../lib/escape';
 import { usePresence } from '../../lib/motion';
@@ -84,10 +87,13 @@ export function ProfilePopover() {
   const allRoles = useGuild((s) => s.roles);
   const selfId = useSession((s) => s.user?.id);
   const canMessage = useGuild((s) => (shown ? canMessageIn(s, shown.context, shown.userId, selfId) : false));
+  // Engelleme hesap düzeyidir (yalnızca DM'leri etkiler): her bağlamda, kendin dışındakiler için
+  const blocked = useIsBlocked(shown?.userId);
   // Yayın yapıyorsa kanalı (kartta "Yayını izle" düğmesi için): her sunucu bağlamında (seçili olmayan
   // sunucunun ses kanalı da), DM'de değil
   const streamChannel = useGuild((s) => {
-    const v = shown && showsStreamInfo(shown.context) ? s.voiceStates[shown.userId] : undefined;
+    // Bağlamın ses durumu: sunucuda yalnızca sunucu kanalındaki (DM araması değil)
+    const v = shown && showsStreamInfo(shown.context) ? voiceStateIn(s, shown.context, shown.userId) : undefined;
     return v?.streaming ? v.channelId : null;
   });
   const ref = useRef<HTMLDivElement>(null);
@@ -237,6 +243,20 @@ export function ProfilePopover() {
               )}
             </div>
           )
+        )}
+        {user.id !== selfId && (
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              className="text-xs text-text-muted transition-colors hover:text-danger hover:underline"
+              onClick={() => {
+                closeProfile();
+                void (blocked ? unblock(user.id) : confirmBlock(user.id));
+              }}
+            >
+              {blocked ? 'Engeli kaldır' : 'Engelle'}
+            </button>
+          </div>
         )}
       </div>
       <ProfileEffectLayer effect={userEffectId(user)} />

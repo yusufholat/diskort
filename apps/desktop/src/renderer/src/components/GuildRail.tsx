@@ -32,6 +32,8 @@ export function GuildRail() {
   const inDms = isDmSection(view);
   const dmUnread = useDmUnreadTotal();
   const unreadDms = useUnreadDms(3);
+  // Konuşmalardan birinde arama sürüyor
+  const dmCall = useGuild((s) => Object.keys(s.dmCalls).length > 0);
 
   return (
     <nav className="flex w-[72px] shrink-0 flex-col items-center gap-2 overflow-y-auto border-r border-divider bg-bg-rail pt-3 pb-[calc(var(--footer-h,0px)+12px)] [scrollbar-width:none]">
@@ -40,6 +42,7 @@ export function GuildRail() {
         unread={false}
         label="Direkt Mesajlar"
         badge={dmUnread}
+        activity={dmCall ? 'voice' : null}
         onClick={openDmSection}
       >
         <div
@@ -140,6 +143,7 @@ function UnreadDm({ dm }: { dm: DmChannel }) {
   const selfId = useSession((s) => s.user?.id);
   const title = useGuild((s) => dmTitle(dm, s.users, selfId));
   const count = useDmUnreadCount(dm.id);
+  const inCall = useGuild((s) => Boolean(s.dmCalls[dm.id]));
   return (
     <div className="anim-pop-in">
       <RailItem
@@ -147,6 +151,7 @@ function UnreadDm({ dm }: { dm: DmChannel }) {
         unread
         label={title}
         badge={count}
+        activity={inCall ? 'voice' : null}
         onClick={() => useUi.getState().setView({ kind: 'dm', channelId: dm.id })}
       >
         <DmAvatar dm={dm} size={48} />

@@ -301,6 +301,32 @@ describe('iOS bildirimleri (APNs)', () => {
     for (const r of fcm) expect(JSON.parse(r.body).message.data.channelId).toBe(dm.id);
   });
 
+  it('gelen arama ayrı Android kanalından gider; cevapsız arama aynı etiketle (iOS: aynı collapse-id) yerini alır', async () => {
+    const apple = fakeApple();
+    const { admin, member, push, google } = await startIos(apple, true);
+    ctx.store.savePushToken(member.user.id, 'a1b2c3d4', 'ios');
+    ctx.store.savePushToken(member.user.id, 'android-telefon', 'android');
+    const { dm } = ctx.store.openDirectDm(admin.user.id, member.user.id);
+    const record = ctx.store.createCallMessage(dm.id, admin.user.id, [member.user.id]);
+    await push.notifyCall(ctx.store.getDm(dm.id)!, admin.user.id, record.id, [member.user.id]);
+    await push.notifyMissedCall(ctx.store.getDm(dm.id)!, admin.user.id, record.id, [member.user.id]);
+
+    const fcm = google.requests.filter((r) => r.url.includes('fcm.googleapis.com')).map((r) => JSON.parse(r.body).message);
+    expect(fcm).toHaveLength(2);
+    expect(fcm[0].android.notification).toMatchObject({ channel_id: 'diskort-call', tag: pushTag(dm.id, record.id) });
+    expect(fcm[0].data).toEqual({ type: 'call', channelId: dm.id, messageId: record.id });
+    expect(fcm[0].notification).toEqual({ title: 'ayse', body: '📞 Seni arıyor' });
+    expect(fcm[1].android.notification.tag).toBe(pushTag(dm.id, record.id));
+    expect(fcm[1].data.type).toBe('missed_call');
+    expect(fcm[1].notification.body).toBe('📞 Cevapsız arama');
+
+    expect(apple.requests).toHaveLength(2);
+    for (const req of apple.requests) {
+      expect(req.headers['apns-collapse-id']).toBe(pushTag(dm.id, record.id));
+      expect(JSON.parse(req.body).channelId).toBe(dm.id);
+    }
+  });
+
   it('APNs anahtarı varken FCM yoksa Android\'e gitmez; geçersiz iOS jetonu silinir', async () => {
     const apple = fakeApple(410, '{"reason":"Unregistered"}');
     const { member, push, google } = await startIos(apple);

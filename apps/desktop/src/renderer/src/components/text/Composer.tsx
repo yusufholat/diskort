@@ -102,12 +102,14 @@ interface Props {
   placeholder?: string;
   /** Yazılamıyorsa kutu yerine gösterilecek açıklama (verilmezse izin yok mesajı) */
   lockedText?: string;
+  /** Açıklamanın yanındaki düğme (ör. engellediğin kişide "Engeli kaldır") */
+  lockedAction?: { label: string; onClick: () => void };
   /** Bahsetme önerilerinde yalnızca bu kişiler (ör. konuşmanın katılımcıları) */
   mentionable?: readonly string[];
 }
 
 export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
-  { channel, self, onSend, placeholder, lockedText, mentionable },
+  { channel, self, onSend, placeholder, lockedText, lockedAction, mentionable },
   handle,
 ) {
   const [value, setValue] = useState(() => drafts.get(channel.id) ?? '');
@@ -238,7 +240,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
       // Discord gibi: boş kutuda yukarı ok son mesajını düzenler
       const own = useMessages
         .getState()
-        .channels[channel.id]?.messages.findLast((m) => m.authorId === self.id && !m.status);
+        .channels[channel.id]?.messages.findLast((m) => m.authorId === self.id && !m.status && m.type !== 'call');
       if (own) {
         e.preventDefault();
         setEditing(own.id);
@@ -265,7 +267,16 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
       <div className="px-4">
         <div className="flex min-h-11 items-center gap-2 rounded-lg bg-bg-hover px-4 text-text-muted">
           <Lock size={16} className="shrink-0" />
-          <span>{lockedText ?? 'Bu kanala mesaj gönderme iznin yok.'}</span>
+          <span className="min-w-0 flex-1">{lockedText ?? 'Bu kanala mesaj gönderme iznin yok.'}</span>
+          {lockedAction && (
+            <button
+              type="button"
+              onClick={lockedAction.onClick}
+              className="press shrink-0 rounded bg-bg-raised px-3 py-1 text-sm font-medium text-text-head transition-colors hover:bg-bg-raised-hover"
+            >
+              {lockedAction.label}
+            </button>
+          )}
         </div>
       </div>
     );

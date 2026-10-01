@@ -108,6 +108,11 @@ interface Props {
   onReply?: (message: LocalMessage) => void;
   /** Avatara dokununca kişinin profili (üye kartı) açılır */
   onAvatarPress?: (userId: string) => void;
+  /**
+   * Salt okunur direkt mesaj (engel, ortak sunucu kalmadı): başkasının tepkisine katılınamaz (sunucu 403);
+   * kendi tepkini kaldırmak serbest. Sunucu kanallarında hiç verilmez.
+   */
+  lockReactions?: boolean;
 }
 
 /** Bu kadar sola kaydırılınca bırakınca yanıtlanır (titreşimle bildirilir) */
@@ -126,6 +131,7 @@ export const MessageRow = memo(function MessageRow({
   flash = 0,
   onReply,
   onAvatarPress,
+  lockReactions = false,
 }: Props) {
   const author = useRowAuthor(authorId, message.channelId);
   const mentioned = isMentioned(message, self);
@@ -284,7 +290,9 @@ export const MessageRow = memo(function MessageRow({
                         count={r.count}
                         me={r.me}
                         animateIn={mounted.current}
-                        onPress={() => void toggleReaction(message.channelId, message.id, r.emoji)}
+                        onPress={
+                          lockReactions && !r.me ? undefined : () => void toggleReaction(message.channelId, message.id, r.emoji)
+                        }
                         onLongPress={() => openReactionsSheet({ channelId: message.channelId, messageId: message.id, emoji: r.emoji })}
                       />
                     ))}
@@ -300,7 +308,7 @@ export const MessageRow = memo(function MessageRow({
 });
 
 /** Gün ayracı ve/veya okunmamışların başladığı yer (kırmızı çizgi, sağda "YENİ") */
-function Separator({ day, unread }: { day: number | null; unread: boolean }) {
+export function Separator({ day, unread }: { day: number | null; unread: boolean }) {
   const line = [styles.dayLine, unread && { backgroundColor: colors.danger }];
   return (
     <View style={[styles.dayBreak, !day && { marginTop: 10 }]} accessibilityRole="header">

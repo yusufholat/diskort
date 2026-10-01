@@ -34,6 +34,8 @@ import { knowsCosmeticPacks, withoutPackCosmetics } from './cosmeticCompat.js';
 import { CosmeticPackStore } from './cosmeticPacks.js';
 import { DashboardService } from './dashboard.js';
 import { Store } from './db.js';
+import { DmCallService } from './dmCalls.js';
+import { PrivateCallIds } from './privateCalls.js';
 import { EmbedMediaService, type Fetcher } from './embedMedia.js';
 import { FeedbackService } from './feedback.js';
 import { FeedbackStore } from './feedbackStore.js';
@@ -118,6 +120,8 @@ export interface BuildOptions {
   iosPollMs?: number;
   /** Testler: günlüğün yazılacağı akış (verilirse günlük açık olur; hata kayıtları panele de düşer) */
   logStream?: { write(msg: string): void };
+  /** Testler: DM aramasının kişi başına çalma süresi (ms; varsayılan DM_CALL_RING_MS) */
+  callRingMs?: number;
 }
 
 /** Süresi geçmiş yüklemelerin ve artık dosyaların temizlenme aralığı */
@@ -182,6 +186,19 @@ export async function buildApp(
   const moderation = new VoiceModeration(store, voice, livekit, permissions, gateway);
   const push =
     opts.push ?? new PushService(store, config.fcmServiceAccountFile, app.log, fetch, createApns(config, app.log));
+  // DM aramaları: ses durumundan kurulur/biter, çalma ve arama kaydı (bkz. dmCalls.ts)
+  const calls = new DmCallService({
+    store,
+    permissions,
+    gateway,
+    voice,
+    push,
+    ...(opts.callRingMs !== undefined ? { ringMs: opts.callRingMs } : {}),
+  });
+  gateway.callsFor = (userId) => calls.callsFor(userId);
+  app.addHook('onClose', async () => calls.stop());
+  // Yönetim paneli gizliliği: DM aramalarının ölçümleri takma kimliklerle tutulur (bkz. privateCalls.ts)
+  const privacy = new PrivateCallIds((channelId) => permissions.isDm(channelId));
   const ota = new OtaService(releases, app.log, opts.otaFetch);
   const attachments = new AttachmentService(
     store,
@@ -253,8 +270,9 @@ export async function buildApp(
     maxBps: config.lineTestMaxBps,
     adminMaxBps: config.lineTestAdminMaxBps,
     outagesBetween: (from, to) => netSampler.outages.between(from, to),
+    // DM aramasındaki yayın da "yayın var" sayılır ama kanalı takma kimlikle kaydedilir
     streamInfo: () => {
-      const channels = [...new Set(voice.list().filter((v) => v.streaming).map((v) => v.channelId))];
+      const channels = [...new Set(voice.list().filter((v) => v.streaming).map((v) => privacy.channel(v.channelId)))];
       return { live: channels.length > 0, channels };
     },
     serverTxMbps: () => netSampler.latest()?.tx ?? null,
@@ -273,13 +291,20 @@ export async function buildApp(
     voice,
     onRequest: (r, reason) => {
       counters.inc('trace.requests');
-      app.log.info({ channelId: r.channelId, eventId: r.eventId, users: r.users, sessions: r.sessions, reason }, 'olay kaydı istendi');
+      app.log.info(
+        { channelId: privacy.channel(r.channelId), eventId: r.eventId, users: r.users, sessions: r.sessions, reason },
+        'olay kaydı istendi',
+      );
     },
   });
   // Bağlantı teşhisi → olay kaydı: donma olayı açılınca o kanaldan, doğrulanmış bir kesinti kaydedilince içinde
   // biri bulunan her ses kanalından kayıt istenir. Kesinti kaynaklı istekler ayrıca sınırlıdır (kanal başına 2 dk,
   // toplam saatte 20): bağlantının gidip geldiği dönemde istemcilerin günlük kayıt payı tükenmesin (traceRequests.ts)
-  requestTracesFor.event = (channelId, reason, eventId) => void ctx.requestVoiceTraces(channelId, reason, eventId);
+  // Donma olayları ölçümlerden gelir: DM aramasınınki takma kimlikle (gerçek odası bu süreçte bilinir)
+  requestTracesFor.event = (channelId, reason, eventId) => {
+    const real = privacy.resolve(channelId);
+    if (real) void ctx.requestVoiceTraces(real, reason, eventId);
+  };
   const requestForOutage = createOutageTraceRequester({
     request: (channelId, reason, eventId) => ctx.requestVoiceTraces(channelId, reason, eventId),
     channels: () => voice.list().map((v) => v.channelId),
@@ -305,6 +330,8 @@ export async function buildApp(
     embedMedia,
     permissions,
     moderation,
+    calls,
+    privacy,
     streamPreviews: new StreamPreviewStore(voice),
     errors: createErrorLog({ client: statsFile('client-errors.jsonl'), server: statsFile('server-errors.jsonl') }, app.log),
     counters,
@@ -359,7 +386,13 @@ export async function buildApp(
       },
       livekitMetrics,
     );
-  const voiceSessions = new VoiceSessionRecorder(store.db, (channelId) => store.getChannel(channelId)?.guildId ?? null, app.log);
+  // Ses geçmişine DM aramaları yazılmaz (kim kiminle konuştu yönetim panelinde görünmesin; bkz. privateCalls.ts)
+  const voiceSessions = new VoiceSessionRecorder(
+    store.db,
+    (channelId) => store.getChannel(channelId)?.guildId ?? null,
+    app.log,
+    (channelId) => permissions.isDm(channelId),
+  );
   voiceSessions.attach(voice);
   if (config.systemStats) {
     telemetry.start();

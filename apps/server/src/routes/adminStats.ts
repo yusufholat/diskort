@@ -4,6 +4,7 @@ import type { User } from '@diskort/shared';
 import type { AuthEvent } from '../authLog.js';
 import { sendError, type AppContext } from '../context.js';
 import { computeGuildStats, type GuildStats } from '../guildStats.js';
+import { isPrivateId, PRIVATE_CALL_NAME, PRIVATE_PARTICIPANT_NAME } from '../privateCalls.js';
 import { groupSuites } from '../lineTest/service.js';
 import type { InfraMonitor, LiveKitMetrics } from '../infraStats.js';
 import type { VoiceTelemetryStore } from '../telemetry.js';
@@ -50,12 +51,22 @@ export function registerAdminStatsRoutes(app: FastifyInstance, ctx: AppContext, 
     for (const u of store.usersByIds(unique)) {
       out[u.id] = { id: u.id, username: u.username, displayName: u.displayName, avatarUrl: u.avatarUrl, avatarColor: u.avatarColor, isAdmin: u.isAdmin };
     }
+    // DM aramalarının takma kimlikli kişileri: adsız (bkz. privateCalls.ts)
+    for (const id of unique) {
+      if (isPrivateId(id)) {
+        out[id] = { id, username: '', displayName: PRIVATE_PARTICIPANT_NAME, avatarUrl: null, avatarColor: '#747f8d', isAdmin: false };
+      }
+    }
     return out;
   };
   const channelNames = (ids: Iterable<string | null | undefined>): Record<string, { name: string; guildId: string | null }> => {
     const out: Record<string, { name: string; guildId: string | null }> = {};
     for (const id of new Set(ids)) {
       if (!id) continue;
+      if (isPrivateId(id)) {
+        out[id] = { name: PRIVATE_CALL_NAME, guildId: null };
+        continue;
+      }
       const c = store.getChannel(id);
       if (c) out[id] = { name: c.name, guildId: c.guildId };
     }

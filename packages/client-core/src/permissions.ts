@@ -24,7 +24,7 @@ import { useSession } from './session';
 // işleri gizlemek/kapatmak için kullanır; asıl denetim sunucudadır.
 
 type PermissionState = Pick<GuildStore, 'guild' | 'roles' | 'users' | 'channels'> &
-  Partial<Pick<GuildStore, 'dms' | 'guilds' | 'channelGuild' | 'reachable'>>;
+  Partial<Pick<GuildStore, 'dms' | 'guilds' | 'channelGuild' | 'reachable' | 'blockedIds'>>;
 
 let cached: { guild: GuildStore['guild']; roles: GuildStore['roles']; ctx: PermissionContext } | null = null;
 
@@ -73,10 +73,14 @@ export function permissionsOf(s: PermissionState, userId: string | undefined, ch
   if (!userId) return 0;
   if (channelId !== undefined) {
     const dm = s.dms?.[channelId];
-    // Bire bir konuşmada karşı tarafla ortak sunucu kalmadıysa yazılamaz
+    // Bire bir konuşmada karşı tarafla ortak sunucu kalmadıysa ya da engel varsa (kendi engelin ya da sunucunun
+    // bildirdiği salt okunur durum) yazılamaz, aranamaz. Arama yetkisi (CONNECT/SPEAK/STREAM) buradan okunur.
     if (dm) {
-      return dmPermissions(dm, userId, (id) =>
-        id === userId || (s.reachable ? Boolean(s.reachable[id]) : s.users[id]?.removed === false),
+      return dmPermissions(
+        dm,
+        userId,
+        (id) => id === userId || (s.reachable ? Boolean(s.reachable[id]) : s.users[id]?.removed === false),
+        (id) => Boolean(s.blockedIds?.[id]),
       );
     }
     // Seçili olmayan bir sunucunun kanalı (ör. bağlı olunan ses kanalı): o sunucunun verisiyle
