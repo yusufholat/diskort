@@ -78,13 +78,16 @@ function environment(): Record<string, unknown> {
   return info;
 }
 
-/** Bildirimi diske yazar ve arayüze haber verir (hazırsa hemen gönderir) */
-function report(where: string, message: string, extra: Record<string, unknown> = {}, stack?: string): string | null {
+/**
+ * Bildirimi diske yazar ve arayüze haber verir (hazırsa hemen gönderir). `notify` false ise haber verilmez:
+ * süreç çökmelerinde önce döküm dosyası aranır (bkz. attachDumpLater), bildirim adıyla birlikte gider.
+ */
+function report(where: string, message: string, extra: Record<string, unknown> = {}, stack?: string, notify = true): string | null {
   if (!store) return null;
   try {
     const id = store.add(where, message, buildDetail({ ...extra, ...environment() }, stack));
     log.warn(`${where}: ${message}`);
-    notifyRenderer();
+    if (notify) notifyRenderer();
     return id;
   } catch (err) {
     log.error(err);
@@ -97,17 +100,22 @@ function notifyRenderer(): void {
   if (wc && !wc.isDestroyed() && !wc.isCrashed()) wc.send('crash:pending');
 }
 
-/** Olaydan sonra yazılan döküm dosyasını bulup bildirime ekler */
+/**
+ * Olaydan sonra yazılan döküm dosyasını bulup bildirime ekler, sonra arayüze haber verir. Bildirim bu arada
+ * diskte durur: uygulama o sırada kapanırsa sonraki açılışta (dökümsüz) gider.
+ */
 function attachDumpLater(id: string | null, since: number): void {
   if (!id) return;
   setTimeout(() => {
-    const dir = dumpDir();
-    if (!dir || !store) return;
-    const dump = listDumps(dir).find((d) => d.mtimeMs >= since - DUMP_MATCH_MS);
-    if (!dump) return;
-    store.attachDump(id, dump);
+    try {
+      const dir = dumpDir();
+      const dump = dir ? listDumps(dir).find((d) => d.mtimeMs >= since - DUMP_MATCH_MS) : undefined;
+      if (dump) store?.attachDump(id, dump);
+    } catch (err) {
+      log.warn(err);
+    }
     notifyRenderer();
-  }, DUMP_LOOKUP_DELAY_MS).unref();
+  }, DUMP_LOOKUP_DELAY_MS);
 }
 
 function reportMainError(kind: 'hata' | 'reddedilen söz', error: unknown): void {
@@ -166,6 +174,8 @@ export function registerCrashReporting(opts: { getWindow: () => BrowserWindow | 
       'masaustu-surec',
       `Arayüz süreci sonlandı (${frame}): ${details.reason} (çıkış kodu ${details.exitCode})`,
       { type: 'render-process-gone', reason: details.reason, exitCode: details.exitCode },
+      undefined,
+      false,
     );
     attachDumpLater(id, at);
   });
@@ -173,11 +183,14 @@ export function registerCrashReporting(opts: { getWindow: () => BrowserWindow | 
   app.on('child-process-gone', (_e, details) => {
     if (details.reason === 'clean-exit' || isQuitting()) return;
     const at = Date.now();
-    const name = details.serviceName ?? details.name;
+    const named = details.serviceName ?? details.name;
+    const name = named && named !== details.type ? named : undefined;
     const id = report(
       'masaustu-surec',
       `${details.type}${name ? ` (${name})` : ''} süreci sonlandı: ${details.reason} (çıkış kodu ${details.exitCode})`,
       { type: 'child-process-gone', process: details.type, name: name ?? null, reason: details.reason, exitCode: details.exitCode },
+      undefined,
+      false,
     );
     attachDumpLater(id, at);
   });
