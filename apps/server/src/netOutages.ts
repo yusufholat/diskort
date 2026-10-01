@@ -27,8 +27,12 @@ export interface NicSilence {
   baseline: number;
   /** O an sesteki kişi sayısı (bilinmiyorsa null) */
   participants: number | null;
-  /** Aynı saniyelerde (±2 sn) yanıtsız kalan dış sonda sayısı: > 0 ise sessizlik doğrulanmıştır */
+  /**
+   * Aynı saniyelerde (−2/+1 sn) yanıtsız kalan dış sonda sayısı ve hedefleri. Sessizlik ancak en az iki farklı
+   * hedeften en az iki yanıtsız sondayla doğrulanmış sayılır (bkz. isCorroborated)
+   */
   probesLost: number;
+  probeTargets?: string[];
   /** Giden paket hızı da çöktü mü (SFU'nun iletecek bir şeyi kalmadı, TCP ACK saatleri durdu): destekleyici işaret */
   txCollapsed: boolean;
 }
@@ -52,6 +56,9 @@ export interface Outage {
   probe: ProbeOutage | null;
   nic: NicSilence | null;
 }
+
+/** NIC sessizliği yanıtsız sondalarla doğrulanmış mı: en az 2 yanıtsız sonda, en az 2 farklı hedef */
+export const isCorroborated = (s: Pick<NicSilence, 'probesLost' | 'probeTargets'>): boolean => s.probesLost >= 2 && (s.probeTargets?.length ?? 0) >= 2;
 
 /** Kesinti doğrulanmış mı (dış sondalarla); "aday" tek başına bir yargıyı seçemez */
 export const isConfirmedOutage = (o: Pick<Outage, 'kind'>): boolean => o.kind === 'tam' || o.kind === 'sonda';
@@ -113,6 +120,7 @@ interface SilenceState {
   threshold: number;
   participants: number | null;
   probesLost: number;
+  probeTargets: Set<string>;
   /** Sessizlik bitti, geri gelme bekleniyor: geçen saniye */
   waited: number | null;
 }
@@ -132,8 +140,9 @@ export interface SilenceInput {
   /** Sesteki kişi ve yayın sayısı (biliniyorsa) */
   participants?: number | null;
   streams?: number | null;
-  /** Bu saniyenin çevresinde (±2 sn) yanıtsız kalan dış sonda sayısı */
+  /** Bu saniyenin çevresinde (−2/+1 sn) yanıtsız kalan dış sonda sayısı ve hedefleri */
   probesLost?: number;
+  probeTargets?: string[];
 }
 
 export class NicSilenceDetector {
@@ -163,6 +172,7 @@ export class NicSilenceDetector {
       baseline: Math.round(cur.baseline),
       participants: cur.participants,
       probesLost: cur.probesLost,
+      probeTargets: [...cur.probeTargets],
       txCollapsed: cur.txMin !== null && cur.txBaseline !== null && cur.txMin <= Math.max(TX_COLLAPSE_ABS, cur.txBaseline * TX_COLLAPSE_RATIO),
     };
   }
@@ -198,6 +208,7 @@ export class NicSilenceDetector {
       c.min = Math.min(c.min, rxp);
       if (txp !== null) c.txMin = c.txMin === null ? txp : Math.min(c.txMin, txp);
       c.probesLost = Math.max(c.probesLost, lost);
+      for (const label of input.probeTargets ?? []) c.probeTargets.add(label);
     };
     if (cur && cur.waited === null) {
       if (rxp <= cur.threshold) {
@@ -253,6 +264,7 @@ export class NicSilenceDetector {
             threshold,
             participants,
             probesLost: lost,
+            probeTargets: new Set(input.probeTargets ?? []),
             waited: null,
           };
           return true;
@@ -385,9 +397,9 @@ export class OutageLog {
       this.items.push(o);
       if (this.items.length > MEMORY_MAX) this.items.splice(0, this.items.length - MEMORY_MAX);
     }
-    // NIC sessizliği yalnızca dış sondalarla doğrulanırsa (kayıtlı sonda kesintisi ya da aynı saniyelerde yanıtsız
-    // sonda) tam kesintidir; tek başına adaydır
-    o.kind = o.nic ? (o.probe || o.nic.probesLost > 0 ? 'tam' : 'aday') : 'sonda';
+    // NIC sessizliği yalnızca dış sondalarla doğrulanırsa (kayıtlı sonda kesintisi ya da aynı saniyelerde en az iki
+    // farklı hedeften yanıtsız sonda) tam kesintidir; tek başına adaydır
+    o.kind = o.nic ? (o.probe || isCorroborated(o.nic) ? 'tam' : 'aday') : 'sonda';
     o.t = localStamp(o.at, this.opts.offsetMin ?? 180);
     if (this.file) this.unsaved.set(o.id, this.now());
     return o;

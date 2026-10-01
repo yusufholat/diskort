@@ -71,7 +71,9 @@ describe('gerçek veriyle yeniden oynatma', () => {
     // +25. saniye: gelen 0 pk/sn (bir önceki saniye 21); 23-24. saniyelerde iki sonda yanıtsız
     expect(first!.nic).toMatchObject({ rxpMin: 0, txCollapsed: true });
     expect(Math.round(first!.nic!.durationMs / 1000)).toBe(1);
-    expect(first!.nic!.probesLost).toBeGreaterThanOrEqual(2);
+    // Doğrulama: iki farklı hedeften iki yanıtsız sonda (aynı adresin TCP ve UDP sondaları)
+    expect(first!.nic!.probesLost).toBe(2);
+    expect(first!.nic!.probeTargets!.sort()).toEqual(['tcp 1.1.1.1', 'udp 1.1.1.1']);
     expect(first!.nic!.baseline).toBeGreaterThanOrEqual(28);
     expect(first!.probe).toBeNull(); // eski yoklama sıklığında art arda üç kayıp oluşmadı: doğrulama yanıtsız sondalardan
     // +61..+64: gelen 8 → 4 → 3 → 0; üç hedef de yanıtsız (üretim eşikleriyle sonda kesintisi)
@@ -91,7 +93,9 @@ describe('gerçek veriyle yeniden oynatma', () => {
     expect(r.outages.map((o) => [offsetSec(o, e.start), o.kind])).toEqual([[57, 'tam']]);
     expect(r.outages[0]!.nic).toMatchObject({ rxpMin: 1, txCollapsed: true });
     expect(Math.round(r.outages[0]!.nic!.durationMs / 1000)).toBe(1);
-    expect(r.outages[0]!.nic!.probesLost).toBeGreaterThanOrEqual(2);
+    // Doğrulama: iki farklı çözücüye giden iki yanıtsız UDP sondası (56. ve 57. saniyeler)
+    expect(r.outages[0]!.nic!.probesLost).toBe(2);
+    expect(r.outages[0]!.nic!.probeTargets!.sort()).toEqual(['udp 1.1.1.1', 'udp 8.8.8.8']);
     expect(r.probes).toEqual([]);
     // Verideki büyük düşüşler (ör. 1140 → 78 pk/sn) dedektörü tetiklemedi
     const rx = r.rows.map((x) => x.rxp ?? 0);

@@ -331,7 +331,9 @@ export class ProbeEngine {
     }
     s.recent.push({ at: sentAt, rtt });
     while (s.recent.length > 0 && s.recent[0]!.at < sentAt - RECENT_MS) s.recent.shift();
-    this.opts.onResult(s.target.label, sentAt, rtt);
+    // Yoklanamayan hedefin kayıpları saniyelik satırlara YAZILMAZ: kapatılmış hedefin yeniden denemesi ya da henüz
+    // hiç yanıt vermemiş hedef "yanıtsız sonda" gibi görünüp NIC sessizliğini doğrulamamalı, kayıp özetini şişirmemeli
+    if (rtt !== null || (!wasDisabled && s.replied > 0)) this.opts.onResult(s.target.label, sentAt, rtt);
     // Kapalı hedefin yeniden deneme sondası kesinti yargısına katılmaz (yanıtsızsa sıradaki boşluk sayılmaz)
     this.done.set(seq, { seq, label: s.target.label, kind: s.target.kind, sentAt, rtt, skip: wasDisabled && rtt === null });
     // Hiç yanıt vermeyen hedef (ör. sağlayıcı o portu süzüyor) sıradan çıkar; sonuçları kesinti sayılmaz. Ama

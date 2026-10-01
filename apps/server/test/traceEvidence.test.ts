@@ -1,10 +1,14 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { VoiceTraceSample } from '@diskort/shared';
 import type { AlignedTrace } from '../src/clientTrace.js';
 import { buildUsers, diagnose, FreezeCorrelator } from '../src/freezeDiagnosis.js';
 import type { TelemetryEntry } from '../src/telemetry.js';
+import { summarizeRows } from '../src/netSeconds.js';
 import { summarizeTraces } from '../src/traceEvidence.js';
-import type { TraceRequestResult } from '../src/traceRequests.js';
+import { createOutageTraceRequester, OUTAGE_REQUEST_COOLDOWN_MS, OUTAGE_REQUESTS_PER_HOUR, type TraceRequestResult } from '../src/traceRequests.js';
 import { startServer, type TestServer } from './helpers.js';
 
 // İstemci olay kayıtlarının (saniyelik bağlantı ölçümleri) teşhise katılması: kanıt özeti, sınıflandırıcıya etkisi,
@@ -101,20 +105,58 @@ describe('olay kayıtlarından kanıt', () => {
   it('kayıt yoksa null; temiz kayıtlarda bulgu yok', () => {
     expect(summarizeTraces([], T0, T0 + 60_000)).toBeNull();
     const e = summarizeTraces([trace('a', 40), trace('b', 40)], T0, T0 + 60_000)!;
-    expect(e).toMatchObject({ traces: 2, users: ['a', 'b'], stun: null, stunSingle: null, burst: null, bwe: null, pliMax: 0, decoderFreezes: [], networkFreezes: [], lossOutAudioPct: 0, lossOutVideoPct: null });
+    expect(e).toMatchObject({ traces: 2, users: ['a', 'b'], stun: null, stunPartial: null, burst: null, bwe: null, pliMax: 0, decoderFreezes: [], networkFreezes: [], lossOutAudioPct: 0, lossOutVideoPct: null });
   });
 
   it('STUN ≥2 kullanıcıda aynı saniyelerde yanıtsız: yol herkes için ölü; tek kullanıcıda yalnızca onun yolu', () => {
     const dead = (from: number, to: number) => (i: number) => (i >= from && i <= to ? { x: x({ su: (i - from + 1) * 1000 + 500, sr: 0 }) } : {});
     const both = summarizeTraces([trace('a', 40, dead(20, 23)), trace('b', 40, dead(21, 24)), trace('c', 40)], T0, T0 + 60_000)!;
     expect(both.stun!.users.sort()).toEqual(['a', 'b']);
-    expect(both.stun!.maxMs).toBe(4_500);
-    expect(both.stunSingle).toBeNull();
+    expect(both.stun!.alive).toEqual(['c']); // o saniyeleri kapsayan üç kayıttan ikisi ölü: çoğunluk
+    // Aralık ölçümlerle sınırlı: son canlı ölçümden (T0+20 sn) son ölü ölçüme (T0+24 sn)
+    expect([both.stun!.from, both.stun!.to, both.stun!.maxMs]).toEqual([T0 + 21_000, T0 + 24_000, 4_000]);
+    expect(both.stunPartial).toBeNull();
     const one = summarizeTraces([trace('a', 40, dead(20, 23)), trace('b', 40)], T0, T0 + 60_000)!;
     expect(one.stun).toBeNull();
-    expect(one.stunSingle).toMatchObject({ userId: 'a', maxMs: 4_500 });
+    expect(one.stunPartial).toMatchObject({ users: ['a'], alive: ['b'], maxMs: 4_000 });
     // Dakikalar arayla (çakışmayan) yanıtsızlık "aynı anda" değildir
     expect(summarizeTraces([trace('a', 40, dead(5, 7)), trace('b', 40, dead(30, 32))], T0, T0 + 60_000)!.stun).toBeNull();
+  });
+
+  it('STUN kuralı kandırılamaz: istemcinin bildirdiği dev süre aralığı uzatmaz; tek noktada kesişme ve azınlık yetmez', () => {
+    const dead = (from: number, to: number) => (i: number) => (i >= from && i <= to ? { x: x({ su: (i - from + 1) * 1000 + 500, sr: 0 }) } : {});
+    // Sahte: A tek ölçümde 1 saatlik "yanıtsız" bildiriyor (10. saniye); B'nin dürüst 1,6 sn'lik takılması 30. saniyede
+    const forged = summarizeTraces([trace('a', 40, (i) => (i === 10 ? { x: x({ su: 3_600_000 }) } : {})), trace('b', 40, (i) => (i === 30 ? { x: x({ su: 1_600 }) } : {}))], T0, T0 + 60_000)!;
+    expect(forged.stun).toBeNull();
+    // A'nın aralığı son canlı ölçümüyle sınırlı (1 sn), bir saat değil
+    expect(forged.stunPartial!.maxMs).toBeLessThanOrEqual(1_600);
+    // Kaydın ilk ölçümünde bile en çok 5 sn + ölçüm aralığı geriye gider
+    const first = summarizeTraces([trace('a', 40, (i) => (i === 0 ? { x: x({ su: 3_600_000 }) } : {}))], T0 - 600_000, T0 + 60_000)!;
+    expect(first.stunPartial!.maxMs).toBeLessThanOrEqual(6_000);
+    // Örtüşme 1,5 sn'den kısa (art arda, tek noktada değen aralıklar): aynı anda değil
+    const touching = summarizeTraces([trace('a', 40, dead(20, 21)), trace('b', 40, dead(22, 23))], T0, T0 + 60_000)!;
+    expect(touching.stun).toBeNull();
+    // İki kullanıcı ölü ama o saniyeleri kapsayan üç kullanıcı canlı: çoğunluk değil → yalnızca kısmi
+    const minority = summarizeTraces([trace('a', 40, dead(20, 23)), trace('b', 40, dead(20, 23)), trace('c', 40), trace('d', 40), trace('e', 40)], T0, T0 + 60_000)!;
+    expect(minority.stun).toBeNull();
+    expect(minority.stunPartial).toMatchObject({ users: ['a', 'b'], alive: ['c', 'd', 'e'] });
+    // Kaydı o saniyeleri kapsamayan kullanıcı çoğunluk hesabına girmez
+    const short = summarizeTraces([trace('a', 40, dead(20, 23)), trace('b', 40, dead(20, 23)), trace('c', 10), trace('d', 10), trace('e', 10)], T0, T0 + 60_000)!;
+    expect(short.stun).toMatchObject({ users: ['a', 'b'], alive: [] });
+  });
+
+  it('örtüşen gönderimlerdeki aynı ölçüm (aynı sıra numarası, farklı saat farkı) iki kez sayılmaz', () => {
+    const a1 = trace('a', 20);
+    const a2 = trace('a', 20);
+    // İkinci gönderim aynı ölçümleri 700 ms kaymış saat farkıyla taşıyor
+    a2.samples = a2.samples.map((s) => ({ ...s, ts: s.ts + 700 }));
+    const e = summarizeTraces([a1, a2], T0, T0 + 60_000)!;
+    const once = summarizeTraces([a1], T0, T0 + 60_000)!;
+    expect(e.lossOutAudioPct).toBe(once.lossOutAudioPct);
+    // Gönderilen paket sayısı iki katına çıkmadı (ses: saniyede 50 paket × 20 sn)
+    const lossy = trace('a', 20, () => ({ up: [{ k: 'mic', ps: 50, bs: 5_000, pl: 5, fl: 10 }] }));
+    const lossy2 = { ...lossy, samples: lossy.samples.map((s) => ({ ...s, ts: s.ts + 700 })) };
+    expect(summarizeTraces([lossy, lossy2], T0, T0 + 60_000)!.lossOutAudioPct).toBe(10);
   });
 
   it('yayıncıdaki patlama (bit hızı sıçraması, anahtar/dev kare) ve ardından kayıp; PLI/NACK dalgası; BWE çöküşü', () => {
@@ -165,18 +207,36 @@ describe('sınıflandırıcı: olay kayıtları kanıt olarak', () => {
     expect(some.missing.join(' ')).toContain('1 kullanıcıdan olay kaydı yok');
   });
 
-  it('≥2 kullanıcıda eşzamanlı STUN yanıtsızlığı: sunucuda sonda kesintisi olmasa da sağlayıcı yolu', () => {
+  it('çoğunlukta eşzamanlı STUN yanıtsızlığı: sunucu tarafında doğrulama yoksa "istemci ↔ sunucu yolu / ses sunucusu" (sağlayıcı denmez, en çok orta güven)', () => {
     const users = buildUsers([entry('a', { lossOut: 14 }), entry('b', {}), entry('c', { lossIn: 9 })]);
     const ev = summarizeTraces([trace('a', 40, dead(20, 23)), trace('b', 40, dead(20, 23)), trace('c', 40, dead(21, 23))], T0, T0 + 60_000);
     const d = diagnose(users, null, null, ev);
-    expect(d).toMatchObject({ cause: 'saglayici_kesinti', segment: 'saglayici', confidence: 'yüksek' });
-    expect(d.summary).toBe('Sorun: istemciler ↔ sunucu UDP yolu (barındırma sağlayıcısı) — 3 kullanıcının STUN yoklamaları aynı anda 4,5 sn yanıtsız kaldı');
-    expect(d.evidence.join(' ')).toContain('medyadan bağımsız kanıt');
-    expect(d.missing.join(' ')).toContain('dış sonda kesintisi kaydedilmedi');
-    // Tek kullanıcının STUN'u yanıtsızsa sağlayıcı seçilmez; kanıtta "yalnızca bir kullanıcı" diye geçer
+    expect(d).toMatchObject({ cause: 'sunucu_yolu', segment: 'yol', confidence: 'orta', label: 'İstemci ↔ sunucu yolu / ses sunucusu' });
+    expect(d.summary).toBe('Sorun: istemci ↔ sunucu yolu ya da ses sunucusu — 3/3 kullanıcının STUN yoklamaları aynı anda 4,0 sn yanıtsız kaldı (sunucu tarafında doğrulanmadı)');
+    expect(d.summary).not.toContain('sağlayıcı');
+    expect(d.evidence.join(' ')).toContain('kayıtları o saniyeleri kapsayan 3 kullanıcıdan 3 tanesinde yanıtsız, 0 tanesinde canlı');
+    expect(d.missing.join(' ')).toContain('Sunucu tarafında hiçbir doğrulama yok');
+    expect(d.missing.join(' ')).toContain('aynı ev / servis sağlayıcı');
+    // Sunucu tarafında NIC sessizliği adayı varsa: sağlayıcı yolu
+    const rows = Array.from({ length: 60 }, (_, i) => ({ t: T0 + i * 1000, rx: 1, tx: 2, rxp: 300, txp: 600, nd: 0, ue: 0, ur: 0, us: 0, sd: 0, psi: 1, lk: 0.2 }));
+    const aday = { id: 'k', at: T0 + 21_000, durationMs: 3_000, t: '2026-10-01 01:18:21.000 +03:00', kind: 'aday' as const, probe: null, nic: { at: T0 + 21_000, durationMs: 3_000, rxpMin: 2, baseline: 300, participants: 3, probesLost: 0, txCollapsed: true } };
+    const withNic = diagnose(users, summarizeRows(rows, T0, T0 + 60_000, 4, { outages: [aday] }), null, ev);
+    expect(withNic).toMatchObject({ cause: 'saglayici_kesinti', segment: 'saglayici', confidence: 'yüksek' });
+    expect(withNic.summary).toBe('Sorun: istemciler ↔ sunucu UDP yolu (barındırma sağlayıcısı) — 3/3 kullanıcının STUN yoklamaları aynı anda 4,0 sn yanıtsız kaldı');
+    expect(withNic.evidence.join(' ')).toContain('istemcilerin STUN kaydıyla örtüşüyor');
+    // Tek kullanıcının STUN'u yanıtsızsa hiçbir ortak neden seçilmez; kanıtta kaç kayıtta canlı olduğu yazar
     const one = diagnose(buildUsers([entry('a', { lossOut: 14 }), entry('b', {})]), null, null, summarizeTraces([trace('a', 40, dead(20, 23)), trace('b', 40)], T0, T0 + 60_000));
     expect(one.cause).toBe('tek_kullanici');
-    expect(one.evidence.join(' ')).toContain('yalnızca bir kullanıcının STUN yoklamaları 4,5 sn yanıtsız kaldı');
+    expect(one.evidence.join(' ')).toContain('yalnızca bir kullanıcının STUN yoklamaları 4,0 sn yanıtsız kaldı (kayıtları o saniyeleri kapsayan 2 kullanıcıdan 1 tanesinde yanıtsız, 1 tanesinde canlı)');
+    // İki kullanıcı ölü ama çoğunluk canlı: ortak neden seçilmez, "çoğunluk değil" diye yazılır
+    const minority = diagnose(
+      buildUsers([entry('a', { lossIn: 9 }), entry('b', {}), entry('c', {}), entry('d', {}), entry('e', {})]),
+      null,
+      null,
+      summarizeTraces([trace('a', 40, dead(20, 23)), trace('b', 40, dead(20, 23)), trace('c', 40), trace('d', 40), trace('e', 40)], T0, T0 + 60_000),
+    );
+    expect(minority.cause).toBe('tek_kullanici');
+    expect(minority.evidence.join(' ')).toContain('ama çoğunluk değil (kayıtları o saniyeleri kapsayan 5 kullanıcıdan 2 tanesinde yanıtsız, 3 tanesinde canlı)');
   });
 
   it('yayıncı patlaması, PLI dalgası, BWE çöküşü ve çözücü donması kanıt/etken olarak eklenir (nedeni tek başına değiştirmez)', () => {
@@ -235,10 +295,10 @@ describe('olay kaydı isteme ve olaya ekleme', () => {
     expect(done).toEqual([]);
     await c.flushed();
     expect(queries).toEqual([{ from: ev!.start - 30_000, to: ev!.end + 10_000, channelId: 'kanal', limit: 60 }]);
-    expect(ev!.cause).toBe('saglayici_kesinti');
+    expect(ev!.cause).toBe('sunucu_yolu');
     expect(ev!.traces).toMatchObject({ count: 2, users: ['a', 'b'] });
     expect(ev!.traces!.evidence.stun!.users).toHaveLength(2);
-    expect(done).toEqual(['saglayici_kesinti']);
+    expect(done).toEqual(['sunucu_yolu']);
     // Kayıt kaynağı hata verirse olay yine kaydedilir
     const failing = new FreezeCorrelator({ dir: null, sampler: null, traces: { window: async () => Promise.reject(new Error('disk')) }, onEvent: (e) => done.push(`hata:${e.cause}`) });
     failing.observe(entry('a', { lossOut: 15 }));
@@ -246,6 +306,85 @@ describe('olay kaydı isteme ve olaya ekleme', () => {
     failing.sweep(T0 + 200_000);
     await failing.flushed();
     expect(done.at(-1)).toBe('hata:saglayici_gelen');
+  });
+
+  it('kapanışta (stop) açık olay, kayıtlar okunduktan SONRA zincire eklenen yazımıyla birlikte beklenir; yeniden açılışta aynı kimlik bir kez', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diskort-freeze-stop-'));
+    try {
+      const now = Date.now();
+      const slow = { window: async () => new Promise<{ traces: AlignedTrace[] }>((r) => setTimeout(() => r({ traces: [] }), 60)) };
+      const c = new FreezeCorrelator({ dir, sampler: null, traces: slow });
+      c.observe(entry('a', { lossOut: 15 }, now));
+      c.observe(entry('b', { lossOut: 12 }, now));
+      await c.stop(); // olay hâlâ açıktı: kapanışta sınıflanır ve yazılır
+      const file = path.join(dir, 'freeze-events.jsonl');
+      const lines = fs.readFileSync(file, 'utf8').trim().split('\n');
+      expect(lines).toHaveLength(1);
+      const id = (JSON.parse(lines[0]!) as { id: string }).id;
+      expect((await c.detailOf(id)).rows).toEqual([]);
+      expect(fs.existsSync(path.join(dir, 'freeze-rows.jsonl'))).toBe(true);
+      // Aynı olay dosyada iki kez bulunsa da (kırpma + ekleme) yüklenince bir kez sayılır, son hali geçerlidir
+      fs.appendFileSync(file, JSON.stringify({ ...(JSON.parse(lines[0]!) as object), confidence: 'düşük' }) + '\n');
+      const again = new FreezeCorrelator({ dir, sampler: null });
+      expect(again.list(0)).toHaveLength(1);
+      expect(again.list(0)[0]).toMatchObject({ id, confidence: 'düşük' });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('kesinti kaynaklı istekler ayrıca sınırlanır: kanal başına 2 dakikada bir, toplamda saatte en çok 20', () => {
+    let now = 1_000_000;
+    const sent: [string, string | undefined][] = [];
+    let channels = ['k1', 'k1', 'k2'];
+    const ask = createOutageTraceRequester({
+      now: () => now,
+      channels: () => channels,
+      request: (channelId, _reason, eventId) => {
+        sent.push([channelId, eventId]);
+        return { eventId: eventId!, channelId, users: 1, sessions: 1, throttled: false };
+      },
+    });
+    expect(ask('o1')).toBe(2);
+    expect(sent).toEqual([
+      ['k1', 'kesinti-o1'],
+      ['k2', 'kesinti-o1'],
+    ]);
+    // Aynı kesinti (birleşen ikinci işaret) ve 2 dakika içindeki yeni kesintiler: istek yok
+    expect(ask('o1')).toBe(0);
+    for (let i = 0; i < 11; i++) {
+      now += 10_000;
+      expect(ask(`sık-${i}`)).toBe(0);
+    }
+    now += 15_000; // 125 sn sonra
+    expect(ask('o2')).toBe(2);
+    channels = ['k1'];
+    // Saatlik üst sınır (bütün kanalların toplamı): kanal sınırı izin verse de bir saatte en çok `perHour` istek
+    const times: number[] = [];
+    const capped = createOutageTraceRequester({
+      now: () => now,
+      channels: () => ['k1', 'k2', 'k3'],
+      cooldownMs: 60_000,
+      perHour: 5,
+      request: (channelId, _reason, eventId) => {
+        times.push(now);
+        return { eventId: eventId!, channelId, users: 1, sessions: 1, throttled: false };
+      },
+    });
+    for (let i = 0; i < 30; i++) {
+      now += 61_000;
+      capped(`c-${i}`);
+    }
+    expect(times).toHaveLength(5); // 30 dakikada 30 kesinti × 3 kanal: yalnızca 5 istek
+    now += 3_600_000;
+    expect(capped('sonra')).toBe(3); // bir saat sonra yeniden
+    // Varsayılanlar
+    expect([OUTAGE_REQUEST_COOLDOWN_MS, OUTAGE_REQUESTS_PER_HOUR]).toEqual([120_000, 20]);
+    // Karşı taraf kısıtladıysa (10 sn'lik kanal sınırı) sayılmaz
+    now += 3_600_000;
+    const throttled = createOutageTraceRequester({ now: () => now, channels: () => ['k1'], request: (channelId, _r, eventId) => ({ eventId: eventId!, channelId, users: 1, sessions: 0, throttled: true }) });
+    expect(throttled('x')).toBe(0);
+    expect(throttled('y')).toBe(0);
   });
 
   describe('sunucu bağlantıları', () => {
@@ -270,8 +409,12 @@ describe('olay kaydı isteme ve olaya ekleme', () => {
       s.ctx.voice.join(s.owner.user.id, voice.id);
       const o = s.ctx.netSampler.addProbeOutage({ at: Date.now() - 60_000, durationMs: 1_500, lost: 6, targets: ['udp 1.1.1.1', 'tcp 8.8.8.8'], udp: true, tcp: true });
       expect(calls).toEqual([[voice.id, 'sunucu kesinti gördü', `kesinti-${o.id}`]]);
+      // Hemen ardından gelen yeni kesintiler (bağlantı gidip geliyor): 2 dakika dolmadan yeniden istenmez
+      s.ctx.netSampler.addProbeOutage({ at: Date.now() - 120_000, durationMs: 1_500, lost: 6, targets: ['udp 1.1.1.1', 'tcp 8.8.8.8'], udp: true, tcp: true });
+      s.ctx.netSampler.addProbeOutage({ at: Date.now() - 180_000, durationMs: 1_500, lost: 6, targets: ['udp 1.1.1.1', 'tcp 8.8.8.8'], udp: true, tcp: true });
+      expect(calls).toHaveLength(1);
       // Doğrulanmamış NIC sessizliği (aday) istek göndermez
-      const cand = s.ctx.netSampler.outages.addNic({ at: Date.now() - 200_000, durationMs: 2_000, rxpMin: 2, baseline: 40, participants: 1, probesLost: 0, txCollapsed: true });
+      const cand = s.ctx.netSampler.outages.addNic({ at: Date.now() - 400_000, durationMs: 2_000, rxpMin: 2, baseline: 40, participants: 1, probesLost: 0, txCollapsed: true });
       expect(cand.kind).toBe('aday');
       expect(calls).toHaveLength(1);
       // Donma olayı açılınca: olay kimliğiyle

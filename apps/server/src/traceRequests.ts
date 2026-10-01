@@ -23,6 +23,50 @@ export interface TraceRequestResult {
  */
 export type RequestVoiceTraces = (channelId: string, reason: string, eventId?: string) => TraceRequestResult;
 
+/** Kesinti kaynaklı isteklerde kanal başına bekleme süresi ve bütün kanallar için saatlik üst sınır */
+export const OUTAGE_REQUEST_COOLDOWN_MS = 120_000;
+export const OUTAGE_REQUESTS_PER_HOUR = 20;
+
+/**
+ * Sunucu bir kesinti kaydedince içinde biri bulunan ses kanallarından olay kaydı ister. Bağlantının sürekli
+ * gidip geldiği bir dönemde her istemcinin 10 sn'de bir kayıt gönderip günlük payını tüketmemesi (ve asıl
+ * kayıtların sessizce düşmemesi) için ayrıca sınırlanır: kanal başına en çok 2 dakikada bir, toplamda saatte
+ * en çok `perHour` istek. Dönen değer: gönderilen istek sayısı.
+ */
+export function createOutageTraceRequester(deps: {
+  request: RequestVoiceTraces;
+  channels: () => string[];
+  cooldownMs?: number;
+  perHour?: number;
+  now?: () => number;
+}): (outageId: string) => number {
+  const now = deps.now ?? Date.now;
+  const cooldown = deps.cooldownMs ?? OUTAGE_REQUEST_COOLDOWN_MS;
+  const perHour = deps.perHour ?? OUTAGE_REQUESTS_PER_HOUR;
+  const lastByChannel = new Map<string, number>();
+  let recent: number[] = [];
+  const seen = new Set<string>();
+  return (outageId) => {
+    // Aynı kesinti iki işaretle (sonda + NIC) iki kez bildirilebilir
+    if (seen.has(outageId)) return 0;
+    seen.add(outageId);
+    if (seen.size > 200) seen.delete(seen.values().next().value!);
+    const at = now();
+    recent = recent.filter((t) => at - t < 3_600_000);
+    for (const [id, t] of lastByChannel) if (at - t >= cooldown) lastByChannel.delete(id);
+    let sent = 0;
+    for (const channelId of new Set(deps.channels())) {
+      if (lastByChannel.has(channelId) || recent.length >= perHour) continue;
+      const r = deps.request(channelId, 'sunucu kesinti gördü', `kesinti-${outageId}`);
+      if (r.throttled) continue;
+      lastByChannel.set(channelId, at);
+      recent.push(at);
+      sent++;
+    }
+    return sent;
+  };
+}
+
 export function createTraceRequester(deps: {
   gateway: Pick<Gateway, 'sendVoiceTraceRequest'>;
   voice: Pick<VoiceStateStore, 'list'>;

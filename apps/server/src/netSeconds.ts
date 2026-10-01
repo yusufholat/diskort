@@ -588,7 +588,11 @@ const SILENCE_LAG_ROWS = 2;
 const CORROBORATE_BEFORE_MS = 2_000;
 const CORROBORATE_AFTER_MS = 1_000;
 
-const lostExternal = (r: SecondRow): number => Object.entries(r.p ?? {}).filter(([label, v]) => label !== GATEWAY_LABEL && v < 0).length;
+/** Satırdaki yanıtsız dış sondaların hedefleri (ağ geçidi hariç; yoklanamayan hedefler satıra hiç yazılmaz) */
+const lostExternal = (r: SecondRow): string[] =>
+  Object.entries(r.p ?? {})
+    .filter(([label, v]) => label !== GATEWAY_LABEL && v < 0)
+    .map(([label]) => label);
 
 /**
  * Saniyelik satırları NIC sessizliği dedektörüne GECİKMELİ verir: bir satır, kendisinden sonraki iki satır da
@@ -621,7 +625,7 @@ export class SilenceScanner {
     const near = [...this.before, row, ...this.pending.map((p) => p.row)].filter(
       (r) => r.t >= row.t - CORROBORATE_BEFORE_MS && r.t <= row.t + CORROBORATE_AFTER_MS,
     );
-    const probesLost = near.reduce((n, r) => n + lostExternal(r), 0);
+    const lostLabels = near.flatMap(lostExternal);
     const silent = this.detector.push({
       t: row.t,
       intervalMs: cur.intervalMs,
@@ -629,7 +633,8 @@ export class SilenceScanner {
       txp: row.txp,
       participants: cur.participants,
       streams: cur.streams,
-      probesLost,
+      probesLost: lostLabels.length,
+      probeTargets: [...new Set(lostLabels)],
     });
     if (silent) row.o = (row.o ?? 0) | OUTAGE_BIT_NIC;
     this.before.push(row);

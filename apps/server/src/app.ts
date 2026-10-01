@@ -11,7 +11,7 @@ import { DailyCounters } from './counters.js';
 import { InfraMonitor, LiveKitMetrics } from './infraStats.js';
 import { VoiceTelemetryStore } from './telemetry.js';
 import { ClientTraceStore } from './clientTrace.js';
-import { createTraceRequester } from './traceRequests.js';
+import { createOutageTraceRequester, createTraceRequester } from './traceRequests.js';
 import { registerVoiceTraceRoutes } from './routes/voiceTrace.js';
 import { registerAdminTraceRoutes } from './routes/adminTraces.js';
 import { FreezeCorrelator } from './freezeDiagnosis.js';
@@ -277,15 +277,14 @@ export async function buildApp(
     },
   });
   // Bağlantı teşhisi → olay kaydı: donma olayı açılınca o kanaldan, doğrulanmış bir kesinti kaydedilince içinde
-  // biri bulunan her ses kanalından kayıt istenir (istek kanal başına sınırlıdır; bkz. traceRequests.ts)
+  // biri bulunan her ses kanalından kayıt istenir. Kesinti kaynaklı istekler ayrıca sınırlıdır (kanal başına 2 dk,
+  // toplam saatte 20): bağlantının gidip geldiği dönemde istemcilerin günlük kayıt payı tükenmesin (traceRequests.ts)
   requestTracesFor.event = (channelId, reason, eventId) => void ctx.requestVoiceTraces(channelId, reason, eventId);
-  const outagesAsked = new Set<string>();
-  requestTracesFor.outage = (o) => {
-    if (outagesAsked.has(o.id)) return;
-    outagesAsked.add(o.id);
-    if (outagesAsked.size > 200) outagesAsked.delete(outagesAsked.values().next().value!);
-    for (const channelId of new Set(voice.list().map((v) => v.channelId))) ctx.requestVoiceTraces(channelId, 'sunucu kesinti gördü', `kesinti-${o.id}`);
-  };
+  const requestForOutage = createOutageTraceRequester({
+    request: (channelId, reason, eventId) => ctx.requestVoiceTraces(channelId, reason, eventId),
+    channels: () => voice.list().map((v) => v.channelId),
+  });
+  requestTracesFor.outage = (o) => void requestForOutage(o.id);
   const ctx: AppContext = {
     config,
     store,

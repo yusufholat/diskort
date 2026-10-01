@@ -27,9 +27,11 @@ const BWE_COLLAPSE_RATIO = 0.5;
 export interface TraceStun {
   /** STUN'u aynı anda yanıtsız kalan kullanıcılar ve örtüşen aralık (sunucu saati) */
   users: string[];
+  /** Kayıtları aynı aralığı kapsayan ama yolu canlı görünen kullanıcılar */
+  alive: string[];
   from: number;
   to: number;
-  /** En uzun yanıtsız süre (ms) */
+  /** En uzun yanıtsız süre (ms; ölçümlerin kapsadığı aralıkla sınırlı: istemcinin bildirdiği süreye güvenilmez) */
   maxMs: number;
 }
 
@@ -54,9 +56,13 @@ export interface TraceEvidence {
   /** Kayıtların kapsadığı aralık (sunucu saati) */
   from: number;
   to: number;
-  /** ≥2 kullanıcıda eşzamanlı STUN yanıtsızlığı (yoksa en uzun tek kullanıcılık durum `stunSingle`da) */
+  /**
+   * Eşzamanlı STUN yanıtsızlığı: en az iki kullanıcı, en az 1,5 sn gerçek örtüşme VE o aralığı kapsayan
+   * kayıtların çoğunluğu. Koşul sağlanmıyorsa (tek kullanıcı ya da azınlık) durum `stunPartial`dadır ve yalnızca
+   * etken olarak anılır.
+   */
   stun: TraceStun | null;
-  stunSingle: { userId: string; at: number; maxMs: number } | null;
+  stunPartial: TraceStun | null;
   burst: TraceBurst | null;
   /** Yayıncıların aldığı PLI/FIR ve NACK (saniyedeki en yüksek toplam) */
   pliMax: number;
@@ -87,6 +93,9 @@ const median = (v: number[]): number | null => {
 const isVideo = (k: string): boolean => k === 'scr' || k === 'v';
 const pctOf = (lost: number, total: number): number | null => (total <= 0 ? null : Math.round((lost / total) * 1000) / 10);
 
+/** Aynı sıra numarası bu kadar yakın zamanda yeniden görülürse aynı ölçümdür (örtüşen gönderimler, farklı saat farkı) */
+const SAME_SAMPLE_MS = 30_000;
+
 /** Kullanıcının ölçümleri (birden çok kayıt birleştirilir, yinelenen sıra numaraları atılır), zamana göre */
 function samplesByUser(traces: AlignedTrace[], from: number, to: number): Map<string, Sample[]> {
   const out = new Map<string, Sample[]>();
@@ -97,13 +106,23 @@ function samplesByUser(traces: AlignedTrace[], from: number, to: number): Map<st
   }
   for (const [userId, list] of out) {
     list.sort((a, b) => a.ts - b.ts);
-    const seen = new Set<number>();
+    // Örtüşen gönderimler aynı ölçümü iki kez taşıyabilir (saat farkı tahmini farklıysa `ts` de kayar): sıra
+    // numarasıyla ayıklanır; sıra numarası yoksa zaman dilimiyle
+    const byQ = new Map<number, number[]>();
+    const buckets = new Set<number>();
     out.set(
       userId,
       list.filter((s) => {
+        if (Number.isFinite(s.q)) {
+          const at = byQ.get(s.q) ?? [];
+          if (at.some((t) => Math.abs(t - s.ts) < SAME_SAMPLE_MS)) return false;
+          at.push(s.ts);
+          byQ.set(s.q, at);
+          return true;
+        }
         const key = Math.round(s.ts / 500);
-        if (seen.has(key)) return false;
-        seen.add(key);
+        if (buckets.has(key)) return false;
+        buckets.add(key);
         return true;
       }),
     );
@@ -111,20 +130,32 @@ function samplesByUser(traces: AlignedTrace[], from: number, to: number): Map<st
   return out;
 }
 
-/** STUN'un yanıtsız kaldığı aralıklar ([ilk yanıtsız istek, son ölçüm]) */
-function stunDead(samples: Sample[]): { from: number; to: number; maxMs: number }[] {
-  const out: { from: number; to: number; maxMs: number }[] = [];
-  let cur: { from: number; to: number; maxMs: number } | null = null;
+/** Yanıtsızlığın başlangıcı, ilk "ölü" ölçümden en çok bu kadar geriye çekilir (ms) */
+const STUN_BACKDATE_MS = 5_000;
+/** "Aynı anda" sayılmak için gereken gerçek örtüşme (ms) */
+const STUN_OVERLAP_MS = 1_500;
+
+/**
+ * STUN'un yanıtsız kaldığı aralıklar. Başlangıç istemcinin bildirdiği süreden (su) hesaplanır ama ona güvenilmez:
+ * aynı kullanıcının yolu canlı gösteren önceki ölçümünden, ilk ölü ölçümün birkaç saniye öncesinden ve pencerenin
+ * başından geriye gidemez (tek bir ölçümde çok büyük `su` bildiren istemci dakikalarca "ölü" sayılmasın).
+ */
+function stunDead(samples: Sample[], windowFrom: number): { from: number; to: number }[] {
+  const out: { from: number; to: number }[] = [];
+  let cur: { from: number; to: number } | null = null;
+  let lastAlive = Number.NEGATIVE_INFINITY;
   for (const s of samples) {
     const su = s.x?.su ?? 0;
     if (su >= STUN_DEAD_MS) {
       if (!cur) {
-        cur = { from: s.ts - su, to: s.ts, maxMs: su };
+        cur = { from: Math.min(s.ts, Math.max(s.ts - su, lastAlive, s.ts - s.dt - STUN_BACKDATE_MS, windowFrom)), to: s.ts };
         out.push(cur);
       }
       cur.to = s.ts;
-      cur.maxMs = Math.max(cur.maxMs, su);
-    } else cur = null;
+    } else {
+      cur = null;
+      if (s.x) lastAlive = s.ts;
+    }
   }
   return out;
 }
@@ -137,18 +168,30 @@ export function summarizeTraces(traces: AlignedTrace[], from: number, to: number
   if (all.length === 0) return null;
 
   // --- STUN ---
-  const dead = [...byUser.entries()].flatMap(([userId, list]) => stunDead(list).map((d) => ({ userId, ...d })));
-  let stun: TraceStun | null = null;
+  const dead = [...byUser.entries()].flatMap(([userId, list]) => stunDead(list, from).map((d) => ({ userId, ...d })));
+  /** Aralığı kapsayan (o saniyelerde ölçümü olan) kullanıcılardan yolu canlı görünenler */
+  const aliveIn = (a: number, b: number, deadUsers: string[]): string[] =>
+    [...byUser.entries()].filter(([userId, list]) => !deadUsers.includes(userId) && list.some((s) => s.x && s.ts >= a && s.ts <= b + 1_000)).map(([userId]) => userId);
+  let best: TraceStun | null = null;
   for (const d of dead) {
-    // En kalabalık an bir aralığın başındadır
-    const t = d.from + 1;
-    const hit = dead.filter((x) => x.from <= t && t <= x.to);
+    // En kalabalık an bir aralığın başındadır; "aynı anda" için gerçek örtüşme aranır (tek noktada kesişme yetmez)
+    const hit = dead.filter((x) => x.from <= d.from && x.to > d.from);
     const users = [...new Set(hit.map((x) => x.userId))];
-    if (users.length >= 2 && users.length > (stun?.users.length ?? 0)) {
-      stun = { users, from: Math.max(...hit.map((x) => x.from)), to: Math.min(...hit.map((x) => x.to)), maxMs: Math.max(...hit.map((x) => x.maxMs)) };
+    const a = Math.max(...hit.map((x) => x.from));
+    const b = Math.min(...hit.map((x) => x.to));
+    if (users.length < 2 || b - a < STUN_OVERLAP_MS || users.length <= (best?.users.length ?? 0)) continue;
+    best = { users, alive: aliveIn(a, b, users), from: a, to: b, maxMs: Math.max(...hit.map((x) => x.to - x.from)) };
+  }
+  // Çoğunluk koşulu: o saniyeleri kapsayan kayıtların yarısından fazlası ölü olmalı; yoksa herkes için kesinti değildir
+  const stun = best && best.users.length > (best.users.length + best.alive.length) / 2 ? best : null;
+  let stunPartial: TraceStun | null = null;
+  if (!stun) {
+    if (best) stunPartial = best;
+    else {
+      const longest = [...dead].sort((x, y) => y.to - y.from - (x.to - x.from))[0];
+      if (longest) stunPartial = { users: [longest.userId], alive: aliveIn(longest.from, longest.to, [longest.userId]), from: longest.from, to: longest.to, maxMs: longest.to - longest.from };
     }
   }
-  const longest = dead.sort((a, b) => b.maxMs - a.maxMs)[0] ?? null;
 
   // --- Yayıncıdaki patlama ve ardından kayıp ---
   let burst: TraceBurst | null = null;
@@ -267,7 +310,7 @@ export function summarizeTraces(traces: AlignedTrace[], from: number, to: number
     from: Math.min(...all.map((s) => s.ts - s.dt)),
     to: Math.max(...all.map((s) => s.ts)),
     stun,
-    stunSingle: !stun && longest ? { userId: longest.userId, at: longest.from, maxMs: longest.maxMs } : null,
+    stunPartial,
     burst,
     pliMax: Math.round(pliMax * 10) / 10,
     nackMax: Math.round(nackMax * 10) / 10,

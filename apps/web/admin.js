@@ -1296,7 +1296,11 @@ function outageRow(o, meta) {
           'div',
           'adm-sub',
           `Sunucuya gelen paket: taban ${num(n.baseline)} → ${num(n.rxpMin)} pk/sn${n.txCollapsed ? ' · giden de durdu' : ''}${n.participants !== null && n.participants !== undefined ? ` · seste ${num(n.participants)} kişi` : ''}` +
-            (p ? '' : n.probesLost > 0 ? ` · aynı saniyelerde ${num(n.probesLost)} dış sonda yanıtsız` : ' · dış sondalar yanıt aldı: doğrulanmadı (aday)'),
+            (p
+              ? ''
+              : n.probesLost > 0
+                ? ` · aynı saniyelerde ${num(n.probesLost)} dış sonda yanıtsız${n.probeTargets?.length ? ` (${n.probeTargets.join(', ')})` : ''}${o.kind === 'aday' ? ': doğrulama için yetersiz (en az iki farklı hedef gerekir)' : ''}`
+                : ' · dış sondalar yanıt aldı: doğrulanmadı (aday)'),
         ),
       h(
         'div',
@@ -1360,7 +1364,7 @@ function liveView(d) {
         label: `Sunucuya gelen (${sm.iface ?? '—'})`,
         value: stale ? '—' : ppsText(last.rxp),
         compact: true,
-        tone: d.open.nic ? (d.open.probe || d.open.nic.probesLost > 0 ? 'bad' : 'warn') : stale ? 'warn' : undefined,
+        tone: d.open.nic ? (d.open.probe || d.open.nic.probesLost >= 2 ? 'bad' : 'warn') : stale ? 'warn' : undefined,
         sub: [
           d.open.nic ? `Sessizlik adayı: ${num(d.open.nic.seconds)} sn'dir ${num(d.open.nic.rxpMin)} pk/sn (olağanı ${num(d.open.nic.baseline)})` : stale ? 'Ölçüm gelmiyor' : `↓ ${mbpsText(last.rx)}`,
           `Seste ${num(d.voice.participants)} kişi · ${num(d.voice.streams)} yayın`,
@@ -1606,7 +1610,7 @@ function openProviderReport(outages, meta) {
 
 const CONFIDENCE_TONE = { yüksek: 'ok', orta: 'warn', düşük: 'muted' };
 /** Olay hangi bölümü gösteriyor: rozet tonu */
-const SEGMENT_TONE = { saglayici: 'bad', saglayici_gelen: 'bad', saglayici_giden: 'bad', sunucu: 'bad', sfu: 'bad', yayinci: 'warn', kullanici: 'warn', belirsiz: 'muted' };
+const SEGMENT_TONE = { saglayici: 'bad', saglayici_gelen: 'bad', saglayici_giden: 'bad', sunucu: 'bad', sfu: 'bad', yol: 'warn', yayinci: 'warn', kullanici: 'warn', belirsiz: 'muted' };
 /** Eski kayıtlarda özet cümlesi yok */
 const freezeSummary = (f) => f.summary ?? `Olası neden: ${f.label}`;
 /** Kalite kaydı bu olayın kanalında ve penceresinde mi (±30 sn) */
@@ -1814,10 +1818,19 @@ function traceRequestButton(channelId) {
       text = r.sessions > 0 ? `${num(r.sessions)} istemciden istendi (~20 sn içinde gelir)` : 'Kayıt gönderebilen istemci yok (eski sürüm)';
     } catch (err) {
       if (err instanceof AccessError) return;
-      text = err.message;
+      // Hata: düğme yeniden denenebilsin diye hemen açılır; ileti kısa süre görünür
+      btn.textContent = err.message;
+      btn.disabled = false;
+      setTimeout(() => (btn.textContent = label), 6_000);
+      return;
     }
     traceRequests.set(channelId, { text, until: Date.now() + 10_000 });
     btn.textContent = text;
+    // Sekme yeniden çizilmese de düğme süre dolunca açılır
+    setTimeout(() => {
+      btn.textContent = label;
+      btn.disabled = false;
+    }, 10_000);
   });
   return btn;
 }

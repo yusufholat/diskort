@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseDefaultGateway } from '../src/hostNetwork.js';
 import { LiveKitMetrics } from '../src/infraStats.js';
-import { isConfirmedOutage, localStamp, NicSilenceDetector, OutageLog, silenceThreshold, type NicSilence, type Outage } from '../src/netOutages.js';
+import { isConfirmedOutage, isCorroborated, localStamp, NicSilenceDetector, OutageLog, silenceThreshold, type NicSilence, type Outage } from '../src/netOutages.js';
 import { DEFAULT_PROBE_TARGETS, dnsQuery, OutageDetector, parseProbeTargets, ProbeEngine, type ProbeOutage, type ProbeTarget } from '../src/netProbe.js';
 import {
   bucketRows,
@@ -401,9 +401,15 @@ describe('dış sondalar', () => {
     });
     for (let i = 0; i < 60; i++) await e3.tick(i * 250);
     expect(e3.status(15_000).targets.find((t) => t.label === 'b')!.disabled).toBe(true);
+    // Hiç yanıt vermemiş hedefin kayıpları satırlara yazılmadı (yanıtsız sonda gibi görünüp sessizliği doğrulamasın)
+    expect(sent.filter((l) => l === 'b')).toEqual([]);
     sent.length = 0;
+    const before = e3.status(15_000).targets.find((t) => t.label === 'b')!.sent;
     for (let i = 60; i < 300; i++) await e3.tick(i * 250); // 15. – 75. saniyeler: bir kez yeniden denenir (yanıtsız)
-    expect(sent.filter((l) => l === 'b')).toHaveLength(1);
+    expect(e3.status(75_000).targets.find((t) => t.label === 'b')!.disabled).toBe(true);
+    // Yeniden deneme gönderildi ama yanıtsız kaldığı için satırlara YAZILMADI
+    expect(sent.filter((l) => l === 'b')).toEqual([]);
+    expect(before).toBe(15);
     expect(outages).toEqual([]);
     bWorks = true;
     sent.length = 0;
@@ -508,7 +514,7 @@ describe('NIC sessizliği dedektörü', () => {
     const tx = [19, 9, 22, 12];
     const flags = feed(d, [...VOICE, 32, 8, 4, 3, 0, 42, 92], { lost: (i) => (i >= 18 && i <= 21 ? 3 : 0), txp: (i, v) => (i >= 18 && i <= 21 ? tx[i - 18]! : v * 2) });
     expect(flags.map((f, i) => (f ? i : -1)).filter((i) => i >= 0)).toEqual([18, 19, 20, 21]);
-    expect(out).toEqual([{ at: T0 + 18_000, durationMs: 4_000, rxpMin: 0, baseline: 31, participants: null, probesLost: 3, txCollapsed: true }]);
+    expect(out).toEqual([{ at: T0 + 18_000, durationMs: 4_000, rxpMin: 0, baseline: 31, participants: null, probesLost: 3, probeTargets: [], txCollapsed: true }]);
     expect(d.open()).toBeNull();
     // Tek saniyelik kesinti (gelen 0) de yakalanır
     const one = new NicSilenceDetector((s) => out.push(s));
@@ -576,9 +582,62 @@ describe('NIC sessizliği dedektörü', () => {
     rows.slice(18).forEach((r) => sc.push(r));
     sc.drain();
     expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({ at: T0 + 17_000, durationMs: 1_000, probesLost: 2 }); // ağ geçidi sayılmaz
+    expect(out[0]).toMatchObject({ at: T0 + 17_000, durationMs: 1_000, probesLost: 2, probeTargets: ['tcp 8.8.8.8', 'udp 1.1.1.1'] }); // ağ geçidi sayılmaz
+    expect(isCorroborated(out[0]!)).toBe(true);
     expect(rows.map((r) => r.o ?? 0).filter(Boolean)).toEqual([2]);
     expect(rows[17]!.o).toBe(2);
+  });
+
+  it('doğrulama: en az iki farklı hedeften en az iki yanıtsız sonda; tek hedefin (ör. yoklanamayan çözücü) kayıpları adayı "tam" yapmaz', () => {
+    const run = (probes: (i: number) => Record<string, number> | undefined): Outage => {
+      const log = new OutageLog({ dir: null, now: () => T0 + 100_000 });
+      const sc = new SilenceScanner((s) => void log.addNic(s));
+      [...VOICE, 0, 0, 45, 50, 48].forEach((rxp, i) => {
+        const p = probes(i);
+        sc.push(row(i + 1, { rxp, txp: rxp * 2, ...(p ? { p } : {}) }));
+      });
+      sc.drain();
+      return log.list(0)[0]!;
+    };
+    // Aynı hedef iki kez yanıtsız (hız sınırı / erişilemeyen çözücü): aday
+    const single = run((i): Record<string, number> => (i === 17 || i === 18 ? { 'udp 9.9.9.9': -1, 'udp 1.1.1.1': 5 } : { 'udp 1.1.1.1': 5 }));
+    expect(single.kind).toBe('aday');
+    expect(single.nic).toMatchObject({ probesLost: 2, probeTargets: ['udp 9.9.9.9'] });
+    // Tek yanıtsız sonda: aday
+    expect(run((i) => (i === 17 ? { 'udp 1.1.1.1': -1 } : undefined)).kind).toBe('aday');
+    // İki farklı hedef: tam
+    expect(run((i): Record<string, number> | undefined => (i === 17 ? { 'udp 1.1.1.1': -1 } : i === 18 ? { 'tcp 8.8.8.8': -1 } : undefined)).kind).toBe('tam');
+  });
+
+  it('kapatılmış sonda hedefinin yeniden denemeleri NIC sessizliğini doğrulamaz (uçtan uca: motor → örnekleyici → kayıt)', async () => {
+    const s = new SecondSampler({ procRoot: '/yok', dir: null, participants: () => 2 });
+    // b ve c hiç yanıt vermez (ör. sağlayıcı o hedefleri süzüyor); a çalışır
+    const engine = new ProbeEngine({
+      targets: [target('a'), target('b'), target('c', 'tcp')],
+      onResult: (l, at, rtt) => s.addProbe(l, at, rtt),
+      onOutage: (o) => void s.addProbeOutage(o),
+      run: async (t) => (t.label === 'a' ? 6 : null),
+    });
+    let b = 0;
+    let i = 0;
+    const second = async (pps: number): Promise<void> => {
+      s.tick(T0 + i * 1000, files({ dev: devText((b += pps * 1000), b) }));
+      for (let k = 0; k < 4; k++) await engine.tick(T0 + i * 1000 + k * 250 + 10);
+      i++;
+    };
+    for (let k = 0; k < 20; k++) await second(1000);
+    expect(engine.status(T0 + 20_000).targets.filter((t) => t.disabled).map((t) => t.label)).toEqual(['b', 'c']);
+    // 60 sn sonra iki kapalı hedef yeniden denenir (yanıtsız); tam o saniyelerde yalnızca-NIC bir sessizlik olur
+    for (let k = 0; k < 43; k++) await second(1000);
+    for (let k = 0; k < 4; k++) await second(3);
+    for (let k = 0; k < 6; k++) await second(1000);
+    const rows = s.window(T0, T0 + 100_000);
+    // Yeniden denemeler satırlara yanıtsız sonda olarak yazılmadı
+    expect(rows.flatMap((r) => Object.entries(r.p ?? {})).filter(([, v]) => v < 0)).toEqual([]);
+    expect(rows.some((r) => r.p?.a === 6)).toBe(true);
+    expect(s.outages.list(0)).toMatchObject([{ kind: 'aday', nic: { probesLost: 0, probeTargets: [] } }]);
+    // Özet de şişmedi
+    expect(summarizeRows(rows, T0, T0 + 100_000, 2).probeLossyTargets).toEqual([]);
   });
 });
 
@@ -613,15 +672,18 @@ describe('kesinti kaydı', () => {
     // Sırası fark etmez
     log.addProbe(probe(T0 + 100_000, 1_200));
     expect(log.addNic(nic(T0 + 100_000, 2_000)).kind).toBe('tam');
-    // Yalnız sonda / yalnız NIC (aday) / yanıtsız sondalarla doğrulanmış NIC (kayıtlı sonda kesintisi olmadan)
+    // Yalnız sonda / yalnız NIC (aday) / iki farklı hedeften yanıtsız sondalarla doğrulanmış NIC (kayıtlı sonda kesintisi olmadan)
     expect(log.addProbe(probe(T0 + 200_000, 900)).kind).toBe('sonda');
     const cand = log.addNic(nic(T0 + 300_000, 3_000));
     expect(cand.kind).toBe('aday');
     expect(isConfirmedOutage(cand)).toBe(false);
-    expect(log.addNic(nic(T0 + 400_000, 1_000, 2))).toMatchObject({ kind: 'tam', probe: null });
+    expect(log.addNic({ ...nic(T0 + 400_000, 1_000, 2), probeTargets: ['udp 1.1.1.1', 'tcp 8.8.8.8'] })).toMatchObject({ kind: 'tam', probe: null });
+    // Hedef bilgisi yoksa ya da tek hedefse doğrulanmış sayılmaz
+    expect(log.addNic(nic(T0 + 450_000, 1_000, 2)).kind).toBe('aday');
+    expect(log.addNic({ ...nic(T0 + 470_000, 1_000, 3), probeTargets: ['udp 9.9.9.9'] }).kind).toBe('aday');
     // Aynı türden ikinci işaret birleşmez
     expect(log.addProbe(probe(T0 + 200_500, 900)).kind).toBe('sonda');
-    expect(log.list(0).map((x) => x.kind)).toEqual(['tam', 'aday', 'sonda', 'sonda', 'tam', 'tam']);
+    expect(log.list(0).map((x) => x.kind)).toEqual(['aday', 'aday', 'tam', 'aday', 'sonda', 'sonda', 'tam', 'tam']);
     expect(log.between(T0 + 9_000, T0 + 11_000).map((x) => x.kind)).toEqual(['tam']);
     expect(log.between(T0 + 500_000, T0 + 550_000)).toEqual([]);
   });

@@ -26,6 +26,8 @@ export type FreezeCause =
   | 'saglayici_gelen'
   | 'saglayici_giden'
   | 'sunucu_kaynak'
+  /** İstemci ↔ sunucu yolu ya da ses sunucusu: istemcilerin STUN'u aynı anda yanıtsız, sunucu tarafında doğrulama yok */
+  | 'sunucu_yolu'
   | 'yayinci_yukleme'
   | 'kodlayici'
   | 'tek_kullanici'
@@ -39,6 +41,7 @@ export const FREEZE_CAUSE_LABELS: Record<FreezeCause, string> = {
   saglayici_gelen: 'Sunucuya gelen yol (sağlayıcı)',
   saglayici_giden: 'Sunucudan giden yol',
   sunucu_kaynak: 'Sunucu kaynağı',
+  sunucu_yolu: 'İstemci ↔ sunucu yolu / ses sunucusu',
   yayinci_yukleme: 'Yayıncının yükleme hattı',
   kodlayici: 'Kodlayıcı / kare hızı düşük',
   tek_kullanici: 'Tek kullanıcı hattı',
@@ -48,7 +51,7 @@ export const FREEZE_CAUSE_LABELS: Record<FreezeCause, string> = {
 };
 
 /** Arızalı bölüm */
-export type FreezeSegment = 'saglayici' | 'saglayici_gelen' | 'saglayici_giden' | 'sunucu' | 'sfu' | 'yayinci' | 'kullanici' | 'belirsiz';
+export type FreezeSegment = 'saglayici' | 'saglayici_gelen' | 'saglayici_giden' | 'sunucu' | 'sfu' | 'yol' | 'yayinci' | 'kullanici' | 'belirsiz';
 
 /** Kayıp yüzdesi bu değerin üstündeyse kullanıcı "etkilendi" sayılır (assessReport uyarı eşiğiyle aynı) */
 export const LOSS_PCT = 3;
@@ -361,12 +364,19 @@ export function diagnose(users: FreezeUser[], server: ServerSummary | null, lk: 
     if (!trace) return [];
     const out: string[] = [];
     const mbps = (bps: number): string => num(bps / 1e6, 1);
-    if (trace.stun) {
-      out.push(
-        `İstemci kayıtları: ${trace.stun.users.length} kullanıcının STUN yoklamaları aynı anda ${sec(trace.stun.maxMs)} sn yanıtsız kaldı: istemci ↔ sunucu UDP yolu o saniyelerde herkes için kesikti (medyadan bağımsız kanıt).`,
-      );
-    } else if (trace.stunSingle) {
-      out.push(`İstemci kayıtları: yalnızca bir kullanıcının STUN yoklamaları ${sec(trace.stunSingle.maxMs)} sn yanıtsız kaldı (o kullanıcının yolu); öbür kayıtlarda yol canlı.`);
+    const st = trace.stun ?? trace.stunPartial;
+    if (st) {
+      const covered = st.users.length + st.alive.length;
+      const counts = `kayıtları o saniyeleri kapsayan ${covered} kullanıcıdan ${st.users.length} tanesinde yanıtsız, ${st.alive.length} tanesinde canlı`;
+      if (trace.stun) {
+        out.push(
+          `İstemci kayıtları: ${st.users.length} kullanıcının STUN yoklamaları aynı anda ${sec(st.maxMs)} sn yanıtsız kaldı (${counts}): istemci ↔ sunucu UDP yolu o saniyelerde bu kullanıcılar için kesikti (medyadan bağımsız kanıt).`,
+        );
+      } else if (st.users.length === 1) {
+        out.push(`İstemci kayıtları: yalnızca bir kullanıcının STUN yoklamaları ${sec(st.maxMs)} sn yanıtsız kaldı (${counts}): o kullanıcının yolu.`);
+      } else {
+        out.push(`İstemci kayıtları: ${st.users.length} kullanıcının STUN yoklamaları aynı anda ${sec(st.maxMs)} sn yanıtsız kaldı ama çoğunluk değil (${counts}): herkes için kesinti değil, o kullanıcıların ortak yolu olabilir.`);
+      }
     }
     const b = trace.burst;
     if (b) {
@@ -502,10 +512,14 @@ export function diagnose(users: FreezeUser[], server: ServerSummary | null, lk: 
     );
   }
 
-  // 3b) İstemci kayıtları: ≥2 kullanıcının STUN yoklamaları aynı saniyelerde yanıtsız. Medyadan bağımsızdır:
-  // istemci ↔ sunucu UDP yolu o anda herkes için ölüydü (sunucu tarafında sonda kesintisi kaydedilmemiş olsa da)
+  // 3b) İstemci kayıtları: ≥2 kullanıcının (ve o saniyeleri kapsayan kayıtların çoğunluğunun) STUN yoklamaları
+  // aynı saniyelerde yanıtsız. Medyadan bağımsızdır ama tek başına "sağlayıcı" demez: aynı evdeki/ISS'deki iki
+  // kullanıcı ya da takılan ses sunucusu da böyle görünür. Sunucu tarafında bir doğrulama (NIC sessizliği adayı ya
+  // da gelen paket çöküşü) varsa sağlayıcı yolu; yoksa "istemci ↔ sunucu yolu / ses sunucusu", en çok orta güven.
   if (trace?.stun && affected.size > 0) {
     const st = trace.stun;
+    const serverDip = server?.rxDip != null && server.rxDip.pct < 50;
+    const corroborated = nicOnly !== null || serverDip;
     if (nicOnly?.nic) {
       evidence.push(`NIC sessizliği: ${clockOf(nicOnly)} anında ${sec(nicOnly.durationMs)} sn sunucuya gelen paket ${num(nicOnly.nic.rxpMin)}/sn'ye düştü (istemcilerin STUN kaydıyla örtüşüyor).`);
     }
@@ -518,12 +532,19 @@ export function diagnose(users: FreezeUser[], server: ServerSummary | null, lk: 
     burstFactor();
     if (enc) factors.push(enc);
     missing.push('Sunucu tarafında dış sonda kesintisi kaydedilmedi: kesinti yalnızca istemci → sunucu UDP yönünde olabilir; ses sunucusunun (LiveKit) o saniyelerde yanıt verip vermediği ayrıca doğrulanamadı.');
+    if (!corroborated) {
+      missing.push('Sunucu tarafında hiçbir doğrulama yok (sonda kesintisi, NIC sessizliği ya da gelen paket çöküşü): STUN yanıtsızlığı bu kullanıcıların ortak ağı (aynı ev / servis sağlayıcı) ya da takılan ses sunucusu yüzünden de olabilir.');
+    }
     baseMissing(true);
+    const who = `${st.users.length}/${st.users.length + st.alive.length} kullanıcının STUN yoklamaları aynı anda ${sec(st.maxMs)} sn yanıtsız kaldı`;
+    if (!corroborated) {
+      return done('sunucu_yolu', 'yol', `Sorun: istemci ↔ sunucu yolu ya da ses sunucusu — ${who} (sunucu tarafında doğrulanmadı)`, 'orta');
+    }
     return done(
       'saglayici_kesinti',
       'saglayici',
-      `Sorun: istemciler ↔ sunucu UDP yolu (barındırma sağlayıcısı) — ${st.users.length} kullanıcının STUN yoklamaları aynı anda ${sec(st.maxMs)} sn yanıtsız kaldı`,
-      st.users.length >= 3 || nicOnly !== null || upSim.users.length >= 2 ? 'yüksek' : 'orta',
+      `Sorun: istemciler ↔ sunucu UDP yolu (barındırma sağlayıcısı) — ${who}`,
+      st.users.length >= 3 || nicOnly !== null ? 'yüksek' : 'orta',
     );
   }
 
@@ -829,6 +850,7 @@ export class FreezeCorrelator {
   private timer: NodeJS.Timeout | null = null;
   private writing: Promise<void> = Promise.resolve();
   private warned = false;
+  private sweepErrors = 0;
 
   constructor(private readonly opts: FreezeOptions) {
     this.load();
@@ -856,16 +878,20 @@ export class FreezeCorrelator {
     }
     const lines = text.split('\n').filter(Boolean);
     const since = Date.now() - 30 * 86_400_000;
-    const loaded: FreezeEvent[] = [];
+    // Kırpma anındaki yeniden yazım ile sıradaki ekleme aynı olayı iki kez yazabilir: aynı kimlikte son satır geçerli
+    const byId = new Map<string, FreezeEvent>();
     for (const line of lines) {
       try {
         const v = JSON.parse(line) as unknown;
-        if (isFreezeEvent(v) && v.end >= since) loaded.push(v);
+        if (isFreezeEvent(v) && v.end >= since) {
+          byId.delete(v.id);
+          byId.set(v.id, v);
+        }
       } catch {
         // bozuk satır atlanır
       }
     }
-    this.events = loaded.slice(-EVENTS_MAX);
+    this.events = [...byId.values()].slice(-EVENTS_MAX);
     this.eventFileLines = lines.length;
     if (lines.length > this.maxFileLines) {
       try {
@@ -879,7 +905,14 @@ export class FreezeCorrelator {
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => this.sweep(), 10_000);
+    // Süpürmedeki bir hata API sürecini düşürmemeli: yakalanır, seyrek günlüğe yazılır
+    this.timer = setInterval(() => {
+      try {
+        this.sweep();
+      } catch (err) {
+        if (this.sweepErrors++ % 60 === 0) this.opts.log?.warn({ err: String(err), count: this.sweepErrors }, 'yayın donması süpürmesi hata verdi');
+      }
+    }, 10_000);
     this.timer.unref();
   }
 
@@ -887,7 +920,19 @@ export class FreezeCorrelator {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.sweep(Date.now(), true);
-    await this.writing;
+    await this.settled();
+  }
+
+  /**
+   * Bekleyen bütün yazımlar bitince çözülür. Olay kayıtları okunurken (eşzamansız) olayın yazımı zincire SONRADAN
+   * eklenir: zincir değişmeyene kadar beklenir (yoksa kapanışta açık olaylar yazılmadan çıkılırdı).
+   */
+  private async settled(): Promise<void> {
+    let p: Promise<void>;
+    do {
+      p = this.writing;
+      await p;
+    } while (p !== this.writing);
   }
 
   /** Yeni telemetri özeti (TelemetryStore.ingest'ten sonra) */
@@ -1050,7 +1095,7 @@ export class FreezeCorrelator {
 
   /** Bekleyen yazımlar bitince çözülür (testler) */
   flushed(): Promise<void> {
-    return this.writing;
+    return this.settled();
   }
 
   // ---------- Okuma ----------
@@ -1064,7 +1109,7 @@ export class FreezeCorrelator {
   async detailOf(id: string): Promise<FreezeDetail> {
     const empty: FreezeDetail = { rows: [], lk: [] };
     if (!this.opts.dir || !/^[0-9a-z-]{1,40}$/.test(id)) return empty;
-    await this.writing;
+    await this.settled();
     if (!fs.existsSync(this.rowsFile)) return empty;
     const rl = readline.createInterface({ input: fs.createReadStream(this.rowsFile, 'utf8'), crlfDelay: Infinity });
     let found = empty;

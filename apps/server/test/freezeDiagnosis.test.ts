@@ -136,7 +136,7 @@ function outage(kind: Outage['kind'], atSec: number, durationMs: number): Outage
     t: `2026-10-01 01:18:${String(atSec).padStart(2, '0')}.000 +03:00`,
     kind,
     probe: kind === 'aday' ? null : { at, durationMs, lost: 12, targets: ['udp 1.1.1.1', 'tcp 8.8.8.8', 'udp 8.8.8.8'], udp: true, tcp: true },
-    nic: kind === 'sonda' ? null : { at, durationMs, rxpMin: 4, baseline: 70, participants: 0, probesLost: kind === 'tam' ? 12 : 0, txCollapsed: true },
+    nic: kind === 'sonda' ? null : { at, durationMs, rxpMin: 4, baseline: 70, participants: 0, probesLost: kind === 'tam' ? 12 : 0, probeTargets: kind === 'tam' ? ['udp 1.1.1.1', 'tcp 8.8.8.8'] : [], txCollapsed: true },
   };
 }
 
