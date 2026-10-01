@@ -210,4 +210,14 @@ describe('ses durumu eşitleme', () => {
     expect(ctx.voice.get('u2')).toMatchObject({ channelId: b!.id, streaming: true });
     expect(ctx.voice.get('u3')?.channelId).toBe(a!.id);
   });
+
+  it('anlık görüntü alınırken katılanı silmez', () => {
+    const [a] = ctx.store.listChannels(ctx.guild.id).filter((c) => c.type === 'voice');
+    const takenAt = Date.now() - 1000;
+    ctx.voice.join('u4', a!.id);
+    ctx.voice.reconcile(new Map(), takenAt);
+    expect(ctx.voice.get('u4')?.channelId).toBe(a!.id);
+    ctx.voice.reconcile(new Map(), Date.now() + 1);
+    expect(ctx.voice.get('u4')).toBeUndefined();
+  });
 });

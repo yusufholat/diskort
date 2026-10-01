@@ -256,10 +256,14 @@ export class VoiceStateStore extends EventEmitter<VoiceEvents> {
     };
   }
 
-  /** LiveKit'ten alınan anlık görüntüyle durumu eşitler (sunucu yeniden başlatma, kaçan webhook). */
-  reconcile(snapshot: Map<string, VoiceSnapshotEntry>): void {
+  /**
+   * LiveKit'ten alınan anlık görüntüyle durumu eşitler (sunucu yeniden başlatma, kaçan webhook).
+   * `takenAt`: anlık görüntünün istenmeye başladığı an; ondan sonra katılan biri görüntüde olmayabilir, silinmez.
+   */
+  reconcile(snapshot: Map<string, VoiceSnapshotEntry>, takenAt = Infinity): void {
     for (const state of this.list()) {
       const live = snapshot.get(state.userId);
+      if (state.joinedAt >= takenAt) continue;
       if (!live || live.channelId !== state.channelId) this.remove(state.userId);
     }
     for (const [userId, live] of snapshot) {

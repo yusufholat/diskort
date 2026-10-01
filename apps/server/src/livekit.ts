@@ -126,7 +126,9 @@ export class LiveKitService {
     const rooms = await this.rooms.listRooms();
     for (const room of rooms) {
       const channelId = channelIdFromRoom(room.name);
-      if (!channelId || room.numParticipants === 0) continue;
+      // numParticipants'a bakılmaz: LiveKit onu gecikmeli günceller, yeni açılan odada birkaç saniye 0 kalır
+      // ve içerideki kişi "seste değil" sanılıp durumdan silinirdi
+      if (!channelId) continue;
       const participants = await this.rooms.listParticipants(room.name);
       for (const p of participants) {
         result.set(p.identity, {

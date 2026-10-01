@@ -9,7 +9,8 @@ const { app, ctx } = await buildApp(config);
 // LiveKit ile ses durumunu periyodik eşitle (sunucu yeniden başlarsa / webhook kaçarsa).
 async function reconcile(): Promise<void> {
   try {
-    ctx.voice.reconcile(await ctx.livekit.snapshot());
+    const takenAt = Date.now();
+    ctx.voice.reconcile(await ctx.livekit.snapshot(), takenAt);
     // Eşitlemeyle eklenenlerin (ör. kaçan katılma bildirimi) izinleri de güncel olsun
     await ctx.moderation.enforceAll();
   } catch (err) {
