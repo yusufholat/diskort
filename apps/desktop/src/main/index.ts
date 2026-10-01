@@ -24,6 +24,7 @@ import type {
 } from '../shared/bridge';
 import { ActivityMonitor, registerActivityIpc } from './activity';
 import { inviteCodeFromArgv, inviteCodeFromUrl } from './deepLink';
+import { registerCrashReporting, startCrashCapture, watchWindowForHangs } from './crashReport';
 import { registerFeedbackIpc } from './feedback';
 import { registerLineTestIpc } from './lineTest';
 import { HotkeyManager } from './hotkeys';
@@ -47,6 +48,9 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
 }
+
+// Süreç çökmeleri: yerel döküm yazımı ve ana sürecin yakalanmamış hataları (uygulama hazır olmadan önce)
+startCrashCapture();
 
 // ---------- Davet bağlantıları (diskort://davet/<kod>) ----------
 
@@ -254,6 +258,7 @@ function createWindow(launch: LaunchMode = 'normal'): void {
       mainWindow?.hide();
     }
   });
+  watchWindowForHangs(mainWindow);
   mainWindow.on('closed', () => {
     mainWindow = null;
     inviteListenerReady = false;
@@ -489,6 +494,7 @@ void app.whenReady().then(async () => {
   });
 
   registerIpc();
+  registerCrashReporting({ getWindow: () => mainWindow, isQuitting: () => quitting });
 
   // Açılış: güncelleme varsa uygulama açılmadan kurulur (Discord'daki gibi)
   const launch = consumeLaunchMode();

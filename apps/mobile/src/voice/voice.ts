@@ -14,6 +14,7 @@ import {
   useGuild,
   useSession,
   voiceTelemetry,
+  voiceTrace,
 } from '@diskort/client-core';
 import {
   type AudioCaptureOptions,
@@ -759,6 +760,7 @@ class MobileVoiceClient {
         useVoice.setState({ status: 'reconnecting' });
         if (this.room !== room) return;
         voiceTelemetry.noteReconnect();
+        voiceTrace.mark(Date.now(), 'reconnecting', 'reconnect');
         // Kısa kopmalar sessiz geçer; bağlantı birkaç saniyede gelmezse "koptu" sesi
         this.clearReconnectTimer();
         this.reconnectTimer = setTimeout(() => {
@@ -768,11 +770,15 @@ class MobileVoiceClient {
           soundCue('disconnect');
         }, RECONNECT_SOUND_DELAY_MS);
       })
-      .on(RoomEvent.SignalReconnecting, () => this.duplicates.noteReconnect())
+      .on(RoomEvent.SignalReconnecting, () => {
+        this.duplicates.noteReconnect();
+        if (this.room === room) voiceTrace.mark(Date.now(), 'signal-reconnecting', 'reconnect');
+      })
       .on(RoomEvent.Reconnected, () => {
         this.duplicates.noteReconnect();
         useVoice.setState({ status: 'connected' });
         if (this.room === room) {
+          voiceTrace.mark(Date.now(), 'reconnected');
           // Yeniden bağlanınca LiveKit katılımcıları yeniden bildirebilir: ses seli olmasın
           this.channelSounds.quiet();
           const wasLost = this.lostSoundPlayed;
@@ -788,6 +794,9 @@ class MobileVoiceClient {
         // Kendi başlattığımız ayrılma değilse: sunucu çıkardı, başka cihaza geçildi ya da bağlantı koptu
         if (this.room !== room || room.state !== ConnectionState.Disconnected) return;
         const channelId = useVoice.getState().channelId;
+        if (reason !== DisconnectReason.CLIENT_INITIATED) {
+          voiceTrace.mark(Date.now(), `disconnected:${DisconnectReason[reason ?? 0] ?? reason}`, 'state');
+        }
         // DUPLICATE_IDENTITY beklenen bir durum (başka cihazdan girildi): hata sayılmaz
         if (reason !== DisconnectReason.CLIENT_INITIATED && reason !== DisconnectReason.DUPLICATE_IDENTITY) {
           reportClientError(new Error(`ses bağlantısı kapandı: ${DisconnectReason[reason ?? 0] ?? reason}`), 'ses');

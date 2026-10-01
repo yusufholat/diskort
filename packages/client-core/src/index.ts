@@ -12,7 +12,7 @@ export {
   useReactionUsers,
   type ReactionUsersEntry,
 } from './reactions';
-export { recentClientErrors, reportClientError } from './errors';
+export { recentClientErrors, reportClientError, sendClientError } from './errors';
 export { parseReleaseNotes, type NoteBlock, type NotePart } from './releaseNotes';
 export {
   baseFeedbackContext,

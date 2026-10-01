@@ -3,6 +3,7 @@
 import { channelById, configureClient, dmTitle, useGuild, useSession } from '@diskort/client-core';
 import { GIF_SNIPPET, isGifMessage, type DmChannel, type Message } from '@diskort/shared';
 import { bridge } from './lib/bridge';
+import { startCrashReports } from './lib/crashReports';
 import { currentView } from './lib/mainView';
 import { playSound } from './lib/sfx';
 import { getSettings } from './stores/settings';
@@ -78,4 +79,7 @@ void configureClient({
   onUpdateRequired: (version) => useUpdate.setState({ required: version }),
   // Yeni sürüm yayınlandı: hemen arka planda indirmeye başla
   onUpdateAvailable: () => void bridge?.updates.check(),
-});
+})
+  // Ana sürecin diske yazdığı süreç çökmesi bildirimleri (önceki oturumdan kalanlar dahil) sunucuya gönderilir
+  .then(() => startCrashReports())
+  .catch(() => undefined);

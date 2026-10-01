@@ -140,6 +140,8 @@ function TabButton({ label, active, onPress }: { label: string; active: boolean;
 function ConnectionTab() {
   const samples = useConnectionStats((s) => s.samples);
   const server = useConnectionStats((s) => s.server);
+  // STUN yanıtı gelmiyorsa son ping eski bir değerdir: "—" gösterilir
+  const pingStale = useConnectionStats((s) => s.pingStale);
   const summary = useMemo(() => summarizePings(samples), [samples]);
   return (
     <View style={styles.stack}>
@@ -149,7 +151,7 @@ function ConnectionTab() {
       </Text>
       <View style={styles.summary}>
         <SummaryRow label="Ortalama ping:" value={ms(summary.averageMs)} />
-        <SummaryRow label="Son ping:" value={ms(summary.lastMs)} />
+        <SummaryRow label="Son ping:" value={pingStale ? '—' : ms(summary.lastMs)} />
         <SummaryRow label="Giden paket kayıp oranı:" value={formatPercent(summary.lossPercent)} />
       </View>
       <Text style={styles.help}>

@@ -3,17 +3,20 @@ import {
   linkQuality,
   outboundDelta,
   parseTransportStats,
+  PING_STALE_MS,
   pushSample,
+  serverClock,
   summarizePings,
   useGuild,
   voiceTelemetry,
+  voiceTrace,
   type LinkQuality,
   type PingSample,
   type TransportStats,
   type TelemetryContext,
   type TransportView,
 } from '@diskort/client-core';
-import type { TelemetryView } from '@diskort/shared';
+import type { TelemetryView, VoiceTraceUplinkKind } from '@diskort/shared';
 import { Track, type Room } from 'livekit-client';
 import { AppState } from 'react-native';
 import { create } from 'zustand';
@@ -27,6 +30,10 @@ import { useVoice, voice } from './voice';
  * yayın bağlantısının ping'i ve giden paket kaybı ölçülür (grafik ve kalite rengi); bağlantı paneli
  * açıkken iki bağlantının ayrıntılı istatistikleri de toplanır. Rapor react-native-webrtc'nin
  * RTCPeerConnection.getStats()'ından gelir (tarayıcıyla aynı alan adları, id → kayıt Map'i).
+ *
+ * Aynı rapor olay kaydına (client-core voiceTrace) da verilir. Masaüstü olay kaydı için saniyede bir ölçer;
+ * telefonda aralık 2 saniyede bırakıldı: getStats raporu yerel köprüden JSON olarak geçer ve her çağrı
+ * JS iş parçacığını meşgul eder (ısınma ve pil); kayıt 2 saniyelik ölçümlerle de aynı eşikleri süreye göre uygular.
  */
 
 const STATS_INTERVAL_MS = 2000;
@@ -71,18 +78,21 @@ interface ConnectionStatsStore {
   /** Son 5 dakikanın ping ölçümleri (yalnızca sesliyken) */
   samples: PingSample[];
   quality: LinkQuality;
+  /** STUN yanıtı ~3 sn'dir gelmiyor: son ping eski bir değerdir (gösterilmez) */
+  pingStale: boolean;
   server: VoiceServerInfo | null;
   /** Ayrıntılı istatistikler; yalnızca bağlantı paneli açıkken toplanır */
   detail: ConnectionDetail | null;
 }
 
-const EMPTY: ConnectionStatsStore = { samples: [], quality: 'unknown', server: null, detail: null };
+const EMPTY: ConnectionStatsStore = { samples: [], quality: 'unknown', pingStale: false, server: null, detail: null };
 
 export const useConnectionStats = create<ConnectionStatsStore>()(() => EMPTY);
 
-/** Son ölçülen ping (ms); bilinmiyorsa null */
+/** Son ölçülen ping (ms); bilinmiyorsa ya da eskidiyse (STUN yanıtı gelmiyor) null */
 export const useLastPing = (): number | null =>
   useConnectionStats((s) => {
+    if (s.pingStale) return null;
     for (let i = s.samples.length - 1; i >= 0; i--) {
       const rtt = s.samples[i]!.rttMs;
       if (rtt !== null) return i >= s.samples.length - 3 ? rtt : null;
@@ -137,6 +147,24 @@ function streamLabels(room: Room): Record<string, StreamLabel> {
     }
   }
   return labels;
+}
+
+/** Olay kaydı için giden akışların türü: MediaStreamTrack kimliği → mikrofon / ekran / yayın sesi */
+function traceKinds(room: Room): Record<string, VoiceTraceUplinkKind> {
+  const kinds: Record<string, VoiceTraceUplinkKind> = {};
+  for (const pub of room.localParticipant.trackPublications.values()) {
+    const kind: VoiceTraceUplinkKind | null =
+      pub.source === Track.Source.Microphone
+        ? 'mic'
+        : pub.source === Track.Source.ScreenShare
+          ? 'scr'
+          : pub.source === Track.Source.ScreenShareAudio
+            ? 'sau'
+            : null;
+    if (!kind) continue;
+    for (const id of [pub.track?.mediaStreamTrack?.id, pub.track?.sender?.track?.id]) if (id) kinds[id] = kind;
+  }
+  return kinds;
 }
 
 /** Ses kalitesi özetinin kanal ve mikrofon bilgisi (yönetim paneli; yalnızca ölçümler) */
@@ -199,11 +227,15 @@ class ConnectionStatsSampler {
       this.room = target.room;
       useConnectionStats.setState({ server: serverInfo(target.room, target.url) });
     }
+    const channelId = useVoice.getState().channelId;
+    if (channelId) voiceTrace.start(channelId);
     if (this.timer === null) this.timer = setInterval(() => void this.collect(), STATS_INTERVAL_MS);
     void this.collect();
   }
 
   private stop(): void {
+    // Bekleyen olay kaydı kesiti (tetiklenmiş, süresi dolmamış) o ana kadarki ölçümlerle gönderilir
+    voiceTrace.stop(Date.now());
     voiceTelemetry.reset();
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = null;
@@ -228,6 +260,28 @@ class ConnectionStatsSampler {
       const subscriber = subReport ? parseTransportStats(subReport, at) : null;
       if (room !== this.room) return;
 
+      // Olay kaydı: aynı raporlardan (ek getStats çağrısı yok)
+      let ice: string | null = null;
+      let pc: string | null = null;
+      try {
+        ice = pcs?.publisher.getICEConnectionState() ?? null;
+        pc = pcs?.publisher.getConnectionState() ?? null;
+      } catch {
+        // bağlantı kapanırken okunamayabilir
+      }
+      voiceTrace.sample({
+        at,
+        reports: [pubReport, subReport].filter((r): r is NonNullable<typeof r> => !!r),
+        kinds: traceKinds(room),
+        ice,
+        pc,
+        lk: useVoice.getState().quality,
+        lagMs: voiceTelemetry.lagPeak(),
+      });
+      // Saat farkı (olay kayıtları ve özetler sunucu saatine çevrilir): en çok 10 dakikada bir ölçülür
+      void serverClock.refresh();
+      const pingStale = voiceTrace.pingStaleMs >= PING_STALE_MS;
+
       const prev = this.prev;
       this.prev = { publisher, subscriber };
       const rttMs = publisher?.rttMs ?? subscriber?.rttMs ?? null;
@@ -238,6 +292,7 @@ class ConnectionStatsSampler {
       useConnectionStats.setState({
         samples,
         quality,
+        pingStale,
         // Sunucu bilgisi (bölge, sürüm) bağlandıktan sonra gelebilir
         server: this.serverFor(room),
         detail: detail
