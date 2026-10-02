@@ -30,6 +30,10 @@
 		reverse_proxy 127.0.0.1:3000
 	}
 
+	# Diskort dışı projelerin yolları (ör. /tools/steam). Her proje sunucuda /opt/ziroo-sites/<ad>.caddy
+	# dosyası bırakır; bu repo değişmeden `caddy reload` ile yayına girer.
+	import /etc/caddy/sites/*.caddy
+
 	# İndirme sayfası (apps/web); bilinmeyen yollar da sayfayı gösterir (/download dahil)
 	handle {
 		root * /srv/web

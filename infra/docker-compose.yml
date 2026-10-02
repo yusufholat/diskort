@@ -102,6 +102,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ../apps/web:/srv/web:ro
+      - /opt/ziroo-sites:/etc/caddy/sites:ro
       - caddy-data:/data
       - caddy-config:/config
 
