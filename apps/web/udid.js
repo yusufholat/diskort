@@ -34,7 +34,11 @@
   const ua = navigator.userAgent;
   const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
   const otherBrowser = /CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
-  if (!ios || otherBrowser) $('udid-not-ios').hidden = false;
+  // Instagram/Facebook kendi tarayıcılarını kimliklerinde belli eder; WhatsApp/Telegram'ınki (SFSafariViewController)
+  // Safari'den ayırt edilemez, onun için sayfada her zaman görünen not var
+  const inApp = /Instagram|FBAN|FBAV|FB_IAB/.test(ua);
+  if (inApp) $('udid-in-app').hidden = false;
+  else if (!ios || otherBrowser) $('udid-not-ios').hidden = false;
 
   const name = $('udid-name');
   const link = $('udid-download');

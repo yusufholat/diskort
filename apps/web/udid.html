@@ -54,11 +54,22 @@
             Bu sayfayı <strong>iPhone'da Safari</strong> ile aç. Bilgisayarda ya da Chrome'da çalışmaz.
           </div>
 
+          <div class="udid-card udid-warn" id="udid-in-app" hidden>
+            Bu sayfa Instagram/Facebook'un kendi tarayıcısında açıldı; buradan profil yüklenemez. Sağ üstteki
+            <strong>•••</strong> menüsüne dokun ve <strong>Harici tarayıcıda aç</strong> (ya da
+            <strong>Safari'de aç</strong>) de.
+          </div>
+
           <h2>1. Adını yaz</h2>
           <p>Kimin iPhone'u olduğunu bilelim diye.</p>
           <input id="udid-name" class="udid-input" type="text" maxlength="40" autocomplete="name" placeholder="ör. Ahmet" />
 
           <h2>2. Profili indir</h2>
+          <p class="udid-note">
+            Linki WhatsApp, Telegram ya da Discord gibi bir uygulamadan açtıysan sayfa o uygulamanın içinde açılmış
+            olabilir (sol üstte <strong>X</strong> düğmesi olur). Orada profil yüklenmez, "Safari profili yükleyemedi"
+            hatası verir. Önce sağ alttaki <strong>pusula</strong> simgesine dokunup sayfayı Safari'de aç.
+          </p>
           <p>
             <a id="udid-download" class="btn btn-primary" href="/api/udid/profile">Profili indir</a>
           </p>
