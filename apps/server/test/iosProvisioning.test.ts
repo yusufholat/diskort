@@ -116,7 +116,16 @@ describe('App Store Connect betiği: saf kısımlar', () => {
 });
 
 /** Sahte App Store Connect: yalnızca betiğin kullandığı uçlar */
-function fakeAsc(opts: { devices: AscResource[]; profiles?: AscResource[]; profileDevices?: Record<string, string[]>; conflictOn?: string }) {
+function fakeAsc(opts: {
+  devices: AscResource[];
+  profiles?: AscResource[];
+  profileDevices?: Record<string, string[]>;
+  conflictOn?: string;
+  /** Yeni kaydedilen cihaz bu kadar liste okumasından sonra açık görünür (Apple'daki gecikme) */
+  newDeviceSettlesAfter?: { reads: number; status?: string; deviceClass?: string };
+  /** Yeni kaydedilen cihaz listede hiç görünmez (yalnızca kayıt yanıtında gelir) */
+  hideNewDevices?: boolean;
+}) {
   const calls: { method: string; path: string; body?: any }[] = [];
   const devices = [...opts.devices];
   const profiles = [...(opts.profiles ?? [])];
@@ -134,6 +143,10 @@ function fakeAsc(opts: { devices: AscResource[]; profiles?: AscResource[]; profi
     if (method === 'GET' && path === '/v1/certificates')
       return json(200, { data: [{ id: 'C1', attributes: { certificateContent: CERT_DER_B64, serialNumber: '0A1B2C3D', certificateType: 'DISTRIBUTION' } }] });
     if (method === 'GET' && path === '/v1/devices') {
+      const settle = opts.newDeviceSettlesAfter;
+      if (settle && !url.searchParams.has('cursor') && --settle.reads <= 0) {
+        for (const d of devices) if (d.id.startsWith('n')) d.attributes = { ...d.attributes, status: 'ENABLED', deviceClass: 'IPHONE' };
+      }
       // İki sayfa: links.next izlenmeli
       if (!url.searchParams.has('cursor')) return json(200, { data: devices.slice(0, 1), links: { next: `${url.origin}${path}?cursor=2` } });
       return json(200, { data: devices.slice(1), links: {} });
@@ -144,9 +157,10 @@ function fakeAsc(opts: { devices: AscResource[]; profiles?: AscResource[]; profi
         devices.push(device(`n${next++}`, udid));
         return json(409, { errors: [{ status: '409', detail: 'already exists' }] });
       }
-      const d = device(`n${next++}`, udid);
-      devices.push(d);
-      return json(201, { data: d });
+      const settle = opts.newDeviceSettlesAfter;
+      const d = settle ? device(`n${next++}`, udid, settle.status ?? 'PROCESSING', settle.deviceClass ?? 'UNKNOWN') : device(`n${next++}`, udid);
+      if (!opts.hideNewDevices) devices.push(d);
+      return json(201, { data: { ...d, attributes: { ...d.attributes } } });
     }
     if (method === 'PATCH' && path.startsWith('/v1/devices/')) {
       const id = path.split('/')[3]!;
@@ -229,6 +243,70 @@ describe('App Store Connect betiği: akış (sahte API)', () => {
     const r = await syncProfile({ client: new AscClient({ token: () => 'jwt', fetch: api.fetchImpl }), certPem: CERT_PEM, devices: parseDevices(U2), now });
     expect(r.registered).toEqual([U2]);
     expect(r.deviceCount).toBe(2);
+  });
+
+  it('yeni cihaz Apple listesinde geç açık görünürse bekler, eski profili yeniden kullanmaz', async () => {
+    const api = fakeAsc({
+      devices: [device('d1', U1)],
+      profiles: [autoProfile('P1', 'Diskort Ad Hoc otomatik 20260901-0000')],
+      profileDevices: { P1: ['d1'] },
+      newDeviceSettlesAfter: { reads: 3 },
+    });
+    const sleeps: number[] = [];
+    const r = await syncProfile({
+      client: new AscClient({ token: () => 'jwt', fetch: api.fetchImpl }),
+      certPem: CERT_PEM,
+      devices: parseDevices(U2),
+      now,
+      sleep: async (ms) => void sleeps.push(ms),
+    });
+    expect(r.reused).toBe(false);
+    expect(r.deviceCount).toBe(2);
+    expect(sleeps.length).toBe(1);
+    const create = api.calls.find((c) => c.method === 'POST' && c.path === '/v1/profiles')!;
+    expect(create.body.data.relationships.devices.data.map((d: { id: string }) => d.id)).toEqual(['d1', 'n1']);
+  });
+
+  it('yeni cihaz hiç açık görünmezse yine de profile girer', async () => {
+    const api = fakeAsc({
+      devices: [device('d1', U1)],
+      profiles: [autoProfile('P1', 'Diskort Ad Hoc otomatik 20260901-0000')],
+      profileDevices: { P1: ['d1'] },
+      newDeviceSettlesAfter: { reads: 1000 },
+    });
+    const logs: string[] = [];
+    const r = await syncProfile({
+      client: new AscClient({ token: () => 'jwt', fetch: api.fetchImpl }),
+      certPem: CERT_PEM,
+      devices: parseDevices(U2),
+      now,
+      log: (m) => logs.push(m),
+      sleep: async () => {},
+    });
+    expect(r.reused).toBe(false);
+    expect(r.deviceCount).toBe(2);
+    expect(logs.join('\n')).toContain('henüz açık görünmüyor');
+  });
+
+  it('yeni cihaz listede hiç görünmese de kayıt yanıtından profile girer', async () => {
+    const api = fakeAsc({
+      devices: [device('d1', U1)],
+      profiles: [autoProfile('P1', 'Diskort Ad Hoc otomatik 20260901-0000')],
+      profileDevices: { P1: ['d1'] },
+      hideNewDevices: true,
+    });
+    const sleeps: number[] = [];
+    const r = await syncProfile({
+      client: new AscClient({ token: () => 'jwt', fetch: api.fetchImpl }),
+      certPem: CERT_PEM,
+      devices: parseDevices(U2),
+      now,
+      sleep: async (ms) => void sleeps.push(ms),
+    });
+    expect(sleeps.length).toBe(11);
+    expect(r.reused).toBe(false);
+    const create = api.calls.find((c) => c.method === 'POST' && c.path === '/v1/profiles')!;
+    expect(create.body.data.relationships.devices.data.map((d: { id: string }) => d.id)).toEqual(['d1', 'n1']);
   });
 
   it('deneme kipi hiçbir şeyi değiştirmez', async () => {

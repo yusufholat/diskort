@@ -11,6 +11,9 @@ export const AUTO_PROFILE_PREFIX = 'Diskort Ad Hoc otomatik';
 const PROFILE_DEVICE_CLASSES = new Set(['IPHONE', 'IPAD', 'IPOD']);
 /** Bundan kısa süre sonra bitecek profil yeniden kullanılmaz */
 const MIN_VALID_MS = 30 * 86_400_000;
+/** Yeni kaydedilen cihazın Apple listesinde açık görünmesi için bekleme: en çok 12 × 15 sn */
+const SETTLE_TRIES = 12;
+const SETTLE_DELAY_MS = 15_000;
 /** Apple, JWT'nin en çok 20 dakika geçerli olmasına izin veriyor */
 const JWT_LIFETIME_SEC = 15 * 60;
 
@@ -229,7 +232,16 @@ export class AscClient {
  * @returns {Promise<{ profileContent: string | null, profileName: string | null, reused: boolean,
  *   registered: string[], enabled: string[], deviceCount: number, deleted: string[], plan: string[] }>}
  */
-export async function syncProfile({ client, bundleIdentifier = DEFAULT_BUNDLE_ID, certPem, devices = [], dryRun = false, now = new Date(), log = () => {} }) {
+export async function syncProfile({
+  client,
+  bundleIdentifier = DEFAULT_BUNDLE_ID,
+  certPem,
+  devices = [],
+  dryRun = false,
+  now = new Date(),
+  log = () => {},
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+}) {
   const plan = [];
   const note = (msg) => {
     plan.push(msg);
@@ -276,7 +288,39 @@ export async function syncProfile({ client, bundleIdentifier = DEFAULT_BUNDLE_ID
     enabled.push(normalizeUdid(d.attributes.udid));
   }
 
+  // Yeni kaydedilen cihaz Apple'da hemen "açık iPhone" görünmeyebiliyor (POST yanıtı ya da ilk liste süzgeçten
+  // geçmiyor); o zaman eski profil yeniden kullanılıp derleme "cihaz profilde yok" diye düşüyordu. Listeyi yeniden
+  // okuyup kısa bir süre bekle; yine de görünmezse istenen (kapalı olmayan) cihazları profile zorla koy.
+  const requested = new Set(devices.map((d) => d.udid));
+  const isRequested = (e) => requested.has(normalizeUdid(e.attributes.udid));
+  const settled = (list) => {
+    const ok = new Set(profileDevices(list).map((e) => normalizeUdid(e.attributes.udid)));
+    return [...registered, ...enabled].every((u) => ok.has(u));
+  };
+  if (!dryRun && registered.length + enabled.length > 0) {
+    // Kayıt/açma yanıtlarındaki kayıtlar: yeniden okunan liste yeni cihazı henüz hiç içermeyebilir
+    const touched = existing.filter((e) => [...registered, ...enabled].includes(normalizeUdid(e.attributes.udid)));
+    for (let i = 0; i < SETTLE_TRIES; i++) {
+      try {
+        const fresh = await client.all('/v1/devices?filter[platform]=IOS&limit=200');
+        existing = [...fresh, ...touched.filter((t) => !fresh.some((f) => f.id === t.id))];
+        if (settled(fresh)) break;
+      } catch (err) {
+        note(`Cihaz listesi okunamadı, yeniden denenecek: ${err instanceof Error ? err.message : err}`);
+      }
+      if (i === SETTLE_TRIES - 1) note('Yeni cihazlar Apple listesinde henüz açık görünmüyor; profile yine de eklenecek');
+      else await sleep(SETTLE_DELAY_MS);
+    }
+  }
+  const forceable = (e) =>
+    isRequested(e) &&
+    e.attributes.status !== 'DISABLED' &&
+    (!e.attributes.deviceClass || e.attributes.deviceClass === 'UNKNOWN' || PROFILE_DEVICE_CLASSES.has(e.attributes.deviceClass));
   const wanted = profileDevices(existing);
+  for (const e of existing) {
+    if (forceable(e) && !wanted.some((w) => w.id === e.id)) wanted.push(e);
+  }
+  wanted.sort((a, b) => a.id.localeCompare(b.id));
   const wantedIds = wanted.map((d) => d.id);
   if (wantedIds.length === 0) throw new Error('Apple hesabında açık iOS cihazı yok');
   note(`Profile girecek cihaz sayısı: ${wantedIds.length}${dryRun && diff.toRegister.length ? ` (+${diff.toRegister.length} kaydedilince)` : ''}`);

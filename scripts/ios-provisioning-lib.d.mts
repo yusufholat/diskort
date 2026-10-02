@@ -66,4 +66,6 @@ export declare function syncProfile(opts: {
   dryRun?: boolean;
   now?: Date;
   log?: (msg: string) => void;
+  /** Yeni cihazın Apple listesinde açık görünmesini beklerken (testlerde anında) */
+  sleep?: (ms: number) => Promise<void>;
 }): Promise<SyncResult>;
