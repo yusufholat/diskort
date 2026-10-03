@@ -22,3 +22,10 @@
 
 # Siteler: infra/caddy/diskort.caddy (üretimde aynı dosyayı ziroo-edge içe aktarır)
 import /etc/caddy/diskort/diskort.caddy
+
+# Diskort yönetim paneli için Prometheus ölçümleri (yalnız yerel; api CADDY_METRICS_URL). Yönetim ucu (2019)
+# Caddy 2.11.6'dan beri Sec-Fetch-Mode başlıklı istekleri (Node fetch hep gönderir) 403'le reddediyor.
+http://127.0.0.1:2020 {
+	bind 127.0.0.1
+	metrics
+}

@@ -7,7 +7,7 @@ import { counterRate, PromSnapshot } from './promText.js';
 // - LiveKit: Prometheus ölçümleri (livekit.yaml'da `prometheus.port` açıkken; kapalıysa panel "metrikler kapalı"
 //   der). Toplam bayt/paket, NACK/PLI, kayıp, oda/katılımcı/iz sayıları ve LiveKit sürecinin CPU/belleği.
 // - Kapsayıcılar: API kendi cgroup'undan (kapsayıcının kendi görünümü; bağlama gerekmez), Caddy yönetim
-//   ucunun ölçümlerinden (127.0.0.1:2019/metrics), LiveKit kendi ölçümlerinden. Docker soketi kullanılmaz.
+//   ölçüm ucundan (127.0.0.1:2020/metrics; yönetim ucu 2019 Node fetch'e 403 verir), LiveKit kendi ölçümlerinden. Docker soketi kullanılmaz.
 // - Veritabanı yedekleri (salt okunur bağlanan yedek klasörü), TLS sertifikalarının bitiş tarihleri.
 // Ana makinenin ağı burada ölçülmez: tek ağ örnekleyicisi netSeconds.ts'tedir (SecondSampler).
 

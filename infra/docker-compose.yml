@@ -72,8 +72,9 @@ services:
       GIPHY_LANG: ${GIPHY_LANG:-tr}
       # Yönetim paneli: sertifika bitiş tarihleri denetlenen alan adları (127.0.0.1:443'e TLS el sıkışması,
       # 6 saatte bir) ve salt okunur bağlanan veritabanı yedekleri (son yedeğin zamanı ve boyutu).
-      # LiveKit (127.0.0.1:6789) ve Caddy (127.0.0.1:2019) ölçüm adresleri üretimde varsayılandır;
-      # LIVEKIT_METRICS_URL=0 / CADDY_METRICS_URL=0 kapatır.
+      # LiveKit (127.0.0.1:6789) ve Caddy (127.0.0.1:2020, Caddyfile'daki yerel metrics sitesi) ölçüm adresleri
+      # üretimde varsayılandır; LIVEKIT_METRICS_URL=0 / CADDY_METRICS_URL=0 kapatır.
+      CADDY_METRICS_URL: ${CADDY_METRICS_URL:-http://127.0.0.1:2020/metrics}
       TLS_CHECK_DOMAINS: ${DISKORT_DOMAIN},${LIVEKIT_DOMAIN},${TURN_DOMAIN}
       BACKUP_DIR: /backups
       # Hat testi UDP ucu (LiveKit medya aralığında, ufw'de zaten açık: 50000-60000/udp). Boşsa 59999'dan başlar,

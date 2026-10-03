@@ -65,7 +65,7 @@ export interface Config {
    * livekit.yaml'daki `prometheus.port` ile). "0" kapatır. Uç kapalıysa panel "metrikler kapalı" gösterir.
    */
   livekitMetricsUrl: string | null;
-  /** Caddy yönetim ucunun ölçümleri (CADDY_METRICS_URL; üretimde varsayılan http://127.0.0.1:2019/metrics) */
+  /** Caddy ölçümleri (CADDY_METRICS_URL; üretimde varsayılan http://127.0.0.1:2020/metrics, Caddyfile'daki yerel `metrics` sitesi) */
   caddyMetricsUrl: string | null;
   /** Veritabanı yedeklerinin salt okunur bağlandığı klasör (BACKUP_DIR, ör. /backups); yoksa panelde görünmez */
   backupDir: string | null;
@@ -194,7 +194,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     procRoot: env.PROC_ROOT || '/proc',
     trafficQuotaBytes: Math.round(trafficQuotaGb * 1e9),
     livekitMetricsUrl: optionalUrl(env.LIVEKIT_METRICS_URL, 'http://127.0.0.1:6789/metrics'),
-    caddyMetricsUrl: optionalUrl(env.CADDY_METRICS_URL, 'http://127.0.0.1:2019/metrics'),
+    caddyMetricsUrl: optionalUrl(env.CADDY_METRICS_URL, 'http://127.0.0.1:2020/metrics'),
     backupDir: env.BACKUP_DIR || null,
     tlsCheckDomains: env.TLS_CHECK_DOMAINS
       ? [...new Set(env.TLS_CHECK_DOMAINS.split(',').map((d) => d.trim().toLowerCase()).filter(Boolean))]
