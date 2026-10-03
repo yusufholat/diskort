@@ -46,6 +46,13 @@ Diskort'u kendi sunucunda çalıştırmak için gerekenler: kurulum, güncelleme
 Sunucuda üç kapsayıcı çalışır: **api** (Fastify + SQLite), **livekit** (SFU) ve **caddy** (HTTPS, TURN/TLS
 yönlendirmesi). Hepsi host ağını kullanır.
 
+> **443'ü başka projelerle paylaşıyorsan:** `caddy` servisi yalnızca `.env`'deki `COMPOSE_PROFILES=caddy` ile
+> başlar. Sunucuda 443'ü başka bir Caddy tutuyorsa bu satırı sil, o Caddy'nin global ayarlarına
+> `infra/Caddyfile`'daki TURN/TLS (katman-4) bloğunu ekle ve `infra/caddy/` klasörünü bağlayıp
+> `diskort.caddy`'yi içe aktar. Diskort'un üretim sunucusu böyle çalışır (ayrı `ziroo-edge` projesi); orada
+> `docker compose ... caddy` komutları çalıştırılmaz, Diskort site değişikliği `git pull` +
+> `bash /opt/ziroo-edge/reload.sh` ile yayına girer.
+
 ## Güncelleme
 
 ```bash
@@ -53,8 +60,9 @@ cd /opt/diskort && git pull && cd infra && docker compose up -d --build
 ```
 
 - Yalnızca API'yi güncellemek için `docker compose up -d --no-deps --build api` yeterlidir; süren görüşmeler kopmaz.
-- `Caddyfile` değiştiyse Caddy'yi ayrıca yeniden başlat (`docker compose restart caddy`); dosya tek başına
-  bağlandığı için `git pull` sonrası eski hâlini görmeye devam eder.
+- `infra/caddy/diskort.caddy` değiştiyse `docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`
+  yeterlidir (kesinti yok). `infra/Caddyfile` değiştiyse Caddy'yi yeniden başlat (`docker compose restart caddy`);
+  dosya tek başına bağlandığı için `git pull` sonrası eski hâlini görmeye devam eder.
 - LiveKit ya da Caddy yeniden başlatılınca süren görüşmeler birkaç saniye kopar; kimse seste değilken yap.
 - Şema değiştiren güncellemelerden önce `bash infra/backup-db.sh` ile yedek al.
 

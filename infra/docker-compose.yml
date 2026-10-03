@@ -1,4 +1,4 @@
-# Diskort sunucu yığını (VPS): LiveKit (ses/görüntü SFU) + API + Caddy (otomatik HTTPS)
+# Diskort sunucu yığını (VPS): LiveKit (ses/görüntü SFU) + API + Caddy (otomatik HTTPS, `caddy` profili)
 # Kullanım (infra klasöründe):
 #   cp .env.example .env   # alan adlarını ve gizli anahtarları doldur
 #   docker compose up -d --build
@@ -89,7 +89,11 @@ services:
       - /var/backups/diskort:/backups:ro
 
   caddy:
-    # Katman-4 eklentili Caddy (TURN/TLS'i 443'te HTTPS ile paylaşmak için)
+    # Katman-4 eklentili Caddy (TURN/TLS'i 443'te HTTPS ile paylaşmak için). Yalnızca `caddy` profiliyle
+    # başlar (setup-vps.sh'in yazdığı .env'de COMPOSE_PROFILES=caddy). Üretim sunucusunda 443'ü aynı
+    # sunucudaki diğer projelerle paylaşan ayrı ziroo-edge projesi tutar; orada bu servis kapalıdır ve
+    # Diskort siteleri caddy/diskort.caddy'den içe aktarılır.
+    profiles: ["caddy"]
     build: ./caddy
     image: diskort-caddy
     logging: *logging
@@ -101,6 +105,7 @@ services:
       TURN_DOMAIN: ${TURN_DOMAIN:?TURN_DOMAIN gerekli}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy:/etc/caddy/diskort:ro
       - ../apps/web:/srv/web:ro
       - /opt/ziroo-sites:/etc/caddy/sites:ro
       - caddy-data:/data
