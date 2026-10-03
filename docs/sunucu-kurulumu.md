@@ -78,7 +78,7 @@ Tümü `infra/.env` içinde. Kurulumun çalışması için yalnızca alan adlar�
 | `MIN_ANDROID_VERSION` | Android için alt sürüm sınırı (normalde boş) |
 | `GIPHY_API_KEY`, `GIPHY_RATING`, `GIPHY_LANG` | GIF araması (bkz. aşağıda) |
 | `FCM_SERVICE_ACCOUNT_FILE` | Telefon bildirimleri (bkz. aşağıda) |
-| `TRAFFIC_QUOTA_GB` | Aylık trafik kotası, panelde gösterilir (varsayılan 5000) |
+| `TRAFFIC_QUOTA_GB` | Aylık trafik kotası (GB), panelde gösterilir; yalnızca giden trafik sayılır (varsayılan 1000) |
 | `SYSTEM_STATS=0` | Makine ölçümlerini kapatır |
 | `NET_PROBE_TARGETS` | Dış sonda hedefleri, ör. `udp:1.1.1.1:53,tcp:8.8.8.8:443` (`0` kapatır) |
 | `LINE_TEST_MAX_MBPS`, `LINE_TEST_ADMIN_MAX_MBPS` | Hat testi bant sınırları (24 / 48) |

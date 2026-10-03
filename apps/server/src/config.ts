@@ -58,7 +58,7 @@ export interface Config {
   lineTestAdminMaxBps: number;
   /** Makine bilgilerinin okunduğu /proc kökü (PROC_ROOT, varsayılan /proc) */
   procRoot: string;
-  /** Aylık trafik kotası, bayt (TRAFFIC_QUOTA_GB, varsayılan 5000 GB = 5 TB; gelen + giden) */
+  /** Aylık trafik kotası, bayt (TRAFFIC_QUOTA_GB, varsayılan 1000 GB; yalnızca giden sayılır, sağlayıcının faturası gibi) */
   trafficQuotaBytes: number;
   /**
    * LiveKit'in Prometheus ölçüm adresi (LIVEKIT_METRICS_URL; üretimde varsayılan http://127.0.0.1:6789/metrics,
@@ -110,7 +110,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`Geçersiz ATTACHMENT_MAX_MB: ${env.ATTACHMENT_MAX_MB}`);
   }
 
-  const trafficQuotaGb = Number(env.TRAFFIC_QUOTA_GB || 5000);
+  const trafficQuotaGb = Number(env.TRAFFIC_QUOTA_GB || 1000);
   if (!Number.isFinite(trafficQuotaGb) || trafficQuotaGb <= 0) {
     throw new Error(`Geçersiz TRAFFIC_QUOTA_GB: ${env.TRAFFIC_QUOTA_GB}`);
   }

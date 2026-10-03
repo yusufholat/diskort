@@ -94,6 +94,8 @@ const ui = {
   diagView: initialDiagView(),
   /** Dakikalık ağ geçmişinde seçili gün (null: bugün) */
   minuteDay: null,
+  /** Makine yükü geçmişinin aralığı: '24h' ya da '7d' */
+  machineRange: '24h',
 };
 
 const VIEWS = ['adm-login', 'adm-denied', 'adm-loading', 'adm-dashboard'];
@@ -283,11 +285,12 @@ const LOADERS = {
     render: (x) => draw('adm-history', () => voiceHistory(x)),
   },
   makine: {
-    url: () => '/api/admin/infra',
+    load: () => loadMachine(),
     every: 10_000,
     render: (x) => {
-      draw('adm-infra', () => infra(x));
-      draw('adm-usage', () => usage(x));
+      draw('adm-machine-history', () => machineHistory(x.history));
+      draw('adm-infra', () => infra(x.infra));
+      draw('adm-usage', () => usage(x.infra));
     },
   },
   api: { url: () => '/api/admin/api-stats', every: 5_000, render: (x) => draw('adm-api', () => apiHealth(x)) },
@@ -342,7 +345,7 @@ function placeholder(tab, text) {
   const target = {
     teshis: ['adm-diag'],
     'ses-gecmisi': ['adm-history'],
-    makine: ['adm-infra', 'adm-usage'],
+    makine: ['adm-machine-history', 'adm-infra', 'adm-usage'],
     api: ['adm-api'],
     guvenlik: ['adm-security'],
     sunucular: ['adm-guilds'],
@@ -562,8 +565,10 @@ function meter(fraction, label) {
  * Küçük çizgi grafik. points: [{ at, v }] (v null ise çizgide boşluk). Fareyle ya da dokunarak üzerine
  * gelinen ölçümün saati ve değeri gösterilir. `axis`: altta başlangıç ve bitiş saati. `marks`: vurgulanacak
  * zaman aralıkları ([{ from, to }], ör. kesinti saniyeleri): grafiğin arkasına dikey bant olarak çizilir.
+ * `peak`: aynı anlara ait en yüksek değerler ([{ at, v }]): soluk kesikli çizgi, ipucunda "en çok".
+ * `span`: [başlangıç, bitiş] zaman ekseni (verisi olmayan baş ve son da görünür); `ticks`: eksen yazıları.
  */
-function sparkline(points, { max, format, color = 'brand', label, axis = false, seconds = true, marks = [] }) {
+function sparkline(points, { max, format, color = 'brand', label, axis = false, seconds = true, marks = [], peak = null, span = null, ticks = null }) {
   const W = 300;
   const H = 60;
   const wrap = h('div', `adm-spark adm-c-${color}`);
@@ -572,26 +577,33 @@ function sparkline(points, { max, format, color = 'brand', label, axis = false, 
     append(wrap, [h('div', 'adm-spark-empty', points.length === 0 ? 'Veri yok' : 'Ölçülüyor…')]);
     return wrap;
   }
-  const from = points[0].at;
-  const to = points[points.length - 1].at;
-  const top = Math.max(max ?? 0, ...valid.map((p) => p.v)) || 1;
+  const from = span ? span[0] : points[0].at;
+  const to = span ? span[1] : points[points.length - 1].at;
+  const peakValid = (peak ?? []).filter((p) => p.v !== null && p.v !== undefined);
+  const peakAt = new Map(peakValid.map((p) => [p.at, p.v]));
+  const top = Math.max(max ?? 0, ...valid.map((p) => p.v), ...peakValid.map((p) => p.v)) || 1;
   const x = (t) => ((t - from) / Math.max(1, to - from)) * W;
   const y = (v) => H - 2 - (Math.min(v, top) / top) * (H - 6);
-  let line = '';
-  let area = '';
-  let run = [];
-  const flush = () => {
-    if (run.length === 0) return;
-    const d = run.map(([px, py], i) => `${i ? 'L' : 'M'}${px.toFixed(1)},${py.toFixed(1)}`).join('');
-    line += run.length === 1 ? `${d}h0.5` : d;
-    area += `${d}L${run[run.length - 1][0].toFixed(1)},${H}L${run[0][0].toFixed(1)},${H}Z`;
-    run = [];
+  // null değer çizgide boşluk bırakır
+  const paths = (list) => {
+    let line = '';
+    let area = '';
+    let run = [];
+    const flush = () => {
+      if (run.length === 0) return;
+      const d = run.map(([px, py], i) => `${i ? 'L' : 'M'}${px.toFixed(1)},${py.toFixed(1)}`).join('');
+      line += run.length === 1 ? `${d}h0.5` : d;
+      area += `${d}L${run[run.length - 1][0].toFixed(1)},${H}L${run[0][0].toFixed(1)},${H}Z`;
+      run = [];
+    };
+    for (const p of list) {
+      if (p.v === null || p.v === undefined) flush();
+      else run.push([x(p.at), y(p.v)]);
+    }
+    flush();
+    return { line, area };
   };
-  for (const p of points) {
-    if (p.v === null || p.v === undefined) flush();
-    else run.push([x(p.at), y(p.v)]);
-  }
-  flush();
+  const { line, area } = paths(points);
   const chart = svg('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': label });
   for (const m of marks) {
     if (m.to < from || m.from > to) continue;
@@ -599,6 +611,7 @@ function sparkline(points, { max, format, color = 'brand', label, axis = false, 
     chart.append(svg('rect', { x: x0.toFixed(1), y: 0, width: Math.max(1.5, x(Math.min(to, m.to)) - x0).toFixed(1), height: H, class: 'adm-spark-mark' }));
   }
   chart.append(svg('path', { d: area, class: 'adm-spark-area' }));
+  if (peak) chart.append(svg('path', { d: paths(peak).line, class: 'adm-spark-peak', 'vector-effect': 'non-scaling-stroke' }));
   chart.append(svg('path', { d: line, class: 'adm-spark-line', 'vector-effect': 'non-scaling-stroke' }));
   const cursor = h('div', 'adm-spark-cursor');
   const dot = h('div', 'adm-spark-dot');
@@ -613,7 +626,8 @@ function sparkline(points, { max, format, color = 'brand', label, axis = false, 
     const left = (x(best.at) / W) * 100;
     cursor.style.left = dot.style.left = `${left}%`;
     dot.style.top = `${(y(best.v) / H) * 100}%`;
-    tip.textContent = `${to - from > 86_400_000 ? dateTime(best.at) : clock(best.at, seconds)} · ${format(best.v)}`;
+    const most = peakAt.get(best.at);
+    tip.textContent = `${to - from > 86_400_000 ? dateTime(best.at) : clock(best.at, seconds)} · ${format(best.v)}${most !== undefined ? ` · en çok ${format(most)}` : ''}`;
     tip.style.left = `${left}%`;
     tip.dataset.side = left > 60 ? 'left' : 'right';
     cursor.hidden = dot.hidden = tip.hidden = false;
@@ -628,7 +642,7 @@ function sparkline(points, { max, format, color = 'brand', label, axis = false, 
   wrap.addEventListener('pointerleave', leave);
   append(wrap, [chart, cursor, dot, tip]);
   if (!axis) return wrap;
-  return h('div', null, wrap, h('div', 'adm-axis', h('span', null, clock(from)), h('span', null, clock(to))));
+  return h('div', null, wrap, h('div', 'adm-axis', (ticks ?? [clock(from), clock(to)]).map((t) => h('span', null, t))));
 }
 
 const series = (list, key) => list.map((s) => ({ at: s.at, v: s[key] ?? null }));
@@ -2561,30 +2575,32 @@ function system(d, now) {
   }
   const t = s.traffic;
   if (t) {
-    const total = t.rx + t.tx;
+    // Sağlayıcının kotası yalnızca giden trafiği sayar: ölçer, renk ve ay sonu tahmini gidene göre
+    const out = t.tx;
     const start = new Date(now);
     const monthStart = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1);
     const monthEnd = Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1);
     const elapsed = now - t.since;
     // Ay sonu tahmini: bu ayki ortalama hızla (en az bir günlük veri varsa)
-    const projected = elapsed > 86_400_000 ? (total / elapsed) * (monthEnd - t.since) : null;
+    const projected = elapsed > 86_400_000 ? (out / elapsed) * (monthEnd - t.since) : null;
     cards.push(
       card({
-        label: `Bu ayın trafiği (${t.month})`,
-        value: bytes(total),
+        label: `Bu ayın giden trafiği (${t.month})`,
+        value: bytes(out),
         unit: `/ ${bytes(t.quota)}`,
-        tone: total / t.quota >= 0.95 ? 'bad' : total / t.quota >= 0.8 ? 'warn' : undefined,
+        tone: out / t.quota >= 0.95 ? 'bad' : out / t.quota >= 0.8 ? 'warn' : undefined,
         children: [
-          meter(total / t.quota, 'Aylık trafik kotası'),
+          meter(out / t.quota, 'Aylık giden trafik kotası'),
           [
-            `Gelen ${bytes(t.rx)} · giden ${bytes(t.tx)}`,
-            projected !== null && `Bu hızla ay sonunda ~${bytes(projected)} (%${num(Math.round((projected / t.quota) * 100))})`,
+            'Kota yalnızca gideni sayar.',
+            `Gelen ${bytes(t.rx)} · giden ${bytes(t.tx)} · toplam ${bytes(t.rx + t.tx)}`,
+            projected !== null && `Bu hızla ay sonunda ~${bytes(projected)} giden (kotaya göre %${num(Math.round((projected / t.quota) * 100))})`,
             t.since > monthStart + 60_000 && `Sayım ${dateTime(t.since)} tarihinden beri (öncesi bilinmiyor).`,
             t.history.length > 0 &&
-              `Önceki aylar: ${t.history
+              `Önceki aylar (giden): ${t.history
                 .slice(-3)
                 .reverse()
-                .map((m) => `${m.month} ${bytes(m.rx + m.tx)}`)
+                .map((m) => `${m.month} ${bytes(m.tx)}`)
                 .join(' · ')}`,
           ]
             .filter(Boolean)
@@ -2595,6 +2611,115 @@ function system(d, now) {
   }
   cards.push(processCard);
   return cards;
+}
+
+// ---------- Makine yükü geçmişi (24 saat / 7 gün) ----------
+
+/** Uzun geçmiş dakikada bir (ya da aralık değişince) istenir; alınamazsa kapsayıcılar yine çizilir */
+const longHistory = { data: null, at: 0, failed: false };
+const LONG_HISTORY_EVERY = 60_000;
+
+async function loadMachine() {
+  const range = ui.machineRange;
+  const stale = !longHistory.data || longHistory.data.range !== range || Date.now() - longHistory.at >= LONG_HISTORY_EVERY;
+  const [infraData, hist] = await Promise.all([
+    apiGet('/api/admin/infra'),
+    stale
+      ? apiGet(`/api/admin/system-history?range=${range}`).catch((err) => {
+          if (err instanceof AccessError) throw err;
+          return null;
+        })
+      : null,
+  ]);
+  if (stale) longHistory.failed = !hist;
+  if (hist && hist.range === ui.machineRange) {
+    longHistory.data = hist;
+    longHistory.at = Date.now();
+  }
+  return { infra: infraData, history: longHistory.data };
+}
+
+/** Kovalardan grafik noktaları: sunucunun kapalı olduğu (kovası olmayan) aralıkta boşluk */
+function bucketSeries(buckets, stepMs, key) {
+  const out = [];
+  let prev = null;
+  for (const b of buckets) {
+    if (prev !== null && b.at - prev > stepMs * 1.5) out.push({ at: prev + stepMs, v: null });
+    out.push({ at: b.at, v: b[key] ?? null });
+    prev = b.at;
+  }
+  return out;
+}
+
+function machineHistory(x) {
+  const range = ui.machineRange;
+  const pick = (value) => {
+    if (value === ui.machineRange) return;
+    ui.machineRange = value;
+    draw('adm-machine-history', () => machineHistory(longHistory.data));
+    void loadExtra(true);
+  };
+  const head = [
+    h('div', 'adm-label', 'Makine yükü geçmişi'),
+    chips(
+      [
+        ['24h', '24 saat'],
+        ['7d', '7 gün'],
+      ],
+      range,
+      pick,
+      'Geçmiş aralığı',
+    ),
+  ];
+  if (!x || x.range !== range) {
+    return h('article', 'adm-card adm-wide', head, h('div', 'adm-sub', longHistory.failed ? 'Geçmiş alınamadı; yeniden denenecek.' : 'Yükleniyor…'));
+  }
+  const span = [x.from, x.to];
+  const week = range === '7d';
+  // Eksen: 5 eşit aralık (24 saatte saat, 7 günde gün)
+  const ticks = Array.from({ length: 5 }, (_, i) => {
+    const at = x.from + ((x.to - x.from) * i) / 4;
+    return week ? shortDate(at) : clock(at);
+  });
+  const stat = (key, format) => {
+    const avgs = x.buckets.map((b) => b[key]).filter((v) => v !== null && v !== undefined);
+    const tops = x.buckets.map((b) => b[`${key}Max`]).filter((v) => v !== null && v !== undefined);
+    if (avgs.length === 0) return null;
+    return `ort. ${format(avgs.reduce((a, b) => a + b, 0) / avgs.length)}${tops.length ? ` · en çok ${format(Math.max(...tops))}` : ''}`;
+  };
+  const box = (label, key, format, opts = {}) => {
+    const pts = bucketSeries(x.buckets, x.stepMs, key);
+    if (!pts.some((p) => p.v !== null)) {
+      return h('div', 'adm-card adm-chart', h('div', 'adm-net-head', h('span', 'adm-muted', label)), h('div', 'adm-sub', 'Bu aralıkta ölçüm yok.'));
+    }
+    return h(
+      'div',
+      'adm-card adm-chart adm-hist',
+      h('div', 'adm-net-head', h('span', 'adm-muted', label), h('b', null, stat(key, format))),
+      sparkline(pts, { format, label, axis: true, seconds: false, span, ticks, peak: bucketSeries(x.buckets, x.stepMs, `${key}Max`), ...opts }),
+    );
+  };
+  const hasNet = x.buckets.some((b) => b.rx !== null || b.tx !== null);
+  const first = x.buckets[0]?.at;
+  return h(
+    'article',
+    'adm-card adm-wide',
+    head,
+    h(
+      'div',
+      'adm-chart-grid',
+      box('İşlemci', 'cpu', percent, { max: 1 }),
+      box(`Bellek${x.memTotal ? ` (toplam ${bytes(x.memTotal)})` : ''}`, 'mem', bytes, { max: x.memTotal ?? undefined, color: 'ok' }),
+      hasNet && box('Ağ gelen (NIC)', 'rx', mbpsText, { color: 'ok' }),
+      hasNet && box('Ağ giden (NIC)', 'tx', mbpsText),
+    ),
+    h(
+      'div',
+      'adm-sub',
+      `${week ? '30' : '5'} dakikalık ortalama (düz çizgi) ve en yüksek (kesikli). Boşluklar sunucunun kapalı olduğu aralıklardır.` +
+        (first !== undefined && first > x.from + x.stepMs ? ` Kayıt ${dateTime(first)} tarihinden beri.` : ''),
+    ),
+  );
 }
 
 function clients(d, now) {
