@@ -12,8 +12,9 @@
 		reverse_proxy 127.0.0.1:3000
 	}
 
-	# Diskort dışı projelerin yolları (ör. /tools/steam). Her proje sunucuda /opt/ziroo-sites/<ad>.caddy
-	# dosyası bırakır; bu repo değişmeden `caddy reload` ile yayına girer.
+	# Sunucuya özel ek yollar: /opt/ziroo-sites/<ad>.caddy (handle blokları), bu repo değişmeden `caddy reload`
+	# ile yayına girer. Üretimde yalnız taşınan Diskort dışı projelerin eski adres yönlendirmeleri burada
+	# (ziroo-edge deposu config/diskort-yollari/); projelerin kendisi tools.ziroo.net / games.ziroo.net altında.
 	import /etc/caddy/sites/*.caddy
 
 	# İndirme sayfası (apps/web); bilinmeyen yollar da sayfayı gösterir (/download dahil)
